@@ -1,0 +1,879 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Monthly Spend{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .price-card { width: fit-content; max-width: 100%; }
+    .toolbar-rows { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 0;
+    }
+    .toolbar label { margin: 0; display: inline-flex; align-items: center; gap: 0.5rem; }
+    .toolbar select { min-width: 120px; margin: 0; }
+    .farm-filter {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin: 0;
+      padding: 0;
+      border: none;
+    }
+    .farm-filter legend {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      padding: 0;
+      margin-right: 0.15rem;
+    }
+    .range-presets { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+    .range-presets span { font-size: 0.875rem; font-weight: 600; color: var(--muted); margin-right: 0.15rem; }
+    .range-presets button {
+      padding: 0.35rem 0.65rem;
+      font-size: 0.8rem;
+      background: #eef2f6;
+      color: var(--text);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .range-presets button:hover { background: #dde3ea; }
+    .range-presets button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .table-wrap {
+      max-height: calc(100vh - 360px);
+      overflow: auto;
+      width: fit-content;
+      max-width: 100%;
+    }
+    #spend-table { width: auto; table-layout: auto; }
+    #spend-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      border-bottom: none;
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    #spend-table thead tr.header-months th { top: 2.35rem; z-index: 3; font-weight: 500; font-size: 0.85rem; }
+    #spend-table td.num, #spend-table th.num { text-align: right; white-space: nowrap; }
+    #spend-table td.num.has-data { cursor: help; }
+    #spend-table th.col-label,
+    #spend-table td.col-label {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      min-width: 16rem;
+      max-width: 30rem;
+      white-space: normal;
+    }
+    #spend-table thead th.col-label { z-index: 5; top: 0; }
+    #spend-table thead tr.header-months th.col-label-spacer { z-index: 5; }
+    #spend-table th.col-total,
+    #spend-table td.col-total {
+      position: sticky;
+      right: 0;
+      z-index: 2;
+      min-width: 6rem;
+      box-shadow: -2px 0 4px rgba(0, 0, 0, 0.06);
+    }
+    #spend-table thead th.col-total { z-index: 5; }
+    #spend-table tbody td.col-total { background: #fff; }
+    #spend-table tfoot td.col-total { background: #eef2f6; }
+    tr.grand-total td {
+      background: #eef2f6;
+      font-weight: 700;
+      border-top: 2px solid var(--border);
+    }
+    .col-label { background: #fff; }
+    tr.level-category .col-label { background: #dce8f4; }
+    tr.level-category td { font-weight: 700; }
+    tr.level-farm_description .col-label { background: #e8f0f8; }
+    tr.level-farm_description td { font-weight: 600; }
+    tr.level-product_description .col-label { background: #f4f8fc; }
+    .toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.25rem;
+      height: 1.25rem;
+      padding: 0;
+      margin-right: 0.35rem;
+      font-size: 0.85rem;
+      line-height: 1;
+      background: #dde3ea;
+      color: var(--text);
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+    .toggle-btn:hover { background: #c8d0da; }
+    .toggle-btn.col-toggle {
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+      margin-right: 0.35rem;
+    }
+    .toggle-btn.col-toggle:hover { background: rgba(255,255,255,0.35); }
+    .toggle-spacer { display: inline-block; width: 1.6rem; flex-shrink: 0; }
+    .label-inner { display: flex; align-items: flex-start; gap: 0; }
+    .label-text { word-break: break-word; }
+    tr.hidden { display: none; }
+    .period-label { color: var(--muted); font-size: 0.875rem; }
+    .negative-spend { color: var(--danger); }
+    th.col-group-header { text-align: center; }
+    .chart-wrap {
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      max-width: 100%;
+    }
+    .chart-wrap h3 {
+      margin: 0 0 0.75rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+    .chart-canvas-wrap {
+      position: relative;
+      height: 360px;
+      max-width: 100%;
+    }
+{% endblock %}
+
+{% block content %}
+    <div class="card price-card">
+      <div class="toolbar-rows">
+        <div class="toolbar">
+          <fieldset class="farm-filter">
+            <legend>Farms</legend>
+            {% for farm in business_options %}
+            <label>
+              <input type="checkbox" class="farm-cb" value="{{ farm }}" checked>
+              {{ farm }}
+            </label>
+            {% endfor %}
+          </fieldset>
+          <label>
+            From
+            <select id="from-month"><option value="">Loading…</option></select>
+          </label>
+          <label>
+            To
+            <select id="to-month"><option value="">Loading…</option></select>
+          </label>
+          <button type="button" id="apply-range">Apply</button>
+          <div class="range-presets">
+            <span>Quick range</span>
+            <button type="button" class="range-preset" data-months="1">Last month</button>
+            <button type="button" class="range-preset" data-months="6">6 months</button>
+            <button type="button" class="range-preset active" data-months="12">12 months</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button type="button" id="expand-rows" class="secondary" title="Expand next row level">Expand rows</button>
+          <button type="button" id="collapse-rows" class="secondary" title="Collapse deepest row level">Collapse rows</button>
+          <button type="button" id="expand-cols" class="secondary" title="Expand all farm columns">Expand farms</button>
+          <button type="button" id="collapse-cols" class="secondary" title="Collapse all farm columns">Collapse farms</button>
+          <span class="period-label" id="period-label"></span>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="spend-table">
+          <thead id="spend-head"></thead>
+          <tbody id="spend-body">
+            <tr><td class="muted">Select farms and a date range.</td></tr>
+          </tbody>
+          <tfoot id="spend-foot" style="display:none">
+            <tr class="grand-total" id="grand-total-row"></tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="chart-wrap" id="spend-chart-wrap" style="display:none">
+        <h3>Spend by group</h3>
+        <div class="chart-canvas-wrap">
+          <canvas id="spend-chart"></canvas>
+        </div>
+      </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script>
+    let monthOptions = [];
+    let columnGroups = [];
+    let monthColumns = [];
+    let visibleColumns = [];
+    let collapsedRows = new Set();
+    let collapsedFarms = new Set();
+    let treeRows = [];
+    let rowExpandDepth = 0;
+    let spendChart = null;
+    const valuesKey = "spend";
+
+    const CHART_COLORS = [
+      "#1e3a5f", "#2d6a4f", "#e76f51", "#f4a261", "#6a4c93", "#277da1",
+      "#43aa8b", "#f94144", "#90be6d", "#577590", "#f8961e", "#4d908e",
+      "#c1121f", "#669bbc", "#606c38", "#bc6c25",
+    ];
+
+    function rowValues(row) {
+      return row[valuesKey] || {};
+    }
+
+    function esc(s) {
+      return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+    }
+
+    function attrEsc(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    }
+
+    function selectedFarms() {
+      return [...document.querySelectorAll(".farm-cb:checked")].map(cb => cb.value);
+    }
+
+    function appendFarmParams(params) {
+      selectedFarms().forEach(farm => params.append("business", farm));
+      return params;
+    }
+
+    function latestMonthValue() {
+      return monthOptions.length ? monthOptions[monthOptions.length - 1].value : "";
+    }
+
+    function monthIndex(value) {
+      return monthOptions.findIndex(m => m.value === value);
+    }
+
+    function fillMonthSelects() {
+      const opts = monthOptions.map(m => `<option value="${m.value}">${m.label}</option>`).join("");
+      document.getElementById("from-month").innerHTML = opts;
+      document.getElementById("to-month").innerHTML = opts;
+    }
+
+    function applyPreset(monthCount, load = true) {
+      if (!monthOptions.length) return;
+      const count = Math.max(1, monthCount);
+      const toIdx = monthOptions.length - 1;
+      const fromIdx = Math.max(0, toIdx - count + 1);
+      document.getElementById("from-month").value = monthOptions[fromIdx].value;
+      document.getElementById("to-month").value = monthOptions[toIdx].value;
+      updatePresetButtons();
+      if (load) loadSpendTable();
+    }
+
+    function updatePresetButtons() {
+      if (!monthOptions.length) return;
+      const fromVal = document.getElementById("from-month").value;
+      const toVal = document.getElementById("to-month").value;
+      const latest = latestMonthValue();
+      const toIdx = monthIndex(toVal);
+      const fromIdx = monthIndex(fromVal);
+      let matchedPreset = null;
+      if (toVal === latest && fromIdx >= 0 && toIdx >= 0) {
+        const span = toIdx - fromIdx + 1;
+        if ([1, 6, 12].includes(span)) matchedPreset = span;
+      }
+      document.querySelectorAll(".range-preset").forEach(btn => {
+        btn.classList.toggle("active", Number(btn.dataset.months) === matchedPreset);
+      });
+    }
+
+    function rebuildVisibleColumns() {
+      visibleColumns = [];
+      for (const group of columnGroups) {
+        const biz = group.business;
+        const collapsed = collapsedFarms.has(group.id);
+        if (collapsed) {
+          visibleColumns.push({
+            key: `${biz}|__all__`,
+            label: "All months",
+            groupId: group.id,
+            business: biz,
+          });
+        } else {
+          for (const month of group.months || monthColumns) {
+            visibleColumns.push({
+              key: `${biz}|${month.value}`,
+              label: month.label,
+              groupId: group.id,
+              business: biz,
+              month: month.value,
+            });
+          }
+        }
+      }
+    }
+
+    function renderHeader() {
+      rebuildVisibleColumns();
+      const head = document.getElementById("spend-head");
+      if (!visibleColumns.length) {
+        head.innerHTML = `<tr><th class="col-label">Group / Product / Drug name</th><th class="num col-total">Total</th></tr>`;
+        return;
+      }
+
+      let farmRow = `<th rowspan="2" class="col-label">Group / Product / Drug name</th>`;
+      let monthRow = "";
+
+      for (const group of columnGroups) {
+        const collapsed = collapsedFarms.has(group.id);
+        const open = !collapsed;
+        const toggle = `<button type="button" class="toggle-btn col-toggle" data-col-toggle="${attrEsc(group.id)}" aria-label="Toggle farm columns">${open ? "−" : "+"}</button>`;
+        if (collapsed) {
+          farmRow += `<th rowspan="2" class="num col-group-header">${toggle}${esc(group.label)}</th>`;
+        } else {
+          const span = (group.months || monthColumns).length;
+          farmRow += `<th colspan="${span}" class="num col-group-header">${toggle}${esc(group.label)}</th>`;
+          for (const month of group.months || monthColumns) {
+            monthRow += `<th class="num">${esc(month.label)}</th>`;
+          }
+        }
+      }
+      farmRow += `<th rowspan="2" class="num col-total">Total</th>`;
+
+      head.innerHTML = `
+        <tr class="header-farms">${farmRow}</tr>
+        ${monthRow ? `<tr class="header-months">${monthRow}</tr>` : ""}
+      `;
+    }
+
+    function fmtSpendCell(n) {
+      if (n == null || n === "") return "";
+      const formatted = fmtMoney(n);
+      return n < 0 ? `<span class="negative-spend">${formatted}</span>` : formatted;
+    }
+
+    function cellTooltip(stats) {
+      if (!stats || stats.quantity == null) return "";
+      const parts = [`Quantity: ${fmtQty(stats.quantity)}`];
+      if (stats.avg_price != null) parts.push(`Average price: ${fmtMoney(stats.avg_price)}`);
+      return parts.join("\n");
+    }
+
+    function shouldShowParentValues(row) {
+      return !row.hasChildren || collapsedRows.has(row.id);
+    }
+
+    function leafRows() {
+      return treeRows.filter(r => r.level === "product_description");
+    }
+
+    function mergeStats(statsList) {
+      let quantity = 0;
+      let goodsValue = 0;
+      let lineCount = 0;
+      let hasData = false;
+      for (const stats of statsList) {
+        if (!stats?.line_count) continue;
+        hasData = true;
+        if (stats.quantity != null) quantity += stats.quantity;
+        if (stats.goods_value != null) goodsValue += stats.goods_value;
+        lineCount += stats.line_count;
+      }
+      if (!hasData) return null;
+      return {
+        quantity,
+        goods_value: goodsValue,
+        line_count: lineCount,
+        avg_price: quantity ? goodsValue / quantity : null,
+      };
+    }
+
+    function computeColumnTotals() {
+      const leaves = leafRows();
+      const byCol = {};
+      for (const col of visibleColumns) {
+        let spend = 0;
+        let hasSpend = false;
+        const statsList = [];
+        for (const row of leaves) {
+          const v = rowValues(row)[col.key];
+          if (v != null) {
+            spend += v;
+            hasSpend = true;
+          }
+          const stats = row.cell_stats?.[col.key];
+          if (stats?.line_count) statsList.push(stats);
+        }
+        byCol[col.key] = hasSpend
+          ? { spend, stats: mergeStats(statsList) }
+          : null;
+      }
+      return byCol;
+    }
+
+    function rowSpendTotal(row) {
+      const values = rowValues(row);
+      let total = 0;
+      let hasValue = false;
+      for (const col of visibleColumns) {
+        const v = values[col.key];
+        if (v != null) {
+          total += v;
+          hasValue = true;
+        }
+      }
+      return hasValue ? total : null;
+    }
+
+    function rowTotalStats(row) {
+      const statsList = visibleColumns
+        .map(col => row.cell_stats?.[col.key])
+        .filter(Boolean);
+      return mergeStats(statsList);
+    }
+
+    function grandSpendTotal(columnTotals) {
+      let total = 0;
+      let hasValue = false;
+      for (const col of visibleColumns) {
+        const cell = columnTotals[col.key];
+        if (cell?.spend != null) {
+          total += cell.spend;
+          hasValue = true;
+        }
+      }
+      return hasValue ? total : null;
+    }
+
+    function grandTotalStats(columnTotals) {
+      const statsList = visibleColumns
+        .map(col => columnTotals[col.key]?.stats)
+        .filter(Boolean);
+      return mergeStats(statsList);
+    }
+
+    function renderGrandTotalRow() {
+      const columnTotals = computeColumnTotals();
+      const dataCells = visibleColumns.map(col => {
+        const cell = columnTotals[col.key];
+        if (!cell) return `<td class="num"></td>`;
+        const tooltip = cellTooltip(cell.stats);
+        const titleAttr = tooltip ? ` title="${attrEsc(tooltip)}"` : "";
+        const dataClass = tooltip ? " has-data" : "";
+        return `<td class="num${dataClass}"${titleAttr}>${fmtSpendCell(cell.spend)}</td>`;
+      }).join("");
+      const grandTotal = grandSpendTotal(columnTotals);
+      const grandStats = grandTotalStats(columnTotals);
+      const grandTooltip = cellTooltip(grandStats);
+      const grandTitle = grandTooltip ? ` title="${attrEsc(grandTooltip)}"` : "";
+      const grandClass = grandTooltip ? " has-data" : "";
+      document.getElementById("grand-total-row").innerHTML = `
+        <td class="col-label">Grand Total</td>
+        ${dataCells}
+        <td class="num col-total${grandClass}"${grandTitle}>${fmtSpendCell(grandTotal)}</td>
+      `;
+      document.getElementById("spend-foot").style.display = "";
+    }
+
+    function renderTotalCell(row) {
+      if (!shouldShowParentValues(row)) {
+        return `<td class="num col-total parent-hidden"></td>`;
+      }
+      const total = rowSpendTotal(row);
+      const stats = rowTotalStats(row);
+      const tooltip = cellTooltip(stats);
+      const titleAttr = tooltip ? ` title="${attrEsc(tooltip)}"` : "";
+      const dataClass = tooltip ? " has-data" : "";
+      return `<td class="num col-total${dataClass}"${titleAttr}>${fmtSpendCell(total)}</td>`;
+    }
+
+    function renderDataCells(row) {
+      const showValues = shouldShowParentValues(row);
+      const values = rowValues(row);
+      return visibleColumns.map(col => {
+        if (!showValues) return `<td class="num parent-hidden"></td>`;
+        const spend = values[col.key];
+        const stats = row.cell_stats?.[col.key];
+        const tooltip = cellTooltip(stats);
+        const titleAttr = tooltip ? ` title="${attrEsc(tooltip)}"` : "";
+        const dataClass = tooltip ? " has-data" : "";
+        return `<td class="num${dataClass}"${titleAttr}>${fmtSpendCell(spend)}</td>`;
+      }).join("");
+    }
+
+    function flattenTree(nodes, depth = 0, parentId = null) {
+      const out = [];
+      for (const node of nodes) {
+        out.push({ ...node, depth, parentId, hasChildren: (node.children || []).length > 0 });
+        out.push(...flattenTree(node.children || [], depth + 1, node.id));
+      }
+      return out;
+    }
+
+    function isRowVisible(row) {
+      let pid = row.parentId;
+      while (pid) {
+        if (collapsedRows.has(pid)) return false;
+        const parent = treeRows.find(r => r.id === pid);
+        pid = parent ? parent.parentId : null;
+      }
+      return true;
+    }
+
+    function maxRowExpandDepth() {
+      if (!treeRows.length) return 0;
+      const parentDepths = treeRows.filter(r => r.hasChildren).map(r => r.depth);
+      return parentDepths.length ? Math.max(...parentDepths) + 1 : 0;
+    }
+
+    function applyRowExpandDepth() {
+      collapsedRows.clear();
+      const max = maxRowExpandDepth();
+      for (let d = 0; d < max; d++) {
+        if (rowExpandDepth <= d) {
+          treeRows.filter(r => r.hasChildren && r.depth === d).forEach(r => collapsedRows.add(r.id));
+        }
+      }
+      refreshTable();
+    }
+
+    function recomputeRowExpandDepth() {
+      let depth = 0;
+      const max = maxRowExpandDepth();
+      while (depth < max) {
+        const parents = treeRows.filter(r => r.hasChildren && r.depth === depth);
+        if (parents.length && parents.every(r => !collapsedRows.has(r.id))) {
+          depth++;
+        } else {
+          break;
+        }
+      }
+      rowExpandDepth = depth;
+      updateRowLevelButtons();
+    }
+
+    function updateRowLevelButtons() {
+      const max = maxRowExpandDepth();
+      document.getElementById("expand-rows").disabled = rowExpandDepth >= max;
+      document.getElementById("collapse-rows").disabled = rowExpandDepth <= 0;
+    }
+
+    function refreshValueCells() {
+      document.querySelectorAll("#spend-body tr[data-id]").forEach(tr => {
+        const row = treeRows.find(r => r.id === tr.dataset.id);
+        if (!row) return;
+        const cells = tr.querySelectorAll("td.num");
+        const showValues = shouldShowParentValues(row);
+        const values = rowValues(row);
+        cells.forEach((td, idx) => {
+          const isTotalCol = idx === visibleColumns.length;
+          if (!showValues) {
+            td.textContent = "";
+            td.className = isTotalCol ? "num col-total parent-hidden" : "num parent-hidden";
+            td.removeAttribute("title");
+            return;
+          }
+          if (isTotalCol) {
+            const total = rowSpendTotal(row);
+            const stats = rowTotalStats(row);
+            const tooltip = cellTooltip(stats);
+            td.className = tooltip ? "num col-total has-data" : "num col-total";
+            td.innerHTML = fmtSpendCell(total);
+            if (tooltip) td.setAttribute("title", tooltip);
+            else td.removeAttribute("title");
+            return;
+          }
+          const col = visibleColumns[idx];
+          const spend = values[col.key];
+          const stats = row.cell_stats?.[col.key];
+          const tooltip = cellTooltip(stats);
+          td.className = tooltip ? "num has-data" : "num";
+          td.innerHTML = fmtSpendCell(spend);
+          if (tooltip) td.setAttribute("title", tooltip);
+          else td.removeAttribute("title");
+        });
+      });
+      renderGrandTotalRow();
+    }
+
+    function refreshVisibility() {
+      document.querySelectorAll("#spend-body tr[data-id]").forEach(tr => {
+        const row = treeRows.find(r => r.id === tr.dataset.id);
+        if (!row) return;
+        tr.classList.toggle("hidden", !isRowVisible(row));
+      });
+      document.querySelectorAll(".toggle-btn[data-row-toggle]").forEach(btn => {
+        const open = !collapsedRows.has(btn.dataset.rowToggle);
+        btn.textContent = open ? "−" : "+";
+      });
+      refreshValueCells();
+    }
+
+    function segmentValue(raw) {
+      if (Array.isArray(raw)) return raw[1] - raw[0];
+      return Number(raw);
+    }
+
+    function buildWaterfallDatasets(series, monthKeys) {
+      const valueAt = (s, monthKey) => Number(s.values?.[monthKey] ?? 0);
+      return series.map((s, seriesIdx) => ({
+        label: s.category,
+        backgroundColor: CHART_COLORS[seriesIdx % CHART_COLORS.length],
+        borderWidth: 0,
+        data: monthKeys.map(monthKey => {
+          const value = valueAt(s, monthKey);
+          if (value === 0) return [0, 0];
+          let cumulative = 0;
+          for (let j = 0; j < seriesIdx; j++) {
+            cumulative += valueAt(series[j], monthKey);
+          }
+          const top = cumulative + value;
+          return [Math.min(cumulative, top), Math.max(cumulative, top)];
+        }),
+      }));
+    }
+
+    function monthNetTotals(series, monthKeys) {
+      const valueAt = (s, monthKey) => Number(s.values?.[monthKey] ?? 0);
+      return monthKeys.map(monthKey =>
+        series.reduce((sum, s) => sum + valueAt(s, monthKey), 0)
+      );
+    }
+
+    function renderSpendChart(data) {
+      const wrap = document.getElementById("spend-chart-wrap");
+      const series = data.group_chart?.series || [];
+      if (!series.length || typeof Chart === "undefined") {
+        wrap.style.display = "none";
+        if (spendChart) {
+          spendChart.destroy();
+          spendChart = null;
+        }
+        return;
+      }
+      wrap.style.display = "";
+      const labels = (data.months || []).map(m => m.label);
+      const monthValues = (data.months || []).map(m => m.value);
+      const datasets = buildWaterfallDatasets(series, monthValues);
+      const monthTotals = monthNetTotals(series, monthValues);
+
+      const ctx = document.getElementById("spend-chart");
+      if (spendChart) spendChart.destroy();
+      spendChart = new Chart(ctx, {
+        type: "bar",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          datasets: {
+            bar: { grouped: false },
+          },
+          plugins: {
+            legend: { position: "bottom" },
+            tooltip: {
+              callbacks: {
+                title: (items) => (items.length ? labels[items[0].dataIndex] || "" : ""),
+                label: (item) => {
+                  const value = segmentValue(item.raw);
+                  if (value === 0) return null;
+                  return `${item.dataset.label}: ${fmtMoney(value)}`;
+                },
+                footer: (items) => {
+                  if (!items.length) return "";
+                  const monthIdx = items[0].dataIndex;
+                  return `Month total: ${fmtMoney(monthTotals[monthIdx])}`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              title: { display: true, text: "Invoice month" },
+            },
+            y: {
+              title: { display: true, text: "Goods value (£)" },
+              ticks: {
+                callback: (v) => "£" + Number(v).toLocaleString("en-GB"),
+              },
+            },
+          },
+        },
+      });
+    }
+
+    function refreshTable() {
+      renderHeader();
+      const colCount = 2 + visibleColumns.length;
+      const tbody = document.getElementById("spend-body");
+
+      if (!treeRows.length) {
+        tbody.innerHTML = `<tr><td colspan="${colCount}" class="muted">No data for these filters.</td></tr>`;
+        document.getElementById("spend-foot").style.display = "none";
+        return;
+      }
+
+      tbody.innerHTML = treeRows.map(row => {
+        const rowClass = `level-${row.level}${isRowVisible(row) ? "" : " hidden"}`;
+        const indent = row.depth * 1.25;
+        let toggle = '<span class="toggle-spacer"></span>';
+        if (row.hasChildren) {
+          const open = !collapsedRows.has(row.id);
+          toggle = `<button type="button" class="toggle-btn" data-row-toggle="${attrEsc(row.id)}" aria-label="Toggle">${open ? "−" : "+"}</button>`;
+        }
+        return `
+          <tr data-id="${attrEsc(row.id)}" class="${rowClass}">
+            <td class="col-label">
+              <div class="label-inner" style="padding-left:${indent}rem">
+                ${toggle}
+                <span class="label-text">${esc(row.label)}</span>
+              </div>
+            </td>
+            ${renderDataCells(row)}
+            ${renderTotalCell(row)}
+          </tr>
+        `;
+      }).join("");
+
+      renderGrandTotalRow();
+      recomputeRowExpandDepth();
+    }
+
+    function renderTable(data, preserveRows = false) {
+      columnGroups = data.column_groups || [];
+      monthColumns = data.months || [];
+      if (!preserveRows) {
+        collapsedRows.clear();
+        rowExpandDepth = 0;
+      }
+      collapsedFarms.clear();
+      treeRows = flattenTree(data.rows || []);
+      document.getElementById("period-label").textContent = data.period_label
+        ? `Showing ${data.period_label}`
+        : "";
+      renderSpendChart(data);
+      if (!preserveRows) {
+        applyRowExpandDepth();
+      } else {
+        refreshTable();
+      }
+    }
+
+    async function loadMonths() {
+      const farms = selectedFarms();
+      if (!farms.length) {
+        monthOptions = [];
+        document.getElementById("from-month").innerHTML = '<option value="">Select at least one farm</option>';
+        document.getElementById("to-month").innerHTML = '<option value="">Select at least one farm</option>';
+        return;
+      }
+      const params = appendFarmParams(new URLSearchParams());
+      const res = await fetch("/api/prostock/invoice-months?" + params.toString());
+      const data = await res.json();
+      monthOptions = res.ok ? (data.items || []) : [];
+      if (!monthOptions.length) {
+        document.getElementById("from-month").innerHTML = '<option value="">No data yet</option>';
+        document.getElementById("to-month").innerHTML = '<option value="">No data yet</option>';
+        return;
+      }
+      fillMonthSelects();
+      applyPreset(12);
+    }
+
+    async function loadSpendTable(preserveRows = false) {
+      const farms = selectedFarms();
+      const fromMonth = document.getElementById("from-month").value;
+      const toMonth = document.getElementById("to-month").value;
+      updatePresetButtons();
+
+      if (!farms.length || !fromMonth || !toMonth) {
+        treeRows = [];
+        document.getElementById("spend-body").innerHTML =
+          '<tr><td class="muted">Select farms and a date range.</td></tr>';
+        document.getElementById("spend-head").innerHTML = "";
+        document.getElementById("spend-foot").style.display = "none";
+        renderSpendChart({ group_chart: { series: [] } });
+        return;
+      }
+
+      document.getElementById("spend-body").innerHTML =
+        '<tr><td class="muted">Loading…</td></tr>';
+
+      const params = appendFarmParams(new URLSearchParams({
+        from_month: fromMonth,
+        to_month: toMonth,
+      }));
+      const res = await fetch("/api/prostock/monthly-spend?" + params.toString());
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("spend-body").innerHTML =
+          `<tr><td class="muted">${esc(data.detail || "Failed to load")}</td></tr>`;
+        document.getElementById("spend-foot").style.display = "none";
+        renderSpendChart({ group_chart: { series: [] } });
+        return;
+      }
+      renderTable(data, preserveRows);
+    }
+
+    document.getElementById("apply-range").addEventListener("click", () => loadSpendTable(true));
+    document.querySelectorAll(".range-preset").forEach(btn => {
+      btn.addEventListener("click", () => applyPreset(Number(btn.dataset.months)));
+    });
+    document.querySelectorAll(".farm-cb").forEach(cb => {
+      cb.addEventListener("change", () => loadMonths());
+    });
+
+    document.getElementById("from-month").addEventListener("change", () => {
+      const from = document.getElementById("from-month").value;
+      const to = document.getElementById("to-month").value;
+      if (monthIndex(from) > monthIndex(to)) {
+        document.getElementById("to-month").value = from;
+      }
+      updatePresetButtons();
+    });
+    document.getElementById("to-month").addEventListener("change", () => {
+      const from = document.getElementById("from-month").value;
+      const to = document.getElementById("to-month").value;
+      if (monthIndex(from) > monthIndex(to)) {
+        document.getElementById("from-month").value = to;
+      }
+      updatePresetButtons();
+    });
+
+    document.getElementById("expand-rows").addEventListener("click", () => {
+      rowExpandDepth = Math.min(rowExpandDepth + 1, maxRowExpandDepth());
+      applyRowExpandDepth();
+    });
+    document.getElementById("collapse-rows").addEventListener("click", () => {
+      rowExpandDepth = Math.max(rowExpandDepth - 1, 0);
+      applyRowExpandDepth();
+    });
+    document.getElementById("expand-cols").addEventListener("click", () => {
+      collapsedFarms.clear();
+      refreshTable();
+    });
+    document.getElementById("collapse-cols").addEventListener("click", () => {
+      columnGroups.forEach(g => collapsedFarms.add(g.id));
+      refreshTable();
+    });
+
+    document.getElementById("spend-head").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-col-toggle]");
+      if (!btn) return;
+      const id = btn.dataset.colToggle;
+      if (collapsedFarms.has(id)) collapsedFarms.delete(id);
+      else collapsedFarms.add(id);
+      refreshTable();
+    });
+
+    document.getElementById("spend-body").addEventListener("click", (e) => {
+      const btn = e.target.closest(".toggle-btn[data-row-toggle]");
+      if (!btn) return;
+      e.stopPropagation();
+      const id = btn.dataset.rowToggle;
+      if (collapsedRows.has(id)) collapsedRows.delete(id);
+      else collapsedRows.add(id);
+      refreshVisibility();
+      recomputeRowExpandDepth();
+    });
+
+    loadMonths();
+  </script>
+{% endblock %}

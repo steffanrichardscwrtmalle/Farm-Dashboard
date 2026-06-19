@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models import InvoiceLine
+from app.models import SUPPLIER_WYNNSTAY, InvoiceLine
 from app.services.invoice_ops import format_invoice_month_label
 
 
@@ -85,6 +85,7 @@ def get_category_breakdown(
     start, end = month_range_bounds(from_month, to_month)
     query = (
         select(InvoiceLine)
+        .where(InvoiceLine.supplier == SUPPLIER_WYNNSTAY)
         .where(InvoiceLine.invoice_date.isnot(None))
         .where(InvoiceLine.invoice_date >= start)
         .where(InvoiceLine.invoice_date < end)

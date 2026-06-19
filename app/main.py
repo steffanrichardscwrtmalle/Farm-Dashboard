@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.admin_routes import router as admin_api_router
+from app.api.prostock_routes import router as prostock_api_router
 from app.api.routes import router as api_router
 from app.auth.deps import require_admin
 from app.auth.middleware import AuthMiddleware
@@ -44,9 +45,11 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+app.include_router(prostock_api_router)
 app.include_router(admin_api_router)
 
 _WYNNSTAY_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/wynnstay">Wynnstay</a>'
+_PROSTOCK_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/prostock">Prostock</a>'
 
 _login_attempts: dict[str, list[float]] = defaultdict(list)
 _LOGIN_MAX_ATTEMPTS = 5
@@ -71,6 +74,19 @@ def _wynnstay_context(title: str, active_nav: str, page_name: str | None = None)
         "title": title,
         "active_nav_group": "suppliers",
         "active_section": "wynnstay",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _prostock_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _PROSTOCK_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "suppliers",
+        "active_section": "prostock",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -207,7 +223,7 @@ def wynnstay_home(request: Request):
     return templates.TemplateResponse(
         request,
         "wynnstay/home.html",
-        _template_ctx(request, **_wynnstay_context("Wynnstay", "overview")),
+        _template_ctx(request, **_wynnstay_context("Import New Data", "overview")),
     )
 
 
@@ -262,6 +278,97 @@ def mappings_page(request: Request):
         request,
         "mappings.html",
         _template_ctx(request, **_wynnstay_context("Product Mappings", "mappings", "Product mappings")),
+    )
+
+
+@app.get("/prostock", response_class=HTMLResponse)
+def prostock_home(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "prostock/home.html",
+        _template_ctx(request, **_prostock_context("Import New Data", "overview")),
+    )
+
+
+@app.get("/prostock/mappings", response_class=HTMLResponse)
+def prostock_mappings_page(request: Request, db: Session = Depends(get_db)):
+    from app.models import SUPPLIER_PROSTOCK
+    from app.services.mapping_options import list_mapping_options
+    from app.services.mappings import list_mapping_rules
+    from app.services.prostock_mappings import ensure_prostock_mappings_seeded
+
+    ensure_prostock_mappings_seeded(db)
+    rules = list_mapping_rules(db, supplier=SUPPLIER_PROSTOCK)
+    options = list_mapping_options(db, supplier=SUPPLIER_PROSTOCK)
+    return templates.TemplateResponse(
+        request,
+        "prostock/mappings.html",
+        _template_ctx(
+            request,
+            initial_rules=[r.to_dict() for r in rules],
+            initial_options=options,
+            **_prostock_context("Product Mappings", "mappings", "Product mappings"),
+        ),
+    )
+
+
+@app.get("/prostock/invoices", response_class=HTMLResponse)
+def prostock_invoices_page(request: Request):
+    from app.models import PROSTOCK_BUSINESS_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "prostock/invoices.html",
+        _template_ctx(
+            request,
+            business_options=list(PROSTOCK_BUSINESS_OPTIONS),
+            **_prostock_context("Invoices", "invoices", "Invoices"),
+        ),
+    )
+
+
+@app.get("/prostock/product-prices", response_class=HTMLResponse)
+def prostock_product_prices_page(request: Request):
+    from app.models import PROSTOCK_BUSINESS_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "prostock/product_prices.html",
+        _template_ctx(
+            request,
+            business_options=list(PROSTOCK_BUSINESS_OPTIONS),
+            **_prostock_context("Product Prices", "product-prices", "Product Prices"),
+        ),
+    )
+
+
+@app.get("/prostock/product-quantity", response_class=HTMLResponse)
+def prostock_product_quantity_page(request: Request):
+    from app.models import PROSTOCK_BUSINESS_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "prostock/product_quantity.html",
+        _template_ctx(
+            request,
+            business_options=list(PROSTOCK_BUSINESS_OPTIONS),
+            **_prostock_context("Product Quantity", "product-quantity", "Product Quantity"),
+        ),
+    )
+
+
+@app.get("/prostock/monthly-spend", response_class=HTMLResponse)
+def prostock_monthly_spend_page(request: Request):
+    from app.models import PROSTOCK_BUSINESS_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "prostock/monthly_spend.html",
+        _template_ctx(
+            request,
+            business_options=list(PROSTOCK_BUSINESS_OPTIONS),
+            **_prostock_context("Monthly Spend", "monthly-spend", "Monthly Spend"),
+        ),
     )
 
 

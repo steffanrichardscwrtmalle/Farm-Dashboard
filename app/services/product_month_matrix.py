@@ -9,7 +9,7 @@ from typing import Any, Literal
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import InvoiceLine
+from app.models import SUPPLIER_WYNNSTAY, InvoiceLine
 from app.services.category_breakdown import month_range_bounds
 from app.services.invoice_ops import format_invoice_month_label
 
@@ -123,7 +123,10 @@ def _make_node(
 
 def _recent_farm_names(db: Session, *, include_credit: bool) -> set[str]:
     max_date = db.scalar(
-        select(func.max(InvoiceLine.invoice_date)).where(InvoiceLine.invoice_date.isnot(None))
+        select(func.max(InvoiceLine.invoice_date)).where(
+            InvoiceLine.supplier == SUPPLIER_WYNNSTAY,
+            InvoiceLine.invoice_date.isnot(None),
+        )
     )
     if max_date is None:
         return set()
@@ -136,6 +139,7 @@ def _recent_farm_names(db: Session, *, include_credit: bool) -> set[str]:
 
     query = (
         select(InvoiceLine.farm_description)
+        .where(InvoiceLine.supplier == SUPPLIER_WYNNSTAY)
         .where(InvoiceLine.invoice_date.isnot(None))
         .where(InvoiceLine.invoice_date >= start)
         .where(InvoiceLine.invoice_date < end)
@@ -240,6 +244,7 @@ def get_product_month_matrix(
 
     query = (
         select(InvoiceLine)
+        .where(InvoiceLine.supplier == SUPPLIER_WYNNSTAY)
         .where(InvoiceLine.invoice_date.isnot(None))
         .where(InvoiceLine.invoice_date >= start)
         .where(InvoiceLine.invoice_date < end)

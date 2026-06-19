@@ -93,6 +93,8 @@ Open http://127.0.0.1:8000 — you will be redirected to `/login`.
 - Enable **automatic backups** on the Render PostgreSQL instance
 - Periodically export invoice data if you need an offline copy
 
+After deploying schema changes (e.g. new `supplier` column), Render runs migrations on startup via `init_db()`. To copy local SQLite data to production, use `scripts/migrate_sqlite_to_postgres.py` (see `.env.example` for `TARGET_DATABASE_URL`).
+
 ---
 
 ## 6. Security checklist

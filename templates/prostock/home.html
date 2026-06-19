@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Import New Data{% endblock %}
+
+{% block content %}
+    {% if current_user and current_user.role in ['admin', 'editor'] %}
+    <section class="grid">
+      <div class="card">
+        <h2>Import Prostock data</h2>
+        <p class="muted" style="margin:0 0 1rem">
+          Upload the Prostock Excel file (with <strong>amount</strong> and <strong>quantity</strong> sheets).
+          This <strong>replaces all existing Prostock data</strong> for the selected business.
+        </p>
+        <form id="import-form">
+          <label for="file">Prostock Excel file</label>
+          <input type="file" id="file" name="file" accept=".xls,.xlsx,.xlsm" required>
+
+          <label for="business">Business</label>
+          <select id="business" name="business" required>
+            <option value="Cwrt Malle" selected>Cwrt Malle</option>
+            <option value="Green Acre Dairy">Green Acre Dairy</option>
+          </select>
+
+          <div class="actions">
+            <button type="submit">Import and replace</button>
+          </div>
+        </form>
+        <div id="message"></div>
+      </div>
+
+      <div class="card">
+        <h2>Refresh mappings only</h2>
+        <p class="muted">Re-apply keyword rules (Group + Product) to all stored Prostock rows without re-importing the file.</p>
+        <div class="actions">
+          <button type="button" id="refresh-btn" class="secondary">Refresh all Prostock rows</button>
+        </div>
+      </div>
+    </section>
+    {% else %}
+    <p class="muted">You have view-only access. Contact an admin or editor to import or refresh Prostock data.</p>
+    {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const msg = document.getElementById("message");
+
+    function showMessage(text, ok) {
+      if (!msg) return;
+      msg.textContent = text;
+      msg.className = ok ? "ok" : "err";
+    }
+
+    document.getElementById("import-form")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const business = document.getElementById("business").value;
+      if (!confirm(`Replace all Prostock data for ${business}?`)) return;
+
+      const form = new FormData();
+      form.append("file", document.getElementById("file").files[0]);
+      form.append("business", business);
+
+      showMessage("Importing…", true);
+      try {
+        const res = await fetch("/api/prostock/imports", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Import failed");
+        showMessage(`Imported ${data.rows_imported} rows for ${data.business}.`, true);
+        document.getElementById("import-form").reset();
+      } catch (err) {
+        showMessage(err.message, false);
+      }
+    });
+
+    document.getElementById("refresh-btn")?.addEventListener("click", async () => {
+      showMessage("Refreshing…", true);
+      try {
+        const res = await fetch("/api/prostock/refresh", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Refresh failed");
+        showMessage(`Refreshed ${data.rows_refreshed} rows.`, true);
+      } catch (err) {
+        showMessage(err.message, false);
+      }
+    });
+  </script>
+{% endblock %}

@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import func, or_, select, and_
 from sqlalchemy.orm import Session
 
-from app.models import ImportBatch, InvoiceLine, ProductMappingRule
+from app.models import SUPPLIER_WYNNSTAY, ImportBatch, InvoiceLine, ProductMappingRule
 from app.services.invoice_import import parse_import_file
 from app.services.mappings import get_product_mapping_rules, seed_mappings_if_empty
 from app.services.mapping_options import seed_mapping_options_if_empty
@@ -22,8 +22,12 @@ from app.services.transforms import (
 
 
 def ensure_mappings_seeded(db: Session) -> None:
-    seed_mappings_if_empty(db)
-    seed_mapping_options_if_empty(db)
+    seed_mappings_if_empty(db, supplier=SUPPLIER_WYNNSTAY)
+    seed_mapping_options_if_empty(db, supplier=SUPPLIER_WYNNSTAY)
+
+
+def _wynnstay_lines_query():
+    return select(InvoiceLine).where(InvoiceLine.supplier == SUPPLIER_WYNNSTAY)
 
 
 def _lines_to_row_dicts(lines: list[InvoiceLine]) -> list[dict[str, Any]]:
@@ -58,11 +62,11 @@ def _apply_refreshed_rows(lines: list[InvoiceLine], refreshed: list[dict[str, An
 
 def refresh_all_invoice_lines(db: Session) -> int:
     """Re-run unit transforms, keyword map (category + farm), and Recent flags."""
-    lines = list(db.scalars(select(InvoiceLine).order_by(InvoiceLine.id)).all())
+    lines = list(db.scalars(_wynnstay_lines_query().order_by(InvoiceLine.id)).all())
     if not lines:
         return 0
 
-    mapping_rules = get_product_mapping_rules(db)
+    mapping_rules = get_product_mapping_rules(db, supplier=SUPPLIER_WYNNSTAY)
     row_dicts = _lines_to_row_dicts(lines)
     refreshed = refresh_all_rows(row_dicts, mapping_rules)
     _apply_refreshed_rows(lines, refreshed)
@@ -82,7 +86,7 @@ def import_excel_file(
     raw_rows = parse_import_file(file_bytes, invoice_date)
     raw_count = len(raw_rows)
 
-    mapping_rules = get_product_mapping_rules(db)
+    mapping_rules = get_product_mapping_rules(db, supplier=SUPPLIER_WYNNSTAY)
 
     transformed = clean_and_transform_rows(raw_rows)
     dropped = raw_count - len(transformed)
@@ -91,13 +95,16 @@ def import_excel_file(
         apply_product_mapping(row, mapping_rules)
         row["business"] = business
 
-    existing_lines = list(db.scalars(select(InvoiceLine).order_by(InvoiceLine.id)).all())
+    existing_lines = list(
+        db.scalars(_wynnstay_lines_query().order_by(InvoiceLine.id)).all()
+    )
     existing_dicts = _lines_to_row_dicts(existing_lines)
     combined = existing_dicts + transformed
     update_recent_flags(combined)
     update_credit_flags(combined)
 
     batch = ImportBatch(
+        supplier=SUPPLIER_WYNNSTAY,
         source_filename=filename,
         invoice_date=invoice_date,
         rows_imported=len(transformed),
@@ -109,7 +116,11 @@ def import_excel_file(
     _apply_refreshed_rows(existing_lines, combined[: len(existing_lines)])
 
     for row in combined[len(existing_lines) :]:
-        db.add(InvoiceLine.from_row_dict(row, import_batch_id=batch.id))
+        db.add(
+            InvoiceLine.from_row_dict(
+                row, import_batch_id=batch.id, supplier=SUPPLIER_WYNNSTAY
+            )
+        )
 
     db.commit()
 
@@ -155,7 +166,10 @@ def _month_range_bounds(from_month: str, to_month: str) -> tuple[datetime.date, 
 
 def _recent_farm_names(db: Session, *, include_credit: bool) -> set[str]:
     max_date = db.scalar(
-        select(func.max(InvoiceLine.invoice_date)).where(InvoiceLine.invoice_date.isnot(None))
+        select(func.max(InvoiceLine.invoice_date)).where(
+            InvoiceLine.supplier == SUPPLIER_WYNNSTAY,
+            InvoiceLine.invoice_date.isnot(None),
+        )
     )
     if max_date is None:
         return set()
@@ -168,6 +182,7 @@ def _recent_farm_names(db: Session, *, include_credit: bool) -> set[str]:
 
     query = (
         select(InvoiceLine.farm_description)
+        .where(InvoiceLine.supplier == SUPPLIER_WYNNSTAY)
         .where(InvoiceLine.invoice_date.isnot(None))
         .where(InvoiceLine.invoice_date >= start)
         .where(InvoiceLine.invoice_date < end)
@@ -204,8 +219,12 @@ def list_invoice_lines(
     limit: int = 500,
     offset: int = 0,
 ) -> tuple[list[InvoiceLine], int]:
-    query = select(InvoiceLine)
-    count_query = select(func.count()).select_from(InvoiceLine)
+    query = select(InvoiceLine).where(InvoiceLine.supplier == SUPPLIER_WYNNSTAY)
+    count_query = (
+        select(func.count())
+        .select_from(InvoiceLine)
+        .where(InvoiceLine.supplier == SUPPLIER_WYNNSTAY)
+    )
     order_by_date = False
 
     if recent:
@@ -278,6 +297,7 @@ def get_invoice_months(db: Session) -> list[dict[str, str]]:
     """Distinct invoice_date year/month pairs, chronological order."""
     dates = db.scalars(
         select(InvoiceLine.invoice_date)
+        .where(InvoiceLine.supplier == SUPPLIER_WYNNSTAY)
         .where(InvoiceLine.invoice_date.isnot(None))
         .distinct()
         .order_by(InvoiceLine.invoice_date)
@@ -299,7 +319,8 @@ def get_unknown_products(db: Session) -> list[dict[str, Any]]:
     lines = list(
         db.scalars(
             select(InvoiceLine).where(
-                or_(InvoiceLine.category == "Unknown", InvoiceLine.farm_description == "Unknown")
+                InvoiceLine.supplier == SUPPLIER_WYNNSTAY,
+                or_(InvoiceLine.category == "Unknown", InvoiceLine.farm_description == "Unknown"),
             )
         ).all()
     )
@@ -320,23 +341,53 @@ def get_unknown_products(db: Session) -> list[dict[str, Any]]:
 
 
 def get_stats(db: Session) -> dict[str, Any]:
-    total_lines = db.scalar(select(func.count()).select_from(InvoiceLine)) or 0
+    total_lines = (
+        db.scalar(
+            select(func.count())
+            .select_from(InvoiceLine)
+            .where(InvoiceLine.supplier == SUPPLIER_WYNNSTAY)
+        )
+        or 0
+    )
     recent_yes = (
-        db.scalar(select(func.count()).select_from(InvoiceLine).where(InvoiceLine.recent == "Yes"))
+        db.scalar(
+            select(func.count())
+            .select_from(InvoiceLine)
+            .where(InvoiceLine.supplier == SUPPLIER_WYNNSTAY, InvoiceLine.recent == "Yes")
+        )
         or 0
     )
     unknown_count = (
         db.scalar(
-            select(func.count()).select_from(InvoiceLine).where(
-                or_(InvoiceLine.category == "Unknown", InvoiceLine.farm_description == "Unknown")
+            select(func.count())
+            .select_from(InvoiceLine)
+            .where(
+                InvoiceLine.supplier == SUPPLIER_WYNNSTAY,
+                or_(InvoiceLine.category == "Unknown", InvoiceLine.farm_description == "Unknown"),
             )
         )
         or 0
     )
-    mapping_count = db.scalar(select(func.count()).select_from(ProductMappingRule)) or 0
+    mapping_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(ProductMappingRule)
+            .where(ProductMappingRule.supplier == SUPPLIER_WYNNSTAY)
+        )
+        or 0
+    )
 
-    last_batch = db.scalar(select(ImportBatch).order_by(ImportBatch.id.desc()).limit(1))
-    max_invoice_date = db.scalar(select(func.max(InvoiceLine.invoice_date)))
+    last_batch = db.scalar(
+        select(ImportBatch)
+        .where(ImportBatch.supplier == SUPPLIER_WYNNSTAY)
+        .order_by(ImportBatch.id.desc())
+        .limit(1)
+    )
+    max_invoice_date = db.scalar(
+        select(func.max(InvoiceLine.invoice_date)).where(
+            InvoiceLine.supplier == SUPPLIER_WYNNSTAY
+        )
+    )
 
     return {
         "total_lines": total_lines,

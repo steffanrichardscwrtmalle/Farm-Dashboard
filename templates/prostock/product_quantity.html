@@ -1,0 +1,621 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Product Quantity{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .price-card { width: fit-content; max-width: 100%; }
+    .toolbar-rows { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 0;
+    }
+    .toolbar label { margin: 0; display: inline-flex; align-items: center; gap: 0.5rem; }
+    .toolbar select { min-width: 120px; margin: 0; }
+    .farm-filter {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin: 0;
+      padding: 0;
+      border: none;
+    }
+    .farm-filter legend {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      padding: 0;
+      margin-right: 0.15rem;
+    }
+    .range-presets { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+    .range-presets span { font-size: 0.875rem; font-weight: 600; color: var(--muted); margin-right: 0.15rem; }
+    .range-presets button {
+      padding: 0.35rem 0.65rem;
+      font-size: 0.8rem;
+      background: #eef2f6;
+      color: var(--text);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .range-presets button:hover { background: #dde3ea; }
+    .range-presets button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .table-wrap {
+      max-height: calc(100vh - 320px);
+      overflow: auto;
+      width: fit-content;
+      max-width: 100%;
+    }
+    #price-table { width: auto; table-layout: auto; }
+    #price-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      border-bottom: none;
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    #price-table thead tr.header-months th { top: 2.35rem; z-index: 3; font-weight: 500; font-size: 0.85rem; }
+    #price-table td.num, #price-table th.num { text-align: right; white-space: nowrap; }
+    #price-table td.num.has-data { cursor: help; }
+    #price-table th.col-label,
+    #price-table td.col-label {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      min-width: 16rem;
+      max-width: 30rem;
+      white-space: normal;
+    }
+    #price-table thead th.col-label { z-index: 5; top: 0; }
+    #price-table thead tr.header-months th.col-label-spacer { z-index: 5; }
+    .col-label { background: #fff; }
+    tr.level-category .col-label { background: #dce8f4; }
+    tr.level-category td { font-weight: 700; }
+    tr.level-farm_description .col-label { background: #e8f0f8; }
+    tr.level-farm_description td { font-weight: 600; }
+    tr.level-product_description .col-label { background: #f4f8fc; }
+    .toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.25rem;
+      height: 1.25rem;
+      padding: 0;
+      margin-right: 0.35rem;
+      font-size: 0.85rem;
+      line-height: 1;
+      background: #dde3ea;
+      color: var(--text);
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+    .toggle-btn:hover { background: #c8d0da; }
+    .toggle-btn.col-toggle {
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+      margin-right: 0.35rem;
+    }
+    .toggle-btn.col-toggle:hover { background: rgba(255,255,255,0.35); }
+    .toggle-spacer { display: inline-block; width: 1.6rem; flex-shrink: 0; }
+    .label-inner { display: flex; align-items: flex-start; gap: 0; }
+    .label-text { word-break: break-word; }
+    tr.hidden { display: none; }
+    .period-label { color: var(--muted); font-size: 0.875rem; }
+    .negative-price { color: var(--danger); }
+    .price-changed-up { background: #fdecec; }
+    .price-changed-down { background: #e8f5ee; }
+    th.col-group-header { text-align: center; }
+{% endblock %}
+
+{% block content %}
+    <div class="card price-card">
+      <div class="toolbar-rows">
+        <div class="toolbar">
+          <fieldset class="farm-filter">
+            <legend>Farms</legend>
+            {% for farm in business_options %}
+            <label>
+              <input type="checkbox" class="farm-cb" value="{{ farm }}" checked>
+              {{ farm }}
+            </label>
+            {% endfor %}
+          </fieldset>
+          <label>
+            From
+            <select id="from-month"><option value="">Loading…</option></select>
+          </label>
+          <label>
+            To
+            <select id="to-month"><option value="">Loading…</option></select>
+          </label>
+          <button type="button" id="apply-range">Apply</button>
+          <div class="range-presets">
+            <span>Quick range</span>
+            <button type="button" class="range-preset" data-months="1">Last month</button>
+            <button type="button" class="range-preset" data-months="6">6 months</button>
+            <button type="button" class="range-preset active" data-months="12">12 months</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button type="button" id="expand-rows" class="secondary" title="Expand next row level">Expand rows</button>
+          <button type="button" id="collapse-rows" class="secondary" title="Collapse deepest row level">Collapse rows</button>
+          <button type="button" id="expand-cols" class="secondary" title="Expand all farm columns">Expand farms</button>
+          <button type="button" id="collapse-cols" class="secondary" title="Collapse all farm columns">Collapse farms</button>
+          <span class="period-label" id="period-label"></span>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="price-table">
+          <thead id="price-head"></thead>
+          <tbody id="price-body">
+            <tr><td class="muted">Select farms and a date range.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    let monthOptions = [];
+    let columnGroups = [];
+    let monthColumns = [];
+    let visibleColumns = [];
+    let collapsedRows = new Set();
+    let collapsedFarms = new Set();
+    let treeRows = [];
+    let rowExpandDepth = 0;
+    const valuesKey = "quantities";
+
+    function rowValues(row) {
+      return row[valuesKey] || {};
+    }
+
+    function esc(s) {
+      return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+    }
+
+    function attrEsc(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    }
+
+    function selectedFarms() {
+      return [...document.querySelectorAll(".farm-cb:checked")].map(cb => cb.value);
+    }
+
+    function appendFarmParams(params) {
+      selectedFarms().forEach(farm => params.append("business", farm));
+      return params;
+    }
+
+    function latestMonthValue() {
+      return monthOptions.length ? monthOptions[monthOptions.length - 1].value : "";
+    }
+
+    function monthIndex(value) {
+      return monthOptions.findIndex(m => m.value === value);
+    }
+
+    function fillMonthSelects() {
+      const opts = monthOptions.map(m => `<option value="${m.value}">${m.label}</option>`).join("");
+      document.getElementById("from-month").innerHTML = opts;
+      document.getElementById("to-month").innerHTML = opts;
+    }
+
+    function applyPreset(monthCount, load = true) {
+      if (!monthOptions.length) return;
+      const count = Math.max(1, monthCount);
+      const toIdx = monthOptions.length - 1;
+      const fromIdx = Math.max(0, toIdx - count + 1);
+      document.getElementById("from-month").value = monthOptions[fromIdx].value;
+      document.getElementById("to-month").value = monthOptions[toIdx].value;
+      updatePresetButtons();
+      if (load) loadQuantityTable();
+    }
+
+    function updatePresetButtons() {
+      if (!monthOptions.length) return;
+      const fromVal = document.getElementById("from-month").value;
+      const toVal = document.getElementById("to-month").value;
+      const latest = latestMonthValue();
+      const toIdx = monthIndex(toVal);
+      const fromIdx = monthIndex(fromVal);
+      let matchedPreset = null;
+      if (toVal === latest && fromIdx >= 0 && toIdx >= 0) {
+        const span = toIdx - fromIdx + 1;
+        if ([1, 6, 12].includes(span)) matchedPreset = span;
+      }
+      document.querySelectorAll(".range-preset").forEach(btn => {
+        btn.classList.toggle("active", Number(btn.dataset.months) === matchedPreset);
+      });
+    }
+
+    function rebuildVisibleColumns() {
+      visibleColumns = [];
+      for (const group of columnGroups) {
+        const biz = group.business;
+        const collapsed = collapsedFarms.has(group.id);
+        if (collapsed) {
+          visibleColumns.push({
+            key: `${biz}|__all__`,
+            label: "All months",
+            groupId: group.id,
+            business: biz,
+          });
+        } else {
+          for (const month of group.months || monthColumns) {
+            visibleColumns.push({
+              key: `${biz}|${month.value}`,
+              label: month.label,
+              groupId: group.id,
+              business: biz,
+              month: month.value,
+            });
+          }
+        }
+      }
+    }
+
+    function renderHeader() {
+      rebuildVisibleColumns();
+      const head = document.getElementById("price-head");
+      if (!visibleColumns.length) {
+        head.innerHTML = `<tr><th class="col-label">Group / Product / Drug name</th></tr>`;
+        return;
+      }
+
+      let farmRow = `<th rowspan="2" class="col-label">Group / Product / Drug name</th>`;
+      let monthRow = "";
+
+      for (const group of columnGroups) {
+        const collapsed = collapsedFarms.has(group.id);
+        const open = !collapsed;
+        const toggle = `<button type="button" class="toggle-btn col-toggle" data-col-toggle="${attrEsc(group.id)}" aria-label="Toggle farm columns">${open ? "−" : "+"}</button>`;
+        if (collapsed) {
+          farmRow += `<th rowspan="2" class="num col-group-header">${toggle}${esc(group.label)}</th>`;
+        } else {
+          const span = (group.months || monthColumns).length;
+          farmRow += `<th colspan="${span}" class="num col-group-header">${toggle}${esc(group.label)}</th>`;
+          for (const month of group.months || monthColumns) {
+            monthRow += `<th class="num">${esc(month.label)}</th>`;
+          }
+        }
+      }
+
+      head.innerHTML = `
+        <tr class="header-farms">${farmRow}</tr>
+        ${monthRow ? `<tr class="header-months">${monthRow}</tr>` : ""}
+      `;
+    }
+
+    function fmtQuantity(n) {
+      if (n == null || n === "") return "";
+      return fmtQty(n);
+    }
+
+    function cellTooltip(stats) {
+      if (!stats || stats.quantity == null) return "";
+      const parts = [];
+      if (stats.goods_value != null) parts.push(`Amount: ${fmtMoney(stats.goods_value)}`);
+      if (stats.avg_price != null) parts.push(`Average price: ${fmtMoney(stats.avg_price)}`);
+      return parts.join("\n");
+    }
+
+    function valueCellClass(current, previous) {
+      if (current == null || previous == null) return "";
+      if (Math.abs(current - previous) < 0.005) return "";
+      return current > previous ? "price-changed-up" : "price-changed-down";
+    }
+
+    function lastValueBefore(row, colIdx) {
+      const col = visibleColumns[colIdx];
+      if (!col) return null;
+      const values = rowValues(row);
+      for (let i = colIdx - 1; i >= 0; i--) {
+        const prevCol = visibleColumns[i];
+        if (prevCol.business !== col.business) continue;
+        const val = values[prevCol.key];
+        if (val != null) return val;
+      }
+      return null;
+    }
+
+    function shouldShowParentValues(row) {
+      return !row.hasChildren || collapsedRows.has(row.id);
+    }
+
+    function renderDataCells(row) {
+      const showValues = shouldShowParentValues(row);
+      return visibleColumns.map((col, idx) => {
+        if (!showValues) return `<td class="num parent-hidden"></td>`;
+        const values = rowValues(row);
+        const qty = values[col.key];
+        const prev = lastValueBefore(row, idx);
+        const changeCls = valueCellClass(qty, prev);
+        const stats = row.cell_stats?.[col.key];
+        const tooltip = cellTooltip(stats);
+        const titleAttr = tooltip ? ` title="${attrEsc(tooltip)}"` : "";
+        const dataClass = tooltip ? " has-data" : "";
+        const cls = `${dataClass}${changeCls ? " " + changeCls : ""}`;
+        return `<td class="num${cls}"${titleAttr}>${fmtQuantity(qty)}</td>`;
+      }).join("");
+    }
+
+    function flattenTree(nodes, depth = 0, parentId = null) {
+      const out = [];
+      for (const node of nodes) {
+        out.push({ ...node, depth, parentId, hasChildren: (node.children || []).length > 0 });
+        out.push(...flattenTree(node.children || [], depth + 1, node.id));
+      }
+      return out;
+    }
+
+    function isRowVisible(row) {
+      let pid = row.parentId;
+      while (pid) {
+        if (collapsedRows.has(pid)) return false;
+        const parent = treeRows.find(r => r.id === pid);
+        pid = parent ? parent.parentId : null;
+      }
+      return true;
+    }
+
+    function maxRowExpandDepth() {
+      if (!treeRows.length) return 0;
+      const parentDepths = treeRows.filter(r => r.hasChildren).map(r => r.depth);
+      return parentDepths.length ? Math.max(...parentDepths) + 1 : 0;
+    }
+
+    function applyRowExpandDepth() {
+      collapsedRows.clear();
+      const max = maxRowExpandDepth();
+      for (let d = 0; d < max; d++) {
+        if (rowExpandDepth <= d) {
+          treeRows.filter(r => r.hasChildren && r.depth === d).forEach(r => collapsedRows.add(r.id));
+        }
+      }
+      refreshTable();
+    }
+
+    function recomputeRowExpandDepth() {
+      let depth = 0;
+      const max = maxRowExpandDepth();
+      while (depth < max) {
+        const parents = treeRows.filter(r => r.hasChildren && r.depth === depth);
+        if (parents.length && parents.every(r => !collapsedRows.has(r.id))) {
+          depth++;
+        } else {
+          break;
+        }
+      }
+      rowExpandDepth = depth;
+      updateRowLevelButtons();
+    }
+
+    function updateRowLevelButtons() {
+      const max = maxRowExpandDepth();
+      document.getElementById("expand-rows").disabled = rowExpandDepth >= max;
+      document.getElementById("collapse-rows").disabled = rowExpandDepth <= 0;
+    }
+
+    function refreshValueCells() {
+      document.querySelectorAll("#price-body tr[data-id]").forEach(tr => {
+        const row = treeRows.find(r => r.id === tr.dataset.id);
+        if (!row) return;
+        const cells = tr.querySelectorAll("td.num");
+        const showValues = shouldShowParentValues(row);
+        const values = rowValues(row);
+        cells.forEach((td, idx) => {
+          const col = visibleColumns[idx];
+          if (!col || !showValues) {
+            td.textContent = "";
+            td.className = "num parent-hidden";
+            td.removeAttribute("title");
+            return;
+          }
+          const qty = values[col.key];
+          const prev = lastValueBefore(row, idx);
+          const changeCls = valueCellClass(qty, prev);
+          const stats = row.cell_stats?.[col.key];
+          const tooltip = cellTooltip(stats);
+          const classes = ["num"];
+          if (tooltip) classes.push("has-data");
+          if (changeCls) classes.push(changeCls);
+          td.className = classes.join(" ");
+          td.textContent = fmtQuantity(qty);
+          if (tooltip) td.setAttribute("title", tooltip);
+          else td.removeAttribute("title");
+        });
+      });
+    }
+
+    function refreshVisibility() {
+      document.querySelectorAll("#price-body tr[data-id]").forEach(tr => {
+        const row = treeRows.find(r => r.id === tr.dataset.id);
+        if (!row) return;
+        tr.classList.toggle("hidden", !isRowVisible(row));
+      });
+      document.querySelectorAll(".toggle-btn[data-row-toggle]").forEach(btn => {
+        const open = !collapsedRows.has(btn.dataset.rowToggle);
+        btn.textContent = open ? "−" : "+";
+      });
+      refreshValueCells();
+    }
+
+    function refreshTable() {
+      renderHeader();
+      const colCount = 1 + visibleColumns.length;
+      const tbody = document.getElementById("price-body");
+
+      if (!treeRows.length) {
+        tbody.innerHTML = `<tr><td colspan="${colCount}" class="muted">No data for these filters.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = treeRows.map(row => {
+        const rowClass = `level-${row.level}${isRowVisible(row) ? "" : " hidden"}`;
+        const indent = row.depth * 1.25;
+        let toggle = '<span class="toggle-spacer"></span>';
+        if (row.hasChildren) {
+          const open = !collapsedRows.has(row.id);
+          toggle = `<button type="button" class="toggle-btn" data-row-toggle="${attrEsc(row.id)}" aria-label="Toggle">${open ? "−" : "+"}</button>`;
+        }
+        return `
+          <tr data-id="${attrEsc(row.id)}" class="${rowClass}">
+            <td class="col-label">
+              <div class="label-inner" style="padding-left:${indent}rem">
+                ${toggle}
+                <span class="label-text">${esc(row.label)}</span>
+              </div>
+            </td>
+            ${renderDataCells(row)}
+          </tr>
+        `;
+      }).join("");
+
+      recomputeRowExpandDepth();
+    }
+
+    function renderTable(data, preserveRows = false) {
+      columnGroups = data.column_groups || [];
+      monthColumns = data.months || [];
+      if (!preserveRows) {
+        collapsedRows.clear();
+        rowExpandDepth = 0;
+      }
+      collapsedFarms.clear();
+      treeRows = flattenTree(data.rows || []);
+      document.getElementById("period-label").textContent = data.period_label
+        ? `Showing ${data.period_label}`
+        : "";
+      if (!preserveRows) {
+        applyRowExpandDepth();
+      } else {
+        refreshTable();
+      }
+    }
+
+    async function loadMonths() {
+      const farms = selectedFarms();
+      if (!farms.length) {
+        monthOptions = [];
+        document.getElementById("from-month").innerHTML = '<option value="">Select at least one farm</option>';
+        document.getElementById("to-month").innerHTML = '<option value="">Select at least one farm</option>';
+        return;
+      }
+      const params = appendFarmParams(new URLSearchParams());
+      const res = await fetch("/api/prostock/invoice-months?" + params.toString());
+      const data = await res.json();
+      monthOptions = res.ok ? (data.items || []) : [];
+      if (!monthOptions.length) {
+        document.getElementById("from-month").innerHTML = '<option value="">No data yet</option>';
+        document.getElementById("to-month").innerHTML = '<option value="">No data yet</option>';
+        return;
+      }
+      fillMonthSelects();
+      applyPreset(12);
+    }
+
+    async function loadQuantityTable(preserveRows = false) {
+      const farms = selectedFarms();
+      const fromMonth = document.getElementById("from-month").value;
+      const toMonth = document.getElementById("to-month").value;
+      updatePresetButtons();
+
+      if (!farms.length || !fromMonth || !toMonth) {
+        treeRows = [];
+        document.getElementById("price-body").innerHTML =
+          '<tr><td class="muted">Select farms and a date range.</td></tr>';
+        document.getElementById("price-head").innerHTML = "";
+        return;
+      }
+
+      document.getElementById("price-body").innerHTML =
+        '<tr><td class="muted">Loading…</td></tr>';
+
+      const params = appendFarmParams(new URLSearchParams({
+        from_month: fromMonth,
+        to_month: toMonth,
+      }));
+      const res = await fetch("/api/prostock/product-quantities?" + params.toString());
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("price-body").innerHTML =
+          `<tr><td class="muted">${esc(data.detail || "Failed to load")}</td></tr>`;
+        return;
+      }
+      renderTable(data, preserveRows);
+    }
+
+    document.getElementById("apply-range").addEventListener("click", () => loadQuantityTable(true));
+    document.querySelectorAll(".range-preset").forEach(btn => {
+      btn.addEventListener("click", () => applyPreset(Number(btn.dataset.months)));
+    });
+    document.querySelectorAll(".farm-cb").forEach(cb => {
+      cb.addEventListener("change", () => loadMonths());
+    });
+
+    document.getElementById("from-month").addEventListener("change", () => {
+      const from = document.getElementById("from-month").value;
+      const to = document.getElementById("to-month").value;
+      if (monthIndex(from) > monthIndex(to)) {
+        document.getElementById("to-month").value = from;
+      }
+      updatePresetButtons();
+    });
+    document.getElementById("to-month").addEventListener("change", () => {
+      const from = document.getElementById("from-month").value;
+      const to = document.getElementById("to-month").value;
+      if (monthIndex(from) > monthIndex(to)) {
+        document.getElementById("from-month").value = to;
+      }
+      updatePresetButtons();
+    });
+
+    document.getElementById("expand-rows").addEventListener("click", () => {
+      rowExpandDepth = Math.min(rowExpandDepth + 1, maxRowExpandDepth());
+      applyRowExpandDepth();
+    });
+    document.getElementById("collapse-rows").addEventListener("click", () => {
+      rowExpandDepth = Math.max(rowExpandDepth - 1, 0);
+      applyRowExpandDepth();
+    });
+    document.getElementById("expand-cols").addEventListener("click", () => {
+      collapsedFarms.clear();
+      refreshTable();
+    });
+    document.getElementById("collapse-cols").addEventListener("click", () => {
+      columnGroups.forEach(g => collapsedFarms.add(g.id));
+      refreshTable();
+    });
+
+    document.getElementById("price-head").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-col-toggle]");
+      if (!btn) return;
+      const id = btn.dataset.colToggle;
+      if (collapsedFarms.has(id)) collapsedFarms.delete(id);
+      else collapsedFarms.add(id);
+      refreshTable();
+    });
+
+    document.getElementById("price-body").addEventListener("click", (e) => {
+      const btn = e.target.closest(".toggle-btn[data-row-toggle]");
+      if (!btn) return;
+      e.stopPropagation();
+      const id = btn.dataset.rowToggle;
+      if (collapsedRows.has(id)) collapsedRows.delete(id);
+      else collapsedRows.add(id);
+      refreshVisibility();
+      recomputeRowExpandDepth();
+    });
+
+    loadMonths();
+  </script>
+{% endblock %}

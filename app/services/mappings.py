@@ -9,7 +9,7 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ProductMappingRule
+from app.models import SUPPLIER_WYNNSTAY, ProductMappingRule
 from app.services.mapping_options import ensure_mapping_option
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -78,10 +78,14 @@ def _cell_str(value) -> str:
     return str(value).strip()
 
 
-def get_product_mapping_rules(db: Session) -> list[tuple[str, str, str]]:
+def get_product_mapping_rules(
+    db: Session, *, supplier: str = SUPPLIER_WYNNSTAY
+) -> list[tuple[str, str, str]]:
     """Return (keyword_lower, category, farm_description) ordered for first-match wins."""
     rules = db.scalars(
-        select(ProductMappingRule).order_by(ProductMappingRule.sort_order, ProductMappingRule.id)
+        select(ProductMappingRule)
+        .where(ProductMappingRule.supplier == supplier)
+        .order_by(ProductMappingRule.sort_order, ProductMappingRule.id)
     ).all()
     return [
         (r.keyword.lower(), r.category, r.farm_description)
@@ -90,19 +94,28 @@ def get_product_mapping_rules(db: Session) -> list[tuple[str, str, str]]:
     ]
 
 
-def import_rules_to_db(db: Session, rule_dicts: list[dict[str, str]], *, replace: bool = True) -> int:
+def import_rules_to_db(
+    db: Session,
+    rule_dicts: list[dict[str, str]],
+    *,
+    replace: bool = True,
+    supplier: str = SUPPLIER_WYNNSTAY,
+) -> int:
     if replace:
-        for rule in db.scalars(select(ProductMappingRule)).all():
+        for rule in db.scalars(
+            select(ProductMappingRule).where(ProductMappingRule.supplier == supplier)
+        ).all():
             db.delete(rule)
         db.flush()
 
     for i, row in enumerate(rule_dicts):
         category = row.get("category") or ""
         farm = row.get("farm_description") or ""
-        ensure_mapping_option(db, "category", category)
-        ensure_mapping_option(db, "farm_description", farm)
+        ensure_mapping_option(db, "category", category, supplier=supplier)
+        ensure_mapping_option(db, "farm_description", farm, supplier=supplier)
         db.add(
             ProductMappingRule(
+                supplier=supplier,
                 keyword=row["keyword"],
                 category=category,
                 farm_description=farm,
@@ -113,19 +126,33 @@ def import_rules_to_db(db: Session, rule_dicts: list[dict[str, str]], *, replace
     return len(rule_dicts)
 
 
-def seed_mappings_if_empty(db: Session, keywords_path: Path | None = None) -> int:
-    if db.scalars(select(ProductMappingRule).limit(1)).first() is not None:
+def seed_mappings_if_empty(
+    db: Session,
+    keywords_path: Path | None = None,
+    *,
+    supplier: str = SUPPLIER_WYNNSTAY,
+) -> int:
+    existing = db.scalars(
+        select(ProductMappingRule)
+        .where(ProductMappingRule.supplier == supplier)
+        .limit(1)
+    ).first()
+    if existing is not None:
         return 0
     path = keywords_path or DEFAULT_KEYWORDS_PATH
     rules = load_rules_from_excel_path(path)
     if not rules:
         return 0
-    return import_rules_to_db(db, rules, replace=True)
+    return import_rules_to_db(db, rules, replace=True, supplier=supplier)
 
 
-def list_mapping_rules(db: Session) -> list[ProductMappingRule]:
+def list_mapping_rules(
+    db: Session, *, supplier: str = SUPPLIER_WYNNSTAY
+) -> list[ProductMappingRule]:
     return list(
         db.scalars(
-            select(ProductMappingRule).order_by(ProductMappingRule.sort_order, ProductMappingRule.id)
+            select(ProductMappingRule)
+            .where(ProductMappingRule.supplier == supplier)
+            .order_by(ProductMappingRule.sort_order, ProductMappingRule.id)
         ).all()
     )

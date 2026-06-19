@@ -342,7 +342,7 @@
                   <span class="nav-collapsible-label">Wynnstay</span>
                 </button>
                 <div class="nav-supplier-items" id="wynnstay-nav-items">
-                  <a href="/wynnstay" class="{% if active_section == 'wynnstay' and active_nav == 'overview' %}active{% endif %}">Overview</a>
+                  <a href="/wynnstay" class="{% if active_section == 'wynnstay' and active_nav == 'overview' %}active{% endif %}">Import New Data</a>
                   <a href="/wynnstay/invoices" class="{% if active_nav == 'invoices' %}active{% endif %}">Invoices</a>
                   <a href="/wynnstay/category-breakdown" class="{% if active_nav == 'breakdown' %}active{% endif %}">Category breakdown</a>
                   <a href="/wynnstay/product-price-by-month" class="{% if active_nav == 'price-by-month' %}active{% endif %}">Product Prices</a>
@@ -352,7 +352,25 @@
                 </div>
               </div>
 
-              {# Future suppliers e.g. Prostock: add another nav-supplier block here #}
+              <div class="nav-supplier{% if active_section == 'prostock' %} expanded{% endif %}" data-supplier="prostock">
+                <button
+                  type="button"
+                  class="nav-supplier-toggle{% if active_section == 'prostock' %} active{% endif %}"
+                  aria-expanded="{% if active_section == 'prostock' %}true{% else %}false{% endif %}"
+                  aria-controls="prostock-nav-items"
+                >
+                  <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+                  <span class="nav-collapsible-label">Prostock</span>
+                </button>
+                <div class="nav-supplier-items" id="prostock-nav-items">
+                  <a href="/prostock" class="{% if active_section == 'prostock' and active_nav == 'overview' %}active{% endif %}">Import New Data</a>
+                  <a href="/prostock/invoices" class="{% if active_section == 'prostock' and active_nav == 'invoices' %}active{% endif %}">Invoices</a>
+                  <a href="/prostock/product-prices" class="{% if active_section == 'prostock' and active_nav == 'product-prices' %}active{% endif %}">Product Prices</a>
+                  <a href="/prostock/product-quantity" class="{% if active_section == 'prostock' and active_nav == 'product-quantity' %}active{% endif %}">Product Quantity</a>
+                  <a href="/prostock/monthly-spend" class="{% if active_section == 'prostock' and active_nav == 'monthly-spend' %}active{% endif %}">Monthly Spend</a>
+                  <a href="/prostock/mappings" class="{% if active_section == 'prostock' and active_nav == 'mappings' %}active{% endif %}">Product mappings</a>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -453,8 +471,12 @@
 
       document.querySelectorAll("[data-supplier]").forEach(el => {
         initNode(el, el.dataset.supplier, ":scope > .nav-supplier-toggle", () => {
-          if (el.dataset.supplier === "wynnstay" && !window.location.pathname.startsWith("/wynnstay")) {
+          const supplier = el.dataset.supplier;
+          if (supplier === "wynnstay" && !window.location.pathname.startsWith("/wynnstay")) {
             window.location.href = "/wynnstay";
+          }
+          if (supplier === "prostock" && !window.location.pathname.startsWith("/prostock")) {
+            window.location.href = "/prostock";
           }
         });
       });

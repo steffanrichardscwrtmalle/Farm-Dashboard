@@ -14,11 +14,16 @@ class Base(DeclarativeBase):
 BUSINESS_OPTIONS: tuple[str, ...] = ("Cwrt Malle", "Green Acre Dairy", "H&S Forage")
 DEFAULT_BUSINESS = "Cwrt Malle"
 
+SUPPLIER_WYNNSTAY = "wynnstay"
+SUPPLIER_PROSTOCK = "prostock"
+PROSTOCK_BUSINESS_OPTIONS: tuple[str, ...] = ("Cwrt Malle", "Green Acre Dairy")
+
 
 class ImportBatch(Base):
     __tablename__ = "import_batches"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier: Mapped[str] = mapped_column(String(32), default=SUPPLIER_WYNNSTAY, index=True)
     source_filename: Mapped[str] = mapped_column(String(255), default="")
     invoice_date: Mapped[datetime.date] = mapped_column(Date)
     rows_imported: Mapped[int] = mapped_column(Integer, default=0)
@@ -33,6 +38,7 @@ class InvoiceLine(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     import_batch_id: Mapped[int | None] = mapped_column(ForeignKey("import_batches.id"), nullable=True)
+    supplier: Mapped[str] = mapped_column(String(32), default=SUPPLIER_WYNNSTAY, index=True)
 
     business: Mapped[str | None] = mapped_column(String(100), nullable=True)
     date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
@@ -77,9 +83,16 @@ class InvoiceLine(Base):
         }
 
     @classmethod
-    def from_row_dict(cls, row: dict[str, Any], import_batch_id: int | None = None) -> InvoiceLine:
+    def from_row_dict(
+        cls,
+        row: dict[str, Any],
+        import_batch_id: int | None = None,
+        *,
+        supplier: str = SUPPLIER_WYNNSTAY,
+    ) -> InvoiceLine:
         return cls(
             import_batch_id=import_batch_id,
+            supplier=supplier,
             business=_str_or_none(row.get("business")),
             date=row.get("date") if isinstance(row.get("date"), datetime.date) else None,
             reference=_str_or_none(row.get("reference")),
@@ -132,6 +145,7 @@ class ProductMappingRule(Base):
     __tablename__ = "product_mapping_rules"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier: Mapped[str] = mapped_column(String(32), default=SUPPLIER_WYNNSTAY, index=True)
     keyword: Mapped[str] = mapped_column(String(500))
     category: Mapped[str] = mapped_column(String(255), default="")
     farm_description: Mapped[str] = mapped_column(String(255), default="")
@@ -149,9 +163,12 @@ class ProductMappingRule(Base):
 
 class MappingOption(Base):
     __tablename__ = "mapping_options"
-    __table_args__ = (UniqueConstraint("option_type", "value", name="uq_mapping_option_type_value"),)
+    __table_args__ = (
+        UniqueConstraint("supplier", "option_type", "value", name="uq_mapping_option_supplier_type_value"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier: Mapped[str] = mapped_column(String(32), default=SUPPLIER_WYNNSTAY, index=True)
     option_type: Mapped[str] = mapped_column(String(32))
     value: Mapped[str] = mapped_column(String(255))
 

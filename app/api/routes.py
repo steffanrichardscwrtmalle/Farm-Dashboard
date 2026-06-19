@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, require_editor
 from app.db import get_db
-from app.models import BUSINESS_OPTIONS, ProductMappingRule, User
+from app.models import BUSINESS_OPTIONS, SUPPLIER_WYNNSTAY, ProductMappingRule, User
 from app.services.category_breakdown import get_category_breakdown
 from app.services.product_price_by_month import get_product_price_by_month
 from app.services.product_quantity_by_month import get_product_quantity_by_month
@@ -321,8 +321,13 @@ def api_create_mapping(body: MappingCreate, db: Session = Depends(get_db), _: Us
         validate_mapping_values(db, category, farm_description)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    max_order = db.scalar(select(func.max(ProductMappingRule.sort_order))) or -1
+    max_order = db.scalar(
+        select(func.max(ProductMappingRule.sort_order)).where(
+            ProductMappingRule.supplier == SUPPLIER_WYNNSTAY
+        )
+    ) or -1
     rule = ProductMappingRule(
+        supplier=SUPPLIER_WYNNSTAY,
         keyword=keyword,
         category=category,
         farm_description=farm_description,
@@ -340,7 +345,7 @@ def api_bulk_update_mappings(body: MappingBulkUpdateBody, db: Session = Depends(
     updated = 0
     for item in body.items:
         rule = db.get(ProductMappingRule, item.id)
-        if rule is None:
+        if rule is None or rule.supplier != SUPPLIER_WYNNSTAY:
             raise HTTPException(status_code=404, detail=f"Rule not found: {item.id}")
         keyword = item.keyword.strip()
         if not keyword:
@@ -367,7 +372,7 @@ def api_bulk_update_mappings(body: MappingBulkUpdateBody, db: Session = Depends(
 @router.put("/mappings/{rule_id}")
 def api_update_mapping(rule_id: int, body: MappingUpdate, db: Session = Depends(get_db), _: User = Depends(require_editor)):
     rule = db.get(ProductMappingRule, rule_id)
-    if rule is None:
+    if rule is None or rule.supplier != SUPPLIER_WYNNSTAY:
         raise HTTPException(status_code=404, detail="Rule not found")
     if body.keyword is not None:
         kw = body.keyword.strip()
@@ -390,7 +395,7 @@ def api_update_mapping(rule_id: int, body: MappingUpdate, db: Session = Depends(
 @router.delete("/mappings/{rule_id}")
 def api_delete_mapping(rule_id: int, db: Session = Depends(get_db), _: User = Depends(require_editor)):
     rule = db.get(ProductMappingRule, rule_id)
-    if rule is None:
+    if rule is None or rule.supplier != SUPPLIER_WYNNSTAY:
         raise HTTPException(status_code=404, detail="Rule not found")
     db.delete(rule)
     db.commit()
@@ -402,7 +407,7 @@ def api_delete_mapping(rule_id: int, db: Session = Depends(get_db), _: User = De
 def api_reorder_mappings(body: ReorderBody, db: Session = Depends(get_db), _: User = Depends(require_editor)):
     for item in body.items:
         rule = db.get(ProductMappingRule, item.id)
-        if rule:
+        if rule and rule.supplier == SUPPLIER_WYNNSTAY:
             rule.sort_order = item.sort_order
     db.commit()
     return {"updated": len(body.items)}
@@ -435,8 +440,8 @@ async def api_import_mappings_excel(
         for row in rules
         if row.get("farm_description", "").strip()
     }
-    sync_options_from_values(db, categories, farm_descriptions)
-    count = import_rules_to_db(db, rules, replace=True)
+    sync_options_from_values(db, categories, farm_descriptions, supplier=SUPPLIER_WYNNSTAY)
+    count = import_rules_to_db(db, rules, replace=True, supplier=SUPPLIER_WYNNSTAY)
     refresh_all_invoice_lines(db)
     return {"rules_imported": count}
 

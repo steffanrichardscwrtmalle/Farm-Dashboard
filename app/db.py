@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import DATABASE_URL
-from app.models import DEFAULT_BUSINESS, Base
+from app.models import DEFAULT_BUSINESS, SUPPLIER_WYNNSTAY, Base
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DATA_DIR = _PROJECT_ROOT / "data"
@@ -37,6 +37,72 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _drop_legacy_tables()
     _migrate_invoice_lines_schema()
+    _migrate_supplier_schema()
+
+
+def _add_supplier_column(conn, table: str) -> None:
+    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN supplier VARCHAR(32) DEFAULT 'wynnstay'"))
+    conn.execute(text(f"UPDATE {table} SET supplier = 'wynnstay' WHERE supplier IS NULL"))
+
+
+def _migrate_mapping_options_supplier(conn) -> None:
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS mapping_options_new (
+                id INTEGER PRIMARY KEY,
+                supplier VARCHAR(32) NOT NULL DEFAULT 'wynnstay',
+                option_type VARCHAR(32) NOT NULL,
+                value VARCHAR(255) NOT NULL,
+                UNIQUE (supplier, option_type, value)
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            INSERT OR IGNORE INTO mapping_options_new (id, supplier, option_type, value)
+            SELECT id, 'wynnstay', option_type, value FROM mapping_options
+            """
+        )
+    )
+    conn.execute(text("DROP TABLE mapping_options"))
+    conn.execute(text("ALTER TABLE mapping_options_new RENAME TO mapping_options"))
+
+
+def _migrate_supplier_schema() -> None:
+    inspector = inspect(engine)
+    existing = set(inspector.get_table_names())
+
+    with engine.begin() as conn:
+        for table in ("invoice_lines", "import_batches", "product_mapping_rules"):
+            if table not in existing:
+                continue
+            columns = {col["name"] for col in inspector.get_columns(table)}
+            if "supplier" not in columns:
+                _add_supplier_column(conn, table)
+
+        if "mapping_options" in existing:
+            columns = {col["name"] for col in inspector.get_columns("mapping_options")}
+            if "supplier" not in columns:
+                if DATABASE_URL.startswith("sqlite"):
+                    _migrate_mapping_options_supplier(conn)
+                else:
+                    _add_supplier_column(conn, "mapping_options")
+                    conn.execute(
+                        text(
+                            "ALTER TABLE mapping_options "
+                            "DROP CONSTRAINT IF EXISTS uq_mapping_option_type_value"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "ALTER TABLE mapping_options "
+                            "ADD CONSTRAINT uq_mapping_option_supplier_type_value "
+                            "UNIQUE (supplier, option_type, value)"
+                        )
+                    )
 
 
 def _migrate_invoice_lines_schema() -> None:

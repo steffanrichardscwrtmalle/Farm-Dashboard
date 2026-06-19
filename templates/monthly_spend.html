@@ -293,6 +293,37 @@
       "#c1121f", "#669bbc", "#606c38", "#bc6c25",
     ];
 
+    function segmentValue(raw) {
+      if (Array.isArray(raw)) return raw[1] - raw[0];
+      return Number(raw);
+    }
+
+    function buildWaterfallDatasets(series, monthKeys) {
+      const valueAt = (s, monthKey) => Number(s.values?.[monthKey] ?? 0);
+      return series.map((s, seriesIdx) => ({
+        label: s.category,
+        backgroundColor: CHART_COLORS[seriesIdx % CHART_COLORS.length],
+        borderWidth: 0,
+        data: monthKeys.map(monthKey => {
+          const value = valueAt(s, monthKey);
+          if (value === 0) return [0, 0];
+          let cumulative = 0;
+          for (let j = 0; j < seriesIdx; j++) {
+            cumulative += valueAt(series[j], monthKey);
+          }
+          const top = cumulative + value;
+          return [Math.min(cumulative, top), Math.max(cumulative, top)];
+        }),
+      }));
+    }
+
+    function monthNetTotals(series, monthKeys) {
+      const valueAt = (s, monthKey) => Number(s.values?.[monthKey] ?? 0);
+      return monthKeys.map(monthKey =>
+        series.reduce((sum, s) => sum + valueAt(s, monthKey), 0)
+      );
+    }
+
     function renderSpendChart(data) {
       const wrap = document.getElementById("spend-chart-wrap");
       const series = data.category_chart?.series || [];
@@ -306,13 +337,9 @@
       }
       wrap.style.display = "";
       const labels = (data.months || []).map(m => m.label);
-      const datasets = series.map((s, i) => ({
-        label: s.category,
-        data: monthColumns.map(m => s.values[m.value] ?? 0),
-        backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
-        stack: "spend",
-        borderWidth: 0,
-      }));
+      const monthKeys = monthColumns.map(m => m.value);
+      const datasets = buildWaterfallDatasets(series, monthKeys);
+      const monthTotals = monthNetTotals(series, monthKeys);
 
       const ctx = document.getElementById("spend-chart");
       if (spendChart) spendChart.destroy();
@@ -322,28 +349,32 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          datasets: {
+            bar: { grouped: false },
+          },
           plugins: {
             legend: { position: "bottom" },
             tooltip: {
               callbacks: {
+                title: (items) => (items.length ? labels[items[0].dataIndex] || "" : ""),
                 label: (item) => {
-                  const v = item.raw;
-                  return `${item.dataset.label}: ${fmtMoney(v)}`;
+                  const value = segmentValue(item.raw);
+                  if (value === 0) return null;
+                  return `${item.dataset.label}: ${fmtMoney(value)}`;
                 },
                 footer: (items) => {
-                  const sum = items.reduce((a, item) => a + Number(item.raw), 0);
-                  return `Month total: ${fmtMoney(sum)}`;
+                  if (!items.length) return "";
+                  const monthIdx = items[0].dataIndex;
+                  return `Month total: ${fmtMoney(monthTotals[monthIdx])}`;
                 },
               },
             },
           },
           scales: {
             x: {
-              stacked: true,
               title: { display: true, text: "Invoice month" },
             },
             y: {
-              stacked: true,
               title: { display: true, text: "Goods value (£)" },
               ticks: {
                 callback: (v) => "£" + Number(v).toLocaleString("en-GB"),

@@ -1,0 +1,572 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Product mappings{% endblock %}
+
+{% block extra_styles %}
+    .card { margin-bottom: 1rem; }
+    input[type="text"], input[type="file"], select { margin-bottom: 0.5rem; }
+    .table-wrap { max-height: 420px; }
+    .options-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+    .options-panel h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+    .add-option-row { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+    .add-option-row input { flex: 1; margin: 0; }
+    .add-option-row button { margin: 0; }
+    .option-search {
+      width: 100%;
+      margin: 0 0 0.5rem;
+      padding: 0.35rem 0.5rem;
+      font-size: 0.85rem;
+    }
+    .rules-intro {
+      margin: 0 0 0.75rem;
+      padding: 0.65rem 0.85rem;
+      background: var(--surface-alt, #f4f6f8);
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+{% endblock %}
+
+{% block content %}
+    <div class="card">
+      <h2>Groups &amp; products</h2>
+      <p class="muted">Allowed values when creating keyword rules. Add new options here before mapping.</p>
+      <div class="options-grid">
+        <div class="options-panel">
+          <h3>Groups (<span id="category-count">{{ initial_options.categories|length }}</span>)</h3>
+          <div class="add-option-row">
+            <input type="text" id="new-category" placeholder="New group">
+            <button type="button" class="small" id="add-category-btn">Add</button>
+          </div>
+          <input type="text" id="search-categories" class="option-search" placeholder="Search groups…" autocomplete="off">
+          <div class="table-wrap" style="max-height:240px">
+            <table>
+              <thead><tr><th>Group</th><th></th></tr></thead>
+              <tbody id="categories-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="options-panel">
+          <h3>Products (<span id="farm-count">{{ initial_options.farm_descriptions|length }}</span>)</h3>
+          <div class="add-option-row">
+            <input type="text" id="new-farm" placeholder="New product">
+            <button type="button" class="small" id="add-farm-btn">Add</button>
+          </div>
+          <input type="text" id="search-farms" class="option-search" placeholder="Search products…" autocomplete="off">
+          <div class="table-wrap" style="max-height:240px">
+            <table>
+              <thead><tr><th>Product</th><th></th></tr></thead>
+              <tbody id="farms-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Needs mapping <span class="unknown-warn">(Unknown group or product)</span></h2>
+      <p class="muted">Drug names that did not match any keyword. Click Add rule to create one quickly.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Drug name</th><th>Lines</th><th>Group</th><th>Product</th><th></th></tr>
+          </thead>
+          <tbody id="unknown-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="actions" style="justify-content:space-between;margin-bottom:0.75rem">
+        <h2 style="margin:0">Keyword rules (<span id="rule-count">{{ initial_rules|length }}</span>)</h2>
+        <div class="actions">
+          <input type="text" id="search-rules" placeholder="Search rules…" style="width:200px;margin:0">
+          <button type="button" id="save-all-rules">Save all rules</button>
+          {% if current_user and current_user.role in ['admin', 'editor'] %}
+          <button type="button" id="reseed-library-btn" class="secondary">Reload product library</button>
+          {% endif %}
+        </div>
+      </div>
+      <p class="rules-intro muted">
+        Each rule maps a <strong>keyword</strong> found in the drug name to a <strong>Product</strong> and <strong>Group</strong>.
+        Example: keyword <em>Bultavo 3</em> → Product <em>Bultavo 3</em>, Group <em>Vaccine</em>. First match wins (top of list).
+      </p>
+      <h3 style="margin:1rem 0 0.5rem;font-size:0.95rem">Add keyword rule</h3>
+      <div class="grid-3">
+        <div><label>Keyword</label><input type="text" id="add-keyword" placeholder="e.g. Bultavo 3"></div>
+        <div><label>Group</label><select id="add-category"><option value="">Select group…</option></select></div>
+        <div><label>Product</label><select id="add-farm"><option value="">Select product…</option></select></div>
+      </div>
+      <div class="actions" style="margin-top:0.5rem">
+        <button type="button" id="add-btn">Add rule</button>
+        <button type="button" id="apply-btn" class="secondary">Apply mappings to all lines</button>
+      </div>
+      <div id="message"></div>
+      <div id="rules-message" class="message"></div>
+      <datalist id="category-options"></datalist>
+      <datalist id="farm-options"></datalist>
+      <div class="table-wrap" style="max-height:520px">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Keyword</th><th>Group</th><th>Product</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="rules-body"></tbody>
+        </table>
+      </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const SERVER_RULES = {{ initial_rules | tojson }};
+    const SERVER_OPTIONS = {{ initial_options | tojson }};
+
+    let allRules = Array.isArray(SERVER_RULES) ? SERVER_RULES : [];
+    let categoryOptions = SERVER_OPTIONS.categories || [];
+    let farmOptions = SERVER_OPTIONS.farm_descriptions || [];
+    let optionRows = [];
+
+    function showMsg(text, ok) {
+      const el = document.getElementById("message");
+      el.textContent = text;
+      el.className = ok ? "ok" : "err";
+    }
+
+    function showRulesMsg(text, ok) {
+      const el = document.getElementById("rules-message");
+      el.textContent = text;
+      el.className = ok ? "message ok" : "message err";
+    }
+
+    function esc(s) {
+      return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+    }
+
+    function attrEsc(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    }
+
+    function suggestKeyword(desc) {
+      const trimmed = desc.trim();
+      if (trimmed.length <= 40) return trimmed;
+      return trimmed.slice(0, 40).trim();
+    }
+
+    function buildSelectOptions(options, selected, placeholder) {
+      const unique = [...new Set(options.filter(Boolean))].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" })
+      );
+      if (selected && selected.trim() && !unique.includes(selected)) {
+        unique.unshift(selected);
+      }
+      const items = [`<option value="">${esc(placeholder)}</option>`];
+      for (const value of unique) {
+        const sel = value === selected ? " selected" : "";
+        items.push(`<option value="${attrEsc(value)}"${sel}>${esc(value)}</option>`);
+      }
+      return items.join("");
+    }
+
+    function fillDatalists() {
+      const catList = document.getElementById("category-options");
+      const farmList = document.getElementById("farm-options");
+      catList.innerHTML = categoryOptions.map(v => `<option value="${attrEsc(v)}">`).join("");
+      farmList.innerHTML = farmOptions.map(v => `<option value="${attrEsc(v)}">`).join("");
+    }
+
+    function fillAddSelects() {
+      document.getElementById("add-category").innerHTML = buildSelectOptions(
+        categoryOptions,
+        document.getElementById("add-category").value,
+        "Select group…"
+      );
+      document.getElementById("add-farm").innerHTML = buildSelectOptions(
+        farmOptions,
+        document.getElementById("add-farm").value,
+        "Select product…"
+      );
+    }
+
+    function filterOptions(options, query) {
+      const q = query.trim().toLowerCase();
+      if (!q) return options;
+      return options.filter(value => value.toLowerCase().includes(q));
+    }
+
+    function renderOptionTables() {
+      const categoryQuery = document.getElementById("search-categories").value;
+      const farmQuery = document.getElementById("search-farms").value;
+      const filteredCategories = filterOptions(categoryOptions, categoryQuery);
+      const filteredFarms = filterOptions(farmOptions, farmQuery);
+
+      document.getElementById("category-count").textContent = categoryOptions.length;
+      document.getElementById("farm-count").textContent = farmOptions.length;
+
+      const catBody = document.getElementById("categories-body");
+      if (!categoryOptions.length) {
+        catBody.innerHTML = '<tr><td colspan="2" class="muted">No groups yet.</td></tr>';
+      } else if (!filteredCategories.length) {
+        catBody.innerHTML = '<tr><td colspan="2" class="muted">No groups match your search.</td></tr>';
+      } else {
+        catBody.innerHTML = filteredCategories.map(value => {
+          const row = optionRows.find(r => r.option_type === "category" && r.value === value);
+          return `
+            <tr>
+              <td>${esc(value)}</td>
+              <td>${row ? `<button class="small danger" data-delete-option="${row.id}">Del</button>` : ""}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      const farmBody = document.getElementById("farms-body");
+      if (!farmOptions.length) {
+        farmBody.innerHTML = '<tr><td colspan="2" class="muted">No products yet.</td></tr>';
+      } else if (!filteredFarms.length) {
+        farmBody.innerHTML = '<tr><td colspan="2" class="muted">No products match your search.</td></tr>';
+      } else {
+        farmBody.innerHTML = filteredFarms.map(value => {
+          const row = optionRows.find(r => r.option_type === "farm_description" && r.value === value);
+          return `
+            <tr>
+              <td>${esc(value)}</td>
+              <td>${row ? `<button class="small danger" data-delete-option="${row.id}">Del</button>` : ""}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+    }
+
+    function renderRules(filter = "") {
+      const q = filter.trim().toLowerCase();
+      const filtered = q
+        ? allRules.filter(r =>
+            r.keyword.toLowerCase().includes(q) ||
+            r.category.toLowerCase().includes(q) ||
+            r.farm_description.toLowerCase().includes(q))
+        : allRules;
+
+      document.getElementById("rule-count").textContent = allRules.length;
+      const tbody = document.getElementById("rules-body");
+
+      if (!allRules.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="muted">No keyword rules yet. Click <strong>Reload product library</strong> to load the default map.</td></tr>';
+        return;
+      }
+
+      if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="muted">No rules match your search.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = filtered.map((r) => `
+        <tr data-id="${r.id}">
+          <td>${r.sort_order + 1}</td>
+          <td><input type="text" value="${esc(r.keyword)}" data-field="keyword" style="width:100%;min-width:120px;margin:0"></td>
+          <td><input type="text" list="category-options" value="${esc(r.category)}" data-field="category" style="width:100%;margin:0"></td>
+          <td><input type="text" list="farm-options" value="${esc(r.farm_description)}" data-field="farm_description" style="width:100%;margin:0"></td>
+          <td class="actions">
+            <button class="small secondary" data-action="up" data-id="${r.id}">↑</button>
+            <button class="small secondary" data-action="down" data-id="${r.id}">↓</button>
+            <button class="small danger" data-action="delete" data-id="${r.id}">Del</button>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    function collectAllRuleEdits() {
+      const domEdits = new Map();
+      document.querySelectorAll("#rules-body tr[data-id]").forEach(row => {
+        const id = Number(row.dataset.id);
+        const body = {};
+        row.querySelectorAll("[data-field]").forEach(el => {
+          body[el.dataset.field] = el.value;
+        });
+        domEdits.set(id, body);
+      });
+      return allRules.map(rule => {
+        const edited = domEdits.get(rule.id);
+        if (edited) {
+          return {
+            id: rule.id,
+            keyword: edited.keyword,
+            category: edited.category,
+            farm_description: edited.farm_description,
+          };
+        }
+        return {
+          id: rule.id,
+          keyword: rule.keyword,
+          category: rule.category,
+          farm_description: rule.farm_description,
+        };
+      });
+    }
+
+    async function saveAllRules() {
+      const items = collectAllRuleEdits();
+      for (const item of items) {
+        if (!item.keyword?.trim()) {
+          showRulesMsg("Every rule must have a keyword.", false);
+          return;
+        }
+        if (!item.category || !item.farm_description) {
+          showRulesMsg("Every rule must have a group and product.", false);
+          return;
+        }
+      }
+      const btn = document.getElementById("save-all-rules");
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+      showRulesMsg("Saving rules…", true);
+      try {
+        const res = await fetch("/api/prostock/mappings/bulk", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Save failed");
+        showRulesMsg(`Saved ${data.updated} rules and applied mappings.`, true);
+        await loadRules();
+        await loadUnknown();
+      } catch (err) {
+        showRulesMsg(err.message, false);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Save all rules";
+      }
+    }
+
+    async function loadOptions() {
+      const res = await fetch("/api/prostock/mapping-options");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Could not load groups and products");
+      categoryOptions = data.categories || [];
+      farmOptions = data.farm_descriptions || [];
+      optionRows = data.items || [];
+      renderOptionTables();
+      fillAddSelects();
+      fillDatalists();
+      renderRules(document.getElementById("search-rules").value);
+    }
+
+    async function loadRules() {
+      const res = await fetch("/api/prostock/mappings");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Could not load keyword rules");
+      allRules = Array.isArray(data.items) ? data.items : [];
+      renderRules(document.getElementById("search-rules").value);
+    }
+
+    async function loadUnknown() {
+      const res = await fetch("/api/prostock/mappings/unknown-drugs");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Could not load unmapped drugs");
+      const tbody = document.getElementById("unknown-body");
+      if (!data.items.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="muted">No unknown drugs — all mapped!</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.items.map(item => `
+        <tr>
+          <td>${esc(item.product_description)}</td>
+          <td>${item.line_count}</td>
+          <td class="unknown-warn">${esc(item.category)}</td>
+          <td class="unknown-warn">${esc(item.farm_description)}</td>
+          <td><button class="small" data-add-desc="${esc(item.product_description)}">Add rule</button></td>
+        </tr>
+      `).join("");
+    }
+
+    async function addOption(optionType, inputId) {
+      const value = document.getElementById(inputId).value.trim();
+      if (!value) {
+        showMsg("Enter a value to add.", false);
+        return;
+      }
+      const res = await fetch("/api/prostock/mapping-options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ option_type: optionType, value }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showMsg(data.detail || "Failed to add option", false);
+        return;
+      }
+      document.getElementById(inputId).value = "";
+      showMsg("Option added.", true);
+      await loadOptions();
+    }
+
+    document.getElementById("add-category-btn").addEventListener("click", () => {
+      addOption("category", "new-category");
+    });
+
+    document.getElementById("add-farm-btn").addEventListener("click", () => {
+      addOption("farm_description", "new-farm");
+    });
+
+    document.getElementById("new-category").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") addOption("category", "new-category");
+    });
+
+    document.getElementById("new-farm").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") addOption("farm_description", "new-farm");
+    });
+
+    document.getElementById("categories-body").addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-delete-option]");
+      if (!btn) return;
+      if (!confirm("Delete this group option?")) return;
+      const res = await fetch(`/api/prostock/mapping-options/${btn.dataset.deleteOption}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { showMsg(data.detail || "Delete failed", false); return; }
+      await loadOptions();
+    });
+
+    document.getElementById("farms-body").addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-delete-option]");
+      if (!btn) return;
+      if (!confirm("Delete this product option?")) return;
+      const res = await fetch(`/api/prostock/mapping-options/${btn.dataset.deleteOption}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { showMsg(data.detail || "Delete failed", false); return; }
+      await loadOptions();
+    });
+
+    document.getElementById("add-btn").addEventListener("click", async () => {
+      const body = {
+        keyword: document.getElementById("add-keyword").value,
+        category: document.getElementById("add-category").value,
+        farm_description: document.getElementById("add-farm").value,
+      };
+      if (!body.category || !body.farm_description) {
+        showMsg("Select both group and product.", false);
+        return;
+      }
+      const res = await fetch("/api/prostock/mappings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { showMsg(data.detail || "Failed", false); return; }
+      showMsg("Rule added and mappings applied.", true);
+      document.getElementById("add-keyword").value = "";
+      document.getElementById("add-category").value = "";
+      document.getElementById("add-farm").value = "";
+      fillAddSelects();
+      await loadRules();
+      await loadUnknown();
+    });
+
+    document.getElementById("apply-btn").addEventListener("click", async () => {
+      const res = await fetch("/api/prostock/mappings/apply", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { showMsg(data.detail || "Apply failed", false); return; }
+      showMsg(`Applied mappings to ${data.rows_refreshed} lines.`, true);
+      await loadUnknown();
+    });
+
+    document.getElementById("search-rules").addEventListener("input", (e) => {
+      renderRules(e.target.value);
+    });
+
+    document.getElementById("search-categories").addEventListener("input", () => {
+      renderOptionTables();
+    });
+
+    document.getElementById("search-farms").addEventListener("input", () => {
+      renderOptionTables();
+    });
+
+    document.getElementById("save-all-rules").addEventListener("click", saveAllRules);
+
+    const reseedBtn = document.getElementById("reseed-library-btn");
+    if (reseedBtn) {
+      reseedBtn.addEventListener("click", async () => {
+        if (!confirm("Replace all Prostock keyword rules with the built-in product library?")) return;
+        reseedBtn.disabled = true;
+        showRulesMsg("Reloading product library…", true);
+        try {
+          const res = await fetch("/api/prostock/mappings/reseed-library", { method: "POST" });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Reload failed");
+          showRulesMsg(`Loaded ${data.seeded} keyword rules from product library.`, true);
+          await loadOptions();
+          await loadRules();
+          await loadUnknown();
+        } catch (err) {
+          showRulesMsg(err.message, false);
+        } finally {
+          reseedBtn.disabled = false;
+        }
+      });
+    }
+
+    document.getElementById("rules-body").addEventListener("click", async (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      const id = Number(btn.dataset.id);
+      const action = btn.dataset.action;
+
+      if (action === "delete") {
+        if (!confirm("Delete this rule?")) return;
+        await fetch(`/api/prostock/mappings/${id}`, { method: "DELETE" });
+        await loadRules();
+        await loadUnknown();
+        return;
+      }
+
+      if (action === "up" || action === "down") {
+        const idx = allRules.findIndex(r => r.id === id);
+        if (idx < 0) return;
+        const swapIdx = action === "up" ? idx - 1 : idx + 1;
+        if (swapIdx < 0 || swapIdx >= allRules.length) return;
+        const copy = [...allRules];
+        [copy[idx], copy[swapIdx]] = [copy[swapIdx], copy[idx]];
+        const reorder = copy.map((r, i) => ({ id: r.id, sort_order: i }));
+        await fetch("/api/prostock/mappings/reorder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: reorder }),
+        });
+        await fetch("/api/prostock/mappings/apply", { method: "POST" });
+        await loadRules();
+      }
+    });
+
+    document.getElementById("unknown-body").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-add-desc]");
+      if (!btn) return;
+      const desc = btn.getAttribute("data-add-desc");
+      document.getElementById("add-keyword").value = suggestKeyword(desc);
+      document.getElementById("add-category").value = "";
+      document.getElementById("add-farm").value = "";
+      fillAddSelects();
+      document.getElementById("add-keyword").focus();
+      document.getElementById("add-keyword").scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+
+    function initFromServer() {
+      fillDatalists();
+      fillAddSelects();
+      renderOptionTables();
+      renderRules("");
+    }
+
+    async function init() {
+      initFromServer();
+      try {
+        await loadOptions();
+        await loadRules();
+        await loadUnknown();
+      } catch (err) {
+        showRulesMsg(`Could not refresh from server: ${err.message}. Showing saved rules from page load.`, false);
+      }
+    }
+
+    init();
+  </script>
+{% endblock %}
