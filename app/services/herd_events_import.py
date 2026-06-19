@@ -19,15 +19,23 @@ GAD_EVENTS_FILE = "DCEXPORTGAD/GADEVENTS.CSV"
 
 _BATCH_SIZE = 2000
 _CSV_CHUNK_SIZE = 25_000
+_EVENT_DATE_COLUMNS = ("BDAT", "FDAT", "EDAT", "Date")
+_EVENT_DATE_FORMAT = "%d/%m/%y"
+
+
+def _parse_date_series(series: pd.Series) -> pd.Series:
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return series
+    return pd.to_datetime(series, format=_EVENT_DATE_FORMAT, errors="coerce")
 
 
 def _clean_events_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     str_cols = df.select_dtypes(include="object").columns
     df[str_cols] = df[str_cols].apply(lambda col: col.str.strip())
 
-    for col in ["BDAT", "FDAT", "EDAT", "Date"]:
+    for col in _EVENT_DATE_COLUMNS:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], dayfirst=True, errors="coerce")
+            df[col] = _parse_date_series(df[col])
 
     if "CBRD" in df.columns:
         df["CBRD"] = pd.to_numeric(df["CBRD"], errors="coerce").fillna(0).astype("Int64")
@@ -86,7 +94,7 @@ def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[d
     def series_date(col: str) -> pd.Series:
         if col not in df.columns:
             return pd.Series([None] * len(df))
-        return pd.to_datetime(df[col], errors="coerce").dt.date.replace({pd.NaT: None})
+        return _parse_date_series(df[col]).dt.date.replace({pd.NaT: None})
 
     def series_int(col: str) -> pd.Series:
         if col not in df.columns:
@@ -163,6 +171,8 @@ def _import_farm_file(
         dayfirst=True,
         on_bad_lines="skip",
         chunksize=_CSV_CHUNK_SIZE,
+        parse_dates=list(_EVENT_DATE_COLUMNS),
+        date_format=_EVENT_DATE_FORMAT,
     ):
         chunk["Farm"] = farm
         chunk = _clean_events_dataframe(chunk)
