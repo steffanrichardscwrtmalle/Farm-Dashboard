@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
+# Render Secret Files (Environment → Secret Files → filename `.env`)
+load_dotenv("/etc/secrets/.env")
 
 
 def _normalize_database_url(url: str) -> str:
