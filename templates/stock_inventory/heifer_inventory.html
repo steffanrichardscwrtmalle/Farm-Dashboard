@@ -1,0 +1,429 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Heifer Inventory{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(200px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .page-layout { grid-template-columns: 1fr; }
+    }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+    }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-child { margin-bottom: 0; }
+    .filter-section label.section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .farm-filter {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin: 0;
+      padding: 0;
+      border: none;
+    }
+    .farm-filter label {
+      font-size: 0.875rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .view-toggle {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .view-toggle label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.875rem;
+    }
+    .age-inputs {
+      display: grid;
+      gap: 0.5rem;
+    }
+    .age-inputs label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+    }
+    .age-inputs input[type="range"] { width: 100%; }
+    .age-inputs input[type="number"] {
+      width: 4rem;
+      margin: 0;
+      padding: 0.25rem 0.35rem;
+    }
+    .content-panel { min-width: 0; }
+    .meta-line {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin-bottom: 0.75rem;
+    }
+    .chart-wrap {
+      position: relative;
+      height: 500px;
+      max-width: 100%;
+    }
+    #heifer-table {
+      width: auto;
+      table-layout: auto;
+    }
+    #heifer-table th, #heifer-table td {
+      text-align: right;
+      white-space: nowrap;
+      padding: 0.45rem 0.75rem;
+    }
+    #heifer-table th:first-child, #heifer-table td:first-child {
+      text-align: left;
+    }
+    #heifer-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+    }
+    #heifer-table tbody tr.grand-total td {
+      background: #eef2f6;
+      font-weight: 700;
+      border-top: 2px solid var(--border);
+    }
+    .empty-state {
+      padding: 2rem;
+      color: var(--muted);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="view-toggle">
+    <label><input type="radio" name="view-mode" value="graph" checked> Graph</label>
+    <label><input type="radio" name="view-mode" value="table"> Table</label>
+  </div>
+
+  <div class="page-layout">
+    <aside class="filter-panel">
+      <h2>Filters</h2>
+      <div class="filter-section">
+        <span class="section-label">Farm</span>
+        <fieldset class="farm-filter">
+          {% for farm in farm_options %}
+          <label>
+            <input type="checkbox" class="farm-cb" value="{{ farm }}" checked>
+            {{ farm }}
+          </label>
+          {% endfor %}
+        </fieldset>
+      </div>
+      <div class="filter-section">
+        <span class="section-label">Age range (months)</span>
+        <div class="age-inputs">
+          <label>
+            Min
+            <input type="number" id="min-age" min="0" value="0">
+          </label>
+          <input type="range" id="min-age-range" min="0" max="36" value="0">
+          <label>
+            Max
+            <input type="number" id="max-age" min="0" value="36">
+          </label>
+          <input type="range" id="max-age-range" min="0" max="36" value="36">
+        </div>
+      </div>
+    </aside>
+
+    <section class="content-panel">
+      <p class="meta-line" id="meta-line"></p>
+      <div id="graph-view">
+        <div class="chart-wrap">
+          <canvas id="heifer-chart"></canvas>
+        </div>
+      </div>
+      <div id="table-view" style="display:none;">
+        <div class="table-wrap">
+          <table id="heifer-table">
+            <thead>
+              <tr>
+                <th>Months Old</th>
+                <th>CM</th>
+                <th>GAD</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="heifer-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="empty-state" class="empty-state" style="display:none;"></div>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script>
+    const FARM_COLORS = { CM: "#1f77b4", GAD: "#ff7f0e" };
+    let heiferChart = null;
+    let ageBounds = { min: 0, max: 36 };
+    let ageBoundsInitialized = false;
+
+    function selectedFarms() {
+      return [...document.querySelectorAll(".farm-cb:checked")].map(cb => cb.value);
+    }
+
+    function appendFarmParams(params) {
+      selectedFarms().forEach(farm => params.append("farm", farm));
+      return params;
+    }
+
+    function currentAgeRange() {
+      const minEl = document.getElementById("min-age");
+      const maxEl = document.getElementById("max-age");
+      let minAge = parseInt(minEl.value, 10);
+      let maxAge = parseInt(maxEl.value, 10);
+      if (Number.isNaN(minAge)) minAge = ageBounds.min;
+      if (Number.isNaN(maxAge)) maxAge = ageBounds.max;
+      if (minAge > maxAge) [minAge, maxAge] = [maxAge, minAge];
+      return { minAge, maxAge };
+    }
+
+    function syncAgeControls(fromBounds, resetValues) {
+      if (!fromBounds) return;
+      ageBounds = fromBounds;
+      document.getElementById("min-age-range").min = ageBounds.min;
+      document.getElementById("min-age-range").max = ageBounds.max;
+      document.getElementById("max-age-range").min = ageBounds.min;
+      document.getElementById("max-age-range").max = ageBounds.max;
+      document.getElementById("min-age").min = ageBounds.min;
+      document.getElementById("min-age").max = ageBounds.max;
+      document.getElementById("max-age").min = ageBounds.min;
+      document.getElementById("max-age").max = ageBounds.max;
+      if (resetValues) {
+        document.getElementById("min-age").value = ageBounds.min;
+        document.getElementById("max-age").value = ageBounds.max;
+        document.getElementById("min-age-range").value = ageBounds.min;
+        document.getElementById("max-age-range").value = ageBounds.max;
+      }
+    }
+
+    function bindAgeInputs() {
+      const minAge = document.getElementById("min-age");
+      const maxAge = document.getElementById("max-age");
+      const minRange = document.getElementById("min-age-range");
+      const maxRange = document.getElementById("max-age-range");
+
+      function clampAndLoad() {
+        let minVal = parseInt(minAge.value, 10);
+        let maxVal = parseInt(maxAge.value, 10);
+        if (Number.isNaN(minVal)) minVal = ageBounds.min;
+        if (Number.isNaN(maxVal)) maxVal = ageBounds.max;
+        if (minVal > maxVal) maxVal = minVal;
+        minAge.value = minVal;
+        maxAge.value = maxVal;
+        minRange.value = minVal;
+        maxRange.value = maxVal;
+        loadReport();
+      }
+
+      minAge.addEventListener("change", clampAndLoad);
+      maxAge.addEventListener("change", clampAndLoad);
+      minRange.addEventListener("input", () => {
+        minAge.value = minRange.value;
+        if (parseInt(minAge.value, 10) > parseInt(maxAge.value, 10)) {
+          maxAge.value = minAge.value;
+          maxRange.value = minAge.value;
+        }
+        loadReport();
+      });
+      maxRange.addEventListener("input", () => {
+        maxAge.value = maxRange.value;
+        if (parseInt(maxAge.value, 10) < parseInt(minAge.value, 10)) {
+          minAge.value = maxAge.value;
+          minRange.value = maxAge.value;
+        }
+        loadReport();
+      });
+    }
+
+    function viewMode() {
+      return document.querySelector('input[name="view-mode"]:checked')?.value || "graph";
+    }
+
+    function updateViewVisibility() {
+      const mode = viewMode();
+      document.getElementById("graph-view").style.display = mode === "graph" ? "" : "none";
+      document.getElementById("table-view").style.display = mode === "table" ? "" : "none";
+    }
+
+    function renderTable(data) {
+      const body = document.getElementById("heifer-body");
+      const rows = data.rows || [];
+      if (!rows.length) {
+        body.innerHTML = "";
+        return;
+      }
+      let html = rows.map(row => `
+        <tr>
+          <td>${row.months_old}</td>
+          <td>${row.CM}</td>
+          <td>${row.GAD}</td>
+          <td>${row.total}</td>
+        </tr>
+      `).join("");
+      const gt = data.grand_total || {};
+      html += `
+        <tr class="grand-total">
+          <td>Grand Total</td>
+          <td>${gt.CM ?? 0}</td>
+          <td>${gt.GAD ?? 0}</td>
+          <td>${gt.total ?? 0}</td>
+        </tr>
+      `;
+      body.innerHTML = html;
+    }
+
+    function renderChart(data) {
+      const canvas = document.getElementById("heifer-chart");
+      const rows = data.rows || [];
+      if (heiferChart) {
+        heiferChart.destroy();
+        heiferChart = null;
+      }
+      if (!rows.length) return;
+
+      const labels = rows.map(r => r.months_old);
+      const farms = selectedFarms().length ? selectedFarms() : ["CM", "GAD"];
+      const datasets = farms.map(farm => ({
+        label: farm,
+        data: rows.map(r => r[farm] ?? 0),
+        backgroundColor: FARM_COLORS[farm] || "#888",
+        stack: "heifers",
+      }));
+
+      heiferChart = new Chart(canvas, {
+        type: "bar",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: {
+              display: true,
+              text: "Heifer Inventory by Age (Months Old) - Stacked by Farm",
+            },
+            legend: { title: { display: true, text: "Farm" } },
+          },
+          scales: {
+            x: {
+              stacked: true,
+              title: { display: true, text: "Months Old" },
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              title: { display: true, text: "Number of Heifers" },
+            },
+          },
+        },
+      });
+    }
+
+    async function loadReport() {
+      const farms = selectedFarms();
+      const empty = document.getElementById("empty-state");
+      const graphView = document.getElementById("graph-view");
+      const tableView = document.getElementById("table-view");
+      const meta = document.getElementById("meta-line");
+
+      if (!farms.length) {
+        empty.style.display = "";
+        empty.textContent = "Please select at least one farm.";
+        graphView.style.display = "none";
+        tableView.style.display = "none";
+        meta.textContent = "";
+        if (heiferChart) { heiferChart.destroy(); heiferChart = null; }
+        return;
+      }
+
+      const { minAge, maxAge } = currentAgeRange();
+      const params = appendFarmParams(new URLSearchParams());
+      params.set("min_age", String(minAge));
+      params.set("max_age", String(maxAge));
+
+      const res = await fetch(`/api/stock-inventory/heifer-inventory?${params}`);
+      if (!res.ok) {
+        empty.style.display = "";
+        empty.textContent = "Failed to load heifer inventory data.";
+        graphView.style.display = "none";
+        tableView.style.display = "none";
+        return;
+      }
+
+      const data = await res.json();
+      if (data.age_bounds && !ageBoundsInitialized) {
+        syncAgeControls(data.age_bounds, true);
+        ageBoundsInitialized = true;
+      } else if (data.age_bounds) {
+        syncAgeControls(data.age_bounds, false);
+      }
+
+      const importNote = data.latest_import
+        ? `Latest import: ${new Date(data.latest_import).toLocaleString("en-GB")}`
+        : "No inventory import found — run the herd import cron job.";
+      meta.textContent = importNote;
+
+      if (!data.rows || !data.rows.length) {
+        empty.style.display = "";
+        empty.textContent = data.latest_import
+          ? "No heifers in the selected filters."
+          : "No inventory data available.";
+        graphView.style.display = "none";
+        tableView.style.display = "none";
+        if (heiferChart) { heiferChart.destroy(); heiferChart = null; }
+        return;
+      }
+
+      empty.style.display = "none";
+      updateViewVisibility();
+      renderTable(data);
+      if (viewMode() === "graph") {
+        renderChart(data);
+      }
+    }
+
+    document.querySelectorAll(".farm-cb").forEach(cb => {
+      cb.addEventListener("change", loadReport);
+    });
+    document.querySelectorAll('input[name="view-mode"]').forEach(radio => {
+      radio.addEventListener("change", () => {
+        updateViewVisibility();
+        loadReport();
+      });
+    });
+
+    bindAgeInputs();
+    loadReport();
+  </script>
+{% endblock %}

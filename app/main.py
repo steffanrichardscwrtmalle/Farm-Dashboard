@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.api.stock_inventory_routes import router as stock_inventory_api_router
 from app.api.admin_routes import router as admin_api_router
 from app.api.herd_routes import router as herd_api_router
 from app.api.prostock_routes import router as prostock_api_router
@@ -48,10 +49,15 @@ app.add_middleware(
 app.include_router(api_router)
 app.include_router(prostock_api_router)
 app.include_router(herd_api_router)
+app.include_router(stock_inventory_api_router)
 app.include_router(admin_api_router)
 
 _WYNNSTAY_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/wynnstay">Wynnstay</a>'
 _PROSTOCK_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/prostock">Prostock</a>'
+_STOCK_INVENTORY_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/stock-inventory/heifer-inventory">Stock Inventory</a>'
+)
 
 _login_attempts: dict[str, list[float]] = defaultdict(list)
 _LOGIN_MAX_ATTEMPTS = 5
@@ -89,6 +95,19 @@ def _prostock_context(title: str, active_nav: str, page_name: str | None = None)
         "title": title,
         "active_nav_group": "suppliers",
         "active_section": "prostock",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _stock_inventory_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _STOCK_INVENTORY_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "stock-inventory",
+        "active_section": "stock-inventory",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -370,6 +389,25 @@ def prostock_monthly_spend_page(request: Request):
             request,
             business_options=list(PROSTOCK_BUSINESS_OPTIONS),
             **_prostock_context("Monthly Spend", "monthly-spend", "Monthly Spend"),
+        ),
+    )
+
+
+@app.get("/stock-inventory/heifer-inventory", response_class=HTMLResponse)
+def stock_inventory_heifer_page(request: Request):
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "stock_inventory/heifer_inventory.html",
+        _template_ctx(
+            request,
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_stock_inventory_context(
+                "Heifer Inventory",
+                "heifer-inventory",
+                "Heifer Inventory",
+            ),
         ),
     )
 

@@ -373,6 +373,21 @@
               </div>
             </div>
           </div>
+
+          <div class="nav-group{% if active_nav_group == 'stock-inventory' %} expanded{% endif %}" data-nav-group="stock-inventory">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'stock-inventory' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'stock-inventory' %}true{% else %}false{% endif %}"
+              aria-controls="stock-inventory-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">Stock Inventory</span>
+            </button>
+            <div class="nav-group-items" id="stock-inventory-nav-items">
+              <a href="/stock-inventory/heifer-inventory" class="{% if active_nav == 'heifer-inventory' %}active{% endif %}">Heifer Inventory</a>
+            </div>
+          </div>
         </div>
       </nav>
     </aside>
@@ -466,7 +481,12 @@
       }
 
       document.querySelectorAll("[data-nav-group]").forEach(el => {
-        initNode(el, el.dataset.navGroup, ":scope > .nav-group-toggle");
+        initNode(el, el.dataset.navGroup, ":scope > .nav-group-toggle", () => {
+          const group = el.dataset.navGroup;
+          if (group === "stock-inventory" && !window.location.pathname.startsWith("/stock-inventory")) {
+            window.location.href = "/stock-inventory/heifer-inventory";
+          }
+        });
       });
 
       document.querySelectorAll("[data-supplier]").forEach(el => {

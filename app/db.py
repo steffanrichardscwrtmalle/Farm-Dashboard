@@ -38,6 +38,7 @@ def init_db() -> None:
     _drop_legacy_tables()
     _migrate_invoice_lines_schema()
     _migrate_supplier_schema()
+    _migrate_herd_inventory_schema()
 
 
 def _add_supplier_column(conn, table: str) -> None:
@@ -69,6 +70,26 @@ def _migrate_mapping_options_supplier(conn) -> None:
     )
     conn.execute(text("DROP TABLE mapping_options"))
     conn.execute(text("ALTER TABLE mapping_options_new RENAME TO mapping_options"))
+
+
+def _migrate_herd_inventory_schema() -> None:
+    inspector = inspect(engine)
+    if "herd_inventory" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("herd_inventory")}
+    new_columns = {
+        "gender": "VARCHAR(8)",
+        "aged": "INTEGER",
+        "months_old": "INTEGER",
+        "fiscal_year_due": "INTEGER",
+        "sort_key": "INTEGER",
+        "expected_month": "VARCHAR(16)",
+        "value": "FLOAT",
+    }
+    with engine.begin() as conn:
+        for name, col_type in new_columns.items():
+            if name not in columns:
+                conn.execute(text(f"ALTER TABLE herd_inventory ADD COLUMN {name} {col_type}"))
 
 
 def _migrate_supplier_schema() -> None:

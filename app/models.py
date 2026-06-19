@@ -17,6 +17,7 @@ DEFAULT_BUSINESS = "Cwrt Malle"
 SUPPLIER_WYNNSTAY = "wynnstay"
 SUPPLIER_PROSTOCK = "prostock"
 PROSTOCK_BUSINESS_OPTIONS: tuple[str, ...] = ("Cwrt Malle", "Green Acre Dairy")
+HERD_FARM_OPTIONS: tuple[str, ...] = ("CM", "GAD")
 
 
 class ImportBatch(Base):
@@ -258,7 +259,14 @@ class HerdInventory(Base):
     lsbrd: Mapped[str | None] = mapped_column(String(16), nullable=True)
     farm: Mapped[str] = mapped_column(String(8), index=True)
     category: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    gender: Mapped[str | None] = mapped_column(String(8), nullable=True, index=True)
+    aged: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    months_old: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     expected_due: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    fiscal_year_due: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sort_key: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    expected_month: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
     import_timestamp: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), index=True
     )
