@@ -1,4 +1,5 @@
 .env
+render-env-paste.txt
 .venv/
 /data/
 __pycache__/

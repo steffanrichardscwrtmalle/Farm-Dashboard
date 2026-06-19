@@ -95,6 +95,17 @@ Open http://127.0.0.1:8000 — you will be redirected to `/login`.
 
 After deploying schema changes (e.g. new `supplier` column), Render runs migrations on startup via `init_db()`. To copy local SQLite data to production, use `scripts/migrate_sqlite_to_postgres.py` (see `.env.example` for `TARGET_DATABASE_URL`).
 
+### Herd data (cow events from OneDrive)
+
+1. Complete Microsoft Entra app registration (see `.env.example` for `GRAPH_*` variables).
+2. Add env vars to the web service and a **Cron Job** on Render:
+   - **Schedule:** e.g. `0 6 * * *` (6:00 UTC daily)
+   - **Command:** `python scripts/import_herd_events.py`
+   - Same env vars as the web service (`DATABASE_URL`, `GRAPH_*`, `HERD_EXPORT_BASE_PATH`, `GRAPH_DRIVE_USER_EMAIL`)
+3. Or trigger via HTTP: `POST /api/herd/events/import` with header `X-Import-Key: <IMPORT_API_KEY>`.
+
+For local testing without Graph API, set `LOCAL_HERD_EXPORT_DIR` to your synced OneDrive folder path.
+
 ---
 
 ## 6. Security checklist

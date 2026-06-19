@@ -1,0 +1,112 @@
+"""Download herd export files from OneDrive via Microsoft Graph."""
+
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from urllib.parse import quote
+
+import httpx
+
+from app.config import (
+    GRAPH_CLIENT_ID,
+    GRAPH_CLIENT_SECRET,
+    GRAPH_DRIVE_USER_EMAIL,
+    GRAPH_TENANT_ID,
+    HERD_EXPORT_BASE_PATH,
+    LOCAL_HERD_EXPORT_DIR,
+)
+
+_TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+_GRAPH_SCOPE = "https://graph.microsoft.com/.default"
+
+_token_cache: dict[str, float | str] = {"access_token": "", "expires_at": 0.0}
+
+
+class GraphConfigError(ValueError):
+    """Graph API is not configured."""
+
+
+def graph_is_configured() -> bool:
+    return bool(LOCAL_HERD_EXPORT_DIR or (
+        GRAPH_TENANT_ID and GRAPH_CLIENT_ID and GRAPH_CLIENT_SECRET and GRAPH_DRIVE_USER_EMAIL
+    ))
+
+
+def _require_graph_config() -> None:
+    missing = [
+        name
+        for name, val in (
+            ("GRAPH_TENANT_ID", GRAPH_TENANT_ID),
+            ("GRAPH_CLIENT_ID", GRAPH_CLIENT_ID),
+            ("GRAPH_CLIENT_SECRET", GRAPH_CLIENT_SECRET),
+            ("GRAPH_DRIVE_USER_EMAIL", GRAPH_DRIVE_USER_EMAIL),
+        )
+        if not val
+    ]
+    if missing:
+        raise GraphConfigError(
+            f"Missing Graph configuration: {', '.join(missing)}. "
+            "Set LOCAL_HERD_EXPORT_DIR for local development instead."
+        )
+
+
+def get_access_token() -> str:
+    _require_graph_config()
+    now = time.time()
+    cached = _token_cache.get("access_token", "")
+    if cached and now < float(_token_cache.get("expires_at", 0)) - 60:
+        return str(cached)
+
+    url = _TOKEN_URL.format(tenant=GRAPH_TENANT_ID)
+    data = {
+        "client_id": GRAPH_CLIENT_ID,
+        "client_secret": GRAPH_CLIENT_SECRET,
+        "scope": _GRAPH_SCOPE,
+        "grant_type": "client_credentials",
+    }
+    with httpx.Client(timeout=30.0) as client:
+        response = client.post(url, data=data)
+        response.raise_for_status()
+        payload = response.json()
+
+    token = payload["access_token"]
+    expires_in = int(payload.get("expires_in", 3600))
+    _token_cache["access_token"] = token
+    _token_cache["expires_at"] = now + expires_in
+    return token
+
+
+def herd_file_relative_path(*parts: str) -> str:
+    """Build a path relative to HERD_EXPORT_BASE_PATH, e.g. DCEXPORTCM/CMEVENTS.CSV."""
+    segments = [HERD_EXPORT_BASE_PATH, *parts] if HERD_EXPORT_BASE_PATH else list(parts)
+    return "/".join(seg.strip("/") for seg in segments if seg)
+
+
+def download_herd_file(relative_path: str) -> bytes:
+    """
+    Load a herd export file from OneDrive (Graph) or a local synced folder.
+
+    relative_path is under HERD_EXPORT_BASE_PATH, e.g. 'DCEXPORTCM/CMEVENTS.CSV'.
+    """
+    if LOCAL_HERD_EXPORT_DIR:
+        local_path = Path(LOCAL_HERD_EXPORT_DIR).joinpath(*relative_path.split("/"))
+        if not local_path.is_file():
+            raise FileNotFoundError(f"Local herd file not found: {local_path}")
+        return local_path.read_bytes()
+
+    _require_graph_config()
+    full_path = herd_file_relative_path(relative_path)
+    encoded_path = quote(full_path, safe="/")
+    url = (
+        f"https://graph.microsoft.com/v1.0/users/{GRAPH_DRIVE_USER_EMAIL}"
+        f"/drive/root:/{encoded_path}:/content"
+    )
+
+    token = get_access_token()
+    with httpx.Client(timeout=120.0, follow_redirects=True) as client:
+        response = client.get(url, headers={"Authorization": f"Bearer {token}"})
+        if response.status_code == 404:
+            raise FileNotFoundError(f"OneDrive file not found: {full_path}")
+        response.raise_for_status()
+        return response.content

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.admin_routes import router as admin_api_router
+from app.api.herd_routes import router as herd_api_router
 from app.api.prostock_routes import router as prostock_api_router
 from app.api.routes import router as api_router
 from app.auth.deps import require_admin
@@ -46,6 +47,7 @@ app.add_middleware(
 
 app.include_router(api_router)
 app.include_router(prostock_api_router)
+app.include_router(herd_api_router)
 app.include_router(admin_api_router)
 
 _WYNNSTAY_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/wynnstay">Wynnstay</a>'

@@ -17,6 +17,18 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      - key: GRAPH_TENANT_ID
+        sync: false
+      - key: GRAPH_CLIENT_ID
+        sync: false
+      - key: GRAPH_CLIENT_SECRET
+        sync: false
+      - key: GRAPH_DRIVE_USER_EMAIL
+        sync: false
+      - key: HERD_EXPORT_BASE_PATH
+        sync: false
+      - key: IMPORT_API_KEY
+        sync: false
     domains:
       - dashboard.cwrtmalle.co.uk
 

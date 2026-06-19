@@ -34,4 +34,20 @@ MIN_PASSWORD_LENGTH = int(os.getenv("MIN_PASSWORD_LENGTH", "12"))
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
+# Microsoft Graph (OneDrive / SharePoint herd export files)
+GRAPH_TENANT_ID = os.getenv("GRAPH_TENANT_ID", "").strip()
+GRAPH_CLIENT_ID = os.getenv("GRAPH_CLIENT_ID", "").strip()
+GRAPH_CLIENT_SECRET = os.getenv("GRAPH_CLIENT_SECRET", "").strip()
+GRAPH_DRIVE_USER_EMAIL = os.getenv("GRAPH_DRIVE_USER_EMAIL", "").strip().lower()
+HERD_EXPORT_BASE_PATH = os.getenv(
+    "HERD_EXPORT_BASE_PATH",
+    "Power BI Reports/Cwrt Malle and GAD Costings",
+).strip().strip("/")
+
+# Optional local folder for development (skips Graph when set)
+LOCAL_HERD_EXPORT_DIR = os.getenv("LOCAL_HERD_EXPORT_DIR", "").strip()
+
+# Secured import endpoint for cron / automation
+IMPORT_API_KEY = os.getenv("IMPORT_API_KEY", "").strip()
+
 COOKIE_SECURE = IS_PRODUCTION or os.getenv("COOKIE_SECURE", "").lower() in ("1", "true", "yes")

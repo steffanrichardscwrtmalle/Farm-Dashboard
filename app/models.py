@@ -200,6 +200,39 @@ class User(Base):
         }
 
 
+class CowEvent(Base):
+    """Cow events from DCEXPORT CMEVENTS / GADEVENTS files."""
+
+    __tablename__ = "cow_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cow_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    etag: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bdat: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    fdat: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    lact: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gndr: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    edat: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    event: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    dim: Mapped[float | None] = mapped_column(Float, nullable=True)
+    event_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True, index=True)
+    remark: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    r: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    t: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    b: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    protocols: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    technician: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    month_label: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    fiscal_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sort_key: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    parity: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    cbrd: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    import_timestamp: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+
+
 def _str_or_none(value: Any) -> str | None:
     if value is None:
         return None

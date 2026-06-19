@@ -10,9 +10,11 @@ from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from app.db import SessionLocal
 from app.models import User
+from app.auth.import_key import valid_import_key
 
 _PUBLIC_PATHS = frozenset({"/login", "/health", "/favicon.ico"})
 _PUBLIC_PREFIXES = ("/static",)
+_IMPORT_API_PREFIX = "/api/herd"
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -38,6 +40,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 db.close()
 
         if request.state.user is not None:
+            return await call_next(request)
+
+        if path.startswith(_IMPORT_API_PREFIX) and valid_import_key(request):
             return await call_next(request)
 
         if path.startswith("/api"):
