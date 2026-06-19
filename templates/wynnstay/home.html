@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Wynnstay overview{% endblock %}
+
+{% block content %}
+    {% if current_user and current_user.role in ['admin', 'editor'] %}
+    <section class="grid">
+      <div class="card">
+        <h2>Add new data</h2>
+        <form id="import-form">
+          <label for="file">Wynnstay Excel export</label>
+          <input type="file" id="file" name="file" accept=".xls,.xlsx,.xlsm" required>
+
+          <label for="invoice_month">Invoice month</label>
+          <select id="invoice_month" name="invoice_month" required></select>
+          <p class="muted" id="invoice-month-hint" style="margin:0.25rem 0 0.75rem"></p>
+
+          <label for="business">Business</label>
+          <select id="business" name="business" required>
+            <option value="Cwrt Malle" selected>Cwrt Malle</option>
+            <option value="Green Acre Dairy">Green Acre Dairy</option>
+            <option value="H&S Forage">H&S Forage</option>
+          </select>
+
+          <div class="actions">
+            <button type="submit">Import</button>
+          </div>
+        </form>
+        <div id="message"></div>
+      </div>
+
+      <div class="card">
+        <h2>Refresh data only</h2>
+        <p class="muted">Re-run unit conversions, apply keyword map (Category + Farm Description), and update Recent and Credit flags (negative goods value) on all stored rows.</p>
+        <div class="actions">
+          <button type="button" id="refresh-btn" class="secondary">Refresh all rows</button>
+        </div>
+      </div>
+    </section>
+    {% else %}
+    <p class="muted">You have view-only access. Contact an admin or editor to import or refresh invoice data.</p>
+    {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const msg = document.getElementById("message");
+
+    function showMessage(text, ok) {
+      msg.textContent = text;
+      msg.className = ok ? "ok" : "err";
+    }
+
+    function buildMonthOptions() {
+      const select = document.getElementById("invoice_month");
+      const now = new Date();
+      const currentValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const options = [];
+
+      for (let offset = -24; offset <= 12; offset++) {
+        const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+        const year = d.getFullYear();
+        const month = d.getMonth() + 1;
+        const value = `${year}-${String(month).padStart(2, "0")}`;
+        options.push({
+          value,
+          label: fmtInvoiceMonth(lastDayOfMonthIso(year, month)),
+        });
+      }
+
+      select.innerHTML = options.map(opt =>
+        `<option value="${opt.value}">${opt.label}</option>`
+      ).join("");
+
+      select.value = currentValue;
+      updateMonthHint();
+    }
+
+    function selectedInvoiceDateIso() {
+      const [year, month] = document.getElementById("invoice_month").value.split("-").map(Number);
+      return lastDayOfMonthIso(year, month);
+    }
+
+    function updateMonthHint() {
+      const iso = selectedInvoiceDateIso();
+      document.getElementById("invoice-month-hint").textContent =
+        `All imported rows will be assigned to ${fmtInvoiceMonth(iso)}.`;
+    }
+
+    document.getElementById("invoice_month").addEventListener("change", updateMonthHint);
+
+    document.getElementById("import-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = new FormData();
+      form.append("file", document.getElementById("file").files[0]);
+      form.append("invoice_date", selectedInvoiceDateIso());
+      form.append("business", document.getElementById("business").value);
+
+      showMessage("Importing…", true);
+      try {
+        const res = await fetch("/api/imports", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Import failed");
+        showMessage(
+          `Imported ${data.rows_imported} rows (${data.rows_dropped} dropped where TOTAL=0).`,
+          true
+        );
+        document.getElementById("import-form").reset();
+        buildMonthOptions();
+      } catch (err) {
+        showMessage(err.message, false);
+      }
+    });
+
+    document.getElementById("refresh-btn").addEventListener("click", async () => {
+      showMessage("Refreshing…", true);
+      try {
+        const res = await fetch("/api/refresh", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Refresh failed");
+        showMessage(`Refreshed ${data.rows_refreshed} rows (keyword map, units, Recent, Credit).`, true);
+      } catch (err) {
+        showMessage(err.message, false);
+      }
+    });
+
+    buildMonthOptions();
+  </script>
+{% endblock %}

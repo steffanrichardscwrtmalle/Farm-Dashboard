@@ -1,0 +1,575 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Category breakdown{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .breakdown-card {
+      width: fit-content;
+      max-width: 100%;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    .toolbar label { margin: 0; display: inline-flex; align-items: center; gap: 0.5rem; }
+    .toolbar select { min-width: 120px; margin: 0; }
+    .range-presets {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+    .range-presets span {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-right: 0.15rem;
+    }
+    .range-presets button {
+      padding: 0.35rem 0.65rem;
+      font-size: 0.8rem;
+      background: #eef2f6;
+      color: var(--text);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .range-presets button:hover { background: #dde3ea; }
+    .range-presets button.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .table-wrap {
+      max-height: calc(100vh - 280px);
+      overflow: auto;
+      width: fit-content;
+      max-width: 100%;
+    }
+    #breakdown-table {
+      width: auto;
+      table-layout: auto;
+    }
+    #breakdown-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      border-bottom: none;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    #breakdown-table td.num { text-align: right; white-space: nowrap; }
+    #breakdown-table th.num { text-align: right; }
+    .col-category {
+      white-space: normal;
+      max-width: 28rem;
+    }
+    .toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.25rem;
+      height: 1.25rem;
+      padding: 0;
+      margin-right: 0.35rem;
+      font-size: 0.85rem;
+      line-height: 1;
+      background: #dde3ea;
+      color: var(--text);
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+    .toggle-btn:hover { background: #c8d0da; }
+    .toggle-spacer { display: inline-block; width: 1.6rem; flex-shrink: 0; }
+    .label-inner {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+    }
+    .label-text { word-break: break-word; }
+    tr.level-category td { background: #e8f0f8; font-weight: 600; }
+    tr.level-farm_description td { background: #f4f8fc; }
+    tr.level-product_description td { background: #fff; }
+    tr.grand-total td {
+      background: #eef2f6;
+      font-weight: 700;
+      border-top: 2px solid var(--border);
+    }
+    tr.hidden { display: none; }
+    .period-label { color: var(--muted); font-size: 0.875rem; }
+    .negative-price { color: var(--danger); }
+    .print-only { display: none; }
+    .print-header {
+      margin-bottom: 0.75rem;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    .print-subheader {
+      margin: -0.35rem 0 0.75rem;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+    #print-area.pdf-exporting .print-only { display: block !important; }
+    #print-area.pdf-exporting .table-wrap {
+      max-height: none !important;
+      overflow: visible !important;
+    }
+    #print-area.pdf-exporting #breakdown-table thead th {
+      position: static !important;
+    }
+    #print-area.pdf-exporting .toggle-btn,
+    #print-area.pdf-exporting .toggle-spacer { display: none !important; }
+    @media print {
+      .sidebar, .topbar, .no-print { display: none !important; }
+      .app-shell { display: block; }
+      .main-panel, main {
+        max-width: none;
+        padding: 0.5rem;
+        width: auto;
+      }
+      .breakdown-card {
+        border: none;
+        padding: 0;
+        width: auto;
+      }
+      .table-wrap {
+        max-height: none;
+        overflow: visible;
+        width: auto;
+      }
+      tr.hidden { display: none !important; }
+      .toggle-btn, .toggle-spacer { display: none !important; }
+      .label-inner { padding-left: 0 !important; }
+      tr.level-farm_description .label-inner { padding-left: 1rem !important; }
+      tr.level-product_description .label-inner { padding-left: 2rem !important; }
+      .print-only { display: block !important; }
+      #breakdown-table thead th { position: static; }
+    }
+{% endblock %}
+
+{% block content %}
+    <div class="card breakdown-card">
+      <div class="toolbar no-print">
+        <label>
+          From
+          <select id="from-month"><option value="">Loading…</option></select>
+        </label>
+        <label>
+          To
+          <select id="to-month"><option value="">Loading…</option></select>
+        </label>
+        <button type="button" id="apply-range">Apply</button>
+        <div class="range-presets">
+          <span>Quick range</span>
+          <button type="button" class="range-preset active" data-months="1">Last month</button>
+          <button type="button" class="range-preset" data-months="6">6 months</button>
+          <button type="button" class="range-preset" data-months="12">12 months</button>
+        </div>
+        <label style="margin:0;font-weight:500">
+          <input type="checkbox" id="include-credit" checked> Include credit items
+        </label>
+        <button type="button" id="expand-all" class="secondary" title="Show the next level of detail">Expand Level</button>
+        <button type="button" id="collapse-all" class="secondary" title="Hide the deepest visible level">Collapse Level</button>
+        <button type="button" id="print-btn" class="secondary">Print</button>
+        <button type="button" id="pdf-btn" class="secondary">Download PDF</button>
+        <span class="period-label" id="period-label"></span>
+      </div>
+
+      <div id="print-area">
+        <div class="print-only print-header" id="print-title">Category breakdown</div>
+        <div class="print-only print-subheader" id="print-subtitle"></div>
+
+        <div class="table-wrap">
+          <table id="breakdown-table">
+            <thead>
+              <tr>
+                <th class="col-category">Category</th>
+                <th class="num">Sum of Quantity</th>
+                <th class="num">Average Price</th>
+                <th class="num">Sum of Goods Value</th>
+                <th class="num">Sum of VAT</th>
+                <th class="num">Sum of TOTAL</th>
+              </tr>
+            </thead>
+            <tbody id="breakdown-body">
+              <tr><td colspan="6" class="muted">Select an invoice month range.</td></tr>
+            </tbody>
+            <tfoot id="breakdown-foot" style="display:none">
+              <tr class="grand-total" id="grand-total-row"></tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
+  <script>
+    let monthOptions = [];
+    let collapsed = new Set();
+    let treeRows = [];
+    let expandDepth = 0;
+
+    function latestMonthValue() {
+      return monthOptions.length ? monthOptions[monthOptions.length - 1].value : "";
+    }
+
+    function applyPreset(monthCount, load = true) {
+      if (!monthOptions.length) return;
+      const count = Math.max(1, monthCount);
+      const toIdx = monthOptions.length - 1;
+      const fromIdx = Math.max(0, toIdx - count + 1);
+      document.getElementById("from-month").value = monthOptions[fromIdx].value;
+      document.getElementById("to-month").value = monthOptions[toIdx].value;
+      updatePresetButtons();
+      if (load) loadBreakdown();
+    }
+
+    function updatePresetButtons() {
+      if (!monthOptions.length) return;
+      const fromVal = document.getElementById("from-month").value;
+      const toVal = document.getElementById("to-month").value;
+      const latest = latestMonthValue();
+      const toIdx = monthIndex(toVal);
+      const fromIdx = monthIndex(fromVal);
+      let matchedPreset = null;
+      if (toVal === latest && fromIdx >= 0 && toIdx >= 0) {
+        const span = toIdx - fromIdx + 1;
+        if ([1, 6, 12].includes(span)) matchedPreset = span;
+      }
+      document.querySelectorAll(".range-preset").forEach(btn => {
+        const months = Number(btn.dataset.months);
+        btn.classList.toggle("active", months === matchedPreset);
+      });
+    }
+
+    function maxExpandDepth() {
+      if (!treeRows.length) return 0;
+      const parentDepths = treeRows.filter(r => r.hasChildren).map(r => r.depth);
+      return parentDepths.length ? Math.max(...parentDepths) + 1 : 0;
+    }
+
+    function applyExpandDepth() {
+      collapsed.clear();
+      const max = maxExpandDepth();
+      for (let d = 0; d < max; d++) {
+        if (expandDepth <= d) {
+          treeRows.filter(r => r.hasChildren && r.depth === d).forEach(r => collapsed.add(r.id));
+        }
+      }
+      refreshVisibility();
+      updateLevelButtons();
+    }
+
+    function recomputeExpandDepth() {
+      let depth = 0;
+      const max = maxExpandDepth();
+      while (depth < max) {
+        const parents = treeRows.filter(r => r.hasChildren && r.depth === depth);
+        if (parents.length && parents.every(r => !collapsed.has(r.id))) {
+          depth++;
+        } else {
+          break;
+        }
+      }
+      expandDepth = depth;
+      updateLevelButtons();
+    }
+
+    function updateLevelButtons() {
+      const max = maxExpandDepth();
+      document.getElementById("expand-all").disabled = expandDepth >= max;
+      document.getElementById("collapse-all").disabled = expandDepth <= 0;
+    }
+
+    function esc(s) {
+      return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+    }
+
+    function fmtTotals(t) {
+      const avg = t.avg_price != null
+        ? (t.avg_price < 0 ? `<span class="negative-price">${fmtMoney(t.avg_price)}</span>` : fmtMoney(t.avg_price))
+        : "";
+      return {
+        qty: fmtQty(t.quantity),
+        avg,
+        gv: fmtMoney(t.goods_value),
+        vat: fmtMoney(t.vat),
+        total: fmtMoney(t.total),
+      };
+    }
+
+    function flattenTree(nodes, depth = 0, parentId = null) {
+      const out = [];
+      for (const node of nodes) {
+        out.push({ ...node, depth, parentId, hasChildren: node.children.length > 0 });
+        out.push(...flattenTree(node.children, depth + 1, node.id));
+      }
+      return out;
+    }
+
+    function isVisible(row) {
+      let pid = row.parentId;
+      while (pid) {
+        if (collapsed.has(pid)) return false;
+        const parent = treeRows.find(r => r.id === pid);
+        pid = parent ? parent.parentId : null;
+      }
+      return true;
+    }
+
+    function renderTable(data, restore = null) {
+      treeRows = flattenTree(data.rows || []);
+      const tbody = document.getElementById("breakdown-body");
+
+      if (!treeRows.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="muted">No data for this period.</td></tr>';
+        document.getElementById("breakdown-foot").style.display = "none";
+        return;
+      }
+
+      if (restore?.preserveState && restore.savedCollapsed) {
+        const validIds = new Set(treeRows.map(r => r.id));
+        collapsed = new Set([...restore.savedCollapsed].filter(id => validIds.has(id)));
+      } else {
+        collapsed.clear();
+      }
+
+      tbody.innerHTML = treeRows.map(row => {
+        const hidden = isVisible(row) ? "" : ' class="hidden"';
+        const f = fmtTotals(row.totals);
+        const indent = row.depth * 1.25;
+        let toggle = '<span class="toggle-spacer"></span>';
+        if (row.hasChildren) {
+          const open = !collapsed.has(row.id);
+          toggle = `<button type="button" class="toggle-btn" data-toggle="${esc(row.id)}" aria-label="Toggle">${open ? "−" : "+"}</button>`;
+        }
+        return `
+          <tr data-id="${esc(row.id)}" data-parent="${esc(row.parentId || "")}" class="level-${row.level}"${hidden}>
+            <td class="col-category">
+              <div class="label-inner" style="padding-left:${indent}rem">
+                ${toggle}
+                <span class="label-text">${esc(row.label)}</span>
+              </div>
+            </td>
+            <td class="num">${f.qty}</td>
+            <td class="num">${f.avg}</td>
+            <td class="num">${f.gv}</td>
+            <td class="num">${f.vat}</td>
+            <td class="num">${f.total}</td>
+          </tr>
+        `;
+      }).join("");
+
+      const gt = fmtTotals(data.grand_total);
+      document.getElementById("grand-total-row").innerHTML = `
+        <td>Grand Total</td>
+        <td class="num">${gt.qty}</td>
+        <td class="num">${gt.avg}</td>
+        <td class="num">${gt.gv}</td>
+        <td class="num">${gt.vat}</td>
+        <td class="num">${gt.total}</td>
+      `;
+      document.getElementById("breakdown-foot").style.display = "";
+      document.getElementById("period-label").textContent = data.period_label
+        ? `Showing ${data.period_label}`
+        : "";
+      updatePrintHeaders(data.period_label);
+      if (restore?.preserveState) {
+        refreshVisibility();
+        recomputeExpandDepth();
+      } else {
+        expandDepth = maxExpandDepth();
+        applyExpandDepth();
+      }
+    }
+
+    function updatePrintHeaders(periodLabel) {
+      const creditNote = document.getElementById("include-credit").checked
+        ? "Credit items included"
+        : "Credit items excluded";
+      document.getElementById("print-title").textContent = periodLabel
+        ? `Category breakdown — ${periodLabel}`
+        : "Category breakdown";
+      document.getElementById("print-subtitle").textContent = creditNote;
+    }
+
+    function pdfFilename() {
+      const period = document.getElementById("period-label").textContent
+        .replace(/^Showing\s+/i, "")
+        .trim()
+        .replace(/\s+/g, "-")
+        .replace(/[^\w\-]+/g, "") || "report";
+      return `category-breakdown-${period}.pdf`;
+    }
+
+    document.getElementById("print-btn").addEventListener("click", () => {
+      if (!treeRows.length) return;
+      window.print();
+    });
+
+    document.getElementById("pdf-btn").addEventListener("click", async () => {
+      if (!treeRows.length) return;
+      if (typeof html2pdf === "undefined") {
+        alert("PDF library is still loading. Please try again in a moment.");
+        return;
+      }
+      const btn = document.getElementById("pdf-btn");
+      const printArea = document.getElementById("print-area");
+      const tableWrap = printArea.querySelector(".table-wrap");
+      btn.disabled = true;
+      btn.textContent = "Generating…";
+      printArea.classList.add("pdf-exporting");
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      try {
+        const exportHeight = printArea.scrollHeight;
+        await html2pdf()
+          .set({
+            margin: [8, 8, 8, 8],
+            filename: pdfFilename(),
+            image: { type: "jpeg", quality: 0.98 },
+            html2canvas: {
+              scale: 2,
+              useCORS: true,
+              scrollY: 0,
+              height: exportHeight,
+              windowHeight: exportHeight,
+            },
+            jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
+            pagebreak: { mode: ["css", "legacy"] },
+          })
+          .from(printArea)
+          .save();
+      } catch (err) {
+        alert("Could not generate PDF. Try Print and choose Save as PDF instead.");
+        console.error(err);
+      } finally {
+        printArea.classList.remove("pdf-exporting");
+        btn.disabled = false;
+        btn.textContent = "Download PDF";
+      }
+    });
+
+    function refreshVisibility() {
+      document.querySelectorAll("#breakdown-body tr[data-id]").forEach(tr => {
+        const row = treeRows.find(r => r.id === tr.dataset.id);
+        if (!row) return;
+        tr.classList.toggle("hidden", !isVisible(row));
+      });
+      document.querySelectorAll(".toggle-btn[data-toggle]").forEach(btn => {
+        const open = !collapsed.has(btn.dataset.toggle);
+        btn.textContent = open ? "−" : "+";
+      });
+    }
+
+    function monthIndex(value) {
+      return monthOptions.findIndex(m => m.value === value);
+    }
+
+    function fillMonthSelects() {
+      const opts = monthOptions.map(m => `<option value="${m.value}">${m.label}</option>`).join("");
+      document.getElementById("from-month").innerHTML = opts;
+      document.getElementById("to-month").innerHTML = opts;
+    }
+
+    async function loadBreakdown(options = {}) {
+      const preserveState = options.preserveExpandLevel ?? false;
+      const savedCollapsed = preserveState ? new Set(collapsed) : null;
+
+      const fromMonth = document.getElementById("from-month").value;
+      const toMonth = document.getElementById("to-month").value;
+      if (!fromMonth || !toMonth) return;
+
+      updatePresetButtons();
+      document.getElementById("breakdown-body").innerHTML =
+        '<tr><td colspan="6" class="muted">Loading…</td></tr>';
+
+      const params = new URLSearchParams({ from_month: fromMonth, to_month: toMonth });
+      if (!document.getElementById("include-credit").checked) {
+        params.set("include_credit", "false");
+      }
+      const res = await fetch("/api/category-breakdown?" + params.toString());
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("breakdown-body").innerHTML =
+          `<tr><td colspan="6" class="muted">${esc(data.detail || "Failed to load")}</td></tr>`;
+        return;
+      }
+      renderTable(data, preserveState ? { preserveState: true, savedCollapsed } : null);
+    }
+
+    document.getElementById("apply-range").addEventListener("click", () => {
+      updatePresetButtons();
+      loadBreakdown();
+    });
+
+    document.querySelectorAll(".range-preset").forEach(btn => {
+      btn.addEventListener("click", () => {
+        applyPreset(Number(btn.dataset.months));
+      });
+    });
+
+    document.getElementById("include-credit").addEventListener("change", () => {
+      loadBreakdown({ preserveExpandLevel: true });
+    });
+
+    document.getElementById("from-month").addEventListener("change", () => {
+      const from = document.getElementById("from-month").value;
+      const to = document.getElementById("to-month").value;
+      if (monthIndex(from) > monthIndex(to)) {
+        document.getElementById("to-month").value = from;
+      }
+      updatePresetButtons();
+    });
+
+    document.getElementById("to-month").addEventListener("change", () => {
+      const from = document.getElementById("from-month").value;
+      const to = document.getElementById("to-month").value;
+      if (monthIndex(from) > monthIndex(to)) {
+        document.getElementById("from-month").value = to;
+      }
+      updatePresetButtons();
+    });
+
+    document.getElementById("breakdown-body").addEventListener("click", (e) => {
+      const btn = e.target.closest(".toggle-btn[data-toggle]");
+      if (!btn) return;
+      const id = btn.dataset.toggle;
+      if (collapsed.has(id)) collapsed.delete(id);
+      else collapsed.add(id);
+      refreshVisibility();
+      recomputeExpandDepth();
+    });
+
+    document.getElementById("expand-all").addEventListener("click", () => {
+      expandDepth = Math.min(expandDepth + 1, maxExpandDepth());
+      applyExpandDepth();
+    });
+
+    document.getElementById("collapse-all").addEventListener("click", () => {
+      expandDepth = Math.max(expandDepth - 1, 0);
+      applyExpandDepth();
+    });
+
+    async function init() {
+      const res = await fetch("/api/invoice-months");
+      const data = await res.json();
+      monthOptions = data.items || [];
+      if (!monthOptions.length) {
+        document.getElementById("breakdown-body").innerHTML =
+          '<tr><td colspan="6" class="muted">No invoice data yet.</td></tr>';
+        return;
+      }
+      fillMonthSelects();
+      applyPreset(1);
+    }
+
+    init();
+  </script>
+{% endblock %}

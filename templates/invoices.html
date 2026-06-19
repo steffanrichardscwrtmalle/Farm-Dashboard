@@ -1,0 +1,635 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Invoices{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.75rem;
+    }
+    .toolbar label { margin: 0; display: inline-flex; align-items: center; gap: 0.5rem; }
+    .toolbar select { min-width: 120px; margin: 0; }
+    .range-presets {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+    .range-presets span {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-right: 0.15rem;
+    }
+    .range-presets button {
+      padding: 0.35rem 0.65rem;
+      font-size: 0.8rem;
+      background: #eef2f6;
+      color: var(--text);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .range-presets button:hover { background: #dde3ea; }
+    .range-presets button.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .period-label { color: var(--muted); font-size: 0.875rem; }
+    .table-wrap { max-height: calc(100vh - 300px); overflow: auto; position: relative; }
+    .row-count { color: var(--muted); font-size: 0.875rem; }
+    th.col-header { padding: 0; vertical-align: bottom; }
+    .th-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.25rem;
+      padding: 0.45rem 0.5rem;
+      min-width: 0;
+    }
+    .th-inner span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .filter-btn {
+      flex-shrink: 0;
+      width: 1.5rem;
+      height: 1.5rem;
+      padding: 0;
+      font-size: 0.65rem;
+      line-height: 1.5rem;
+      background: #dde3ea;
+      color: var(--text);
+      border-radius: 3px;
+    }
+    .filter-btn:hover { background: #c8d0da; }
+    .filter-btn.active {
+      background: var(--accent);
+      color: #fff;
+    }
+    .filter-popover {
+      position: fixed;
+      z-index: 1000;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+      min-width: 220px;
+      max-width: 320px;
+      display: none;
+    }
+    .filter-popover.open { display: flex; flex-direction: column; }
+    .filter-popover-search {
+      padding: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .filter-popover-search input {
+      width: 100%;
+      margin: 0;
+      padding: 0.35rem 0.5rem;
+      font-size: 0.8rem;
+    }
+    .filter-popover-actions {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.4rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.75rem;
+    }
+    .filter-popover-actions button {
+      padding: 0.2rem 0.5rem;
+      font-size: 0.75rem;
+      background: transparent;
+      color: var(--accent);
+      text-decoration: underline;
+    }
+    .filter-popover-actions button:hover { background: var(--accent-light); text-decoration: none; }
+    .filter-popover-list {
+      max-height: 240px;
+      overflow-y: auto;
+      padding: 0.35rem 0;
+    }
+    .filter-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.4rem;
+      padding: 0.25rem 0.6rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .filter-option:hover { background: #f0f4f8; }
+    .filter-option input { margin-top: 0.15rem; flex-shrink: 0; }
+    .filter-option span {
+      word-break: break-word;
+      line-height: 1.3;
+    }
+    .filter-popover-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      padding: 0.5rem;
+      border-top: 1px solid var(--border);
+    }
+    .filter-popover-footer button { padding: 0.35rem 0.75rem; font-size: 0.8rem; }
+    .filter-popover-footer button.secondary { background: #4b5563; }
+    tfoot td {
+      background: #eef2f6;
+      font-weight: 600;
+      border-top: 2px solid var(--border);
+      position: sticky;
+      bottom: 0;
+    }
+    tfoot .totals-label { text-align: right; color: var(--text); }
+    .negative-price { color: var(--danger); }
+    tr.negative-price td,
+    tr.negative-price td.badge-yes,
+    tr.negative-price td.badge-unknown,
+    tr.negative-price td.badge-no {
+      color: var(--danger);
+    }
+{% endblock %}
+
+{% block content %}
+    <div class="card">
+      <div class="toolbar">
+        <label>
+          From
+          <select id="from-month"><option value="">Loading…</option></select>
+        </label>
+        <label>
+          To
+          <select id="to-month"><option value="">Loading…</option></select>
+        </label>
+        <button type="button" id="apply-range">Apply</button>
+        <div class="range-presets">
+          <span>Quick range</span>
+          <button type="button" class="range-preset active" data-months="1">Last month</button>
+          <button type="button" class="range-preset" data-months="6">6 months</button>
+          <button type="button" class="range-preset" data-months="12">12 months</button>
+        </div>
+        <label>
+          Credit
+          <select id="credit-filter">
+            <option value="all">All</option>
+            <option value="yes">Credits only</option>
+            <option value="no">Exclude credits</option>
+          </select>
+        </label>
+        <span class="row-count" id="row-count"></span>
+        <button type="button" id="clear-filters" class="secondary small">Clear all column filters</button>
+        <span class="period-label" id="period-label"></span>
+      </div>
+
+      <div class="table-wrap" id="table-wrap">
+        <table id="invoice-table">
+          <thead>
+            <tr id="header-row"></tr>
+          </thead>
+          <tbody id="lines-body">
+            <tr><td colspan="17" class="muted">Select an invoice month range.</td></tr>
+          </tbody>
+          <tfoot id="totals-foot" style="display:none">
+            <tr id="totals-row"></tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <div id="filter-popover" class="filter-popover" role="dialog" aria-label="Column filter">
+      <div class="filter-popover-search">
+        <input type="text" id="filter-search" placeholder="Search values…" autocomplete="off">
+      </div>
+      <div class="filter-popover-actions">
+        <button type="button" id="filter-select-all">Select all</button>
+        <button type="button" id="filter-clear-all">Clear all</button>
+      </div>
+      <div class="filter-popover-list" id="filter-list"></div>
+      <div class="filter-popover-footer">
+        <button type="button" id="filter-cancel" class="secondary">Cancel</button>
+        <button type="button" id="filter-apply">OK</button>
+      </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    let allRows = [];
+    let monthOptions = [];
+    /** @type {Record<string, Set<string>|null>} col -> allowed display keys, null = no filter */
+    let columnFilters = {};
+    let openFilterCol = null;
+    /** pending checks while popover open */
+    let pendingChecked = new Set();
+
+    const COL_LABELS = {
+      date: "Date",
+      business: "Business",
+      reference: "Reference",
+      product_code: "Product Code",
+      category: "Category",
+      product_description: "Product Description",
+      farm_description: "Farm Description",
+      quantity: "Quantity",
+      unit: "Unit",
+      price: "Price",
+      goods_value: "Goods Value",
+      vat: "VAT",
+      total: "Total",
+      date_added: "Date Added",
+      invoice_date: "Invoice Month",
+      recent: "Recent",
+      credit: "Credit",
+    };
+
+    const COLS = Object.keys(COL_LABELS);
+    const SUM_COLS = ["quantity", "goods_value", "vat", "total"];
+
+    const popover = document.getElementById("filter-popover");
+    const filterList = document.getElementById("filter-list");
+    const filterSearch = document.getElementById("filter-search");
+
+    function isCreditRow(row) {
+      return row.credit === "Yes" ||
+        (row.goods_value != null && Number(row.goods_value) < 0);
+    }
+
+    function fmtMoneyMaybeNegative(v) {
+      if (v == null || v === "") return "";
+      const n = Number(v);
+      const formatted = fmtMoney(v);
+      return Number.isFinite(n) && n < 0 ? `<span class="negative-price">${formatted}</span>` : formatted;
+    }
+
+    function esc(s) {
+      return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+    }
+
+    function rawDisplayValue(row, col) {
+      const v = row[col];
+      if (v == null || v === "") return "";
+      if (col === "date" || col === "date_added") return fmtDate(v);
+      if (col === "invoice_date") return fmtInvoiceMonth(v);
+      if (col === "quantity") return fmtQty(v);
+      if (col === "price" || col === "goods_value" || col === "vat" || col === "total") return fmtMoney(v);
+      return String(v);
+    }
+
+    function cellKey(row, col) {
+      const d = rawDisplayValue(row, col);
+      return d === "" ? "(Blank)" : d;
+    }
+
+    function uniqueValues(col) {
+      const set = new Set();
+      allRows.forEach(row => set.add(cellKey(row, col)));
+      return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+    }
+
+    function buildHeaderRow() {
+      const tr = document.getElementById("header-row");
+      tr.innerHTML = COLS.map(col => `
+        <th class="col-header">
+          <div class="th-inner">
+            <span title="${esc(COL_LABELS[col])}">${esc(COL_LABELS[col])}</span>
+            <button type="button" class="filter-btn" data-col="${col}" title="Filter ${esc(COL_LABELS[col])}" aria-label="Filter">&#9660;</button>
+          </div>
+        </th>
+      `).join("");
+    }
+
+    function updateFilterButtonStates() {
+      document.querySelectorAll(".filter-btn").forEach(btn => {
+        const col = btn.dataset.col;
+        const allowed = columnFilters[col];
+        const allVals = uniqueValues(col);
+        const isActive = allowed && allowed.size < allVals.length;
+        btn.classList.toggle("active", !!isActive);
+      });
+    }
+
+    function applyFilters() {
+      const filtered = allRows.filter(row =>
+        COLS.every(col => {
+          const allowed = columnFilters[col];
+          if (!allowed) return true;
+          return allowed.has(cellKey(row, col));
+        })
+      );
+      renderRows(filtered);
+      updateFilterButtonStates();
+    }
+
+    function sumColumn(rows, col) {
+      return rows.reduce((acc, row) => {
+        const v = row[col];
+        if (v == null || v === "") return acc;
+        const n = Number(v);
+        return Number.isFinite(n) ? acc + n : acc;
+      }, 0);
+    }
+
+    function updateTotals(rows) {
+      const tfoot = document.getElementById("totals-foot");
+      const tr = document.getElementById("totals-row");
+      if (!rows.length) {
+        tfoot.style.display = "none";
+        return;
+      }
+      tfoot.style.display = "";
+      const sums = Object.fromEntries(SUM_COLS.map(col => [col, sumColumn(rows, col)]));
+      const weightedAvgPrice =
+        sums.quantity !== 0 ? sums.goods_value / sums.quantity : null;
+      tr.innerHTML = `
+        <td colspan="7" class="totals-label">Total</td>
+        <td>${fmtQty(sums.quantity)}</td>
+        <td></td>
+        <td>${weightedAvgPrice != null ? (weightedAvgPrice < 0 ? `<span class="negative-price">${fmtMoney(weightedAvgPrice)}</span>` : fmtMoney(weightedAvgPrice)) : ""}</td>
+        <td>${fmtMoney(sums.goods_value)}</td>
+        <td>${fmtMoney(sums.vat)}</td>
+        <td>${fmtMoney(sums.total)}</td>
+        <td colspan="4"></td>
+      `;
+    }
+
+    function renderRows(rows) {
+      const tbody = document.getElementById("lines-body");
+      const total = allRows.length;
+      const shown = rows.length;
+      document.getElementById("row-count").textContent =
+        total ? `Showing ${shown} of ${total} rows` : "";
+
+      if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="17" class="muted">${total ? "No rows match filters." : "No data for this range."}</td></tr>`;
+        updateTotals([]);
+        return;
+      }
+
+      tbody.innerHTML = rows.map(row => {
+        const creditRow = isCreditRow(row);
+        const rowClass = creditRow ? ' class="negative-price"' : "";
+        return `
+        <tr${rowClass}>
+          ${COLS.map(col => {
+            let cls = "";
+            if ((col === "category" || col === "farm_description") && row[col] === "Unknown") {
+              cls = "badge-unknown";
+            } else if (col === "recent" || col === "credit") {
+              cls = row[col] === "Yes" ? "badge-yes" : "badge-no";
+            }
+            const classAttr = cls ? ` class="${cls}"` : "";
+            return `<td${classAttr}>${col === "goods_value" ? fmtMoneyMaybeNegative(row[col]) : esc(rawDisplayValue(row, col))}</td>`;
+          }).join("")}
+        </tr>
+      `;
+      }).join("");
+      updateTotals(rows);
+    }
+
+    function attrEsc(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    }
+
+    function renderFilterList(searchQ = "") {
+      if (!openFilterCol) return;
+      const q = searchQ.trim().toLowerCase();
+      const values = uniqueValues(openFilterCol).filter(v => !q || v.toLowerCase().includes(q));
+      filterList.innerHTML = values.map(val => `
+        <label class="filter-option">
+          <input type="checkbox" data-value="${attrEsc(val)}" ${pendingChecked.has(val) ? "checked" : ""}>
+          <span>${esc(val)}</span>
+        </label>
+      `).join("") || '<div class="muted" style="padding:0.5rem 0.6rem">No values</div>';
+    }
+
+    function openFilterPopover(col, btn) {
+      openFilterCol = col;
+      const allVals = uniqueValues(col);
+      const current = columnFilters[col];
+      if (current) {
+        pendingChecked = new Set(current);
+      } else {
+        pendingChecked = new Set(allVals);
+      }
+      filterSearch.value = "";
+      renderFilterList();
+
+      const rect = btn.getBoundingClientRect();
+      popover.classList.add("open");
+      popover.style.top = `${rect.bottom + 4}px`;
+      popover.style.left = `${Math.min(rect.left, window.innerWidth - 330)}px`;
+      filterSearch.focus();
+    }
+
+    function closeFilterPopover() {
+      popover.classList.remove("open");
+      openFilterCol = null;
+    }
+
+    function applyPopoverFilter() {
+      if (!openFilterCol) return;
+      const col = openFilterCol;
+      const allVals = uniqueValues(col);
+      const checked = new Set();
+      filterList.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+        checked.add(cb.dataset.value);
+      });
+
+      if (checked.size === 0) {
+        columnFilters[col] = new Set();
+      } else if (checked.size >= allVals.length) {
+        delete columnFilters[col];
+      } else {
+        columnFilters[col] = checked;
+      }
+      closeFilterPopover();
+      applyFilters();
+    }
+
+    function latestMonthValue() {
+      return monthOptions.length ? monthOptions[monthOptions.length - 1].value : "";
+    }
+
+    function monthIndex(value) {
+      return monthOptions.findIndex(m => m.value === value);
+    }
+
+    function fillMonthSelects() {
+      const opts = monthOptions.map(m => `<option value="${m.value}">${m.label}</option>`).join("");
+      document.getElementById("from-month").innerHTML = opts;
+      document.getElementById("to-month").innerHTML = opts;
+    }
+
+    function updatePeriodLabel() {
+      const fromVal = document.getElementById("from-month").value;
+      const toVal = document.getElementById("to-month").value;
+      const fromLabel = monthOptions.find(m => m.value === fromVal)?.label || "";
+      const toLabel = monthOptions.find(m => m.value === toVal)?.label || "";
+      let text = "";
+      if (fromLabel && toLabel) {
+        text = fromVal === toVal ? fromLabel : `${fromLabel} – ${toLabel}`;
+      }
+      document.getElementById("period-label").textContent = text ? `Showing ${text}` : "";
+    }
+
+    function applyPreset(monthCount, load = true) {
+      if (!monthOptions.length) return;
+      const count = Math.max(1, monthCount);
+      const toIdx = monthOptions.length - 1;
+      const fromIdx = Math.max(0, toIdx - count + 1);
+      document.getElementById("from-month").value = monthOptions[fromIdx].value;
+      document.getElementById("to-month").value = monthOptions[toIdx].value;
+      updatePresetButtons();
+      updatePeriodLabel();
+      if (load) loadRangeData();
+    }
+
+    function updatePresetButtons() {
+      if (!monthOptions.length) return;
+      const fromVal = document.getElementById("from-month").value;
+      const toVal = document.getElementById("to-month").value;
+      const latest = latestMonthValue();
+      const toIdx = monthIndex(toVal);
+      const fromIdx = monthIndex(fromVal);
+      let matchedPreset = null;
+      if (toVal === latest && fromIdx >= 0 && toIdx >= 0) {
+        const span = toIdx - fromIdx + 1;
+        if ([1, 6, 12].includes(span)) matchedPreset = span;
+      }
+      document.querySelectorAll(".range-preset").forEach(btn => {
+        const months = Number(btn.dataset.months);
+        btn.classList.toggle("active", months === matchedPreset);
+      });
+    }
+
+    async function loadMonths() {
+      const res = await fetch("/api/invoice-months");
+      const data = await res.json();
+      monthOptions = data.items || [];
+      if (!monthOptions.length) {
+        document.getElementById("from-month").innerHTML = '<option value="">No invoice data yet</option>';
+        document.getElementById("to-month").innerHTML = '<option value="">No invoice data yet</option>';
+        return;
+      }
+      fillMonthSelects();
+      applyPreset(1);
+    }
+
+    async function loadRangeData() {
+      closeFilterPopover();
+      columnFilters = {};
+      const fromMonth = document.getElementById("from-month").value;
+      const toMonth = document.getElementById("to-month").value;
+      updatePresetButtons();
+      updatePeriodLabel();
+      if (!fromMonth || !toMonth) {
+        allRows = [];
+        renderRows([]);
+        updateFilterButtonStates();
+        return;
+      }
+      document.getElementById("lines-body").innerHTML =
+        '<tr><td colspan="17" class="muted">Loading…</td></tr>';
+      const params = new URLSearchParams({
+        from_month: fromMonth,
+        to_month: toMonth,
+        limit: "50000",
+      });
+      const creditMode = document.getElementById("credit-filter").value;
+      if (creditMode === "yes") params.set("credit", "yes");
+      else if (creditMode === "no") params.set("credit", "no");
+      const res = await fetch("/api/invoice-lines?" + params.toString());
+      const data = await res.json();
+      allRows = data.items;
+      applyFilters();
+    }
+
+    buildHeaderRow();
+
+    document.getElementById("header-row").addEventListener("click", (e) => {
+      const btn = e.target.closest(".filter-btn");
+      if (!btn) return;
+      e.stopPropagation();
+      if (openFilterCol === btn.dataset.col && popover.classList.contains("open")) {
+        closeFilterPopover();
+      } else {
+        openFilterPopover(btn.dataset.col, btn);
+      }
+    });
+
+    filterSearch.addEventListener("input", () => renderFilterList(filterSearch.value));
+
+    document.getElementById("filter-select-all").addEventListener("click", () => {
+      if (!openFilterCol) return;
+      pendingChecked = new Set(uniqueValues(openFilterCol));
+      renderFilterList(filterSearch.value);
+    });
+
+    document.getElementById("filter-clear-all").addEventListener("click", () => {
+      pendingChecked = new Set();
+      renderFilterList(filterSearch.value);
+    });
+
+    filterList.addEventListener("change", (e) => {
+      if (e.target.type !== "checkbox") return;
+      const val = e.target.dataset.value;
+      if (e.target.checked) pendingChecked.add(val);
+      else pendingChecked.delete(val);
+    });
+
+    document.getElementById("filter-apply").addEventListener("click", applyPopoverFilter);
+    document.getElementById("filter-cancel").addEventListener("click", closeFilterPopover);
+
+    document.getElementById("apply-range").addEventListener("click", () => {
+      loadRangeData();
+    });
+
+    document.querySelectorAll(".range-preset").forEach(btn => {
+      btn.addEventListener("click", () => {
+        applyPreset(Number(btn.dataset.months));
+      });
+    });
+
+    document.getElementById("from-month").addEventListener("change", () => {
+      const from = document.getElementById("from-month").value;
+      const to = document.getElementById("to-month").value;
+      if (monthIndex(from) > monthIndex(to)) {
+        document.getElementById("to-month").value = from;
+      }
+      updatePresetButtons();
+      updatePeriodLabel();
+    });
+
+    document.getElementById("to-month").addEventListener("change", () => {
+      const from = document.getElementById("from-month").value;
+      const to = document.getElementById("to-month").value;
+      if (monthIndex(from) > monthIndex(to)) {
+        document.getElementById("from-month").value = to;
+      }
+      updatePresetButtons();
+      updatePeriodLabel();
+    });
+
+    document.getElementById("credit-filter").addEventListener("change", () => {
+      loadRangeData();
+    });
+
+    document.getElementById("clear-filters").addEventListener("click", () => {
+      columnFilters = {};
+      closeFilterPopover();
+      applyFilters();
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!popover.classList.contains("open")) return;
+      if (popover.contains(e.target) || e.target.closest(".filter-btn")) return;
+      closeFilterPopover();
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeFilterPopover();
+    });
+
+    loadMonths();
+  </script>
+{% endblock %}

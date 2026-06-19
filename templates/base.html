@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ title }}{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --card: #fff;
+      --border: #d8dee4;
+      --text: #1f2933;
+      --muted: #5f6b7a;
+      --accent: #1a6b3c;
+      --accent-hover: #145530;
+      --accent-light: #e8f5ee;
+      --danger: #b42318;
+      --sidebar-w: 220px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .app-shell {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: var(--sidebar-w);
+      flex-shrink: 0;
+      background: #1e3a2f;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar-brand {
+      padding: 1.25rem 1rem;
+      font-weight: 600;
+      font-size: 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.12);
+    }
+    .sidebar-brand a {
+      color: #fff;
+      text-decoration: none;
+    }
+    .sidebar-brand a:hover {
+      color: #7dcea0;
+    }
+    .sidebar-nav {
+      padding: 0.75rem 0;
+      flex: 1;
+    }
+    .sidebar-nav a {
+      display: block;
+      padding: 0.65rem 1rem;
+      color: rgba(255,255,255,0.85);
+      text-decoration: none;
+      font-size: 0.9rem;
+      border-left: 3px solid transparent;
+    }
+    .sidebar-nav a:hover {
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+    }
+    .sidebar-nav a.active {
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+      border-left-color: #7dcea0;
+      font-weight: 600;
+    }
+    .nav-section {
+      margin-top: 0.5rem;
+    }
+    .nav-group {
+      margin-bottom: 0.15rem;
+    }
+    .nav-group-items {
+      display: none;
+    }
+    .nav-group.expanded > .nav-group-items {
+      display: block;
+    }
+    .nav-group-toggle,
+    .nav-supplier-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      width: 100%;
+      padding: 0.55rem 1rem;
+      background: none;
+      border: none;
+      border-left: 3px solid transparent;
+      color: rgba(255,255,255,0.85);
+      font-size: 0.9rem;
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
+      border-radius: 0;
+    }
+    .nav-group-toggle:hover,
+    .nav-supplier-toggle:hover {
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+    }
+    button.nav-group-toggle,
+    button.nav-supplier-toggle {
+      background: none;
+      color: rgba(255,255,255,0.85);
+    }
+    button.nav-group-toggle:hover,
+    button.nav-supplier-toggle:hover {
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+    }
+    .nav-group.expanded > .nav-group-toggle,
+    .nav-group-toggle.active,
+    .nav-supplier.expanded > .nav-supplier-toggle,
+    .nav-supplier-toggle.active {
+      color: #fff;
+      font-weight: 600;
+    }
+    .nav-group-toggle.active,
+    .nav-supplier-toggle.active {
+      background: rgba(255,255,255,0.12);
+      border-left-color: #7dcea0;
+    }
+    .nav-chevron {
+      flex-shrink: 0;
+      font-size: 0.55rem;
+      line-height: 1;
+      opacity: 0.75;
+      transition: transform 0.15s ease;
+    }
+    .nav-group.expanded > .nav-group-toggle .nav-chevron,
+    .nav-supplier.expanded > .nav-supplier-toggle .nav-chevron {
+      transform: rotate(90deg);
+    }
+    .nav-collapsible-label {
+      flex: 1;
+    }
+    .nav-supplier {
+      margin-bottom: 0.1rem;
+    }
+    .nav-group-items .nav-supplier-toggle {
+      padding-left: 1.5rem;
+      font-size: 0.875rem;
+    }
+    .nav-supplier-items {
+      display: none;
+    }
+    .nav-supplier.expanded > .nav-supplier-items {
+      display: block;
+    }
+    .nav-supplier-items a {
+      padding: 0.45rem 1rem 0.45rem 2.5rem;
+      font-size: 0.85rem;
+    }
+    .topbar-heading {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      min-width: 0;
+    }
+    .breadcrumb {
+      margin: 0;
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-weight: 400;
+    }
+    .breadcrumb a {
+      color: var(--muted);
+      text-decoration: none;
+    }
+    .breadcrumb a:hover {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+    .main-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .topbar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 0.85rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }
+    .topbar h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    .home-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.45rem 0.9rem;
+      background: var(--accent);
+      color: #fff;
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+    .home-btn:hover {
+      background: var(--accent-hover);
+    }
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .topbar-user {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .user-email {
+      font-size: 0.8rem;
+      color: var(--muted);
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .secondary-link {
+      font-size: 0.8rem;
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .secondary-link:hover { text-decoration: underline; }
+    .logout-form { margin: 0; }
+    .logout-form button { margin: 0; }
+    main {
+      flex: 1;
+      padding: 1.5rem;
+      max-width: 1200px;
+      width: 100%;
+    }
+    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+    }
+    .card h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .stat { font-size: 1.75rem; font-weight: 700; color: var(--accent); }
+    .muted { color: var(--muted); font-size: 0.875rem; }
+    label { display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.875rem; }
+    input[type="file"], input[type="date"], input[type="text"] {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 0.75rem;
+    }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.5rem; }
+    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    button {
+      border: none;
+      border-radius: 6px;
+      padding: 0.55rem 1rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+    }
+    button:hover { background: var(--accent-hover); }
+    button.secondary { background: #4b5563; }
+    button.secondary:hover { background: #374151; }
+    button.danger { background: var(--danger); }
+    button.small { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+    #message, .message {
+      margin-top: 0.75rem;
+      padding: 0.65rem 0.75rem;
+      border-radius: 6px;
+      display: none;
+    }
+    #message.ok, .message.ok { display: block; background: #e8f5ee; color: #145530; border: 1px solid #b7dfc9; }
+    #message.err, .message.err { display: block; background: #fdecec; color: var(--danger); border: 1px solid #f5c2c0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 0.45rem 0.5rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eef2f6; position: sticky; top: 0; }
+    .table-wrap { overflow: auto; max-height: 520px; border: 1px solid var(--border); border-radius: 6px; }
+    .badge-yes { color: var(--accent); font-weight: 600; }
+    .badge-no { color: var(--muted); }
+    .badge-unknown { color: var(--danger); font-weight: 600; }
+    .unknown-warn { color: var(--danger); font-weight: 600; }
+    select { padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; }
+    {% block extra_styles %}{% endblock %}
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-brand"><a href="/">Farm Dashboard</a></div>
+      <nav class="sidebar-nav">
+        <a href="/" class="{% if active_nav == 'home' and not active_section %}active{% endif %}">Home</a>
+
+        <div class="nav-section">
+          <div class="nav-group{% if active_nav_group == 'suppliers' %} expanded{% endif %}" data-nav-group="suppliers">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'suppliers' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'suppliers' %}true{% else %}false{% endif %}"
+              aria-controls="suppliers-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">Suppliers</span>
+            </button>
+            <div class="nav-group-items" id="suppliers-nav-items">
+              <div class="nav-supplier{% if active_section == 'wynnstay' %} expanded{% endif %}" data-supplier="wynnstay">
+                <button
+                  type="button"
+                  class="nav-supplier-toggle{% if active_section == 'wynnstay' %} active{% endif %}"
+                  aria-expanded="{% if active_section == 'wynnstay' %}true{% else %}false{% endif %}"
+                  aria-controls="wynnstay-nav-items"
+                >
+                  <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+                  <span class="nav-collapsible-label">Wynnstay</span>
+                </button>
+                <div class="nav-supplier-items" id="wynnstay-nav-items">
+                  <a href="/wynnstay" class="{% if active_section == 'wynnstay' and active_nav == 'overview' %}active{% endif %}">Overview</a>
+                  <a href="/wynnstay/invoices" class="{% if active_nav == 'invoices' %}active{% endif %}">Invoices</a>
+                  <a href="/wynnstay/category-breakdown" class="{% if active_nav == 'breakdown' %}active{% endif %}">Category breakdown</a>
+                  <a href="/wynnstay/product-price-by-month" class="{% if active_nav == 'price-by-month' %}active{% endif %}">Product Prices</a>
+                  <a href="/wynnstay/product-quantity-by-month" class="{% if active_nav == 'quantity-by-month' %}active{% endif %}">Product Quantities</a>
+                  <a href="/wynnstay/monthly-spend" class="{% if active_nav == 'monthly-spend' %}active{% endif %}">Monthly Spend</a>
+                  <a href="/wynnstay/mappings" class="{% if active_nav == 'mappings' %}active{% endif %}">Product mappings</a>
+                </div>
+              </div>
+
+              {# Future suppliers e.g. Prostock: add another nav-supplier block here #}
+            </div>
+          </div>
+        </div>
+      </nav>
+    </aside>
+
+    <div class="main-panel">
+      <header class="topbar">
+        <div class="topbar-heading">
+          {% if breadcrumb %}
+          <p class="breadcrumb">{{ breadcrumb | safe }}</p>
+          {% endif %}
+          <h1>{% block page_heading %}{{ title }}{% endblock %}</h1>
+        </div>
+        <div class="topbar-actions">
+        <a href="/" class="home-btn">Home</a>
+        {% if current_user %}
+        <div class="topbar-user">
+          <span class="user-email" title="{{ current_user.email }}">{{ current_user.email }}</span>
+          {% if current_user.role == 'admin' %}
+          <a href="/admin/users" class="secondary-link">Users</a>
+          {% endif %}
+          <form method="post" action="/logout" class="logout-form">
+            <button type="submit" class="secondary small">Sign out</button>
+          </form>
+        </div>
+        {% endif %}
+        </div>
+      </header>
+
+      <main>
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+
+  <script>
+    function fmtDate(iso) {
+      if (!iso) return "";
+      const [y, m, d] = iso.split("-");
+      return `${d}/${m}/${y}`;
+    }
+    const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    function fmtInvoiceMonth(iso) {
+      if (!iso) return "";
+      const [y, m] = iso.split("-");
+      if (!y || !m) return "";
+      const month = Number(m);
+      const year = Number(y);
+      if (!month || !year) return "";
+      return `${MONTH_ABBR[month - 1]}-${String(year % 100).padStart(2, "0")}`;
+    }
+    function lastDayOfMonthIso(year, month) {
+      const day = new Date(year, month, 0).getDate();
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+    function fmtMoney(n) {
+      if (n == null || n === "") return "";
+      return "£" + Number(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function fmtQty(n) {
+      if (n == null || n === "") return "";
+      return Number(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    (function initCollapsibleNav() {
+      function initNode(el, key, toggleSelector, onExpand) {
+        const toggle = el.querySelector(toggleSelector);
+        if (!toggle || !key) return;
+
+        const storageKey = `nav-${key}-expanded`;
+        const serverExpanded = el.classList.contains("expanded");
+
+        function setExpanded(open) {
+          el.classList.toggle("expanded", open);
+          toggle.setAttribute("aria-expanded", open ? "true" : "false");
+          try { sessionStorage.setItem(storageKey, open ? "1" : "0"); } catch (_) {}
+        }
+
+        if (serverExpanded) {
+          setExpanded(true);
+        } else {
+          let stored = false;
+          try { stored = sessionStorage.getItem(storageKey) === "1"; } catch (_) {}
+          setExpanded(stored);
+        }
+
+        toggle.addEventListener("click", () => {
+          const willExpand = !el.classList.contains("expanded");
+          setExpanded(willExpand);
+          if (willExpand && onExpand) onExpand();
+        });
+      }
+
+      document.querySelectorAll("[data-nav-group]").forEach(el => {
+        initNode(el, el.dataset.navGroup, ":scope > .nav-group-toggle");
+      });
+
+      document.querySelectorAll("[data-supplier]").forEach(el => {
+        initNode(el, el.dataset.supplier, ":scope > .nav-supplier-toggle", () => {
+          if (el.dataset.supplier === "wynnstay" && !window.location.pathname.startsWith("/wynnstay")) {
+            window.location.href = "/wynnstay";
+          }
+        });
+      });
+    })();
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

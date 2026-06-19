@@ -1,0 +1,681 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Product Quantities{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .price-card {
+      width: fit-content;
+      max-width: 100%;
+    }
+    .toolbar-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 0;
+    }
+    .toolbar label { margin: 0; display: inline-flex; align-items: center; gap: 0.5rem; }
+    .toolbar select { min-width: 120px; margin: 0; }
+    .range-presets {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+    .range-presets span {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-right: 0.15rem;
+    }
+    .range-presets button {
+      padding: 0.35rem 0.65rem;
+      font-size: 0.8rem;
+      background: #eef2f6;
+      color: var(--text);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .range-presets button:hover { background: #dde3ea; }
+    .range-presets button.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .table-wrap {
+      max-height: calc(100vh - 300px);
+      overflow: auto;
+      width: fit-content;
+      max-width: 100%;
+    }
+    #qty-table {
+      width: auto;
+      table-layout: auto;
+    }
+    #qty-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      border-bottom: none;
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    #qty-table td.num, #qty-table th.num { text-align: right; white-space: nowrap; }
+    #qty-table td.num.has-data { cursor: help; }
+    #qty-table th.col-label,
+    #qty-table td.col-label {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      min-width: 14rem;
+      max-width: 28rem;
+      white-space: normal;
+    }
+    #qty-table thead th.col-label { z-index: 4; }
+    .col-label { background: #fff; }
+    tr.level-category .col-label { background: #dce8f4; }
+    tr.level-category td { font-weight: 700; }
+    tr.level-farm_description .col-label { background: #e8f0f8; }
+    tr.level-product_description .col-label { background: #f4f8fc; }
+    .toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.25rem;
+      height: 1.25rem;
+      padding: 0;
+      margin-right: 0.35rem;
+      font-size: 0.85rem;
+      line-height: 1;
+      background: #dde3ea;
+      color: var(--text);
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+    .toggle-btn:hover { background: #c8d0da; }
+    .toggle-spacer { display: inline-block; width: 1.6rem; flex-shrink: 0; }
+    .label-inner {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+    }
+    .label-text { word-break: break-word; }
+    tr.level-farm_description td { font-weight: 600; }
+    tr.hidden { display: none; }
+    .period-label { color: var(--muted); font-size: 0.875rem; }
+    .negative-qty { color: var(--danger); }
+    .print-only { display: none; }
+    .print-header {
+      margin-bottom: 0.75rem;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    .print-subheader {
+      margin: -0.35rem 0 0.75rem;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+    #print-area.pdf-exporting .print-only { display: block !important; }
+    #print-area.pdf-exporting .table-wrap {
+      max-height: none !important;
+      overflow: visible !important;
+    }
+    #print-area.pdf-exporting #qty-table thead th {
+      position: static !important;
+    }
+    #print-area.pdf-exporting #qty-table th.col-label,
+    #print-area.pdf-exporting #qty-table td.col-label {
+      position: static !important;
+    }
+    #print-area.pdf-exporting .toggle-btn,
+    #print-area.pdf-exporting .toggle-spacer { display: none !important; }
+    @media print {
+      .sidebar, .topbar, .no-print { display: none !important; }
+      .app-shell { display: block; }
+      .main-panel, main {
+        max-width: none;
+        padding: 0.5rem;
+        width: auto;
+      }
+      .price-card {
+        border: none;
+        padding: 0;
+        width: auto;
+      }
+      .table-wrap {
+        max-height: none;
+        overflow: visible;
+        width: auto;
+      }
+      tr.hidden { display: none !important; }
+      .toggle-btn, .toggle-spacer { display: none !important; }
+      .label-inner { padding-left: 0 !important; }
+      #qty-body.group-by-category tr.level-farm_description .label-inner { padding-left: 1.25rem !important; }
+      #qty-body.group-by-category tr.level-product_description .label-inner { padding-left: 2.5rem !important; }
+      #qty-body:not(.group-by-category) tr.level-farm_description .label-inner { padding-left: 0 !important; }
+      #qty-body:not(.group-by-category) tr.level-product_description .label-inner { padding-left: 1rem !important; }
+      .print-only { display: block !important; }
+      #qty-table thead th,
+      #qty-table th.col-label,
+      #qty-table td.col-label { position: static; }
+    }
+{% endblock %}
+
+{% block content %}
+    <div class="card price-card">
+      <div class="toolbar-rows no-print">
+        <div class="toolbar">
+          <label>
+            Category
+            <select id="filter-category"><option value="">All categories</option></select>
+          </label>
+          <label style="margin:0;font-weight:500">
+            <input type="checkbox" id="recent-only" checked> Recent items only
+          </label>
+          <label style="margin:0;font-weight:500">
+            <input type="checkbox" id="include-credit"> Include credit items
+          </label>
+          <label>
+            From
+            <select id="from-month"><option value="">Loading…</option></select>
+          </label>
+          <label>
+            To
+            <select id="to-month"><option value="">Loading…</option></select>
+          </label>
+          <button type="button" id="apply-range">Apply</button>
+          <div class="range-presets">
+            <span>Quick range</span>
+            <button type="button" class="range-preset" data-months="1">Last month</button>
+            <button type="button" class="range-preset" data-months="6">6 months</button>
+            <button type="button" class="range-preset active" data-months="12">12 months</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button type="button" id="expand-all" class="secondary" title="Show the next level of detail">Expand Level</button>
+          <button type="button" id="collapse-all" class="secondary" title="Hide the deepest visible level">Collapse Level</button>
+          <button type="button" id="print-btn" class="secondary">Print</button>
+          <button type="button" id="pdf-btn" class="secondary">Download PDF</button>
+          <span class="period-label" id="period-label"></span>
+        </div>
+      </div>
+
+      <div id="print-area">
+        <div class="print-only print-header" id="print-title">Product Quantities</div>
+        <div class="print-only print-subheader" id="print-subtitle"></div>
+
+        <div class="table-wrap">
+          <table id="qty-table">
+            <thead id="qty-head">
+              <tr>
+                <th class="col-label">Farm / Product</th>
+              </tr>
+            </thead>
+            <tbody id="qty-body">
+              <tr><td class="muted">Select filters and date range.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
+  <script>
+    let monthOptions = [];
+    let categoryOptions = [];
+    let monthColumns = [];
+    let collapsed = new Set();
+    let treeRows = [];
+    let expandDepth = 0;
+
+    function latestMonthValue() {
+      return monthOptions.length ? monthOptions[monthOptions.length - 1].value : "";
+    }
+
+    function applyPreset(monthCount, load = true) {
+      if (!monthOptions.length) return;
+      const count = Math.max(1, monthCount);
+      const toIdx = monthOptions.length - 1;
+      const fromIdx = Math.max(0, toIdx - count + 1);
+      document.getElementById("from-month").value = monthOptions[fromIdx].value;
+      document.getElementById("to-month").value = monthOptions[toIdx].value;
+      updatePresetButtons();
+      if (load) loadQtyTable();
+    }
+
+    function updatePresetButtons() {
+      if (!monthOptions.length) return;
+      const fromVal = document.getElementById("from-month").value;
+      const toVal = document.getElementById("to-month").value;
+      const latest = latestMonthValue();
+      const toIdx = monthIndex(toVal);
+      const fromIdx = monthIndex(fromVal);
+      let matchedPreset = null;
+      if (toVal === latest && fromIdx >= 0 && toIdx >= 0) {
+        const span = toIdx - fromIdx + 1;
+        if ([1, 6, 12].includes(span)) matchedPreset = span;
+      }
+      document.querySelectorAll(".range-preset").forEach(btn => {
+        const months = Number(btn.dataset.months);
+        btn.classList.toggle("active", months === matchedPreset);
+      });
+    }
+
+    function maxExpandDepth() {
+      if (!treeRows.length) return 0;
+      const parentDepths = treeRows.filter(r => r.hasChildren).map(r => r.depth);
+      return parentDepths.length ? Math.max(...parentDepths) + 1 : 0;
+    }
+
+    function applyExpandDepth() {
+      collapsed.clear();
+      const max = maxExpandDepth();
+      for (let d = 0; d < max; d++) {
+        if (expandDepth <= d) {
+          treeRows.filter(r => r.hasChildren && r.depth === d).forEach(r => collapsed.add(r.id));
+        }
+      }
+      refreshVisibility();
+      updateLevelButtons();
+    }
+
+    function recomputeExpandDepth() {
+      let depth = 0;
+      const max = maxExpandDepth();
+      while (depth < max) {
+        const parents = treeRows.filter(r => r.hasChildren && r.depth === depth);
+        if (parents.length && parents.every(r => !collapsed.has(r.id))) {
+          depth++;
+        } else {
+          break;
+        }
+      }
+      expandDepth = depth;
+      updateLevelButtons();
+    }
+
+    function updateLevelButtons() {
+      const max = maxExpandDepth();
+      document.getElementById("expand-all").disabled = expandDepth >= max;
+      document.getElementById("collapse-all").disabled = expandDepth <= 0;
+    }
+
+    function esc(s) {
+      return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+    }
+
+    function attrEsc(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    }
+
+    function monthCellTooltip(stats) {
+      if (!stats || !stats.line_count) return "";
+      const parts = [];
+      if (stats.avg_price != null) parts.push(`Average price: ${fmtMoney(stats.avg_price)}`);
+      if (stats.goods_value != null) parts.push(`Goods value: ${fmtMoney(stats.goods_value)}`);
+      parts.push(`Invoice lines: ${stats.line_count}`);
+      return parts.join("\n");
+    }
+
+    function fmtQtyCell(n) {
+      if (n == null || n === "") return "";
+      const formatted = fmtQty(n);
+      return n < 0 ? `<span class="negative-qty">${formatted}</span>` : formatted;
+    }
+
+    function shouldShowParentValues(row) {
+      return !row.hasChildren || collapsed.has(row.id);
+    }
+
+    function renderMonthCells(row) {
+      const showValues = shouldShowParentValues(row);
+      return monthColumns.map((m) => {
+        if (!showValues) return `<td class="num parent-hidden"></td>`;
+        const qty = row.quantities[m.value];
+        const stats = row.month_stats?.[m.value];
+        const tooltip = monthCellTooltip(stats);
+        const titleAttr = tooltip ? ` title="${attrEsc(tooltip)}"` : "";
+        const dataClass = tooltip ? " has-data" : "";
+        return `<td class="num${dataClass}"${titleAttr}>${fmtQtyCell(qty)}</td>`;
+      }).join("");
+    }
+
+    function refreshValueCells() {
+      document.querySelectorAll("#qty-body tr[data-id]").forEach(tr => {
+        const row = treeRows.find(r => r.id === tr.dataset.id);
+        if (!row || !row.hasChildren) return;
+        const showValues = shouldShowParentValues(row);
+        tr.querySelectorAll("td.num").forEach((td, idx) => {
+          if (!showValues) {
+            td.textContent = "";
+            td.className = "num parent-hidden";
+            td.removeAttribute("title");
+            return;
+          }
+          const m = monthColumns[idx];
+          const qty = row.quantities[m.value];
+          const stats = row.month_stats?.[m.value];
+          const tooltip = monthCellTooltip(stats);
+          td.className = tooltip ? "num has-data" : "num";
+          td.innerHTML = fmtQtyCell(qty);
+          if (tooltip) td.setAttribute("title", tooltip);
+          else td.removeAttribute("title");
+        });
+      });
+    }
+
+    function flattenTree(nodes, depth = 0, parentId = null) {
+      const out = [];
+      for (const node of nodes) {
+        out.push({ ...node, depth, parentId, hasChildren: node.children.length > 0 });
+        out.push(...flattenTree(node.children, depth + 1, node.id));
+      }
+      return out;
+    }
+
+    function isVisible(row) {
+      let pid = row.parentId;
+      while (pid) {
+        if (collapsed.has(pid)) return false;
+        const parent = treeRows.find(r => r.id === pid);
+        pid = parent ? parent.parentId : null;
+      }
+      return true;
+    }
+
+    function renderHeader(months, groupByCategory = false) {
+      monthColumns = months || [];
+      const monthHeaders = monthColumns.map(m =>
+        `<th class="num">${esc(m.label)}</th>`
+      ).join("");
+      const labelCol = groupByCategory ? "Category / Farm / Product" : "Farm / Product";
+      document.getElementById("qty-head").innerHTML = `
+        <tr>
+          <th class="col-label">${labelCol}</th>
+          ${monthHeaders}
+        </tr>
+      `;
+    }
+
+    function renderTable(data, restore = null) {
+      renderHeader(data.months, data.group_by_category);
+      treeRows = flattenTree(data.rows || []);
+      const tbody = document.getElementById("qty-body");
+      tbody.classList.toggle("group-by-category", !!data.group_by_category);
+      const colCount = 1 + monthColumns.length;
+
+      if (!treeRows.length) {
+        tbody.innerHTML = `<tr><td colspan="${colCount}" class="muted">No data for these filters.</td></tr>`;
+        document.getElementById("period-label").textContent = "";
+        return;
+      }
+
+      if (restore?.preserveState && restore.savedCollapsed) {
+        const validIds = new Set(treeRows.map(r => r.id));
+        collapsed = new Set([...restore.savedCollapsed].filter(id => validIds.has(id)));
+      } else {
+        collapsed.clear();
+      }
+
+      tbody.innerHTML = treeRows.map(row => {
+        const hidden = isVisible(row) ? "" : ' class="hidden"';
+        const indent = row.depth * 1.25;
+        let toggle = '<span class="toggle-spacer"></span>';
+        if (row.hasChildren) {
+          const open = !collapsed.has(row.id);
+          toggle = `<button type="button" class="toggle-btn" data-toggle="${esc(row.id)}" aria-label="Toggle">${open ? "−" : "+"}</button>`;
+        }
+        const monthCells = renderMonthCells(row);
+        return `
+          <tr data-id="${esc(row.id)}" data-parent="${esc(row.parentId || "")}" class="level-${row.level}"${hidden}>
+            <td class="col-label">
+              <div class="label-inner" style="padding-left:${indent}rem">
+                ${toggle}
+                <span class="label-text">${esc(row.label)}</span>
+              </div>
+            </td>
+            ${monthCells}
+          </tr>
+        `;
+      }).join("");
+
+      document.getElementById("period-label").textContent = data.period_label
+        ? `Showing ${data.period_label}`
+        : "";
+      updatePrintHeaders(data);
+      if (restore?.preserveState) {
+        refreshVisibility();
+        recomputeExpandDepth();
+      } else {
+        expandDepth = 0;
+        applyExpandDepth();
+      }
+    }
+
+    function updatePrintHeaders(data) {
+      const parts = [];
+      if (data.category) parts.push(`Category: ${data.category}`);
+      if (data.recent_only) parts.push("Recent farms only");
+      parts.push(document.getElementById("include-credit").checked
+        ? "Credit items included"
+        : "Credit items excluded");
+      document.getElementById("print-title").textContent = data.period_label
+        ? `Product Quantities — ${data.period_label}`
+        : "Product Quantities";
+      document.getElementById("print-subtitle").textContent = parts.join(" · ");
+    }
+
+    function pdfFilename() {
+      const period = document.getElementById("period-label").textContent
+        .replace(/^Showing\s+/i, "")
+        .trim()
+        .replace(/\s+/g, "-")
+        .replace(/[^\w\-]+/g, "") || "report";
+      return `product-quantity-by-month-${period}.pdf`;
+    }
+
+    document.getElementById("print-btn").addEventListener("click", () => {
+      if (!treeRows.length) return;
+      window.print();
+    });
+
+    document.getElementById("pdf-btn").addEventListener("click", async () => {
+      if (!treeRows.length) return;
+      if (typeof html2pdf === "undefined") {
+        alert("PDF library is still loading. Please try again in a moment.");
+        return;
+      }
+      const btn = document.getElementById("pdf-btn");
+      const printArea = document.getElementById("print-area");
+      btn.disabled = true;
+      btn.textContent = "Generating…";
+      printArea.classList.add("pdf-exporting");
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      try {
+        const exportHeight = printArea.scrollHeight;
+        await html2pdf()
+          .set({
+            margin: [8, 8, 8, 8],
+            filename: pdfFilename(),
+            image: { type: "jpeg", quality: 0.98 },
+            html2canvas: {
+              scale: 2,
+              useCORS: true,
+              scrollY: 0,
+              height: exportHeight,
+              windowHeight: exportHeight,
+            },
+            jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
+            pagebreak: { mode: ["css", "legacy"] },
+          })
+          .from(printArea)
+          .save();
+      } catch (err) {
+        alert("Could not generate PDF. Try Print and choose Save as PDF instead.");
+        console.error(err);
+      } finally {
+        printArea.classList.remove("pdf-exporting");
+        btn.disabled = false;
+        btn.textContent = "Download PDF";
+      }
+    });
+
+    function refreshVisibility() {
+      document.querySelectorAll("#qty-body tr[data-id]").forEach(tr => {
+        const row = treeRows.find(r => r.id === tr.dataset.id);
+        if (!row) return;
+        tr.classList.toggle("hidden", !isVisible(row));
+      });
+      document.querySelectorAll(".toggle-btn[data-toggle]").forEach(btn => {
+        const open = !collapsed.has(btn.dataset.toggle);
+        btn.textContent = open ? "−" : "+";
+      });
+      refreshValueCells();
+    }
+
+    function monthIndex(value) {
+      return monthOptions.findIndex(m => m.value === value);
+    }
+
+    function fillMonthSelects() {
+      const opts = monthOptions.map(m => `<option value="${m.value}">${m.label}</option>`).join("");
+      document.getElementById("from-month").innerHTML = opts;
+      document.getElementById("to-month").innerHTML = opts;
+    }
+
+    function fillCategorySelect() {
+      const current = document.getElementById("filter-category").value;
+      const opts = ['<option value="">All categories</option>']
+        .concat(categoryOptions.map(c => `<option value="${esc(c)}">${esc(c)}</option>`));
+      document.getElementById("filter-category").innerHTML = opts.join("");
+      if (current && categoryOptions.includes(current)) {
+        document.getElementById("filter-category").value = current;
+      }
+    }
+
+    async function loadQtyTable(options = {}) {
+      const preserveState = options.preserveExpandLevel ?? false;
+      const savedCollapsed = preserveState ? new Set(collapsed) : null;
+
+      const fromMonth = document.getElementById("from-month").value;
+      const toMonth = document.getElementById("to-month").value;
+      if (!fromMonth || !toMonth) return;
+
+      updatePresetButtons();
+      document.getElementById("qty-body").innerHTML =
+        '<tr><td class="muted">Loading…</td></tr>';
+
+      const params = new URLSearchParams({ from_month: fromMonth, to_month: toMonth });
+      const category = document.getElementById("filter-category").value;
+      if (category) params.set("category", category);
+      if (document.getElementById("recent-only").checked) {
+        params.set("recent_only", "true");
+      }
+      if (!document.getElementById("include-credit").checked) {
+        params.set("include_credit", "false");
+      }
+
+      const res = await fetch("/api/product-quantity-by-month?" + params.toString());
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("qty-body").innerHTML =
+          `<tr><td class="muted">${esc(data.detail || "Failed to load")}</td></tr>`;
+        return;
+      }
+      renderTable(data, preserveState ? { preserveState: true, savedCollapsed } : null);
+    }
+
+    document.getElementById("apply-range").addEventListener("click", () => {
+      updatePresetButtons();
+      loadQtyTable();
+    });
+
+    document.querySelectorAll(".range-preset").forEach(btn => {
+      btn.addEventListener("click", () => {
+        applyPreset(Number(btn.dataset.months));
+      });
+    });
+
+    document.getElementById("include-credit").addEventListener("change", () => {
+      loadQtyTable({ preserveExpandLevel: true });
+    });
+
+    document.getElementById("filter-category").addEventListener("change", () => {
+      loadQtyTable({ preserveExpandLevel: true });
+    });
+
+    document.getElementById("recent-only").addEventListener("change", () => {
+      loadQtyTable({ preserveExpandLevel: true });
+    });
+
+    document.getElementById("from-month").addEventListener("change", () => {
+      const from = document.getElementById("from-month").value;
+      const to = document.getElementById("to-month").value;
+      if (monthIndex(from) > monthIndex(to)) {
+        document.getElementById("to-month").value = from;
+      }
+      updatePresetButtons();
+    });
+
+    document.getElementById("to-month").addEventListener("change", () => {
+      const from = document.getElementById("from-month").value;
+      const to = document.getElementById("to-month").value;
+      if (monthIndex(from) > monthIndex(to)) {
+        document.getElementById("from-month").value = to;
+      }
+      updatePresetButtons();
+    });
+
+    document.getElementById("qty-body").addEventListener("click", (e) => {
+      const btn = e.target.closest(".toggle-btn[data-toggle]");
+      if (!btn) return;
+      const id = btn.dataset.toggle;
+      if (collapsed.has(id)) collapsed.delete(id);
+      else collapsed.add(id);
+      refreshVisibility();
+      recomputeExpandDepth();
+    });
+
+    document.getElementById("expand-all").addEventListener("click", () => {
+      expandDepth = Math.min(expandDepth + 1, maxExpandDepth());
+      applyExpandDepth();
+    });
+
+    document.getElementById("collapse-all").addEventListener("click", () => {
+      expandDepth = Math.max(expandDepth - 1, 0);
+      applyExpandDepth();
+    });
+
+    async function init() {
+      const [monthsRes, optionsRes] = await Promise.all([
+        fetch("/api/invoice-months"),
+        fetch("/api/mapping-options"),
+      ]);
+      const monthsData = await monthsRes.json();
+      const optionsData = await optionsRes.json();
+      monthOptions = monthsData.items || [];
+      categoryOptions = optionsData.categories || [];
+      if (!monthOptions.length) {
+        document.getElementById("qty-body").innerHTML =
+          '<tr><td class="muted">No invoice data yet.</td></tr>';
+        return;
+      }
+      fillMonthSelects();
+      fillCategorySelect();
+      applyPreset(12);
+    }
+
+    init();
+  </script>
+{% endblock %}

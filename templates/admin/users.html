@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block page_heading %}User management{% endblock %}
+
+{% block extra_styles %}
+    .users-toolbar {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      margin-bottom: 1rem;
+    }
+    .users-toolbar label { margin: 0; }
+    .users-toolbar input,
+    .users-toolbar select {
+      margin: 0;
+      min-width: 160px;
+    }
+    .badge-inactive {
+      color: var(--danger);
+      font-weight: 600;
+      font-size: 0.8rem;
+    }
+    .role-badge {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+{% endblock %}
+
+{% block content %}
+    <div class="card" style="margin-bottom:1rem">
+      <h2>Create user</h2>
+      <form id="create-user-form" class="users-toolbar">
+        <label>
+          Email
+          <input type="email" id="new-email" required autocomplete="off">
+        </label>
+        <label>
+          Password
+          <input type="password" id="new-password" required autocomplete="new-password" minlength="12">
+        </label>
+        <label>
+          Role
+          <select id="new-role">
+            {% for role in roles %}
+            <option value="{{ role.id }}">{{ role.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">Create user</button>
+      </form>
+      <p class="muted" style="margin:0">Passwords must be at least 12 characters. Users sign in with these credentials, not their Microsoft 365 password.</p>
+      <div id="create-message" class="message"></div>
+    </div>
+
+    <div class="card">
+      <h2>Users</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="users-body">
+            {% for user in users %}
+            <tr data-user-id="{{ user.id }}">
+              <td>{{ user.email }}</td>
+              <td>
+                <select class="role-select" data-user-id="{{ user.id }}" {% if user.id == current_user.id %}disabled{% endif %}>
+                  {% for role in roles %}
+                  <option value="{{ role.id }}" {% if user.role == role.id %}selected{% endif %}>{{ role.label }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td>
+                {% if user.is_active %}
+                <span class="badge-yes">Active</span>
+                {% else %}
+                <span class="badge-inactive">Disabled</span>
+                {% endif %}
+              </td>
+              <td>{{ user.created_at[:10] if user.created_at else "" }}</td>
+              <td>
+                {% if user.id != current_user.id %}
+                <button type="button" class="secondary small reset-btn" data-user-id="{{ user.id }}">Reset password</button>
+                <button type="button" class="secondary small toggle-btn" data-user-id="{{ user.id }}" data-active="{{ '1' if user.is_active else '0' }}">
+                  {% if user.is_active %}Disable{% else %}Enable{% endif %}
+                </button>
+                {% else %}
+                <span class="muted">You</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div id="users-message" class="message"></div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    function showMsg(el, text, ok) {
+      el.textContent = text;
+      el.className = ok ? "message ok" : "message err";
+    }
+
+    document.getElementById("create-user-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById("create-message");
+      const body = {
+        email: document.getElementById("new-email").value.trim(),
+        password: document.getElementById("new-password").value,
+        role: document.getElementById("new-role").value,
+      };
+      try {
+        const res = await fetch("/api/admin/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Create failed");
+        showMsg(msg, `Created ${data.email}`, true);
+        setTimeout(() => window.location.reload(), 600);
+      } catch (err) {
+        showMsg(msg, err.message, false);
+      }
+    });
+
+    document.querySelectorAll(".role-select").forEach(sel => {
+      sel.addEventListener("change", async () => {
+        const id = sel.dataset.userId;
+        const msg = document.getElementById("users-message");
+        try {
+          const res = await fetch(`/api/admin/users/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ role: sel.value }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Update failed");
+          showMsg(msg, `Updated role for ${data.email}`, true);
+        } catch (err) {
+          showMsg(msg, err.message, false);
+        }
+      });
+    });
+
+    document.querySelectorAll(".toggle-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.userId;
+        const active = btn.dataset.active === "1";
+        const msg = document.getElementById("users-message");
+        try {
+          const res = await fetch(`/api/admin/users/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ is_active: !active }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Update failed");
+          showMsg(msg, `${data.email} is now ${data.is_active ? "active" : "disabled"}`, true);
+          setTimeout(() => window.location.reload(), 500);
+        } catch (err) {
+          showMsg(msg, err.message, false);
+        }
+      });
+    });
+
+    document.querySelectorAll(".reset-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const password = prompt("Enter a new password (min 12 characters):");
+        if (!password) return;
+        const id = btn.dataset.userId;
+        const msg = document.getElementById("users-message");
+        try {
+          const res = await fetch(`/api/admin/users/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Reset failed");
+          showMsg(msg, `Password reset for ${data.email}`, true);
+        } catch (err) {
+          showMsg(msg, err.message, false);
+        }
+      });
+    });
+  </script>
+{% endblock %}

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in — Farm Dashboard</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --card: #fff;
+      --border: #d8dee4;
+      --text: #1f2933;
+      --muted: #5f6b7a;
+      --accent: #1a6b3c;
+      --accent-hover: #145530;
+      --danger: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 1rem;
+    }
+    .login-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 400px;
+    }
+    h1 { margin: 0 0 0.25rem; font-size: 1.25rem; }
+    label { display: block; margin: 0.75rem 0 0.35rem; font-weight: 600; font-size: 0.875rem; }
+    input {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.95rem;
+    }
+    button {
+      margin-top: 1rem;
+      width: 100%;
+      border: none;
+      border-radius: 6px;
+      padding: 0.6rem 1rem;
+      font-size: 0.95rem;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+    }
+    button:hover { background: var(--accent-hover); }
+    .muted { color: var(--muted); font-size: 0.875rem; margin: 0 0 1rem; }
+    .login-error {
+      margin-bottom: 0.75rem;
+      padding: 0.65rem 0.75rem;
+      border-radius: 6px;
+      background: #fdecec;
+      color: var(--danger);
+      border: 1px solid #f5c2c0;
+      font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <h1>Farm Dashboard</h1>
+    <p class="muted">Sign in with your farm dashboard account.</p>
+    {% if error %}
+    <div class="login-error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/login">
+      {% if next_path %}
+      <input type="hidden" name="next" value="{{ next_path }}">
+      {% endif %}
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" required autocomplete="username" autofocus>
+
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required autocomplete="current-password">
+
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</body>
+</html>
