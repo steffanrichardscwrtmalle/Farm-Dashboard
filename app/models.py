@@ -233,6 +233,56 @@ class CowEvent(Base):
     )
 
 
+class HerdInventory(Base):
+    """Current herd inventory from DCEXPORT CMINV / GADINV files."""
+
+    __tablename__ = "herd_inventory"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cow_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    etag: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bdat: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    cbrd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sbrd: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    fdat: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    dim: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lact: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hdat: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    dslh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rc: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rpro: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    dcc: Mapped[float | None] = mapped_column(Float, nullable=True)
+    due: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    lsir: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sirc: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lsbrd: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    category: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    expected_due: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    import_timestamp: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+
+
+class HerdBirth(Base):
+    """Birth records from DCEXPORT CMBORN / GADBORN files."""
+
+    __tablename__ = "herd_births"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cow_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    etag: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bdat: Mapped[datetime.date | None] = mapped_column(Date, nullable=True, index=True)
+    cbrd: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gndr: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    event: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    fiscal_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    import_timestamp: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+
+
 def _str_or_none(value: Any) -> str | None:
     if value is None:
         return None
