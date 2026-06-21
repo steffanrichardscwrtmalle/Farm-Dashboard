@@ -63,6 +63,62 @@
       width: 100%;
       margin: 0;
     }
+    .slicer-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+    }
+    .slicer-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      min-height: 3.25rem;
+      padding: 0.5rem 0.4rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .slicer-btn:hover {
+      border-color: #c5ccd3;
+    }
+    .slicer-btn .slicer-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 999px;
+      background: #e5e7eb;
+      color: #9ca3af;
+      font-size: 0.7rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .slicer-btn[data-value="primiparous"].selected {
+      background: #e8f5e9;
+      border-color: #81c784;
+      color: #2e7d32;
+    }
+    .slicer-btn[data-value="primiparous"].selected .slicer-icon {
+      background: #a5d6a7;
+      color: #1b5e20;
+    }
+    .slicer-btn[data-value="multiparous"].selected {
+      background: #dceaf7;
+      border-color: #7eb0d8;
+      color: #1e3a5f;
+    }
+    .slicer-btn[data-value="multiparous"].selected .slicer-icon {
+      background: #9ec5e8;
+      color: #1e3a5f;
+    }
     .view-toggle {
       display: flex;
       gap: 1rem;
@@ -231,16 +287,26 @@
         {% if show_parity_filter %}
         <div class="filter-section">
           <span class="section-label">Parity</span>
-          <fieldset class="farm-filter">
-            <label>
-              <input type="checkbox" class="parity-cb" value="primiparous" checked>
-              Primiparous
-            </label>
-            <label>
-              <input type="checkbox" class="parity-cb" value="multiparous" checked>
-              Multiparous
-            </label>
-          </fieldset>
+          <div class="slicer-group parity-slicer" role="group" aria-label="Parity">
+            <button
+              type="button"
+              class="slicer-btn"
+              data-value="primiparous"
+              aria-pressed="false"
+            >
+              <span class="slicer-icon" aria-hidden="true">Y</span>
+              Youngstock
+            </button>
+            <button
+              type="button"
+              class="slicer-btn selected"
+              data-value="multiparous"
+              aria-pressed="true"
+            >
+              <span class="slicer-icon" aria-hidden="true">C</span>
+              Cows
+            </button>
+          </div>
         </div>
         {% endif %}
         <div class="filter-section">
@@ -324,7 +390,7 @@
         document.querySelectorAll(".lact-cb").forEach(cb => { cb.checked = true; });
       }
       if (SHOW_PARITY_FILTER) {
-        document.querySelectorAll(".parity-cb").forEach(cb => { cb.checked = true; });
+        resetParitySlicers();
       }
       document.getElementById("fiscal-year-select").value = "";
       lastFiscalYear = null;
@@ -530,7 +596,29 @@
 
     function selectedParityGroups() {
       if (!SHOW_PARITY_FILTER) return [];
-      return [...document.querySelectorAll(".parity-cb:checked")].map(cb => cb.value);
+      return [...document.querySelectorAll(".parity-slicer .slicer-btn.selected")]
+        .map(btn => btn.dataset.value);
+    }
+
+    function resetParitySlicers() {
+      document.querySelectorAll(".parity-slicer .slicer-btn").forEach(btn => {
+        const selected = btn.dataset.value === "multiparous";
+        btn.classList.toggle("selected", selected);
+        btn.setAttribute("aria-pressed", selected ? "true" : "false");
+      });
+    }
+
+    function bindParitySlicers() {
+      document.querySelectorAll(".parity-slicer .slicer-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          btn.classList.toggle("selected");
+          btn.setAttribute(
+            "aria-pressed",
+            btn.classList.contains("selected") ? "true" : "false"
+          );
+          loadReport();
+        });
+      });
     }
 
     function appendParityParams(params) {
@@ -770,7 +858,7 @@
 
       if (SHOW_PARITY_FILTER && !parityGroups.length) {
         empty.style.display = "";
-        empty.textContent = "Please select at least one parity group.";
+        empty.textContent = "Please select Cows and/or Youngstock.";
         graphView.style.display = "none";
         tableView.style.display = "none";
         meta.textContent = "";
@@ -856,9 +944,7 @@
       });
     }
     if (SHOW_PARITY_FILTER) {
-      document.querySelectorAll(".parity-cb").forEach(cb => {
-        cb.addEventListener("change", loadReport);
-      });
+      bindParitySlicers();
     }
     document.getElementById("fiscal-year-select").addEventListener("change", loadReport);
     document.querySelectorAll('input[name="view-mode"]').forEach(radio => {
