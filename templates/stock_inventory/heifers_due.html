@@ -31,6 +31,12 @@
     }
     .filter-section { margin-bottom: 1rem; }
     .filter-section:last-child { margin-bottom: 0; }
+    .filter-actions {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border);
+    }
+    .filter-actions button { width: 100%; margin: 0; }
     .filter-section label.section-label {
       display: block;
       font-size: 0.875rem;
@@ -191,6 +197,9 @@
             <input type="range" id="max-date-range" min="0" max="0" value="0">
           </div>
         </div>
+        <div class="filter-actions">
+          <button type="button" class="secondary small" id="clear-filters-btn">Clear filters</button>
+        </div>
       </aside>
 
       <div class="summary-panel" id="summary-panel">
@@ -233,6 +242,15 @@
     let heifersDueChart = null;
     let monthList = [];
     let dateBoundsInitialized = false;
+    let storedDateBounds = null;
+
+    function clearFilters() {
+      document.querySelectorAll(".farm-cb").forEach(cb => { cb.checked = true; });
+      if (storedDateBounds) {
+        syncDateControls(storedDateBounds, true);
+      }
+      loadReport();
+    }
 
     function parseIsoDate(iso) {
       const [y, m, d] = iso.split("-").map(Number);
@@ -526,9 +544,11 @@
       const data = await res.json();
 
       if (data.date_bounds && !dateBoundsInitialized) {
+        storedDateBounds = data.date_bounds;
         syncDateControls(data.date_bounds, true);
         dateBoundsInitialized = true;
       } else if (data.date_bounds) {
+        storedDateBounds = data.date_bounds;
         syncDateControls(data.date_bounds, false);
       }
 
@@ -569,6 +589,7 @@
     });
 
     bindDateInputs();
+    document.getElementById("clear-filters-btn").addEventListener("click", clearFilters);
     loadReport();
   </script>
 {% endblock %}
