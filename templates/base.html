@@ -237,17 +237,39 @@
       min-width: 0;
       flex: 1;
     }
-    .sidebar-toggle {
+    .topbar-nav {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
       flex-shrink: 0;
+    }
+    .topbar-nav-btn {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
       padding: 0.45rem 0.65rem;
       background: var(--bg);
       color: var(--text);
       border: 1px solid var(--border);
+      font-size: 0.875rem;
+      font-weight: 500;
+      line-height: 1;
+      text-decoration: none;
+      border-radius: 6px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .topbar-nav-btn:hover {
+      background: #eef2f6;
+    }
+    .topbar-nav-btn .nav-icon {
       font-size: 1.1rem;
       line-height: 1;
     }
-    .sidebar-toggle:hover {
-      background: #eef2f6;
+    .back-btn[hidden] {
+      display: none;
     }
     .topbar h1 {
       margin: 0;
@@ -259,7 +281,7 @@
       align-items: center;
       gap: 0.35rem;
       padding: 0.45rem 0.9rem;
-      background: var(--accent);
+      background: #4b5563;
       color: #fff;
       text-decoration: none;
       border-radius: 6px;
@@ -267,7 +289,7 @@
       font-weight: 500;
     }
     .home-btn:hover {
-      background: var(--accent-hover);
+      background: #374151;
     }
     .topbar-actions {
       display: flex;
@@ -369,6 +391,9 @@
         padding: 0.75rem 1rem;
       }
       .home-btn {
+        display: none;
+      }
+      .back-btn-label {
         display: none;
       }
       .user-email {
@@ -482,6 +507,7 @@
               <a href="/events/deaths" class="{% if active_nav == 'deaths' %}active{% endif %}">Deaths</a>
               <a href="/events/disease" class="{% if active_nav == 'disease' %}active{% endif %}">Disease</a>
               <a href="/events/breedings" class="{% if active_nav == 'breedings' %}active{% endif %}">Breedings</a>
+              <a href="/events/total-protein" class="{% if active_nav == 'total-protein' %}active{% endif %}">Total Protein</a>
             </div>
           </div>
           {% endif %}
@@ -511,7 +537,13 @@
     <div class="main-panel">
       <header class="topbar">
         <div class="topbar-left">
-          <button type="button" class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle navigation" aria-expanded="true" aria-controls="app-sidebar">&#9776;</button>
+          <div class="topbar-nav">
+            <button type="button" class="topbar-nav-btn" id="sidebar-toggle" aria-label="Toggle navigation" aria-expanded="true" aria-controls="app-sidebar"><span class="nav-icon" aria-hidden="true">&#9776;</span></button>
+            <button type="button" class="topbar-nav-btn back-btn" id="back-btn" hidden aria-label="Go back">
+              <span class="nav-icon" aria-hidden="true">&#8592;</span>
+              <span class="back-btn-label">Back</span>
+            </button>
+          </div>
           <div class="topbar-heading">
           {% if breadcrumb %}
           <p class="breadcrumb">{{ breadcrumb | safe }}</p>
@@ -569,6 +601,66 @@
       if (n == null || n === "") return "";
       return Number(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
+
+    (function initBackButton() {
+      const btn = document.getElementById("back-btn");
+      if (!btn) return;
+
+      const path = window.location.pathname;
+      if (path === "/" || path === "/login") return;
+
+      function getBreadcrumbFallback() {
+        const bc = document.querySelector(".breadcrumb");
+        if (!bc) return "/";
+        const links = [...bc.querySelectorAll("a[href]")];
+        const usable = links.filter(a => {
+          try {
+            return new URL(a.href, window.location.origin).pathname !== path;
+          } catch (_) {
+            return true;
+          }
+        });
+        if (usable.length) return usable[usable.length - 1].href;
+        return "/";
+      }
+
+      function canUseHistory() {
+        if (window.history.length > 1) return true;
+        const ref = document.referrer;
+        if (!ref) return false;
+        try {
+          return new URL(ref).origin === window.location.origin;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      const fallback = getBreadcrumbFallback();
+      const bc = document.querySelector(".breadcrumb");
+      if (bc) {
+        const parentLink = [...bc.querySelectorAll("a[href]")].filter(a => {
+          try {
+            return new URL(a.href, window.location.origin).pathname !== path;
+          } catch (_) {
+            return true;
+          }
+        }).pop();
+        if (parentLink) {
+          const label = parentLink.textContent.trim();
+          btn.setAttribute("aria-label", `Back to ${label}`);
+          btn.title = `Back to ${label}`;
+        }
+      }
+
+      btn.hidden = false;
+      btn.addEventListener("click", () => {
+        if (canUseHistory()) {
+          history.back();
+        } else {
+          window.location.href = fallback;
+        }
+      });
+    })();
 
     (function initSidebar() {
       const shell = document.querySelector(".app-shell");

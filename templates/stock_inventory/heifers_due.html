@@ -37,27 +37,64 @@
       border-top: 1px solid var(--border);
     }
     .filter-actions button { width: 100%; margin: 0; }
-    .filter-section label.section-label {
+    .filter-section label.section-label,
+    .filter-section .section-label {
       display: block;
       font-size: 0.875rem;
       font-weight: 600;
       color: var(--muted);
       margin-bottom: 0.35rem;
     }
-    .farm-filter {
+    .slicer-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+    }
+    .slicer-btn {
       display: flex;
       flex-direction: column;
-      gap: 0.35rem;
-      margin: 0;
-      padding: 0;
-      border: none;
-    }
-    .farm-filter label {
-      font-size: 0.875rem;
-      font-weight: 500;
-      display: inline-flex;
       align-items: center;
-      gap: 0.5rem;
+      justify-content: center;
+      gap: 0.3rem;
+      min-height: 3.25rem;
+      padding: 0.5rem 0.4rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .slicer-btn .slicer-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 999px;
+      background: #e5e7eb;
+      color: #9ca3af;
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+    .slicer-btn[data-value="CM"].selected {
+      background: #dceaf7;
+      border-color: #5a9fd4;
+      color: #1e3a5f;
+    }
+    .slicer-btn[data-value="CM"].selected .slicer-icon {
+      background: #9ec5e8;
+      color: #1e3a5f;
+    }
+    .slicer-btn[data-value="GAD"].selected {
+      background: #ffecd9;
+      border-color: #ffb366;
+      color: #b45309;
+    }
+    .slicer-btn[data-value="GAD"].selected .slicer-icon {
+      background: #ffc285;
+      color: #b45309;
     }
     .view-toggle {
       display: flex;
@@ -173,14 +210,19 @@
         <h2>Filters</h2>
         <div class="filter-section">
           <span class="section-label">Farm</span>
-          <fieldset class="farm-filter">
+          <div class="slicer-group farm-slicer" role="group" aria-label="Farm">
             {% for farm in farm_options %}
-            <label>
-              <input type="checkbox" class="farm-cb" value="{{ farm }}" checked>
+            <button
+              type="button"
+              class="slicer-btn selected"
+              data-value="{{ farm }}"
+              aria-pressed="true"
+            >
+              <span class="slicer-icon" aria-hidden="true">{{ farm[0] }}</span>
               {{ farm }}
-            </label>
+            </button>
             {% endfor %}
-          </fieldset>
+          </div>
         </div>
         <div class="filter-section">
           <span class="section-label">Expected due range</span>
@@ -245,11 +287,36 @@
     let storedDateBounds = null;
 
     function clearFilters() {
-      document.querySelectorAll(".farm-cb").forEach(cb => { cb.checked = true; });
+      resetFarmSlicers();
       if (storedDateBounds) {
         syncDateControls(storedDateBounds, true);
       }
       loadReport();
+    }
+
+    function selectedFarms() {
+      return [...document.querySelectorAll(".farm-slicer .slicer-btn.selected")]
+        .map(btn => btn.dataset.value);
+    }
+
+    function resetFarmSlicers() {
+      document.querySelectorAll(".farm-slicer .slicer-btn").forEach(btn => {
+        btn.classList.add("selected");
+        btn.setAttribute("aria-pressed", "true");
+      });
+    }
+
+    function bindFarmSlicers() {
+      document.querySelectorAll(".farm-slicer .slicer-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const selected = btn.classList.contains("selected");
+          const count = document.querySelectorAll(".farm-slicer .slicer-btn.selected").length;
+          if (selected && count <= 1) return;
+          btn.classList.toggle("selected", !selected);
+          btn.setAttribute("aria-pressed", btn.classList.contains("selected") ? "true" : "false");
+          loadReport();
+        });
+      });
     }
 
     function parseIsoDate(iso) {
@@ -420,10 +487,6 @@
       panel.style.display = "flex";
     }
 
-    function selectedFarms() {
-      return [...document.querySelectorAll(".farm-cb:checked")].map(cb => cb.value);
-    }
-
     function appendFarmParams(params) {
       selectedFarms().forEach(farm => params.append("farm", farm));
       return params;
@@ -578,9 +641,6 @@
       }
     }
 
-    document.querySelectorAll(".farm-cb").forEach(cb => {
-      cb.addEventListener("change", loadReport);
-    });
     document.querySelectorAll('input[name="view-mode"]').forEach(radio => {
       radio.addEventListener("change", () => {
         updateViewVisibility();
@@ -589,6 +649,7 @@
     });
 
     bindDateInputs();
+    bindFarmSlicers();
     document.getElementById("clear-filters-btn").addEventListener("click", clearFilters);
     loadReport();
   </script>

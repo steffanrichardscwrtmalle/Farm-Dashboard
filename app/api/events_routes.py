@@ -34,6 +34,7 @@ from app.services.breeding_sires import (
     set_sire_classification,
 
 )
+from app.services.stp_report import build_stp_report
 
 from app.services.events_common import EVENT_PAGE_TYPES, build_events_page_report
 
@@ -303,6 +304,27 @@ def api_breedings(
 
         fiscal_year=fiscal_year,
 
+    )
+
+
+
+
+
+@router.get("/total-protein")
+def api_total_protein(
+    farm: list[str] = Query(default=[]),
+    breed: list[str] = Query(default=[]),
+    birth_from: dt.date | None = Query(default=None),
+    birth_to: dt.date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_EVENTS)),
+):
+    return build_stp_report(
+        db,
+        farms=farm or None,
+        breed_types=breed or None,
+        birth_from=birth_from,
+        birth_to=birth_to,
     )
 
 

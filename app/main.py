@@ -668,6 +668,25 @@ def events_breedings_page(request: Request):
     )
 
 
+@app.get("/events/total-protein", response_class=HTMLResponse)
+def events_total_protein_page(request: Request):
+    from app.models import HERD_FARM_OPTIONS
+
+    if denied := _page_guard(request, PAGE_EVENTS):
+        return denied
+
+    return templates.TemplateResponse(
+        request,
+        "events/total_protein.html",
+        _template_ctx(
+            request,
+            farm_options=list(HERD_FARM_OPTIONS),
+            page_heading="Total Protein",
+            **_events_context("Total Protein", "total-protein", "Total Protein"),
+        ),
+    )
+
+
 @app.get("/feed-rate", response_class=HTMLResponse)
 def feed_rate_page(request: Request):
     if denied := _page_guard(request, PAGE_FEED_RATE):
