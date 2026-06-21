@@ -16,6 +16,30 @@ def _normalize_farms(farms: list[str] | None) -> list[str]:
     return [f for f in farms if f in HERD_FARM_OPTIONS]
 
 
+def _build_range_summary(grand_cm: int, grand_gad: int, age_month_count: int) -> dict[str, Any]:
+    def avg(total: int) -> float:
+        return round(total / age_month_count, 1) if age_month_count else 0.0
+
+    grand_total = grand_cm + grand_gad
+    return {
+        "total": grand_total,
+        "month_count": age_month_count,
+        "average_per_month": avg(grand_total),
+        "CM": {"total": grand_cm, "average_per_month": avg(grand_cm)},
+        "GAD": {"total": grand_gad, "average_per_month": avg(grand_gad)},
+    }
+
+
+def _empty_range_summary() -> dict[str, Any]:
+    return {
+        "total": 0,
+        "month_count": 0,
+        "average_per_month": 0,
+        "CM": {"total": 0, "average_per_month": 0},
+        "GAD": {"total": 0, "average_per_month": 0},
+    }
+
+
 def get_heifer_inventory_report(
     db: Session,
     farms: list[str] | None = None,
@@ -46,6 +70,7 @@ def get_heifer_inventory_report(
         return {
             "rows": [],
             "grand_total": {"CM": 0, "GAD": 0, "total": 0},
+            "range_summary": _empty_range_summary(),
             "age_bounds": {"min": data_min, "max": data_max},
             "latest_import": latest_import.isoformat() if latest_import else None,
         }
@@ -84,6 +109,7 @@ def get_heifer_inventory_report(
         grand_gad += gad
 
     latest_import = db.scalar(select(func.max(HerdInventory.import_timestamp)))
+    age_month_count = effective_max - effective_min + 1
 
     return {
         "rows": rows,
@@ -92,6 +118,7 @@ def get_heifer_inventory_report(
             "GAD": grand_gad,
             "total": grand_cm + grand_gad,
         },
+        "range_summary": _build_range_summary(grand_cm, grand_gad, age_month_count),
         "age_bounds": {"min": data_min, "max": data_max},
         "latest_import": latest_import.isoformat() if latest_import else None,
     }
