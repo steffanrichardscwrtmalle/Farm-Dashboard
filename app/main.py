@@ -469,7 +469,14 @@ def stock_inventory_heifers_due_page(request: Request):
     )
 
 
-def _events_page_response(request: Request, *, slug: str, title: str, chart_title: str):
+def _events_page_response(
+    request: Request,
+    *,
+    slug: str,
+    title: str,
+    chart_title: str,
+    show_lact_filter: bool = False,
+):
     from app.models import HERD_FARM_OPTIONS
 
     return templates.TemplateResponse(
@@ -481,6 +488,7 @@ def _events_page_response(request: Request, *, slug: str, title: str, chart_titl
             api_slug=slug,
             page_heading=title,
             chart_title=chart_title,
+            show_lact_filter=show_lact_filter,
             **_events_context(title, slug, title),
         ),
     )
@@ -493,6 +501,7 @@ def events_calvings_page(request: Request):
         slug="calvings",
         title="Calvings",
         chart_title="Calvings by Month — Stacked by Farm",
+        show_lact_filter=True,
     )
 
 

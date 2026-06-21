@@ -21,6 +21,7 @@ def _events_report(
     event_from: dt.date | None,
     event_to: dt.date | None,
     db: Session,
+    lact: list[str] | None = None,
 ) -> dict:
     if page_slug not in EVENT_PAGE_TYPES:
         raise HTTPException(status_code=404, detail="Unknown events page")
@@ -31,18 +32,20 @@ def _events_report(
         farms=farms,
         event_from=event_from,
         event_to=event_to,
+        lact_groups=lact,
     )
 
 
 @router.get("/calvings")
 def api_calvings(
     farm: list[str] = Query(default=[]),
+    lact: list[str] = Query(default=[]),
     event_from: dt.date | None = Query(default=None),
     event_to: dt.date | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    return _events_report("calvings", farm, event_from, event_to, db)
+    return _events_report("calvings", farm, event_from, event_to, db, lact=lact or None)
 
 
 @router.get("/sales")

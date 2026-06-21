@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import HERD_FARM_OPTIONS, CowEvent
@@ -18,11 +18,35 @@ EVENT_PAGE_TYPES: dict[str, tuple[str, ...]] = {
     "disease": ("ILL", "SCOURS", "LAME", "MAST", "METR", "RESP", "INJURY", "ABORT", "DA"),
 }
 
+LACTATION_GROUPS: tuple[str, ...] = ("1", "2", "3+")
+
 
 def normalize_farms(farms: list[str] | None) -> list[str]:
     if not farms:
         return list(HERD_FARM_OPTIONS)
     return [f for f in farms if f in HERD_FARM_OPTIONS]
+
+
+def normalize_lact_groups(lact_groups: list[str] | None) -> list[str] | None:
+    if not lact_groups:
+        return None
+    selected = [group for group in lact_groups if group in LACTATION_GROUPS]
+    return selected or None
+
+
+def _apply_lact_groups(query, lact_groups: list[str] | None):
+    if not lact_groups:
+        return query
+    conditions = []
+    if "1" in lact_groups:
+        conditions.append(CowEvent.lact == 1)
+    if "2" in lact_groups:
+        conditions.append(CowEvent.lact == 2)
+    if "3+" in lact_groups:
+        conditions.append(CowEvent.lact >= 3)
+    if not conditions:
+        return query
+    return query.where(or_(*conditions))
 
 
 def _fiscal_year_from_date(value: dt.date) -> int:
@@ -138,8 +162,10 @@ def build_events_report(
     farms: list[str] | None = None,
     event_from: dt.date | None = None,
     event_to: dt.date | None = None,
+    lact_groups: list[str] | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
+    selected_lact_groups = normalize_lact_groups(lact_groups)
     latest_import = db.scalar(select(func.max(CowEvent.import_timestamp)))
 
     empty_result: dict[str, Any] = {
@@ -167,7 +193,7 @@ def build_events_report(
     if effective_from > effective_to:
         effective_from, effective_to = effective_to, effective_from
 
-    counts = db.execute(
+    counts_query = (
         select(
             CowEvent.month_label,
             CowEvent.farm,
@@ -178,8 +204,12 @@ def build_events_report(
         .where(CowEvent.farm.in_(selected_farms))
         .where(CowEvent.event_date >= effective_from)
         .where(CowEvent.event_date <= effective_to)
-        .group_by(CowEvent.month_label, CowEvent.farm)
-        .order_by(func.min(CowEvent.sort_key))
+    )
+    counts_query = _apply_lact_groups(counts_query, selected_lact_groups)
+    counts = db.execute(
+        counts_query.group_by(CowEvent.month_label, CowEvent.farm).order_by(
+            func.min(CowEvent.sort_key)
+        )
     ).all()
 
     pivot: dict[str, dict[str, int]] = {}
@@ -218,6 +248,7 @@ def build_events_page_report(
     farms: list[str] | None = None,
     event_from: dt.date | None = None,
     event_to: dt.date | None = None,
+    lact_groups: list[str] | None = None,
 ) -> dict[str, Any]:
     event_types = EVENT_PAGE_TYPES.get(page_slug)
     if not event_types:
@@ -228,4 +259,5 @@ def build_events_page_report(
         farms=farms,
         event_from=event_from,
         event_to=event_to,
+        lact_groups=lact_groups if page_slug == "calvings" else None,
     )
