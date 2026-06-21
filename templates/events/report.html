@@ -154,10 +154,12 @@
     #events-table thead th.farm-cm {
       background: #b8d4e8;
       color: #1e3a5f;
+      text-align: center;
     }
     #events-table thead th.farm-gad {
       background: #f0c98e;
       color: #1e3a5f;
+      text-align: center;
     }
     #events-table thead th.reason-sub {
       font-weight: 600;
@@ -168,6 +170,9 @@
     }
     #events-table thead th.reason-sub.farm-gad {
       background: #f7ddb0;
+    }
+    #events-table tbody td.farm-total {
+      font-weight: 600;
     }
     #events-table tbody tr.grand-total td {
       background: #eef2f6;
@@ -576,15 +581,17 @@
     function renderSalesTableHeader(farms, reasons) {
       const head = document.getElementById("events-table-head");
       const reasonList = reasons || SALES_TABLE_REASONS;
+      const colsPerFarm = reasonList.length + 1;
       const farmHeader = farms.map(farm => {
         const farmClass = farm === "CM" ? "farm-cm" : farm === "GAD" ? "farm-gad" : "";
-        return `<th colspan="${reasonList.length}" class="${farmClass}">${farm}</th>`;
+        return `<th colspan="${colsPerFarm}" class="${farmClass}">${farm}</th>`;
       }).join("");
       const reasonHeader = farms.map(farm => {
         const farmClass = farm === "CM" ? "farm-cm" : farm === "GAD" ? "farm-gad" : "";
-        return reasonList.map(reason =>
+        const reasonCells = reasonList.map(reason =>
           `<th class="reason-sub ${farmClass}">${reason}</th>`
         ).join("");
+        return `${reasonCells}<th class="reason-sub ${farmClass}">Total</th>`;
       }).join("");
       head.innerHTML = `
         <tr>
@@ -624,18 +631,22 @@
 
         const totals = {};
         farms.forEach(farm => {
-          totals[farm] = {};
-          reasons.forEach(reason => { totals[farm][reason] = 0; });
+          totals[farm] = { reasons: {}, total: 0 };
+          reasons.forEach(reason => { totals[farm].reasons[reason] = 0; });
         });
 
         html = tableRows.map(row => {
-          const cells = farms.map(farm =>
-            reasons.map(reason => {
+          const cells = farms.map(farm => {
+            let farmTotal = 0;
+            const reasonCells = reasons.map(reason => {
               const value = row[farm]?.[reason] ?? 0;
-              totals[farm][reason] += value;
+              totals[farm].reasons[reason] += value;
+              farmTotal += value;
               return `<td>${value}</td>`;
-            }).join("")
-          ).join("");
+            }).join("");
+            totals[farm].total += farmTotal;
+            return `${reasonCells}<td class="farm-total">${farmTotal}</td>`;
+          }).join("");
           return `
             <tr>
               <td>${row.event_month}</td>
@@ -644,9 +655,12 @@
           `;
         }).join("");
 
-        const totalCells = farms.map(farm =>
-          reasons.map(reason => `<td>${totals[farm][reason]}</td>`).join("")
-        ).join("");
+        const totalCells = farms.map(farm => {
+          const reasonCells = reasons.map(reason =>
+            `<td>${totals[farm].reasons[reason]}</td>`
+          ).join("");
+          return `${reasonCells}<td class="farm-total">${totals[farm].total}</td>`;
+        }).join("");
         html += `
           <tr class="grand-total">
             <td>Grand Total</td>
