@@ -207,9 +207,26 @@ def _build_farm_breed_summary(
             }
         )
 
+    breed_totals: dict[str, int] = {}
+    for farm in selected_farms:
+        for breed, count in farm_pivot.get(farm, {}).items():
+            breed_totals[breed] = breed_totals.get(breed, 0) + count
+
+    combined_breeds: list[dict[str, Any]] = []
+    for breed in sorted(breed_totals.keys()):
+        total = breed_totals[breed]
+        combined_breeds.append(
+            {
+                "breed": breed,
+                "total": total,
+                "average_per_month": avg(total),
+            }
+        )
+
     return {
         "month_count": month_count,
         "farms": farm_sections,
+        "breeds": combined_breeds,
         "total": grand_total,
         "average_per_month": avg(grand_total),
     }
@@ -219,6 +236,7 @@ def _empty_farm_breed_summary() -> dict[str, Any]:
     return {
         "month_count": 0,
         "farms": [],
+        "breeds": [],
         "total": 0,
         "average_per_month": 0,
     }

@@ -482,9 +482,18 @@
       }).join("");
 
       const totalLabel = summary.farms.length > 1 ? "Both farms" : "Total";
+      const combinedBreedLines = summary.farms.length > 1 && summary.breeds?.length
+        ? summary.breeds.map(b => `
+            <div class="summary-breed-line">
+              ${b.breed}: ${b.total.toLocaleString("en-GB")} total,
+              ${b.average_per_month.toLocaleString("en-GB")} avg/month
+            </div>
+          `).join("")
+        : "";
       html += `
         <div class="summary-row summary-row-total">
           <span class="summary-row-header">${totalLabel}</span>
+          ${combinedBreedLines}
           <span class="summary-row-detail">
             Total: ${summary.total.toLocaleString("en-GB")}<br>
             Avg/month: ${summary.average_per_month.toLocaleString("en-GB")} (${monthNote})
