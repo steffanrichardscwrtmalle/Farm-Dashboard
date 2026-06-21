@@ -49,22 +49,65 @@ def _month_count_inclusive(due_from: dt.date, due_to: dt.date) -> int:
     return len(_iter_month_starts(due_from, due_to))
 
 
-def _get_date_bounds(
-    db: Session,
+def _apply_report_filters(
+    query,
+    *,
     category: str,
     selected_farms: list[str],
-) -> tuple[dt.date | None, dt.date | None]:
-    row = db.execute(
-        select(
-            func.min(HerdInventory.expected_due),
-            func.max(HerdInventory.expected_due),
-        )
-        .where(HerdInventory.category == category)
+    rc_values: tuple[int, ...] | None = None,
+):
+    query = (
+        query.where(HerdInventory.category == category)
         .where(HerdInventory.gender == "Female")
         .where(HerdInventory.expected_due.isnot(None))
         .where(HerdInventory.expected_month.isnot(None))
         .where(HerdInventory.farm.in_(selected_farms))
-    ).one()
+    )
+    if rc_values:
+        query = query.where(HerdInventory.rc.in_(list(rc_values)))
+    return query
+
+
+def _build_range_summary(grand_cm: int, grand_gad: int, month_count: int) -> dict[str, Any]:
+    def avg(total: int) -> float:
+        return round(total / month_count, 1) if month_count else 0.0
+
+    grand_total = grand_cm + grand_gad
+    return {
+        "total": grand_total,
+        "month_count": month_count,
+        "average_per_month": avg(grand_total),
+        "CM": {"total": grand_cm, "average_per_month": avg(grand_cm)},
+        "GAD": {"total": grand_gad, "average_per_month": avg(grand_gad)},
+    }
+
+
+def _empty_range_summary() -> dict[str, Any]:
+    return {
+        "total": 0,
+        "month_count": 0,
+        "average_per_month": 0,
+        "CM": {"total": 0, "average_per_month": 0},
+        "GAD": {"total": 0, "average_per_month": 0},
+    }
+
+
+def _get_date_bounds(
+    db: Session,
+    category: str,
+    selected_farms: list[str],
+    rc_values: tuple[int, ...] | None = None,
+) -> tuple[dt.date | None, dt.date | None]:
+    query = _apply_report_filters(
+        select(
+            func.min(HerdInventory.expected_due),
+            func.max(HerdInventory.expected_due),
+        ),
+        category=category,
+        selected_farms=selected_farms,
+        rc_values=rc_values,
+    )
+    row = db.execute(query).one()
     min_date = row[0]
     max_date = row[1]
     if min_date is None or max_date is None:
@@ -76,15 +119,20 @@ def _get_date_bounds(
     return min_date, max_date
 
 
-def _get_breed_options(db: Session, category: str, selected_farms: list[str]) -> list[str]:
+def _get_breed_options(
+    db: Session,
+    category: str,
+    selected_farms: list[str],
+    rc_values: tuple[int, ...] | None = None,
+) -> list[str]:
+    query = _apply_report_filters(
+        select(HerdInventory.lsbrd),
+        category=category,
+        selected_farms=selected_farms,
+        rc_values=rc_values,
+    )
     rows = db.execute(
-        select(HerdInventory.lsbrd)
-        .where(HerdInventory.category == category)
-        .where(HerdInventory.gender == "Female")
-        .where(HerdInventory.expected_due.isnot(None))
-        .where(HerdInventory.expected_month.isnot(None))
-        .where(HerdInventory.farm.in_(selected_farms))
-        .where(HerdInventory.lsbrd.isnot(None))
+        query.where(HerdInventory.lsbrd.isnot(None))
         .where(HerdInventory.lsbrd != "")
         .distinct()
         .order_by(HerdInventory.lsbrd)
@@ -126,6 +174,7 @@ def build_expected_due_report(
     due_from: dt.date | None = None,
     due_to: dt.date | None = None,
     include_breed_options: bool = False,
+    rc_values: tuple[int, ...] | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     latest_import = db.scalar(select(func.max(HerdInventory.import_timestamp)))
@@ -133,20 +182,26 @@ def build_expected_due_report(
     empty_result: dict[str, Any] = {
         "rows": [],
         "grand_total": {"CM": 0, "GAD": 0, "total": 0},
-        "range_summary": {"total": 0, "month_count": 0, "average_per_month": 0},
+        "range_summary": _empty_range_summary(),
         "latest_import": latest_import.isoformat() if latest_import else None,
     }
     if include_breed_options:
-        empty_result["breed_options"] = _get_breed_options(db, category, selected_farms)
+        empty_result["breed_options"] = _get_breed_options(
+            db, category, selected_farms, rc_values=rc_values
+        )
 
     if not selected_farms:
         return empty_result
 
-    bounds_min, bounds_max = _get_date_bounds(db, category, selected_farms)
+    bounds_min, bounds_max = _get_date_bounds(
+        db, category, selected_farms, rc_values=rc_values
+    )
     if bounds_min is None or bounds_max is None:
         empty_result["date_bounds"] = None
         if include_breed_options:
-            empty_result["breed_options"] = _get_breed_options(db, category, selected_farms)
+            empty_result["breed_options"] = _get_breed_options(
+                db, category, selected_farms, rc_values=rc_values
+            )
         return empty_result
 
     date_bounds = {
@@ -159,20 +214,19 @@ def build_expected_due_report(
     if effective_from > effective_to:
         effective_from, effective_to = effective_to, effective_from
 
-    query = (
+    query = _apply_report_filters(
         select(
             HerdInventory.sort_key,
             HerdInventory.expected_month,
             HerdInventory.farm,
             func.count(),
-        )
-        .where(HerdInventory.category == category)
-        .where(HerdInventory.gender == "Female")
-        .where(HerdInventory.expected_due.isnot(None))
-        .where(HerdInventory.expected_month.isnot(None))
-        .where(HerdInventory.farm.in_(selected_farms))
-        .where(HerdInventory.expected_due >= effective_from)
-        .where(HerdInventory.expected_due <= effective_to)
+        ),
+        category=category,
+        selected_farms=selected_farms,
+        rc_values=rc_values,
+    )
+    query = query.where(HerdInventory.expected_due >= effective_from).where(
+        HerdInventory.expected_due <= effective_to
     )
 
     if breeds:
@@ -210,13 +264,11 @@ def build_expected_due_report(
             "total": grand_total,
         },
         "date_bounds": date_bounds,
-        "range_summary": {
-            "total": grand_total,
-            "month_count": month_count,
-            "average_per_month": round(grand_total / month_count, 1) if month_count else 0,
-        },
+        "range_summary": _build_range_summary(grand_cm, grand_gad, month_count),
         "latest_import": latest_import.isoformat() if latest_import else None,
     }
     if include_breed_options:
-        result["breed_options"] = _get_breed_options(db, category, selected_farms)
+        result["breed_options"] = _get_breed_options(
+            db, category, selected_farms, rc_values=rc_values
+        )
     return result
