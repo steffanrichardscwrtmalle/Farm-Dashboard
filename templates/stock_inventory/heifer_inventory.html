@@ -203,7 +203,7 @@
       </aside>
 
       <div class="summary-panel" id="summary-panel">
-        <h3>Heifers in age range</h3>
+        <h3>Summary</h3>
         <div id="summary-rows"></div>
       </div>
     </div>
@@ -352,10 +352,6 @@
         return;
       }
 
-      const monthNote = summary.month_count === 1
-        ? "1 age month"
-        : `${summary.month_count} age months`;
-
       function farmRow(farm) {
         const stats = summary[farm] || { total: 0, average_per_month: 0 };
         return `
@@ -363,7 +359,7 @@
             <span class="summary-row-header">${farm}</span>
             <span class="summary-row-detail">
               Total: ${stats.total.toLocaleString("en-GB")}<br>
-              Avg/age month: ${stats.average_per_month.toLocaleString("en-GB")} (${monthNote})
+              Avg per month: ${stats.average_per_month.toLocaleString("en-GB")}
             </span>
           </div>
         `;
@@ -376,7 +372,7 @@
           <span class="summary-row-header">${totalLabel}</span>
           <span class="summary-row-detail">
             Total: ${summary.total.toLocaleString("en-GB")}<br>
-            Avg/age month: ${summary.average_per_month.toLocaleString("en-GB")} (${monthNote})
+            Avg per month: ${summary.average_per_month.toLocaleString("en-GB")}
           </span>
         </div>
       `;
