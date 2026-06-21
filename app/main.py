@@ -412,6 +412,44 @@ def stock_inventory_heifer_page(request: Request):
     )
 
 
+@app.get("/stock-inventory/calves-due", response_class=HTMLResponse)
+def stock_inventory_calves_due_page(request: Request):
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "stock_inventory/calves_due.html",
+        _template_ctx(
+            request,
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_stock_inventory_context(
+                "Calves Due",
+                "calves-due",
+                "Calves Due",
+            ),
+        ),
+    )
+
+
+@app.get("/stock-inventory/heifers-due", response_class=HTMLResponse)
+def stock_inventory_heifers_due_page(request: Request):
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "stock_inventory/heifers_due.html",
+        _template_ctx(
+            request,
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_stock_inventory_context(
+                "Heifers Due",
+                "heifers-due",
+                "Heifers Due",
+            ),
+        ),
+    )
+
+
 @app.get("/invoices")
 def redirect_invoices():
     return RedirectResponse("/wynnstay/invoices", status_code=301)

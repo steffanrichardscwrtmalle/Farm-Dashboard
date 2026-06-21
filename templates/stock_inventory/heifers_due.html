@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Heifers Due{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(200px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .page-layout { grid-template-columns: 1fr; }
+    }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+    }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-child { margin-bottom: 0; }
+    .filter-section label.section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .farm-filter {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin: 0;
+      padding: 0;
+      border: none;
+    }
+    .farm-filter label {
+      font-size: 0.875rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .view-toggle {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .view-toggle label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.875rem;
+    }
+    .content-panel { min-width: 0; }
+    .meta-line {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin-bottom: 0.75rem;
+    }
+    .chart-wrap {
+      position: relative;
+      height: 500px;
+      max-width: 100%;
+    }
+    #heifers-due-table {
+      width: auto;
+      table-layout: auto;
+    }
+    #heifers-due-table th, #heifers-due-table td {
+      text-align: right;
+      white-space: nowrap;
+      padding: 0.45rem 0.75rem;
+    }
+    #heifers-due-table th:first-child, #heifers-due-table td:first-child {
+      text-align: left;
+    }
+    #heifers-due-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+    }
+    #heifers-due-table tbody tr.grand-total td {
+      background: #eef2f6;
+      font-weight: 700;
+      border-top: 2px solid var(--border);
+    }
+    .empty-state {
+      padding: 2rem;
+      color: var(--muted);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="view-toggle">
+    <label><input type="radio" name="view-mode" value="graph" checked> Graph</label>
+    <label><input type="radio" name="view-mode" value="table"> Table</label>
+  </div>
+
+  <div class="page-layout">
+    <aside class="filter-panel">
+      <h2>Filters</h2>
+      <div class="filter-section">
+        <span class="section-label">Farm</span>
+        <fieldset class="farm-filter">
+          {% for farm in farm_options %}
+          <label>
+            <input type="checkbox" class="farm-cb" value="{{ farm }}" checked>
+            {{ farm }}
+          </label>
+          {% endfor %}
+        </fieldset>
+      </div>
+    </aside>
+
+    <section class="content-panel">
+      <p class="meta-line" id="meta-line"></p>
+      <div id="graph-view">
+        <div class="chart-wrap">
+          <canvas id="heifers-due-chart"></canvas>
+        </div>
+      </div>
+      <div id="table-view" style="display:none;">
+        <div class="table-wrap">
+          <table id="heifers-due-table">
+            <thead>
+              <tr>
+                <th>Expected Month</th>
+                <th>CM</th>
+                <th>GAD</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="heifers-due-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="empty-state" class="empty-state" style="display:none;"></div>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script>
+    const FARM_COLORS = { CM: "#1f77b4", GAD: "#ff7f0e" };
+    let heifersDueChart = null;
+
+    function selectedFarms() {
+      return [...document.querySelectorAll(".farm-cb:checked")].map(cb => cb.value);
+    }
+
+    function appendFarmParams(params) {
+      selectedFarms().forEach(farm => params.append("farm", farm));
+      return params;
+    }
+
+    function viewMode() {
+      return document.querySelector('input[name="view-mode"]:checked')?.value || "graph";
+    }
+
+    function updateViewVisibility() {
+      const mode = viewMode();
+      document.getElementById("graph-view").style.display = mode === "graph" ? "" : "none";
+      document.getElementById("table-view").style.display = mode === "table" ? "" : "none";
+    }
+
+    function renderTable(data) {
+      const body = document.getElementById("heifers-due-body");
+      const rows = data.rows || [];
+      if (!rows.length) {
+        body.innerHTML = "";
+        return;
+      }
+      let html = rows.map(row => `
+        <tr>
+          <td>${row.expected_month}</td>
+          <td>${row.CM}</td>
+          <td>${row.GAD}</td>
+          <td>${row.total}</td>
+        </tr>
+      `).join("");
+      const gt = data.grand_total || {};
+      html += `
+        <tr class="grand-total">
+          <td>Grand Total</td>
+          <td>${gt.CM ?? 0}</td>
+          <td>${gt.GAD ?? 0}</td>
+          <td>${gt.total ?? 0}</td>
+        </tr>
+      `;
+      body.innerHTML = html;
+    }
+
+    function renderChart(data) {
+      const canvas = document.getElementById("heifers-due-chart");
+      const rows = data.rows || [];
+      if (heifersDueChart) {
+        heifersDueChart.destroy();
+        heifersDueChart = null;
+      }
+      if (!rows.length) return;
+
+      const labels = rows.map(r => r.expected_month);
+      const farms = selectedFarms().length ? selectedFarms() : ["CM", "GAD"];
+      const datasets = farms.map(farm => ({
+        label: farm,
+        data: rows.map(r => r[farm] ?? 0),
+        backgroundColor: FARM_COLORS[farm] || "#888",
+        stack: "heifers",
+      }));
+
+      heifersDueChart = new Chart(canvas, {
+        type: "bar",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: {
+              display: true,
+              text: "Heifers Due by Expected Month — Stacked by Farm",
+            },
+            legend: { title: { display: true, text: "Farm" } },
+          },
+          scales: {
+            x: {
+              stacked: true,
+              title: { display: true, text: "Expected Due Month" },
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              title: { display: true, text: "Number of Heifers Due" },
+            },
+          },
+        },
+      });
+    }
+
+    async function loadReport() {
+      const farms = selectedFarms();
+      const empty = document.getElementById("empty-state");
+      const graphView = document.getElementById("graph-view");
+      const tableView = document.getElementById("table-view");
+      const meta = document.getElementById("meta-line");
+
+      if (!farms.length) {
+        empty.style.display = "";
+        empty.textContent = "Please select at least one farm.";
+        graphView.style.display = "none";
+        tableView.style.display = "none";
+        meta.textContent = "";
+        if (heifersDueChart) { heifersDueChart.destroy(); heifersDueChart = null; }
+        return;
+      }
+
+      const params = appendFarmParams(new URLSearchParams());
+
+      const res = await fetch(`/api/stock-inventory/heifers-due?${params}`);
+      if (!res.ok) {
+        empty.style.display = "";
+        empty.textContent = "Failed to load heifers due data.";
+        graphView.style.display = "none";
+        tableView.style.display = "none";
+        return;
+      }
+
+      const data = await res.json();
+
+      const importNote = data.latest_import
+        ? `Latest import: ${new Date(data.latest_import).toLocaleString("en-GB")}`
+        : "No inventory import found — run the herd import cron job.";
+      meta.textContent = importNote;
+
+      if (!data.rows || !data.rows.length) {
+        empty.style.display = "";
+        empty.textContent = data.latest_import
+          ? "No heifers due in the selected filters."
+          : "No inventory data available.";
+        graphView.style.display = "none";
+        tableView.style.display = "none";
+        if (heifersDueChart) { heifersDueChart.destroy(); heifersDueChart = null; }
+        return;
+      }
+
+      empty.style.display = "none";
+      updateViewVisibility();
+      renderTable(data);
+      if (viewMode() === "graph") {
+        renderChart(data);
+      }
+    }
+
+    document.querySelectorAll(".farm-cb").forEach(cb => {
+      cb.addEventListener("change", loadReport);
+    });
+    document.querySelectorAll('input[name="view-mode"]').forEach(radio => {
+      radio.addEventListener("change", () => {
+        updateViewVisibility();
+        loadReport();
+      });
+    });
+
+    loadReport();
+  </script>
+{% endblock %}
