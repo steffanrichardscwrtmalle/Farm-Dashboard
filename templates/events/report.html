@@ -59,6 +59,10 @@
       align-items: center;
       gap: 0.5rem;
     }
+    .filter-select {
+      width: 100%;
+      margin: 0;
+    }
     .view-toggle {
       display: flex;
       gap: 1rem;
@@ -217,6 +221,12 @@
         </div>
         {% endif %}
         <div class="filter-section">
+          <span class="section-label">Fiscal year</span>
+          <select id="fiscal-year-select" class="filter-select">
+            <option value="">Any</option>
+          </select>
+        </div>
+        <div class="filter-section">
           <span class="section-label">Event date range</span>
           <div class="date-inputs">
             <label>
@@ -290,6 +300,7 @@
       if (SHOW_PARITY_FILTER) {
         document.querySelectorAll(".parity-cb").forEach(cb => { cb.checked = true; });
       }
+      document.getElementById("fiscal-year-select").value = "";
       if (storedDateBounds) {
         syncDateControls(storedDateBounds, true);
       }
@@ -491,6 +502,33 @@
       return params;
     }
 
+    function selectedFiscalYear() {
+      const value = document.getElementById("fiscal-year-select").value;
+      return value ? value : null;
+    }
+
+    function appendFiscalYearParam(params) {
+      const fiscalYear = selectedFiscalYear();
+      if (fiscalYear) {
+        params.set("fiscal_year", fiscalYear);
+      }
+      return params;
+    }
+
+    function renderFiscalYearOptions(options) {
+      const select = document.getElementById("fiscal-year-select");
+      const current = select.value;
+      const years = options || [];
+      let html = '<option value="">Any</option>';
+      html += years.map(year => `<option value="${year}">${year}</option>`).join("");
+      select.innerHTML = html;
+      if (current && years.includes(Number(current))) {
+        select.value = current;
+      } else {
+        select.value = "";
+      }
+    }
+
     function viewMode() {
       return document.querySelector('input[name="view-mode"]:checked')?.value || "graph";
     }
@@ -616,7 +654,9 @@
         return;
       }
 
-      const params = appendParityParams(appendLactParams(appendDateParams(appendFarmParams(new URLSearchParams()))));
+      const params = appendFiscalYearParam(
+        appendParityParams(appendLactParams(appendDateParams(appendFarmParams(new URLSearchParams()))))
+      );
 
       const res = await fetch(`/api/events/${API_SLUG}?${params}`);
       if (!res.ok) {
@@ -628,6 +668,10 @@
       }
 
       const data = await res.json();
+
+      if (data.fiscal_year_options) {
+        renderFiscalYearOptions(data.fiscal_year_options);
+      }
 
       if (data.date_bounds && !dateBoundsInitialized) {
         storedDateBounds = data.date_bounds;
@@ -677,6 +721,7 @@
         cb.addEventListener("change", loadReport);
       });
     }
+    document.getElementById("fiscal-year-select").addEventListener("change", loadReport);
     document.querySelectorAll('input[name="view-mode"]').forEach(radio => {
       radio.addEventListener("change", () => {
         updateViewVisibility();

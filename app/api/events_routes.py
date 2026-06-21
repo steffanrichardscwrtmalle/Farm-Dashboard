@@ -23,6 +23,7 @@ def _events_report(
     db: Session,
     lact: list[str] | None = None,
     parity: list[str] | None = None,
+    fiscal_year: int | None = None,
 ) -> dict:
     if page_slug not in EVENT_PAGE_TYPES:
         raise HTTPException(status_code=404, detail="Unknown events page")
@@ -35,6 +36,7 @@ def _events_report(
         event_to=event_to,
         lact_groups=lact,
         parity_groups=parity,
+        fiscal_year=fiscal_year,
     )
 
 
@@ -42,57 +44,72 @@ def _events_report(
 def api_calvings(
     farm: list[str] = Query(default=[]),
     lact: list[str] = Query(default=[]),
+    fiscal_year: int | None = Query(default=None),
     event_from: dt.date | None = Query(default=None),
     event_to: dt.date | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    return _events_report("calvings", farm, event_from, event_to, db, lact=lact or None)
+    return _events_report(
+        "calvings", farm, event_from, event_to, db, lact=lact or None, fiscal_year=fiscal_year
+    )
 
 
 @router.get("/sales")
 def api_sales(
     farm: list[str] = Query(default=[]),
     parity: list[str] = Query(default=[]),
+    fiscal_year: int | None = Query(default=None),
     event_from: dt.date | None = Query(default=None),
     event_to: dt.date | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    return _events_report("sales", farm, event_from, event_to, db, parity=parity or None)
+    return _events_report(
+        "sales", farm, event_from, event_to, db, parity=parity or None, fiscal_year=fiscal_year
+    )
 
 
 @router.get("/deaths")
 def api_deaths(
     farm: list[str] = Query(default=[]),
     parity: list[str] = Query(default=[]),
+    fiscal_year: int | None = Query(default=None),
     event_from: dt.date | None = Query(default=None),
     event_to: dt.date | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    return _events_report("deaths", farm, event_from, event_to, db, parity=parity or None)
+    return _events_report(
+        "deaths", farm, event_from, event_to, db, parity=parity or None, fiscal_year=fiscal_year
+    )
 
 
 @router.get("/disease")
 def api_disease(
     farm: list[str] = Query(default=[]),
     parity: list[str] = Query(default=[]),
+    fiscal_year: int | None = Query(default=None),
     event_from: dt.date | None = Query(default=None),
     event_to: dt.date | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    return _events_report("disease", farm, event_from, event_to, db, parity=parity or None)
+    return _events_report(
+        "disease", farm, event_from, event_to, db, parity=parity or None, fiscal_year=fiscal_year
+    )
 
 
 @router.get("/breedings")
 def api_breedings(
     farm: list[str] = Query(default=[]),
     parity: list[str] = Query(default=[]),
+    fiscal_year: int | None = Query(default=None),
     event_from: dt.date | None = Query(default=None),
     event_to: dt.date | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    return _events_report("breedings", farm, event_from, event_to, db, parity=parity or None)
+    return _events_report(
+        "breedings", farm, event_from, event_to, db, parity=parity or None, fiscal_year=fiscal_year
+    )

@@ -128,6 +128,29 @@ def _empty_range_summary() -> dict[str, Any]:
 
 
 
+def _get_fiscal_year_options(
+    db: Session,
+    event_types: tuple[str, ...],
+    selected_farms: list[str],
+) -> list[int]:
+    rows = db.execute(
+        select(CowEvent.fiscal_year)
+        .where(CowEvent.event.in_(list(event_types)))
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+        .where(CowEvent.fiscal_year.isnot(None))
+        .distinct()
+        .order_by(CowEvent.fiscal_year.desc())
+    ).all()
+    return [int(row[0]) for row in rows if row[0] is not None]
+
+
+def _apply_fiscal_year(query, fiscal_year: int | None):
+    if fiscal_year is None:
+        return query
+    return query.where(CowEvent.fiscal_year == fiscal_year)
+
+
 def _get_date_bounds(
     db: Session,
     event_types: tuple[str, ...],
@@ -186,6 +209,7 @@ def build_events_report(
     event_to: dt.date | None = None,
     lact_groups: list[str] | None = None,
     parity_groups: list[str] | None = None,
+    fiscal_year: int | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     selected_lact_groups = normalize_lact_groups(lact_groups)
@@ -196,11 +220,15 @@ def build_events_report(
         "rows": [],
         "grand_total": {"CM": 0, "GAD": 0, "total": 0},
         "range_summary": _empty_range_summary(),
+        "fiscal_year_options": [],
         "latest_import": latest_import.isoformat() if latest_import else None,
     }
 
     if not selected_farms:
         return empty_result
+
+    fiscal_year_options = _get_fiscal_year_options(db, event_types, selected_farms)
+    empty_result["fiscal_year_options"] = fiscal_year_options
 
     bounds_min, bounds_max = _get_date_bounds(db, event_types, selected_farms)
     if bounds_min is None or bounds_max is None:
@@ -231,6 +259,7 @@ def build_events_report(
     )
     counts_query = _apply_lact_groups(counts_query, selected_lact_groups)
     counts_query = _apply_parity_groups(counts_query, selected_parity_groups)
+    counts_query = _apply_fiscal_year(counts_query, fiscal_year)
     counts = db.execute(
         counts_query.group_by(CowEvent.month_label, CowEvent.farm).order_by(
             func.min(CowEvent.sort_key)
@@ -262,6 +291,7 @@ def build_events_report(
         },
         "date_bounds": date_bounds,
         "range_summary": _build_range_summary(grand_cm, grand_gad, month_count),
+        "fiscal_year_options": fiscal_year_options,
         "latest_import": latest_import.isoformat() if latest_import else None,
     }
 
@@ -275,6 +305,7 @@ def build_events_page_report(
     event_to: dt.date | None = None,
     lact_groups: list[str] | None = None,
     parity_groups: list[str] | None = None,
+    fiscal_year: int | None = None,
 ) -> dict[str, Any]:
     event_types = EVENT_PAGE_TYPES.get(page_slug)
     if not event_types:
@@ -287,4 +318,5 @@ def build_events_page_report(
         event_to=event_to,
         lact_groups=lact_groups if page_slug == "calvings" else None,
         parity_groups=parity_groups if page_slug in PAGES_WITH_PARITY_FILTER else None,
+        fiscal_year=fiscal_year,
     )
