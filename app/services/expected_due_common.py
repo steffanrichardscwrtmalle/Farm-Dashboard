@@ -141,6 +141,89 @@ def _get_breed_options(
     return [str(row[0]) for row in rows if row[0]]
 
 
+def _build_farm_breed_summary(
+    db: Session,
+    *,
+    category: str | None,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    rc_values: tuple[int, ...] | None,
+    breeds: list[str] | None,
+    month_count: int,
+) -> dict[str, Any]:
+    def avg(total: int) -> float:
+        return round(total / month_count, 1) if month_count else 0.0
+
+    query = _apply_report_filters(
+        select(HerdInventory.lsbrd, HerdInventory.farm, func.count()),
+        category=category,
+        selected_farms=selected_farms,
+        rc_values=rc_values,
+    )
+    query = query.where(HerdInventory.expected_due >= effective_from).where(
+        HerdInventory.expected_due <= effective_to
+    )
+    if breeds:
+        query = query.where(HerdInventory.lsbrd.in_(breeds))
+
+    rows = db.execute(
+        query.group_by(HerdInventory.lsbrd, HerdInventory.farm).order_by(
+            HerdInventory.farm, HerdInventory.lsbrd
+        )
+    ).all()
+
+    farm_pivot: dict[str, dict[str, int]] = {}
+    for lsbrd, farm, count in rows:
+        if farm not in selected_farms:
+            continue
+        breed = str(lsbrd) if lsbrd else "Unknown"
+        farm_pivot.setdefault(farm, {})
+        farm_pivot[farm][breed] = farm_pivot[farm].get(breed, 0) + int(count)
+
+    farm_sections: list[dict[str, Any]] = []
+    grand_total = 0
+    for farm in selected_farms:
+        breed_counts = farm_pivot.get(farm, {})
+        breed_list: list[dict[str, Any]] = []
+        farm_total = 0
+        for breed in sorted(breed_counts.keys()):
+            total = breed_counts[breed]
+            farm_total += total
+            breed_list.append(
+                {
+                    "breed": breed,
+                    "total": total,
+                    "average_per_month": avg(total),
+                }
+            )
+        grand_total += farm_total
+        farm_sections.append(
+            {
+                "farm": farm,
+                "breeds": breed_list,
+                "total": farm_total,
+                "average_per_month": avg(farm_total),
+            }
+        )
+
+    return {
+        "month_count": month_count,
+        "farms": farm_sections,
+        "total": grand_total,
+        "average_per_month": avg(grand_total),
+    }
+
+
+def _empty_farm_breed_summary() -> dict[str, Any]:
+    return {
+        "month_count": 0,
+        "farms": [],
+        "total": 0,
+        "average_per_month": 0,
+    }
+
+
 def _zero_fill_rows(
     pivot: dict[tuple[int, str], dict[str, int]],
     due_from: dt.date,
@@ -175,6 +258,7 @@ def build_expected_due_report(
     due_from: dt.date | None = None,
     due_to: dt.date | None = None,
     include_breed_options: bool = False,
+    include_farm_breed_summary: bool = False,
     rc_values: tuple[int, ...] | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
@@ -190,6 +274,8 @@ def build_expected_due_report(
         empty_result["breed_options"] = _get_breed_options(
             db, category, selected_farms, rc_values=rc_values
         )
+    if include_farm_breed_summary:
+        empty_result["farm_breed_summary"] = _empty_farm_breed_summary()
 
     if not selected_farms:
         return empty_result
@@ -271,5 +357,16 @@ def build_expected_due_report(
     if include_breed_options:
         result["breed_options"] = _get_breed_options(
             db, category, selected_farms, rc_values=rc_values
+        )
+    if include_farm_breed_summary:
+        result["farm_breed_summary"] = _build_farm_breed_summary(
+            db,
+            category=category,
+            selected_farms=selected_farms,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            rc_values=rc_values,
+            breeds=breeds,
+            month_count=month_count,
         )
     return result

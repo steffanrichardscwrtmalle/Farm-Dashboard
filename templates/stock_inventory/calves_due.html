@@ -91,6 +91,8 @@
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 8px;
+      max-height: 480px;
+      overflow-y: auto;
     }
     .summary-panel h3 {
       margin: 0;
@@ -114,6 +116,29 @@
       padding-top: 0.5rem;
       margin-top: 0.15rem;
       border-top: 1px solid var(--border);
+    }
+    .summary-farm-block {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .summary-farm-block:last-of-type {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    .summary-breed-line {
+      color: var(--muted);
+      font-size: 0.8125rem;
+      line-height: 1.4;
+      padding-left: 0.5rem;
+    }
+    .summary-farm-total {
+      color: var(--muted);
+      font-size: 0.875rem;
+      line-height: 1.4;
+      margin-top: 0.15rem;
     }
     .content-panel { min-width: 0; }
     .meta-line {
@@ -405,10 +430,9 @@
     function renderSummary(data) {
       const panel = document.getElementById("summary-panel");
       const container = document.getElementById("summary-rows");
-      const summary = data.range_summary;
-      const farms = selectedFarms();
+      const summary = data.farm_breed_summary;
 
-      if (!summary || !data.date_bounds || !farms.length) {
+      if (!summary || !data.date_bounds || !summary.farms?.length) {
         panel.style.display = "none";
         container.innerHTML = "";
         return;
@@ -418,21 +442,27 @@
         ? "1 month"
         : `${summary.month_count} months`;
 
-      function farmRow(farm) {
-        const stats = summary[farm] || { total: 0, average_per_month: 0 };
+      let html = summary.farms.map(farmSection => {
+        const breedLines = (farmSection.breeds || []).map(b => `
+          <div class="summary-breed-line">
+            ${b.breed}: ${b.total.toLocaleString("en-GB")} total,
+            ${b.average_per_month.toLocaleString("en-GB")} avg/month
+          </div>
+        `).join("");
         return `
-          <div class="summary-row">
-            <span class="summary-row-header">${farm}</span>
-            <span class="summary-row-detail">
-              Total: ${stats.total.toLocaleString("en-GB")}<br>
-              Avg/month: ${stats.average_per_month.toLocaleString("en-GB")} (${monthNote})
-            </span>
+          <div class="summary-farm-block">
+            <span class="summary-row-header">${farmSection.farm}</span>
+            ${breedLines || '<div class="summary-breed-line">No calves in range</div>'}
+            <div class="summary-farm-total">
+              <strong>${farmSection.farm} total:</strong>
+              ${farmSection.total.toLocaleString("en-GB")} total,
+              ${farmSection.average_per_month.toLocaleString("en-GB")} avg/month (${monthNote})
+            </div>
           </div>
         `;
-      }
+      }).join("");
 
-      let html = farms.map(farmRow).join("");
-      const totalLabel = farms.length > 1 ? "Both farms" : "Total";
+      const totalLabel = summary.farms.length > 1 ? "Both farms" : "Total";
       html += `
         <div class="summary-row summary-row-total">
           <span class="summary-row-header">${totalLabel}</span>

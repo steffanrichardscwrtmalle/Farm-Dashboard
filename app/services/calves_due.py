@@ -24,5 +24,6 @@ def get_calves_due_report(
         due_from=due_from,
         due_to=due_to,
         include_breed_options=True,
+        include_farm_breed_summary=True,
         rc_values=(5, 6),
     )
