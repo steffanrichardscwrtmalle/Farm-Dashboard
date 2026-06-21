@@ -477,6 +477,7 @@ def _events_page_response(
     chart_title: str,
     show_lact_filter: bool = False,
     show_parity_filter: bool = False,
+    show_reason_table: bool = False,
 ):
     from app.models import HERD_FARM_OPTIONS
 
@@ -491,6 +492,7 @@ def _events_page_response(
             chart_title=chart_title,
             show_lact_filter=show_lact_filter,
             show_parity_filter=show_parity_filter,
+            show_reason_table=show_reason_table,
             **_events_context(title, slug, title),
         ),
     )
@@ -515,6 +517,7 @@ def events_sales_page(request: Request):
         title="Sales",
         chart_title="Sales by Month — Stacked by Farm",
         show_parity_filter=True,
+        show_reason_table=True,
     )
 
 

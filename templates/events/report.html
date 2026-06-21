@@ -156,6 +156,14 @@
       font-weight: 700;
       border-top: 2px solid var(--border);
     }
+    #events-table tbody tr.month-total td {
+      background: #f7f9fb;
+      font-weight: 600;
+      border-top: 1px solid var(--border);
+    }
+    #events-table tbody tr.reason-row td:nth-child(2) {
+      color: var(--muted);
+    }
     .empty-state {
       padding: 2rem;
       color: var(--muted);
@@ -265,6 +273,7 @@
             <thead>
               <tr>
                 <th>Event Month</th>
+                {% if show_reason_table %}<th>Reason</th>{% endif %}
                 <th>CM</th>
                 <th>GAD</th>
                 <th>Total</th>
@@ -286,6 +295,7 @@
     const CHART_TITLE = {{ chart_title | tojson }};
     const SHOW_LACT_FILTER = {{ show_lact_filter | default(false) | tojson }};
     const SHOW_PARITY_FILTER = {{ show_parity_filter | default(false) | tojson }};
+    const SHOW_REASON_TABLE = {{ show_reason_table | default(false) | tojson }};
     const FARM_COLORS = { CM: "#1f77b4", GAD: "#ff7f0e" };
     let eventsChart = null;
     let monthList = [];
@@ -559,18 +569,57 @@
         body.innerHTML = "";
         return;
       }
-      let html = rows.map(row => `
-        <tr>
-          <td>${row.event_month}</td>
-          <td>${row.CM}</td>
-          <td>${row.GAD}</td>
-          <td>${row.total}</td>
-        </tr>
-      `).join("");
+
+      let html = "";
+      if (SHOW_REASON_TABLE) {
+        const reasonRows = data.reason_rows || [];
+        const reasonsByMonth = {};
+        reasonRows.forEach(row => {
+          if (!reasonsByMonth[row.event_month]) reasonsByMonth[row.event_month] = [];
+          reasonsByMonth[row.event_month].push(row);
+        });
+
+        rows.forEach(monthRow => {
+          const monthReasons = reasonsByMonth[monthRow.event_month] || [];
+          if (monthReasons.length) {
+            monthReasons.forEach((row, idx) => {
+              html += `
+                <tr class="reason-row">
+                  <td>${idx === 0 ? row.event_month : ""}</td>
+                  <td>${row.reason}</td>
+                  <td>${row.CM}</td>
+                  <td>${row.GAD}</td>
+                  <td>${row.total}</td>
+                </tr>
+              `;
+            });
+          }
+          html += `
+            <tr class="month-total">
+              <td>${monthReasons.length ? "" : monthRow.event_month}</td>
+              <td>Total</td>
+              <td>${monthRow.CM}</td>
+              <td>${monthRow.GAD}</td>
+              <td>${monthRow.total}</td>
+            </tr>
+          `;
+        });
+      } else {
+        html = rows.map(row => `
+          <tr>
+            <td>${row.event_month}</td>
+            <td>${row.CM}</td>
+            <td>${row.GAD}</td>
+            <td>${row.total}</td>
+          </tr>
+        `).join("");
+      }
+
       const gt = data.grand_total || {};
       html += `
         <tr class="grand-total">
           <td>Grand Total</td>
+          ${SHOW_REASON_TABLE ? "<td></td>" : ""}
           <td>${gt.CM ?? 0}</td>
           <td>${gt.GAD ?? 0}</td>
           <td>${gt.total ?? 0}</td>

@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import HERD_FARM_OPTIONS, CowEvent
@@ -21,6 +21,7 @@ EVENT_PAGE_TYPES: dict[str, tuple[str, ...]] = {
 LACTATION_GROUPS: tuple[str, ...] = ("1", "2", "3+")
 PARITY_GROUPS: tuple[str, ...] = ("primiparous", "multiparous")
 PAGES_WITH_PARITY_FILTER: frozenset[str] = frozenset({"sales", "deaths", "disease", "breedings"})
+SALES_REASON_ORDER: tuple[str, ...] = ("OFS", "TB", "Beef", "CULL")
 
 
 def normalize_farms(farms: list[str] | None) -> list[str]:
@@ -151,6 +152,80 @@ def _apply_fiscal_year(query, fiscal_year: int | None):
     return query.where(CowEvent.fiscal_year == fiscal_year)
 
 
+def _sales_reason_expression():
+    return case(
+        (CowEvent.remark == "OFS", literal("OFS")),
+        (CowEvent.remark == "CAR11", literal("TB")),
+        (CowEvent.remark == "CAR16", literal("Beef")),
+        else_=literal("CULL"),
+    )
+
+
+def _build_sales_reason_rows(
+    db: Session,
+    *,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    selected_parity_groups: list[str] | None,
+    fiscal_year: int | None,
+) -> list[dict[str, Any]]:
+    reason_expr = _sales_reason_expression()
+    counts_query = (
+        select(
+            CowEvent.month_label,
+            reason_expr.label("reason"),
+            CowEvent.farm,
+            func.count(),
+        )
+        .where(CowEvent.event == "SOLD")
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+        .where(CowEvent.event_date >= effective_from)
+        .where(CowEvent.event_date <= effective_to)
+    )
+    counts_query = _apply_parity_groups(counts_query, selected_parity_groups)
+    counts_query = _apply_fiscal_year(counts_query, fiscal_year)
+    counts = db.execute(
+        counts_query.group_by(CowEvent.month_label, reason_expr, CowEvent.farm).order_by(
+            func.min(CowEvent.sort_key), reason_expr
+        )
+    ).all()
+
+    pivot: dict[str, dict[str, dict[str, int]]] = {}
+    for month_label, reason, farm, count in counts:
+        if not month_label or not reason:
+            continue
+        month_key = str(month_label)
+        reason_key = str(reason)
+        pivot.setdefault(month_key, {})
+        pivot[month_key].setdefault(reason_key, {"CM": 0, "GAD": 0})
+        if farm in pivot[month_key][reason_key]:
+            pivot[month_key][reason_key][farm] = int(count)
+
+    reason_rows: list[dict[str, Any]] = []
+    for month_start in _iter_month_starts(effective_from, effective_to):
+        event_month = month_start.strftime("%b-%y")
+        month_reasons = pivot.get(event_month, {})
+        for reason in SALES_REASON_ORDER:
+            counts_by_farm = month_reasons.get(reason, {"CM": 0, "GAD": 0})
+            cm = counts_by_farm.get("CM", 0)
+            gad = counts_by_farm.get("GAD", 0)
+            total = cm + gad
+            if total == 0:
+                continue
+            reason_rows.append(
+                {
+                    "event_month": event_month,
+                    "reason": reason,
+                    "CM": cm,
+                    "GAD": gad,
+                    "total": total,
+                }
+            )
+    return reason_rows
+
+
 def _fiscal_year_calendar_bounds(fiscal_year: int) -> tuple[dt.date, dt.date]:
     """UK fiscal year: Apr (FY-1) through Mar (FY)."""
     return dt.date(fiscal_year - 1, 4, 1), dt.date(fiscal_year, 3, 31)
@@ -219,6 +294,7 @@ def build_events_report(
     lact_groups: list[str] | None = None,
     parity_groups: list[str] | None = None,
     fiscal_year: int | None = None,
+    include_sales_reason_breakdown: bool = False,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     selected_lact_groups = normalize_lact_groups(lact_groups)
@@ -232,6 +308,8 @@ def build_events_report(
         "fiscal_year_options": [],
         "latest_import": latest_import.isoformat() if latest_import else None,
     }
+    if include_sales_reason_breakdown:
+        empty_result["reason_rows"] = []
 
     if not selected_farms:
         return empty_result
@@ -298,7 +376,7 @@ def build_events_report(
     grand_total = grand_cm + grand_gad
     month_count = _month_count_inclusive(effective_from, effective_to)
 
-    return {
+    result: dict[str, Any] = {
         "rows": rows,
         "grand_total": {
             "CM": grand_cm,
@@ -310,6 +388,16 @@ def build_events_report(
         "fiscal_year_options": fiscal_year_options,
         "latest_import": latest_import.isoformat() if latest_import else None,
     }
+    if include_sales_reason_breakdown:
+        result["reason_rows"] = _build_sales_reason_rows(
+            db,
+            selected_farms=selected_farms,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            selected_parity_groups=selected_parity_groups,
+            fiscal_year=fiscal_year,
+        )
+    return result
 
 
 def build_events_page_report(
@@ -335,4 +423,5 @@ def build_events_page_report(
         lact_groups=lact_groups if page_slug == "calvings" else None,
         parity_groups=parity_groups if page_slug in PAGES_WITH_PARITY_FILTER else None,
         fiscal_year=fiscal_year,
+        include_sales_reason_breakdown=page_slug == "sales",
     )
