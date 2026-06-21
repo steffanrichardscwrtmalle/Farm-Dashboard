@@ -10,6 +10,33 @@ from sqlalchemy.orm import Session
 
 HERD_DATE_FORMAT = "%d/%m/%y"
 BATCH_SIZE = 2000
+BEEF_CBREED_MIN = 102
+CATEGORY_DAIRY = "Dairy"
+CATEGORY_BEEF = "Beef"
+
+
+def category_from_birth(cbrd: int | float | None, gndr: str | None) -> str:
+    """Dairy when CBRD < 102 and GNDR is F; all other rows are beef."""
+    try:
+        if cbrd is None or pd.isna(cbrd):
+            return CATEGORY_BEEF
+        code = int(cbrd)
+    except (TypeError, ValueError):
+        return CATEGORY_BEEF
+
+    gender = str(gndr).strip().upper() if gndr is not None and not pd.isna(gndr) else ""
+    if code < BEEF_CBREED_MIN and gender == "F":
+        return CATEGORY_DAIRY
+    return CATEGORY_BEEF
+
+
+def birth_category_series(cbrd: pd.Series, gndr: pd.Series) -> pd.Series:
+    numeric = pd.to_numeric(cbrd, errors="coerce")
+    gender = gndr.astype("string").str.strip().str.upper()
+    dairy_mask = numeric.notna() & (numeric < BEEF_CBREED_MIN) & (gender == "F")
+    out = pd.Series(CATEGORY_BEEF, index=cbrd.index, dtype="object")
+    out.loc[dairy_mask] = CATEGORY_DAIRY
+    return out
 
 
 def parse_date_series(series: pd.Series) -> pd.Series:

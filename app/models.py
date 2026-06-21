@@ -222,6 +222,46 @@ class BreedingSireClassification(Base):
         }
 
 
+class SalesPaymentRecord(Base):
+    """Tracks confirmed payment for sold animals; survives herd event reimports."""
+
+    __tablename__ = "sales_payment_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm",
+            "cow_id",
+            "etag",
+            "event_date",
+            name="uq_sales_payment_natural_key",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    cow_id: Mapped[str] = mapped_column(String(64), index=True)
+    etag: Mapped[str] = mapped_column(String(64), index=True)
+    event_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    paid_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    archived_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    unarchived_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    confirmed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "farm": self.farm,
+            "cow_id": self.cow_id,
+            "etag": self.etag,
+            "event_date": self.event_date.isoformat(),
+            "paid_at": self.paid_at.isoformat() if self.paid_at else None,
+            "archived_at": self.archived_at.isoformat() if self.archived_at else None,
+            "unarchived_at": self.unarchived_at.isoformat() if self.unarchived_at else None,
+            "confirmed_by_user_id": self.confirmed_by_user_id,
+        }
+
+
 class FeedRateRecord(Base):
     """Latest feed ration snapshot imported from Feedlync."""
 
@@ -281,6 +321,7 @@ class CowEvent(Base):
     b: Mapped[str | None] = mapped_column(String(64), nullable=True)
     protocols: Mapped[str | None] = mapped_column(String(255), nullable=True)
     technician: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    dest: Mapped[str | None] = mapped_column(String(128), nullable=True)
     farm: Mapped[str] = mapped_column(String(8), index=True)
     month_label: Mapped[str | None] = mapped_column(String(16), nullable=True)
     fiscal_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -341,6 +382,7 @@ class HerdBirth(Base):
     bdat: Mapped[datetime.date | None] = mapped_column(Date, nullable=True, index=True)
     cbrd: Mapped[int | None] = mapped_column(Integer, nullable=True)
     gndr: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     event: Mapped[str | None] = mapped_column(String(64), nullable=True)
     farm: Mapped[str] = mapped_column(String(8), index=True)
     fiscal_year: Mapped[int | None] = mapped_column(Integer, nullable=True)

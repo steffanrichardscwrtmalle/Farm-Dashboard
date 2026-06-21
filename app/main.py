@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.api.office_admin_routes import router as office_admin_api_router
 from app.api.events_routes import router as events_api_router
 from app.api.feed_rate_routes import router as feed_rate_api_router
 from app.api.stock_inventory_routes import router as stock_inventory_api_router
@@ -25,6 +26,7 @@ from app.auth.passwords import verify_password
 from app.auth.permissions import (
     PAGE_EVENTS,
     PAGE_FEED_RATE,
+    PAGE_OFFICE_ADMIN,
     PAGE_PROSTOCK,
     PAGE_STOCK_INVENTORY,
     PAGE_WYNNSTAY,
@@ -65,6 +67,7 @@ app.include_router(herd_api_router)
 app.include_router(stock_inventory_api_router)
 app.include_router(events_api_router)
 app.include_router(feed_rate_api_router)
+app.include_router(office_admin_api_router)
 app.include_router(admin_api_router)
 
 _WYNNSTAY_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/wynnstay">Wynnstay</a>'
@@ -80,6 +83,10 @@ _EVENTS_BREADCRUMB = (
 _FEED_RATE_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/feed-rate">Feed Rate</a>'
+)
+_OFFICE_ADMIN_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/office-admin/sales-payments">Office Admin</a>'
 )
 
 _login_attempts: dict[str, list[float]] = defaultdict(list)
@@ -179,6 +186,19 @@ def _feed_rate_context(title: str, active_nav: str, page_name: str | None = None
         "title": title,
         "active_nav_group": "feed-rate",
         "active_section": "feed-rate",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _office_admin_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _OFFICE_ADMIN_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "office-admin",
+        "active_section": "office-admin",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -668,6 +688,25 @@ def events_breedings_page(request: Request):
     )
 
 
+@app.get("/events/births", response_class=HTMLResponse)
+def events_births_page(request: Request):
+    from app.models import HERD_FARM_OPTIONS
+
+    if denied := _page_guard(request, PAGE_EVENTS):
+        return denied
+
+    return templates.TemplateResponse(
+        request,
+        "events/births.html",
+        _template_ctx(
+            request,
+            farm_options=list(HERD_FARM_OPTIONS),
+            page_heading="Births",
+            **_events_context("Births", "births", "Births"),
+        ),
+    )
+
+
 @app.get("/events/total-protein", response_class=HTMLResponse)
 def events_total_protein_page(request: Request):
     from app.models import HERD_FARM_OPTIONS
@@ -698,6 +737,24 @@ def feed_rate_page(request: Request):
             request,
             page_heading="Feed Rate",
             **_feed_rate_context("Feed Rate", "feed-rate", "Feed Rate"),
+        ),
+    )
+
+
+@app.get("/office-admin/sales-payments", response_class=HTMLResponse)
+def office_admin_sales_payments_page(request: Request):
+    if denied := _page_guard(request, PAGE_OFFICE_ADMIN):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "office_admin/sales_payments.html",
+        _template_ctx(
+            request,
+            page_heading="Sales Payments",
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_office_admin_context("Sales Payments", "sales-payments", "Sales Payments"),
         ),
     )
 

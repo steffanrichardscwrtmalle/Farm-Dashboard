@@ -1,0 +1,99 @@
+"""Office Admin API routes."""
+
+from __future__ import annotations
+
+import datetime as dt
+
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.auth.deps import require_action, require_page
+from app.auth.permissions import ACTION_OFFICE_ADMIN_SALES_PAYMENT, PAGE_OFFICE_ADMIN
+from app.db import get_db
+from app.models import User
+from app.services.sales_payments import (
+    confirm_payments,
+    list_dest_filter_options,
+    list_sales_payments,
+    normalize_sales_reasons,
+    unarchive_payments,
+)
+
+router = APIRouter(prefix="/api/office-admin")
+
+
+class PaymentKeyItem(BaseModel):
+    farm: str
+    cow_id: str = ""
+    etag: str = ""
+    event_date: dt.date
+
+
+class PaymentBulkBody(BaseModel):
+    items: list[PaymentKeyItem] = Field(default_factory=list)
+
+
+@router.get("/sales-payments")
+def api_sales_payments(
+    status: str = Query("active", pattern="^(active|archived)$"),
+    farm: list[str] | None = Query(None),
+    reason: list[str] | None = Query(None),
+    dest: str | None = Query(None),
+    event_from: dt.date | None = Query(None),
+    event_to: dt.date | None = Query(None),
+    include_date_bounds: bool = Query(True),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_OFFICE_ADMIN)),
+):
+    return list_sales_payments(
+        db,
+        status=status,
+        farms=farm,
+        reasons=normalize_sales_reasons(reason),
+        dest=dest,
+        event_from=event_from,
+        event_to=event_to,
+        include_date_bounds=include_date_bounds,
+    )
+
+
+@router.get("/sales-payments/filter-options")
+def api_sales_payments_filter_options(
+    status: str = Query("active", pattern="^(active|archived)$"),
+    farm: list[str] | None = Query(None),
+    reason: list[str] | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_OFFICE_ADMIN)),
+):
+    options = list_dest_filter_options(
+        db,
+        status=status,
+        farms=farm,
+        reasons=normalize_sales_reasons(reason),
+    )
+    return {
+        "dest_options": options["dest_options"],
+        "reason_options": list(normalize_sales_reasons(None)),
+        "date_bounds": options["date_bounds"],
+    }
+
+
+@router.post("/sales-payments/confirm")
+def api_confirm_sales_payments(
+    body: PaymentBulkBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_OFFICE_ADMIN_SALES_PAYMENT)),
+):
+    items = [item.model_dump() for item in body.items]
+    return confirm_payments(db, items, user)
+
+
+@router.post("/sales-payments/unarchive")
+def api_unarchive_sales_payments(
+    body: PaymentBulkBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_OFFICE_ADMIN_SALES_PAYMENT)),
+):
+    items = [item.model_dump() for item in body.items]
+    return unarchive_payments(db, items, user)

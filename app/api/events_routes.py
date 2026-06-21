@@ -35,6 +35,7 @@ from app.services.breeding_sires import (
 
 )
 from app.services.stp_report import build_stp_report
+from app.services.births_report import build_births_report
 
 from app.services.events_common import EVENT_PAGE_TYPES, build_events_page_report
 
@@ -308,6 +309,26 @@ def api_breedings(
 
 
 
+
+
+@router.get("/births")
+def api_births(
+    farm: list[str] = Query(default=[]),
+    category: list[str] = Query(default=[]),
+    fiscal_year: int | None = Query(default=None),
+    event_from: dt.date | None = Query(default=None),
+    event_to: dt.date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_EVENTS)),
+):
+    return build_births_report(
+        db,
+        farms=farm or None,
+        categories=category or None,
+        event_from=event_from,
+        event_to=event_to,
+        fiscal_year=fiscal_year,
+    )
 
 
 @router.get("/total-protein")

@@ -39,6 +39,9 @@ def init_db() -> None:
     _migrate_invoice_lines_schema()
     _migrate_supplier_schema()
     _migrate_herd_inventory_schema()
+    _migrate_cow_events_schema()
+    _migrate_sales_payments_schema()
+    _migrate_herd_births_schema()
     _migrate_user_permissions()
 
 
@@ -133,6 +136,48 @@ def _migrate_herd_inventory_schema() -> None:
         for name, col_type in new_columns.items():
             if name not in columns:
                 conn.execute(text(f"ALTER TABLE herd_inventory ADD COLUMN {name} {col_type}"))
+
+
+def _migrate_cow_events_schema() -> None:
+    inspector = inspect(engine)
+    if "cow_events" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("cow_events")}
+    with engine.begin() as conn:
+        if "dest" not in columns:
+            conn.execute(text("ALTER TABLE cow_events ADD COLUMN dest VARCHAR(128)"))
+        if DATABASE_URL.startswith("sqlite"):
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_cow_events_sold_farm_date "
+                    "ON cow_events (event, farm, event_date)"
+                )
+            )
+
+
+def _migrate_sales_payments_schema() -> None:
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    inspector = inspect(engine)
+    if "sales_payment_records" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_sales_payment_natural_key "
+                "ON sales_payment_records (farm, cow_id, etag, event_date)"
+            )
+        )
+
+
+def _migrate_herd_births_schema() -> None:
+    inspector = inspect(engine)
+    if "herd_births" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("herd_births")}
+    if "category" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE herd_births ADD COLUMN category VARCHAR(16)"))
 
 
 def _migrate_supplier_schema() -> None:

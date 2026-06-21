@@ -14,27 +14,24 @@ from sqlalchemy.orm import Session
 from app.models import HerdBirth
 from app.services.graph_onedrive import download_herd_file, graph_is_configured
 from app.services.herd_import_utils import (
-    HERD_DATE_FORMAT,
     bulk_insert_dataframe,
+    birth_category_series,
     drop_unnamed_columns,
     fiscal_year_from_dates,
     parse_date_series,
     remove_invalid_id_rows,
-    strip_string_columns,
 )
 
 CM_BIRTH_FILE = "DCEXPORTCM/CMBORN.CSV"
 GAD_BIRTH_FILE = "DCEXPORTGAD/GADBORN.CSV"
 
 _BIRTH_ENCODING = "windows-1252"
-_BIRTH_REQUIRED_COLUMNS = ("ID", "ETAG", "BDAT", "CBRD", "GNDR", "Event")
+_BIRTH_REQUIRED_COLUMNS = ("ID", "ETAG", "BDAT", "CBRD", "GNDR")
 
 
 def _clean_birth_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df = drop_unnamed_columns(df)
 
-    if "EVENT" in df.columns and "Event" not in df.columns:
-        df = df.rename(columns={"EVENT": "Event"})
     missing = [col for col in _BIRTH_REQUIRED_COLUMNS if col not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns in birth data: {missing}")
@@ -57,9 +54,8 @@ def _clean_birth_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     df["BDAT"] = parse_date_series(df["BDAT"])
     df["Fiscal Year"] = fiscal_year_from_dates(df["BDAT"])
-
     df["CBRD"] = pd.to_numeric(df["CBRD"], errors="coerce").astype("Int64")
-    df["Event"] = df["Event"].astype(str).str.strip()
+    df["Category"] = birth_category_series(df["CBRD"], df["GNDR"])
 
     return df
 
@@ -88,7 +84,7 @@ def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[d
             "bdat": series_date("BDAT"),
             "cbrd": series_int("CBRD"),
             "gndr": series_str("GNDR"),
-            "event": series_str("Event"),
+            "category": series_str("Category"),
             "farm": series_str("Farm"),
             "fiscal_year": series_int("Fiscal Year"),
             "import_timestamp": import_time,

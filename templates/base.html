@@ -503,6 +503,7 @@
             </button>
             <div class="nav-group-items" id="events-nav-items">
               <a href="/events/calvings" class="{% if active_nav == 'calvings' %}active{% endif %}">Calvings</a>
+              <a href="/events/births" class="{% if active_nav == 'births' %}active{% endif %}">Births</a>
               <a href="/events/sales" class="{% if active_nav == 'sales' %}active{% endif %}">Sales</a>
               <a href="/events/deaths" class="{% if active_nav == 'deaths' %}active{% endif %}">Deaths</a>
               <a href="/events/disease" class="{% if active_nav == 'disease' %}active{% endif %}">Disease</a>
@@ -525,6 +526,23 @@
             </button>
             <div class="nav-group-items" id="feed-rate-nav-items">
               <a href="/feed-rate" class="{% if active_nav == 'feed-rate' %}active{% endif %}">Feed Rations</a>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if perms.page('office_admin') %}
+          <div class="nav-group{% if active_nav_group == 'office-admin' %} expanded{% endif %}" data-nav-group="office-admin">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'office-admin' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'office-admin' %}true{% else %}false{% endif %}"
+              aria-controls="office-admin-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">Office Admin</span>
+            </button>
+            <div class="nav-group-items" id="office-admin-nav-items">
+              <a href="/office-admin/sales-payments" class="{% if active_nav == 'sales-payments' %}active{% endif %}">Sales Payments</a>
             </div>
           </div>
           {% endif %}
@@ -767,6 +785,9 @@
           }
           if (group === "feed-rate" && !window.location.pathname.startsWith("/feed-rate")) {
             window.location.href = "/feed-rate";
+          }
+          if (group === "office-admin" && !window.location.pathname.startsWith("/office-admin")) {
+            window.location.href = "/office-admin/sales-payments";
           }
         });
       });

@@ -124,6 +124,7 @@ def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[d
             "b": series_str("B"),
             "protocols": series_str("Protocols"),
             "technician": series_str("Technician"),
+            "dest": series_str("DEST"),
             "farm": series_str("Farm"),
             "month_label": series_str("mmm-yy"),
             "fiscal_year": series_int("Fiscal Year"),
