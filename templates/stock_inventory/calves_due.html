@@ -13,6 +13,12 @@
     @media (max-width: 900px) {
       .page-layout { grid-template-columns: 1fr; }
     }
+    .sidebar-column {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      min-width: 0;
+    }
     .filter-panel {
       background: var(--card);
       border: 1px solid var(--border);
@@ -77,6 +83,46 @@
       min-width: 4.5rem;
       text-align: right;
     }
+    .summary-panel {
+      display: none;
+      flex-direction: column;
+      gap: 0.65rem;
+      padding: 0.85rem 1rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      max-height: 420px;
+      overflow-y: auto;
+    }
+    .summary-panel h3 {
+      margin: 0;
+      font-size: 0.95rem;
+    }
+    .summary-breed-block {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      font-size: 0.875rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .summary-breed-block:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    .summary-breed-header {
+      font-weight: 700;
+    }
+    .summary-breed-detail {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .summary-breed-total {
+      padding-top: 0.5rem;
+      margin-top: 0.15rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.875rem;
+    }
     .content-panel { min-width: 0; }
     .meta-line {
       color: var(--muted);
@@ -126,41 +172,48 @@
   </div>
 
   <div class="page-layout">
-    <aside class="filter-panel">
-      <h2>Filters</h2>
-      <div class="filter-section">
-        <span class="section-label">Farm</span>
-        <fieldset class="checkbox-filter">
-          {% for farm in farm_options %}
-          <label>
-            <input type="checkbox" class="farm-cb" value="{{ farm }}" checked>
-            {{ farm }}
-          </label>
-          {% endfor %}
-        </fieldset>
-      </div>
-      <div class="filter-section">
-        <span class="section-label">Calf breed (sire)</span>
-        <fieldset class="checkbox-filter" id="breed-filter">
-          <span class="section-label" style="font-weight:400;">Loading breeds…</span>
-        </fieldset>
-      </div>
-      <div class="filter-section">
-        <span class="section-label">Expected due range</span>
-        <div class="date-inputs">
-          <label>
-            From
-            <span class="month-label" id="min-date-label">—</span>
-          </label>
-          <input type="range" id="min-date-range" min="0" max="0" value="0">
-          <label>
-            To
-            <span class="month-label" id="max-date-label">—</span>
-          </label>
-          <input type="range" id="max-date-range" min="0" max="0" value="0">
+    <div class="sidebar-column">
+      <aside class="filter-panel">
+        <h2>Filters</h2>
+        <div class="filter-section">
+          <span class="section-label">Farm</span>
+          <fieldset class="checkbox-filter">
+            {% for farm in farm_options %}
+            <label>
+              <input type="checkbox" class="farm-cb" value="{{ farm }}" checked>
+              {{ farm }}
+            </label>
+            {% endfor %}
+          </fieldset>
         </div>
+        <div class="filter-section">
+          <span class="section-label">Calf breed (sire)</span>
+          <fieldset class="checkbox-filter" id="breed-filter">
+            <span class="section-label" style="font-weight:400;">Loading breeds…</span>
+          </fieldset>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Expected due range</span>
+          <div class="date-inputs">
+            <label>
+              From
+              <span class="month-label" id="min-date-label">—</span>
+            </label>
+            <input type="range" id="min-date-range" min="0" max="0" value="0">
+            <label>
+              To
+              <span class="month-label" id="max-date-label">—</span>
+            </label>
+            <input type="range" id="max-date-range" min="0" max="0" value="0">
+          </div>
+        </div>
+      </aside>
+
+      <div class="summary-panel" id="summary-panel">
+        <h3>Calves due in range</h3>
+        <div id="summary-rows"></div>
       </div>
-    </aside>
+    </div>
 
     <section class="content-panel">
       <p class="meta-line" id="meta-line"></p>
@@ -357,6 +410,53 @@
       breedOptionsInitialized = true;
     }
 
+    function renderBreedSummary(data) {
+      const panel = document.getElementById("summary-panel");
+      const container = document.getElementById("summary-rows");
+      const summary = data.breed_summary;
+      const farms = selectedFarms();
+
+      if (!summary || !data.date_bounds || !farms.length || !summary.breeds?.length) {
+        panel.style.display = "none";
+        container.innerHTML = "";
+        return;
+      }
+
+      const monthNote = summary.month_count === 1
+        ? "1 month"
+        : `${summary.month_count} months`;
+
+      let html = summary.breeds.map(breedRow => {
+        const farmLines = farms.map(farm => {
+          const stats = breedRow[farm] || { total: 0, average_per_month: 0 };
+          return `${farm}: ${stats.total.toLocaleString("en-GB")} total, ${stats.average_per_month.toLocaleString("en-GB")} avg/month`;
+        }).join("<br>");
+        return `
+          <div class="summary-breed-block">
+            <span class="summary-breed-header">${breedRow.breed}</span>
+            <span class="summary-breed-detail">${farmLines}</span>
+            <span class="summary-breed-detail">
+              All farms: ${breedRow.total.toLocaleString("en-GB")} total,
+              ${breedRow.average_per_month.toLocaleString("en-GB")} avg/month (${monthNote})
+            </span>
+          </div>
+        `;
+      }).join("");
+
+      html += `
+        <div class="summary-breed-total">
+          <span class="summary-breed-header">Total (all breeds)</span>
+          <span class="summary-breed-detail">
+            ${summary.total.toLocaleString("en-GB")} total,
+            ${summary.average_per_month.toLocaleString("en-GB")} avg/month (${monthNote})
+          </span>
+        </div>
+      `;
+
+      container.innerHTML = html;
+      panel.style.display = "flex";
+    }
+
     function viewMode() {
       return document.querySelector('input[name="view-mode"]:checked')?.value || "graph";
     }
@@ -454,6 +554,7 @@
         graphView.style.display = "none";
         tableView.style.display = "none";
         meta.textContent = "";
+        document.getElementById("summary-panel").style.display = "none";
         if (calvesChart) { calvesChart.destroy(); calvesChart = null; }
         return;
       }
@@ -464,6 +565,9 @@
         graphView.style.display = "none";
         tableView.style.display = "none";
         meta.textContent = "";
+        document.getElementById("summary-panel").style.display = "none";
+        graphView.style.display = "none";
+        tableView.style.display = "none";
         if (calvesChart) { calvesChart.destroy(); calvesChart = null; }
         return;
       }
@@ -504,11 +608,13 @@
           : "No inventory data available.";
         graphView.style.display = "none";
         tableView.style.display = "none";
+        document.getElementById("summary-panel").style.display = "none";
         if (calvesChart) { calvesChart.destroy(); calvesChart = null; }
         return;
       }
 
       empty.style.display = "none";
+      renderBreedSummary(data);
       updateViewVisibility();
       renderTable(data);
       if (viewMode() === "graph") {

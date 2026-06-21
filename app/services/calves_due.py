@@ -19,11 +19,11 @@ def get_calves_due_report(
 ) -> dict[str, Any]:
     return build_expected_due_report(
         db,
-        category="Dairy",
         farms=farms,
         breeds=breeds,
         due_from=due_from,
         due_to=due_to,
         include_breed_options=True,
+        include_breed_summary=True,
         rc_values=(5, 6),
     )

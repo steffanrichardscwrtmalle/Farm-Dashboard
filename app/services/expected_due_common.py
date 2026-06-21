@@ -52,17 +52,18 @@ def _month_count_inclusive(due_from: dt.date, due_to: dt.date) -> int:
 def _apply_report_filters(
     query,
     *,
-    category: str,
+    category: str | None,
     selected_farms: list[str],
     rc_values: tuple[int, ...] | None = None,
 ):
     query = (
-        query.where(HerdInventory.category == category)
-        .where(HerdInventory.gender == "Female")
+        query.where(HerdInventory.gender == "Female")
         .where(HerdInventory.expected_due.isnot(None))
         .where(HerdInventory.expected_month.isnot(None))
         .where(HerdInventory.farm.in_(selected_farms))
     )
+    if category is not None:
+        query = query.where(HerdInventory.category == category)
     if rc_values:
         query = query.where(HerdInventory.rc.in_(list(rc_values)))
     return query
@@ -94,7 +95,7 @@ def _empty_range_summary() -> dict[str, Any]:
 
 def _get_date_bounds(
     db: Session,
-    category: str,
+    category: str | None,
     selected_farms: list[str],
     rc_values: tuple[int, ...] | None = None,
 ) -> tuple[dt.date | None, dt.date | None]:
@@ -119,9 +120,86 @@ def _get_date_bounds(
     return min_date, max_date
 
 
+def _build_breed_summary(
+    db: Session,
+    *,
+    category: str | None,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    rc_values: tuple[int, ...] | None,
+    breeds: list[str] | None,
+    month_count: int,
+) -> dict[str, Any]:
+    def avg(total: int) -> float:
+        return round(total / month_count, 1) if month_count else 0.0
+
+    query = _apply_report_filters(
+        select(HerdInventory.lsbrd, HerdInventory.farm, func.count()),
+        category=category,
+        selected_farms=selected_farms,
+        rc_values=rc_values,
+    )
+    query = query.where(HerdInventory.expected_due >= effective_from).where(
+        HerdInventory.expected_due <= effective_to
+    )
+    if breeds:
+        query = query.where(HerdInventory.lsbrd.in_(breeds))
+
+    rows = db.execute(
+        query.group_by(HerdInventory.lsbrd, HerdInventory.farm).order_by(
+            HerdInventory.lsbrd
+        )
+    ).all()
+
+    breed_pivot: dict[str, dict[str, int]] = {}
+    for lsbrd, farm, count in rows:
+        breed = str(lsbrd) if lsbrd else "Unknown"
+        breed_pivot.setdefault(breed, {"CM": 0, "GAD": 0})
+        if farm in breed_pivot[breed]:
+            breed_pivot[breed][farm] = int(count)
+
+    breed_list: list[dict[str, Any]] = []
+    grand_total = 0
+    month_note = month_count
+    for breed in sorted(breed_pivot.keys()):
+        cm = breed_pivot[breed].get("CM", 0)
+        gad = breed_pivot[breed].get("GAD", 0)
+        total = cm + gad
+        grand_total += total
+        entry: dict[str, Any] = {
+            "breed": breed,
+            "total": total,
+            "average_per_month": avg(total),
+        }
+        for farm in selected_farms:
+            farm_total = breed_pivot[breed].get(farm, 0)
+            entry[farm] = {
+                "total": farm_total,
+                "average_per_month": avg(farm_total),
+            }
+        breed_list.append(entry)
+
+    return {
+        "month_count": month_note,
+        "breeds": breed_list,
+        "total": grand_total,
+        "average_per_month": avg(grand_total),
+    }
+
+
+def _empty_breed_summary() -> dict[str, Any]:
+    return {
+        "month_count": 0,
+        "breeds": [],
+        "total": 0,
+        "average_per_month": 0,
+    }
+
+
 def _get_breed_options(
     db: Session,
-    category: str,
+    category: str | None,
     selected_farms: list[str],
     rc_values: tuple[int, ...] | None = None,
 ) -> list[str]:
@@ -168,12 +246,13 @@ def _zero_fill_rows(
 def build_expected_due_report(
     db: Session,
     *,
-    category: str,
+    category: str | None = None,
     farms: list[str] | None = None,
     breeds: list[str] | None = None,
     due_from: dt.date | None = None,
     due_to: dt.date | None = None,
     include_breed_options: bool = False,
+    include_breed_summary: bool = False,
     rc_values: tuple[int, ...] | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
@@ -189,6 +268,8 @@ def build_expected_due_report(
         empty_result["breed_options"] = _get_breed_options(
             db, category, selected_farms, rc_values=rc_values
         )
+    if include_breed_summary:
+        empty_result["breed_summary"] = _empty_breed_summary()
 
     if not selected_farms:
         return empty_result
@@ -270,5 +351,16 @@ def build_expected_due_report(
     if include_breed_options:
         result["breed_options"] = _get_breed_options(
             db, category, selected_farms, rc_values=rc_values
+        )
+    if include_breed_summary:
+        result["breed_summary"] = _build_breed_summary(
+            db,
+            category=category,
+            selected_farms=selected_farms,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            rc_values=rc_values,
+            breeds=breeds,
+            month_count=month_count,
         )
     return result
