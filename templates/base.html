@@ -390,6 +390,25 @@
               <a href="/stock-inventory/heifers-due" class="{% if active_nav == 'heifers-due' %}active{% endif %}">Heifers Due</a>
             </div>
           </div>
+
+          <div class="nav-group{% if active_nav_group == 'events' %} expanded{% endif %}" data-nav-group="events">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'events' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'events' %}true{% else %}false{% endif %}"
+              aria-controls="events-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">Events</span>
+            </button>
+            <div class="nav-group-items" id="events-nav-items">
+              <a href="/events/calvings" class="{% if active_nav == 'calvings' %}active{% endif %}">Calvings</a>
+              <a href="/events/sales" class="{% if active_nav == 'sales' %}active{% endif %}">Sales</a>
+              <a href="/events/deaths" class="{% if active_nav == 'deaths' %}active{% endif %}">Deaths</a>
+              <a href="/events/disease" class="{% if active_nav == 'disease' %}active{% endif %}">Disease</a>
+              <a href="/events/breedings" class="{% if active_nav == 'breedings' %}active{% endif %}">Breedings</a>
+            </div>
+          </div>
         </div>
       </nav>
     </aside>
@@ -487,6 +506,9 @@
           const group = el.dataset.navGroup;
           if (group === "stock-inventory" && !window.location.pathname.startsWith("/stock-inventory")) {
             window.location.href = "/stock-inventory/heifer-inventory";
+          }
+          if (group === "events" && !window.location.pathname.startsWith("/events")) {
+            window.location.href = "/events/calvings";
           }
         });
       });

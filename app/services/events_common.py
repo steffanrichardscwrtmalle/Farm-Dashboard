@@ -1,0 +1,231 @@
+"""Shared month pivot for cow event reports."""
+
+from __future__ import annotations
+
+import datetime as dt
+from typing import Any
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.models import HERD_FARM_OPTIONS, CowEvent
+
+EVENT_PAGE_TYPES: dict[str, tuple[str, ...]] = {
+    "calvings": ("FRESH",),
+    "sales": ("SOLD",),
+    "deaths": ("DIED",),
+    "breedings": ("BRED",),
+    "disease": ("ILL", "SCOURS", "LAME", "MAST", "METR", "RESP", "INJURY", "ABORT", "DA"),
+}
+
+
+def normalize_farms(farms: list[str] | None) -> list[str]:
+    if not farms:
+        return list(HERD_FARM_OPTIONS)
+    return [f for f in farms if f in HERD_FARM_OPTIONS]
+
+
+def _fiscal_year_from_date(value: dt.date) -> int:
+    return value.year + 1 if value.month >= 4 else value.year
+
+
+def _sort_key_from_date(value: dt.date) -> int:
+    month = value.month
+    fiscal_year = _fiscal_year_from_date(value)
+    month_adjusted = month - 3 if month >= 4 else month + 9
+    return fiscal_year * 100 + month_adjusted
+
+
+def _month_start(value: dt.date) -> dt.date:
+    return value.replace(day=1)
+
+
+def _iter_month_starts(start: dt.date, end: dt.date) -> list[dt.date]:
+    current = _month_start(start)
+    end_month = _month_start(end)
+    months: list[dt.date] = []
+    while current <= end_month:
+        months.append(current)
+        if current.month == 12:
+            current = dt.date(current.year + 1, 1, 1)
+        else:
+            current = dt.date(current.year, current.month + 1, 1)
+    return months
+
+
+def _month_count_inclusive(event_from: dt.date, event_to: dt.date) -> int:
+    return len(_iter_month_starts(event_from, event_to))
+
+
+def _build_range_summary(grand_cm: int, grand_gad: int, month_count: int) -> dict[str, Any]:
+    def avg(total: int) -> float:
+        return round(total / month_count, 1) if month_count else 0.0
+
+    grand_total = grand_cm + grand_gad
+    return {
+        "total": grand_total,
+        "month_count": month_count,
+        "average_per_month": avg(grand_total),
+        "CM": {"total": grand_cm, "average_per_month": avg(grand_cm)},
+        "GAD": {"total": grand_gad, "average_per_month": avg(grand_gad)},
+    }
+
+
+def _empty_range_summary() -> dict[str, Any]:
+    return {
+        "total": 0,
+        "month_count": 0,
+        "average_per_month": 0,
+        "CM": {"total": 0, "average_per_month": 0},
+        "GAD": {"total": 0, "average_per_month": 0},
+    }
+
+
+
+def _get_date_bounds(
+    db: Session,
+    event_types: tuple[str, ...],
+    selected_farms: list[str],
+) -> tuple[dt.date | None, dt.date | None]:
+    row = db.execute(
+        select(
+            func.min(CowEvent.event_date),
+            func.max(CowEvent.event_date),
+        )
+        .where(CowEvent.event.in_(list(event_types)))
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+    ).one()
+    min_date = row[0]
+    max_date = row[1]
+    if min_date is None or max_date is None:
+        return None, None
+    if hasattr(min_date, "date"):
+        min_date = min_date.date()
+    if hasattr(max_date, "date"):
+        max_date = max_date.date()
+    return min_date, max_date
+
+
+def _zero_fill_rows(
+    pivot: dict[str, dict[str, int]],
+    event_from: dt.date,
+    event_to: dt.date,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for month_start in _iter_month_starts(event_from, event_to):
+        sort_key = _sort_key_from_date(month_start)
+        event_month = month_start.strftime("%b-%y")
+        counts = pivot.get(event_month, {"CM": 0, "GAD": 0})
+        cm = counts.get("CM", 0)
+        gad = counts.get("GAD", 0)
+        rows.append(
+            {
+                "event_month": event_month,
+                "sort_key": sort_key,
+                "CM": cm,
+                "GAD": gad,
+                "total": cm + gad,
+            }
+        )
+    return rows
+
+
+def build_events_report(
+    db: Session,
+    *,
+    event_types: tuple[str, ...],
+    farms: list[str] | None = None,
+    event_from: dt.date | None = None,
+    event_to: dt.date | None = None,
+) -> dict[str, Any]:
+    selected_farms = normalize_farms(farms)
+    latest_import = db.scalar(select(func.max(CowEvent.import_timestamp)))
+
+    empty_result: dict[str, Any] = {
+        "rows": [],
+        "grand_total": {"CM": 0, "GAD": 0, "total": 0},
+        "range_summary": _empty_range_summary(),
+        "latest_import": latest_import.isoformat() if latest_import else None,
+    }
+
+    if not selected_farms:
+        return empty_result
+
+    bounds_min, bounds_max = _get_date_bounds(db, event_types, selected_farms)
+    if bounds_min is None or bounds_max is None:
+        empty_result["date_bounds"] = None
+        return empty_result
+
+    date_bounds = {
+        "min": bounds_min.isoformat(),
+        "max": bounds_max.isoformat(),
+    }
+
+    effective_from = event_from if event_from is not None else bounds_min
+    effective_to = event_to if event_to is not None else bounds_max
+    if effective_from > effective_to:
+        effective_from, effective_to = effective_to, effective_from
+
+    counts = db.execute(
+        select(
+            CowEvent.month_label,
+            CowEvent.farm,
+            func.count(),
+        )
+        .where(CowEvent.event.in_(list(event_types)))
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+        .where(CowEvent.event_date >= effective_from)
+        .where(CowEvent.event_date <= effective_to)
+        .group_by(CowEvent.month_label, CowEvent.farm)
+        .order_by(func.min(CowEvent.sort_key))
+    ).all()
+
+    pivot: dict[str, dict[str, int]] = {}
+    for month_label, farm, count in counts:
+        if not month_label:
+            continue
+        key = str(month_label)
+        pivot.setdefault(key, {"CM": 0, "GAD": 0})
+        if farm in pivot[key]:
+            pivot[key][farm] = int(count)
+
+    rows = _zero_fill_rows(pivot, effective_from, effective_to)
+
+    grand_cm = sum(row["CM"] for row in rows)
+    grand_gad = sum(row["GAD"] for row in rows)
+    grand_total = grand_cm + grand_gad
+    month_count = _month_count_inclusive(effective_from, effective_to)
+
+    return {
+        "rows": rows,
+        "grand_total": {
+            "CM": grand_cm,
+            "GAD": grand_gad,
+            "total": grand_total,
+        },
+        "date_bounds": date_bounds,
+        "range_summary": _build_range_summary(grand_cm, grand_gad, month_count),
+        "latest_import": latest_import.isoformat() if latest_import else None,
+    }
+
+
+def build_events_page_report(
+    db: Session,
+    *,
+    page_slug: str,
+    farms: list[str] | None = None,
+    event_from: dt.date | None = None,
+    event_to: dt.date | None = None,
+) -> dict[str, Any]:
+    event_types = EVENT_PAGE_TYPES.get(page_slug)
+    if not event_types:
+        raise ValueError(f"Unknown events page: {page_slug}")
+    return build_events_report(
+        db,
+        event_types=event_types,
+        farms=farms,
+        event_from=event_from,
+        event_to=event_to,
+    )

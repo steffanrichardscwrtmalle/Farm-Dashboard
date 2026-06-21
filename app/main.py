@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.api.events_routes import router as events_api_router
 from app.api.stock_inventory_routes import router as stock_inventory_api_router
 from app.api.admin_routes import router as admin_api_router
 from app.api.herd_routes import router as herd_api_router
@@ -50,6 +51,7 @@ app.include_router(api_router)
 app.include_router(prostock_api_router)
 app.include_router(herd_api_router)
 app.include_router(stock_inventory_api_router)
+app.include_router(events_api_router)
 app.include_router(admin_api_router)
 
 _WYNNSTAY_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/wynnstay">Wynnstay</a>'
@@ -57,6 +59,10 @@ _PROSTOCK_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/prosto
 _STOCK_INVENTORY_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/stock-inventory/heifer-inventory">Stock Inventory</a>'
+)
+_EVENTS_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/events/calvings">Events</a>'
 )
 
 _login_attempts: dict[str, list[float]] = defaultdict(list)
@@ -108,6 +114,19 @@ def _stock_inventory_context(title: str, active_nav: str, page_name: str | None 
         "title": title,
         "active_nav_group": "stock-inventory",
         "active_section": "stock-inventory",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _events_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _EVENTS_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "events",
+        "active_section": "events",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -447,6 +466,73 @@ def stock_inventory_heifers_due_page(request: Request):
                 "Heifers Due",
             ),
         ),
+    )
+
+
+def _events_page_response(request: Request, *, slug: str, title: str, chart_title: str):
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "events/report.html",
+        _template_ctx(
+            request,
+            farm_options=list(HERD_FARM_OPTIONS),
+            api_slug=slug,
+            page_heading=title,
+            chart_title=chart_title,
+            **_events_context(title, slug, title),
+        ),
+    )
+
+
+@app.get("/events/calvings", response_class=HTMLResponse)
+def events_calvings_page(request: Request):
+    return _events_page_response(
+        request,
+        slug="calvings",
+        title="Calvings",
+        chart_title="Calvings by Month — Stacked by Farm",
+    )
+
+
+@app.get("/events/sales", response_class=HTMLResponse)
+def events_sales_page(request: Request):
+    return _events_page_response(
+        request,
+        slug="sales",
+        title="Sales",
+        chart_title="Sales by Month — Stacked by Farm",
+    )
+
+
+@app.get("/events/deaths", response_class=HTMLResponse)
+def events_deaths_page(request: Request):
+    return _events_page_response(
+        request,
+        slug="deaths",
+        title="Deaths",
+        chart_title="Deaths by Month — Stacked by Farm",
+    )
+
+
+@app.get("/events/disease", response_class=HTMLResponse)
+def events_disease_page(request: Request):
+    return _events_page_response(
+        request,
+        slug="disease",
+        title="Disease",
+        chart_title="Disease Events by Month — Stacked by Farm",
+    )
+
+
+@app.get("/events/breedings", response_class=HTMLResponse)
+def events_breedings_page(request: Request):
+    return _events_page_response(
+        request,
+        slug="breedings",
+        title="Breedings",
+        chart_title="Breedings by Month — Stacked by Farm",
     )
 
 
