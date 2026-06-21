@@ -22,6 +22,7 @@ LACTATION_GROUPS: tuple[str, ...] = ("1", "2", "3+")
 PARITY_GROUPS: tuple[str, ...] = ("primiparous", "multiparous")
 PAGES_WITH_PARITY_FILTER: frozenset[str] = frozenset({"sales", "deaths", "disease", "breedings"})
 SALES_REASON_ORDER: tuple[str, ...] = ("OFS", "TB", "Beef", "CULL")
+SALES_TABLE_REASON_ORDER: tuple[str, ...] = ("CULL", "TB", "OFS", "Beef")
 
 
 def normalize_farms(farms: list[str] | None) -> list[str]:
@@ -161,7 +162,7 @@ def _sales_reason_expression():
     )
 
 
-def _build_sales_reason_rows(
+def _build_sales_table_rows(
     db: Session,
     *,
     selected_farms: list[str],
@@ -194,36 +195,30 @@ def _build_sales_reason_rows(
 
     pivot: dict[str, dict[str, dict[str, int]]] = {}
     for month_label, reason, farm, count in counts:
-        if not month_label or not reason:
+        if not month_label or not reason or farm not in selected_farms:
             continue
         month_key = str(month_label)
         reason_key = str(reason)
         pivot.setdefault(month_key, {})
-        pivot[month_key].setdefault(reason_key, {"CM": 0, "GAD": 0})
-        if farm in pivot[month_key][reason_key]:
-            pivot[month_key][reason_key][farm] = int(count)
+        pivot[month_key].setdefault(farm, {name: 0 for name in SALES_TABLE_REASON_ORDER})
+        if reason_key in pivot[month_key][farm]:
+            pivot[month_key][farm][reason_key] = int(count)
 
-    reason_rows: list[dict[str, Any]] = []
+    table_rows: list[dict[str, Any]] = []
     for month_start in _iter_month_starts(effective_from, effective_to):
         event_month = month_start.strftime("%b-%y")
-        month_reasons = pivot.get(event_month, {})
-        for reason in SALES_REASON_ORDER:
-            counts_by_farm = month_reasons.get(reason, {"CM": 0, "GAD": 0})
-            cm = counts_by_farm.get("CM", 0)
-            gad = counts_by_farm.get("GAD", 0)
-            total = cm + gad
-            if total == 0:
-                continue
-            reason_rows.append(
-                {
-                    "event_month": event_month,
-                    "reason": reason,
-                    "CM": cm,
-                    "GAD": gad,
-                    "total": total,
-                }
-            )
-    return reason_rows
+        month_counts = pivot.get(event_month, {})
+        row: dict[str, Any] = {
+            "event_month": event_month,
+            "sort_key": _sort_key_from_date(month_start),
+        }
+        for farm in selected_farms:
+            row[farm] = {
+                reason: month_counts.get(farm, {}).get(reason, 0)
+                for reason in SALES_TABLE_REASON_ORDER
+            }
+        table_rows.append(row)
+    return table_rows
 
 
 def _fiscal_year_calendar_bounds(fiscal_year: int) -> tuple[dt.date, dt.date]:
@@ -309,7 +304,7 @@ def build_events_report(
         "latest_import": latest_import.isoformat() if latest_import else None,
     }
     if include_sales_reason_breakdown:
-        empty_result["reason_rows"] = []
+        empty_result["sales_table_rows"] = []
 
     if not selected_farms:
         return empty_result
@@ -389,7 +384,7 @@ def build_events_report(
         "latest_import": latest_import.isoformat() if latest_import else None,
     }
     if include_sales_reason_breakdown:
-        result["reason_rows"] = _build_sales_reason_rows(
+        result["sales_table_rows"] = _build_sales_table_rows(
             db,
             selected_farms=selected_farms,
             effective_from=effective_from,
@@ -397,6 +392,7 @@ def build_events_report(
             selected_parity_groups=selected_parity_groups,
             fiscal_year=fiscal_year,
         )
+        result["sales_table_reasons"] = list(SALES_TABLE_REASON_ORDER)
     return result
 
 

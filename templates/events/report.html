@@ -151,18 +151,28 @@
       color: #fff;
       font-weight: 600;
     }
+    #events-table thead th.farm-cm {
+      background: #b8d4e8;
+      color: #1e3a5f;
+    }
+    #events-table thead th.farm-gad {
+      background: #f0c98e;
+      color: #1e3a5f;
+    }
+    #events-table thead th.reason-sub {
+      font-weight: 600;
+      font-size: 0.8rem;
+    }
+    #events-table thead th.reason-sub.farm-cm {
+      background: #d4e6f3;
+    }
+    #events-table thead th.reason-sub.farm-gad {
+      background: #f7ddb0;
+    }
     #events-table tbody tr.grand-total td {
       background: #eef2f6;
       font-weight: 700;
       border-top: 2px solid var(--border);
-    }
-    #events-table tbody tr.month-total td {
-      background: #f7f9fb;
-      font-weight: 600;
-      border-top: 1px solid var(--border);
-    }
-    #events-table tbody tr.reason-row td:nth-child(2) {
-      color: var(--muted);
     }
     .empty-state {
       padding: 2rem;
@@ -270,10 +280,9 @@
       <div id="table-view" style="display:none;">
         <div class="table-wrap">
           <table id="events-table">
-            <thead>
+            <thead id="events-table-head">
               <tr>
                 <th>Event Month</th>
-                {% if show_reason_table %}<th>Reason</th>{% endif %}
                 <th>CM</th>
                 <th>GAD</th>
                 <th>Total</th>
@@ -562,6 +571,41 @@
       document.getElementById("table-view").style.display = mode === "table" ? "" : "none";
     }
 
+    const SALES_TABLE_REASONS = ["CULL", "TB", "OFS", "Beef"];
+
+    function renderSalesTableHeader(farms, reasons) {
+      const head = document.getElementById("events-table-head");
+      const reasonList = reasons || SALES_TABLE_REASONS;
+      const farmHeader = farms.map(farm => {
+        const farmClass = farm === "CM" ? "farm-cm" : farm === "GAD" ? "farm-gad" : "";
+        return `<th colspan="${reasonList.length}" class="${farmClass}">${farm}</th>`;
+      }).join("");
+      const reasonHeader = farms.map(farm => {
+        const farmClass = farm === "CM" ? "farm-cm" : farm === "GAD" ? "farm-gad" : "";
+        return reasonList.map(reason =>
+          `<th class="reason-sub ${farmClass}">${reason}</th>`
+        ).join("");
+      }).join("");
+      head.innerHTML = `
+        <tr>
+          <th rowspan="2">Month</th>
+          ${farmHeader}
+        </tr>
+        <tr>${reasonHeader}</tr>
+      `;
+    }
+
+    function renderDefaultTableHeader() {
+      document.getElementById("events-table-head").innerHTML = `
+        <tr>
+          <th>Event Month</th>
+          <th>CM</th>
+          <th>GAD</th>
+          <th>Total</th>
+        </tr>
+      `;
+    }
+
     function renderTable(data) {
       const body = document.getElementById("events-body");
       const rows = data.rows || [];
@@ -570,41 +614,47 @@
         return;
       }
 
+      const farms = selectedFarms().length ? selectedFarms() : ["CM", "GAD"];
       let html = "";
-      if (SHOW_REASON_TABLE) {
-        const reasonRows = data.reason_rows || [];
-        const reasonsByMonth = {};
-        reasonRows.forEach(row => {
-          if (!reasonsByMonth[row.event_month]) reasonsByMonth[row.event_month] = [];
-          reasonsByMonth[row.event_month].push(row);
+
+      if (SHOW_REASON_TABLE && data.sales_table_rows) {
+        const tableRows = data.sales_table_rows;
+        const reasons = data.sales_table_reasons || SALES_TABLE_REASONS;
+        renderSalesTableHeader(farms, reasons);
+
+        const totals = {};
+        farms.forEach(farm => {
+          totals[farm] = {};
+          reasons.forEach(reason => { totals[farm][reason] = 0; });
         });
 
-        rows.forEach(monthRow => {
-          const monthReasons = reasonsByMonth[monthRow.event_month] || [];
-          if (monthReasons.length) {
-            monthReasons.forEach((row, idx) => {
-              html += `
-                <tr class="reason-row">
-                  <td>${idx === 0 ? row.event_month : ""}</td>
-                  <td>${row.reason}</td>
-                  <td>${row.CM}</td>
-                  <td>${row.GAD}</td>
-                  <td>${row.total}</td>
-                </tr>
-              `;
-            });
-          }
-          html += `
-            <tr class="month-total">
-              <td>${monthReasons.length ? "" : monthRow.event_month}</td>
-              <td>Total</td>
-              <td>${monthRow.CM}</td>
-              <td>${monthRow.GAD}</td>
-              <td>${monthRow.total}</td>
+        html = tableRows.map(row => {
+          const cells = farms.map(farm =>
+            reasons.map(reason => {
+              const value = row[farm]?.[reason] ?? 0;
+              totals[farm][reason] += value;
+              return `<td>${value}</td>`;
+            }).join("")
+          ).join("");
+          return `
+            <tr>
+              <td>${row.event_month}</td>
+              ${cells}
             </tr>
           `;
-        });
+        }).join("");
+
+        const totalCells = farms.map(farm =>
+          reasons.map(reason => `<td>${totals[farm][reason]}</td>`).join("")
+        ).join("");
+        html += `
+          <tr class="grand-total">
+            <td>Grand Total</td>
+            ${totalCells}
+          </tr>
+        `;
       } else {
+        renderDefaultTableHeader();
         html = rows.map(row => `
           <tr>
             <td>${row.event_month}</td>
@@ -613,18 +663,17 @@
             <td>${row.total}</td>
           </tr>
         `).join("");
+        const gt = data.grand_total || {};
+        html += `
+          <tr class="grand-total">
+            <td>Grand Total</td>
+            <td>${gt.CM ?? 0}</td>
+            <td>${gt.GAD ?? 0}</td>
+            <td>${gt.total ?? 0}</td>
+          </tr>
+        `;
       }
 
-      const gt = data.grand_total || {};
-      html += `
-        <tr class="grand-total">
-          <td>Grand Total</td>
-          ${SHOW_REASON_TABLE ? "<td></td>" : ""}
-          <td>${gt.CM ?? 0}</td>
-          <td>${gt.GAD ?? 0}</td>
-          <td>${gt.total ?? 0}</td>
-        </tr>
-      `;
       body.innerHTML = html;
     }
 
