@@ -151,6 +151,15 @@ def _apply_fiscal_year(query, fiscal_year: int | None):
     return query.where(CowEvent.fiscal_year == fiscal_year)
 
 
+def _fiscal_year_calendar_bounds(fiscal_year: int) -> tuple[dt.date, dt.date]:
+    """UK fiscal year: Apr (FY-1) through Mar (FY)."""
+    return dt.date(fiscal_year - 1, 4, 1), dt.date(fiscal_year, 3, 31)
+
+
+def _clamp_date(value: dt.date, min_date: dt.date, max_date: dt.date) -> dt.date:
+    return max(min_date, min(value, max_date))
+
+
 def _get_date_bounds(
     db: Session,
     event_types: tuple[str, ...],
@@ -235,13 +244,20 @@ def build_events_report(
         empty_result["date_bounds"] = None
         return empty_result
 
+    if fiscal_year is not None:
+        slider_min, slider_max = _fiscal_year_calendar_bounds(fiscal_year)
+    else:
+        slider_min, slider_max = bounds_min, bounds_max
+
     date_bounds = {
-        "min": bounds_min.isoformat(),
-        "max": bounds_max.isoformat(),
+        "min": slider_min.isoformat(),
+        "max": slider_max.isoformat(),
     }
 
-    effective_from = event_from if event_from is not None else bounds_min
-    effective_to = event_to if event_to is not None else bounds_max
+    effective_from = event_from if event_from is not None else slider_min
+    effective_to = event_to if event_to is not None else slider_max
+    effective_from = _clamp_date(effective_from, slider_min, slider_max)
+    effective_to = _clamp_date(effective_to, slider_min, slider_max)
     if effective_from > effective_to:
         effective_from, effective_to = effective_to, effective_from
 

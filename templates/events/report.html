@@ -291,6 +291,8 @@
     let monthList = [];
     let dateBoundsInitialized = false;
     let storedDateBounds = null;
+    let storedFullDateBounds = null;
+    let lastFiscalYear = null;
 
     function clearFilters() {
       document.querySelectorAll(".farm-cb").forEach(cb => { cb.checked = true; });
@@ -301,7 +303,10 @@
         document.querySelectorAll(".parity-cb").forEach(cb => { cb.checked = true; });
       }
       document.getElementById("fiscal-year-select").value = "";
-      if (storedDateBounds) {
+      lastFiscalYear = null;
+      if (storedFullDateBounds) {
+        syncDateControls(storedFullDateBounds, true);
+      } else if (storedDateBounds) {
         syncDateControls(storedDateBounds, true);
       }
       loadReport();
@@ -349,6 +354,14 @@
         monthList[minIdx] ? formatMonthLabel(monthList[minIdx]) : "—";
       document.getElementById("max-date-label").textContent =
         monthList[maxIdx] ? formatMonthLabel(monthList[maxIdx]) : "—";
+    }
+
+    function fiscalYearBounds(year) {
+      const y = Number(year);
+      return {
+        min: `${y - 1}-04-01`,
+        max: `${y}-03-31`,
+      };
     }
 
     function syncDateControls(dateBounds, resetValues) {
@@ -654,6 +667,16 @@
         return;
       }
 
+      const fiscalYear = selectedFiscalYear();
+      if (fiscalYear !== lastFiscalYear) {
+        if (fiscalYear) {
+          syncDateControls(fiscalYearBounds(fiscalYear), true);
+        } else if (storedFullDateBounds) {
+          syncDateControls(storedFullDateBounds, true);
+        }
+        lastFiscalYear = fiscalYear;
+      }
+
       const params = appendFiscalYearParam(
         appendParityParams(appendLactParams(appendDateParams(appendFarmParams(new URLSearchParams()))))
       );
@@ -673,13 +696,17 @@
         renderFiscalYearOptions(data.fiscal_year_options);
       }
 
-      if (data.date_bounds && !dateBoundsInitialized) {
+      if (data.date_bounds) {
         storedDateBounds = data.date_bounds;
-        syncDateControls(data.date_bounds, true);
-        dateBoundsInitialized = true;
-      } else if (data.date_bounds) {
-        storedDateBounds = data.date_bounds;
-        syncDateControls(data.date_bounds, false);
+        if (!fiscalYear) {
+          storedFullDateBounds = data.date_bounds;
+        }
+        if (!dateBoundsInitialized) {
+          syncDateControls(data.date_bounds, true);
+          dateBoundsInitialized = true;
+        } else {
+          syncDateControls(data.date_bounds, false);
+        }
       }
 
       const importNote = data.latest_import
