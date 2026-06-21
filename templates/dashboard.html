@@ -2,53 +2,8 @@
 
 {% block page_heading %}Farm Dashboard{% endblock %}
 
-{% block extra_styles %}
-    .section-grid {
-      display: grid;
-      gap: 1.25rem;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      max-width: 900px;
-    }
-    .section-card {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-      text-decoration: none;
-      color: inherit;
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-    .section-card:hover {
-      border-color: var(--accent);
-      box-shadow: 0 4px 12px rgba(26, 107, 60, 0.12);
-    }
-    .section-card h2 {
-      margin: 0;
-      font-size: 1.1rem;
-      color: var(--accent);
-    }
-    .section-card p {
-      margin: 0;
-      flex: 1;
-    }
-    .section-card .enter-link {
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: var(--accent);
-    }
-{% endblock %}
-
 {% block content %}
-    <p class="muted" style="margin:0 0 1.25rem">Choose a supplier section to get started.</p>
-    <section class="section-grid">
-      <a href="/wynnstay" class="card section-card">
-        <h2>Wynnstay</h2>
-        <p class="muted">Import supplier invoices, view spend analysis, product prices, quantities, and keyword mappings.</p>
-        <span class="enter-link">Open Wynnstay &rarr;</span>
-      </a>
-      <a href="/prostock" class="card section-card">
-        <h2>Prostock</h2>
-        <p class="muted">Import veterinary purchase data by business, and manage drug name keyword mappings (Group + Product).</p>
-        <span class="enter-link">Open Prostock &rarr;</span>
-      </a>
-    </section>
+    <div class="card">
+      <p class="muted" style="margin:0">Use the sidebar to open a section.</p>
+    </div>
 {% endblock %}
