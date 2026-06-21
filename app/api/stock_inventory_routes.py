@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -36,19 +38,34 @@ def api_heifer_inventory(
 def api_calves_due(
     farm: list[str] = Query(default=[]),
     breed: list[str] = Query(default=[]),
+    due_from: dt.date | None = Query(default=None),
+    due_to: dt.date | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     farms = farm or None
     breeds = breed or None
-    return get_calves_due_report(db, farms=farms, breeds=breeds)
+    return get_calves_due_report(
+        db,
+        farms=farms,
+        breeds=breeds,
+        due_from=due_from,
+        due_to=due_to,
+    )
 
 
 @router.get("/heifers-due")
 def api_heifers_due(
     farm: list[str] = Query(default=[]),
+    due_from: dt.date | None = Query(default=None),
+    due_to: dt.date | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     farms = farm or None
-    return get_heifers_due_report(db, farms=farms)
+    return get_heifers_due_report(
+        db,
+        farms=farms,
+        due_from=due_from,
+        due_to=due_to,
+    )
