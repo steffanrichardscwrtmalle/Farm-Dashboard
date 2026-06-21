@@ -19,6 +19,8 @@ EVENT_PAGE_TYPES: dict[str, tuple[str, ...]] = {
 }
 
 LACTATION_GROUPS: tuple[str, ...] = ("1", "2", "3+")
+PARITY_GROUPS: tuple[str, ...] = ("primiparous", "multiparous")
+PAGES_WITH_PARITY_FILTER: frozenset[str] = frozenset({"sales", "deaths", "disease", "breedings"})
 
 
 def normalize_farms(farms: list[str] | None) -> list[str]:
@@ -44,6 +46,26 @@ def _apply_lact_groups(query, lact_groups: list[str] | None):
         conditions.append(CowEvent.lact == 2)
     if "3+" in lact_groups:
         conditions.append(CowEvent.lact >= 3)
+    if not conditions:
+        return query
+    return query.where(or_(*conditions))
+
+
+def normalize_parity_groups(parity_groups: list[str] | None) -> list[str] | None:
+    if not parity_groups:
+        return None
+    selected = [group for group in parity_groups if group in PARITY_GROUPS]
+    return selected or None
+
+
+def _apply_parity_groups(query, parity_groups: list[str] | None):
+    if not parity_groups:
+        return query
+    conditions = []
+    if "primiparous" in parity_groups:
+        conditions.append(CowEvent.lact == 0)
+    if "multiparous" in parity_groups:
+        conditions.append(CowEvent.lact > 0)
     if not conditions:
         return query
     return query.where(or_(*conditions))
@@ -163,9 +185,11 @@ def build_events_report(
     event_from: dt.date | None = None,
     event_to: dt.date | None = None,
     lact_groups: list[str] | None = None,
+    parity_groups: list[str] | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     selected_lact_groups = normalize_lact_groups(lact_groups)
+    selected_parity_groups = normalize_parity_groups(parity_groups)
     latest_import = db.scalar(select(func.max(CowEvent.import_timestamp)))
 
     empty_result: dict[str, Any] = {
@@ -206,6 +230,7 @@ def build_events_report(
         .where(CowEvent.event_date <= effective_to)
     )
     counts_query = _apply_lact_groups(counts_query, selected_lact_groups)
+    counts_query = _apply_parity_groups(counts_query, selected_parity_groups)
     counts = db.execute(
         counts_query.group_by(CowEvent.month_label, CowEvent.farm).order_by(
             func.min(CowEvent.sort_key)
@@ -249,6 +274,7 @@ def build_events_page_report(
     event_from: dt.date | None = None,
     event_to: dt.date | None = None,
     lact_groups: list[str] | None = None,
+    parity_groups: list[str] | None = None,
 ) -> dict[str, Any]:
     event_types = EVENT_PAGE_TYPES.get(page_slug)
     if not event_types:
@@ -260,4 +286,5 @@ def build_events_page_report(
         event_from=event_from,
         event_to=event_to,
         lact_groups=lact_groups if page_slug == "calvings" else None,
+        parity_groups=parity_groups if page_slug in PAGES_WITH_PARITY_FILTER else None,
     )

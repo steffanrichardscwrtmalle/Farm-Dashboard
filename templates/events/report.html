@@ -201,6 +201,21 @@
           </fieldset>
         </div>
         {% endif %}
+        {% if show_parity_filter %}
+        <div class="filter-section">
+          <span class="section-label">Parity</span>
+          <fieldset class="farm-filter">
+            <label>
+              <input type="checkbox" class="parity-cb" value="primiparous" checked>
+              Primiparous
+            </label>
+            <label>
+              <input type="checkbox" class="parity-cb" value="multiparous" checked>
+              Multiparous
+            </label>
+          </fieldset>
+        </div>
+        {% endif %}
         <div class="filter-section">
           <span class="section-label">Event date range</span>
           <div class="date-inputs">
@@ -260,6 +275,7 @@
     const API_SLUG = {{ api_slug | tojson }};
     const CHART_TITLE = {{ chart_title | tojson }};
     const SHOW_LACT_FILTER = {{ show_lact_filter | default(false) | tojson }};
+    const SHOW_PARITY_FILTER = {{ show_parity_filter | default(false) | tojson }};
     const FARM_COLORS = { CM: "#1f77b4", GAD: "#ff7f0e" };
     let eventsChart = null;
     let monthList = [];
@@ -270,6 +286,9 @@
       document.querySelectorAll(".farm-cb").forEach(cb => { cb.checked = true; });
       if (SHOW_LACT_FILTER) {
         document.querySelectorAll(".lact-cb").forEach(cb => { cb.checked = true; });
+      }
+      if (SHOW_PARITY_FILTER) {
+        document.querySelectorAll(".parity-cb").forEach(cb => { cb.checked = true; });
       }
       if (storedDateBounds) {
         syncDateControls(storedDateBounds, true);
@@ -461,6 +480,17 @@
       return params;
     }
 
+    function selectedParityGroups() {
+      if (!SHOW_PARITY_FILTER) return [];
+      return [...document.querySelectorAll(".parity-cb:checked")].map(cb => cb.value);
+    }
+
+    function appendParityParams(params) {
+      if (!SHOW_PARITY_FILTER) return params;
+      selectedParityGroups().forEach(group => params.append("parity", group));
+      return params;
+    }
+
     function viewMode() {
       return document.querySelector('input[name="view-mode"]:checked')?.value || "graph";
     }
@@ -547,6 +577,7 @@
     async function loadReport() {
       const farms = selectedFarms();
       const lactGroups = selectedLactGroups();
+      const parityGroups = selectedParityGroups();
       const empty = document.getElementById("empty-state");
       const graphView = document.getElementById("graph-view");
       const tableView = document.getElementById("table-view");
@@ -574,7 +605,18 @@
         return;
       }
 
-      const params = appendLactParams(appendDateParams(appendFarmParams(new URLSearchParams())));
+      if (SHOW_PARITY_FILTER && !parityGroups.length) {
+        empty.style.display = "";
+        empty.textContent = "Please select at least one parity group.";
+        graphView.style.display = "none";
+        tableView.style.display = "none";
+        meta.textContent = "";
+        document.getElementById("summary-panel").style.display = "none";
+        if (eventsChart) { eventsChart.destroy(); eventsChart = null; }
+        return;
+      }
+
+      const params = appendParityParams(appendLactParams(appendDateParams(appendFarmParams(new URLSearchParams()))));
 
       const res = await fetch(`/api/events/${API_SLUG}?${params}`);
       if (!res.ok) {
@@ -627,6 +669,11 @@
     });
     if (SHOW_LACT_FILTER) {
       document.querySelectorAll(".lact-cb").forEach(cb => {
+        cb.addEventListener("change", loadReport);
+      });
+    }
+    if (SHOW_PARITY_FILTER) {
+      document.querySelectorAll(".parity-cb").forEach(cb => {
         cb.addEventListener("change", loadReport);
       });
     }
