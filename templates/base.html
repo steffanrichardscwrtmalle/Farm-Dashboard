@@ -29,13 +29,49 @@
       display: flex;
       min-height: 100vh;
     }
+    .sidebar-backdrop {
+      display: none;
+    }
     .sidebar {
       width: var(--sidebar-w);
+      min-width: var(--sidebar-w);
       flex-shrink: 0;
       background: #1e3a2f;
       color: #fff;
       display: flex;
       flex-direction: column;
+      overflow-y: auto;
+      transition: width 0.2s ease, min-width 0.2s ease, transform 0.2s ease;
+    }
+    @media (min-width: 769px) {
+      .app-shell.sidebar-collapsed .sidebar {
+        width: 0;
+        min-width: 0;
+        overflow: hidden;
+      }
+    }
+    @media (max-width: 768px) {
+      .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 200;
+        transform: translateX(-100%);
+      }
+      .app-shell.sidebar-open .sidebar {
+        transform: translateX(0);
+      }
+      .sidebar-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 199;
+        background: rgba(0, 0, 0, 0.45);
+      }
+      .app-shell.sidebar-open .sidebar-backdrop {
+        display: block;
+      }
     }
     .sidebar-brand {
       padding: 1.25rem 1rem;
@@ -194,6 +230,25 @@
       align-items: center;
       gap: 1rem;
     }
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      min-width: 0;
+      flex: 1;
+    }
+    .sidebar-toggle {
+      flex-shrink: 0;
+      padding: 0.45rem 0.65rem;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      font-size: 1.1rem;
+      line-height: 1;
+    }
+    .sidebar-toggle:hover {
+      background: #eef2f6;
+    }
     .topbar h1 {
       margin: 0;
       font-size: 1.25rem;
@@ -309,12 +364,23 @@
     .badge-unknown { color: var(--danger); font-weight: 600; }
     .unknown-warn { color: var(--danger); font-weight: 600; }
     select { padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; }
+    @media (max-width: 768px) {
+      .topbar {
+        padding: 0.75rem 1rem;
+      }
+      .home-btn {
+        display: none;
+      }
+      .user-email {
+        max-width: 120px;
+      }
+    }
     {% block extra_styles %}{% endblock %}
   </style>
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar">
+    <aside class="sidebar" id="app-sidebar">
       <div class="sidebar-brand"><a href="/">Farm Dashboard</a></div>
       <nav class="sidebar-nav">
         <a href="/" class="{% if active_nav == 'home' and not active_section %}active{% endif %}">Home</a>
@@ -440,13 +506,18 @@
       </nav>
     </aside>
 
+    <div class="sidebar-backdrop" id="sidebar-backdrop" aria-hidden="true"></div>
+
     <div class="main-panel">
       <header class="topbar">
-        <div class="topbar-heading">
+        <div class="topbar-left">
+          <button type="button" class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle navigation" aria-expanded="true" aria-controls="app-sidebar">&#9776;</button>
+          <div class="topbar-heading">
           {% if breadcrumb %}
           <p class="breadcrumb">{{ breadcrumb | safe }}</p>
           {% endif %}
           <h1>{% block page_heading %}{{ title }}{% endblock %}</h1>
+          </div>
         </div>
         <div class="topbar-actions">
         <a href="/" class="home-btn">Home</a>
@@ -498,6 +569,71 @@
       if (n == null || n === "") return "";
       return Number(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
+
+    (function initSidebar() {
+      const shell = document.querySelector(".app-shell");
+      const toggle = document.getElementById("sidebar-toggle");
+      const backdrop = document.getElementById("sidebar-backdrop");
+      if (!shell || !toggle) return;
+
+      const mq = window.matchMedia("(max-width: 768px)");
+      const STORAGE_KEY = "sidebar-collapsed";
+
+      function isMobile() {
+        return mq.matches;
+      }
+
+      function isOpen() {
+        return isMobile()
+          ? shell.classList.contains("sidebar-open")
+          : !shell.classList.contains("sidebar-collapsed");
+      }
+
+      function setOpen(open) {
+        if (isMobile()) {
+          shell.classList.toggle("sidebar-open", open);
+          if (backdrop) backdrop.setAttribute("aria-hidden", open ? "false" : "true");
+        } else {
+          shell.classList.toggle("sidebar-collapsed", !open);
+          try { localStorage.setItem(STORAGE_KEY, open ? "0" : "1"); } catch (_) {}
+        }
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+
+      function applyLayoutState() {
+        shell.classList.remove("sidebar-open", "sidebar-collapsed");
+        if (isMobile()) {
+          if (backdrop) backdrop.setAttribute("aria-hidden", "true");
+          toggle.setAttribute("aria-expanded", "false");
+        } else {
+          let collapsed = false;
+          try { collapsed = localStorage.getItem(STORAGE_KEY) === "1"; } catch (_) {}
+          shell.classList.toggle("sidebar-collapsed", collapsed);
+          toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        }
+      }
+
+      toggle.addEventListener("click", () => setOpen(!isOpen()));
+
+      if (backdrop) {
+        backdrop.addEventListener("click", () => {
+          if (isMobile()) setOpen(false);
+        });
+      }
+
+      document.querySelectorAll(".sidebar a").forEach(link => {
+        link.addEventListener("click", () => {
+          if (isMobile()) setOpen(false);
+        });
+      });
+
+      document.addEventListener("keydown", e => {
+        if (e.key === "Escape" && isMobile() && isOpen()) setOpen(false);
+      });
+
+      mq.addEventListener("change", applyLayoutState);
+      applyLayoutState();
+    })();
 
     (function initCollapsibleNav() {
       function initNode(el, key, toggleSelector, onExpand) {
