@@ -7,7 +7,12 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.auth.deps import get_current_user, require_editor
+from app.auth.deps import require_action, require_page
+from app.auth.permissions import (
+    ACTION_WYNNSTAY_IMPORT,
+    ACTION_WYNNSTAY_MAPPINGS,
+    PAGE_WYNNSTAY,
+)
 from app.db import get_db
 from app.models import BUSINESS_OPTIONS, SUPPLIER_WYNNSTAY, ProductMappingRule, User
 from app.services.category_breakdown import get_category_breakdown
@@ -79,12 +84,12 @@ class MappingOptionCreate(BaseModel):
 
 
 @router.get("/stats")
-def api_stats(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def api_stats(db: Session = Depends(get_db), _: User = Depends(require_page(PAGE_WYNNSTAY))):
     return get_stats(db)
 
 
 @router.get("/invoice-months")
-def api_invoice_months(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def api_invoice_months(db: Session = Depends(get_db), _: User = Depends(require_page(PAGE_WYNNSTAY))):
     return {"items": get_invoice_months(db)}
 
 
@@ -94,7 +99,7 @@ def api_category_breakdown(
     to_month: str | None = None,
     include_credit: bool = True,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_WYNNSTAY)),
 ):
     end_month = to_month or from_month
     try:
@@ -116,7 +121,7 @@ def api_product_price_by_month(
     recent_only: bool = False,
     include_credit: bool = True,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_WYNNSTAY)),
 ):
     end_month = to_month or from_month
     try:
@@ -140,7 +145,7 @@ def api_product_quantity_by_month(
     recent_only: bool = False,
     include_credit: bool = True,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_WYNNSTAY)),
 ):
     end_month = to_month or from_month
     try:
@@ -164,7 +169,7 @@ def api_monthly_spend(
     recent_only: bool = False,
     include_credit: bool = True,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_WYNNSTAY)),
 ):
     end_month = to_month or from_month
     try:
@@ -192,7 +197,7 @@ def api_invoice_lines(
     limit: int = 500,
     offset: int = 0,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_WYNNSTAY)),
 ):
     if unknown and unknown not in ("category", "farm", "any"):
         raise HTTPException(status_code=400, detail="unknown must be category, farm, or any")
@@ -226,7 +231,7 @@ async def api_import(
     invoice_date: str = Form(...),
     business: str = Form(...),
     db: Session = Depends(get_db),
-    _: User = Depends(require_editor),
+    _: User = Depends(require_action(ACTION_WYNNSTAY_IMPORT)),
 ):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -259,7 +264,7 @@ async def api_import(
 
 
 @router.post("/refresh")
-def api_refresh(db: Session = Depends(get_db), _: User = Depends(require_editor)):
+def api_refresh(db: Session = Depends(get_db), _: User = Depends(require_action(ACTION_WYNNSTAY_IMPORT))):
     count = refresh_all_invoice_lines(db)
     return {"rows_refreshed": count}
 
@@ -268,7 +273,7 @@ def api_refresh(db: Session = Depends(get_db), _: User = Depends(require_editor)
 
 
 @router.get("/mapping-options")
-def api_list_mapping_options(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def api_list_mapping_options(db: Session = Depends(get_db), _: User = Depends(require_page(PAGE_WYNNSTAY))):
     seed_mapping_options_if_empty(db)
     return {
         "items": [row.to_dict() for row in list_mapping_option_rows(db)],
@@ -277,7 +282,7 @@ def api_list_mapping_options(db: Session = Depends(get_db), _: User = Depends(ge
 
 
 @router.post("/mapping-options")
-def api_create_mapping_option(body: MappingOptionCreate, db: Session = Depends(get_db), _: User = Depends(require_editor)):
+def api_create_mapping_option(body: MappingOptionCreate, db: Session = Depends(get_db), _: User = Depends(require_action(ACTION_WYNNSTAY_MAPPINGS))):
     option_type = body.option_type.strip()
     if option_type not in VALID_OPTION_TYPES:
         raise HTTPException(
@@ -292,7 +297,7 @@ def api_create_mapping_option(body: MappingOptionCreate, db: Session = Depends(g
 
 
 @router.delete("/mapping-options/{option_id}")
-def api_delete_mapping_option(option_id: int, db: Session = Depends(get_db), _: User = Depends(require_editor)):
+def api_delete_mapping_option(option_id: int, db: Session = Depends(get_db), _: User = Depends(require_action(ACTION_WYNNSTAY_MAPPINGS))):
     try:
         delete_mapping_option(db, option_id)
     except ValueError as exc:
@@ -301,13 +306,13 @@ def api_delete_mapping_option(option_id: int, db: Session = Depends(get_db), _: 
 
 
 @router.get("/mappings")
-def api_list_mappings(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def api_list_mappings(db: Session = Depends(get_db), _: User = Depends(require_page(PAGE_WYNNSTAY))):
     rules = list_mapping_rules(db)
     return {"items": [r.to_dict() for r in rules], "total": len(rules)}
 
 
 @router.post("/mappings")
-def api_create_mapping(body: MappingCreate, db: Session = Depends(get_db), _: User = Depends(require_editor)):
+def api_create_mapping(body: MappingCreate, db: Session = Depends(get_db), _: User = Depends(require_action(ACTION_WYNNSTAY_MAPPINGS))):
     keyword = body.keyword.strip()
     if not keyword:
         raise HTTPException(status_code=400, detail="Keyword is required")
@@ -341,7 +346,7 @@ def api_create_mapping(body: MappingCreate, db: Session = Depends(get_db), _: Us
 
 
 @router.put("/mappings/bulk")
-def api_bulk_update_mappings(body: MappingBulkUpdateBody, db: Session = Depends(get_db), _: User = Depends(require_editor)):
+def api_bulk_update_mappings(body: MappingBulkUpdateBody, db: Session = Depends(get_db), _: User = Depends(require_action(ACTION_WYNNSTAY_MAPPINGS))):
     updated = 0
     for item in body.items:
         rule = db.get(ProductMappingRule, item.id)
@@ -370,7 +375,7 @@ def api_bulk_update_mappings(body: MappingBulkUpdateBody, db: Session = Depends(
 
 
 @router.put("/mappings/{rule_id}")
-def api_update_mapping(rule_id: int, body: MappingUpdate, db: Session = Depends(get_db), _: User = Depends(require_editor)):
+def api_update_mapping(rule_id: int, body: MappingUpdate, db: Session = Depends(get_db), _: User = Depends(require_action(ACTION_WYNNSTAY_MAPPINGS))):
     rule = db.get(ProductMappingRule, rule_id)
     if rule is None or rule.supplier != SUPPLIER_WYNNSTAY:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -393,7 +398,7 @@ def api_update_mapping(rule_id: int, body: MappingUpdate, db: Session = Depends(
 
 
 @router.delete("/mappings/{rule_id}")
-def api_delete_mapping(rule_id: int, db: Session = Depends(get_db), _: User = Depends(require_editor)):
+def api_delete_mapping(rule_id: int, db: Session = Depends(get_db), _: User = Depends(require_action(ACTION_WYNNSTAY_MAPPINGS))):
     rule = db.get(ProductMappingRule, rule_id)
     if rule is None or rule.supplier != SUPPLIER_WYNNSTAY:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -404,7 +409,7 @@ def api_delete_mapping(rule_id: int, db: Session = Depends(get_db), _: User = De
 
 
 @router.post("/mappings/reorder")
-def api_reorder_mappings(body: ReorderBody, db: Session = Depends(get_db), _: User = Depends(require_editor)):
+def api_reorder_mappings(body: ReorderBody, db: Session = Depends(get_db), _: User = Depends(require_action(ACTION_WYNNSTAY_MAPPINGS))):
     for item in body.items:
         rule = db.get(ProductMappingRule, item.id)
         if rule and rule.supplier == SUPPLIER_WYNNSTAY:
@@ -414,7 +419,7 @@ def api_reorder_mappings(body: ReorderBody, db: Session = Depends(get_db), _: Us
 
 
 @router.post("/mappings/apply")
-def api_apply_mappings(db: Session = Depends(get_db), _: User = Depends(require_editor)):
+def api_apply_mappings(db: Session = Depends(get_db), _: User = Depends(require_action(ACTION_WYNNSTAY_MAPPINGS))):
     count = refresh_all_invoice_lines(db)
     return {"rows_refreshed": count}
 
@@ -423,7 +428,7 @@ def api_apply_mappings(db: Session = Depends(get_db), _: User = Depends(require_
 async def api_import_mappings_excel(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: User = Depends(require_editor),
+    _: User = Depends(require_action(ACTION_WYNNSTAY_IMPORT)),
 ):
     content = await file.read()
     if not content:
@@ -447,5 +452,5 @@ async def api_import_mappings_excel(
 
 
 @router.get("/mappings/unknown-products")
-def api_unknown_products(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def api_unknown_products(db: Session = Depends(get_db), _: User = Depends(require_page(PAGE_WYNNSTAY))):
     return {"items": get_unknown_products(db)}

@@ -7,7 +7,8 @@ import datetime as dt
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.auth.deps import get_current_user
+from app.auth.deps import require_page
+from app.auth.permissions import PAGE_STOCK_INVENTORY
 from app.db import get_db
 from app.models import User
 from app.services.calves_due import get_calves_due_report
@@ -23,7 +24,7 @@ def api_heifer_inventory(
     min_age: int | None = Query(default=None, ge=0),
     max_age: int | None = Query(default=None, ge=0),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_STOCK_INVENTORY)),
 ):
     farms = farm or None
     return get_heifer_inventory_report(
@@ -41,7 +42,7 @@ def api_calves_due(
     due_from: dt.date | None = Query(default=None),
     due_to: dt.date | None = Query(default=None),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_STOCK_INVENTORY)),
 ):
     farms = farm or None
     breeds = breed or None
@@ -60,7 +61,7 @@ def api_heifers_due(
     due_from: dt.date | None = Query(default=None),
     due_to: dt.date | None = Query(default=None),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_STOCK_INVENTORY)),
 ):
     farms = farm or None
     return get_heifers_due_report(

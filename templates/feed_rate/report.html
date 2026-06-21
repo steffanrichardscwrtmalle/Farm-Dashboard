@@ -1,0 +1,1332 @@
+{% extends "base.html" %}
+
+
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+
+
+{% block extra_styles %}
+
+    main { max-width: none; }
+
+    .page-layout {
+
+      display: grid;
+
+      grid-template-columns: minmax(200px, 1fr) minmax(0, 4fr);
+
+      gap: 1.5rem;
+
+      align-items: start;
+
+    }
+
+    @media (max-width: 900px) {
+
+      .page-layout { grid-template-columns: 1fr; }
+
+    }
+
+    .sidebar-column {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      min-width: 0;
+    }
+    .sidebar-summary {
+      min-width: 0;
+    }
+    .sidebar-summary .ration-grid {
+      grid-template-columns: 1fr;
+    }
+    .sidebar-summary .ration-card {
+      width: 100%;
+    }
+
+    .filter-panel {
+
+      background: var(--card);
+
+      border: 1px solid var(--border);
+
+      border-radius: 8px;
+
+      padding: 1rem;
+
+    }
+
+    .filter-panel h2 {
+
+      margin: 0 0 0.75rem;
+
+      font-size: 1rem;
+
+    }
+
+    .filter-actions button { width: 100%; margin: 0; }
+
+    .import-status {
+
+      margin-top: 0.75rem;
+
+      font-size: 0.8125rem;
+
+      color: var(--muted);
+
+      line-height: 1.4;
+
+    }
+
+    .import-status.error { color: var(--danger); }
+
+    .import-status.running { color: var(--accent); }
+
+    .content-panel { min-width: 0; }
+
+    .meta-line {
+
+      color: var(--muted);
+
+      font-size: 0.875rem;
+
+      margin-bottom: 0.75rem;
+
+    }
+
+    .view-header {
+
+      display: flex;
+
+      align-items: center;
+
+      justify-content: space-between;
+
+      gap: 1rem;
+
+      margin-bottom: 0.75rem;
+
+      flex-wrap: wrap;
+
+    }
+
+    .view-header h2 {
+
+      margin: 0;
+
+      font-size: 1.125rem;
+
+    }
+
+    .view-actions {
+
+      display: flex;
+
+      gap: 0.5rem;
+
+      flex-wrap: wrap;
+
+    }
+
+    .ration-section {
+      margin-bottom: 1.5rem;
+    }
+    .ration-section:last-child {
+      margin-bottom: 0;
+    }
+    .ration-categories-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.25rem 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 720px) {
+      .ration-categories-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .ration-category {
+      margin-bottom: 0;
+      min-width: 0;
+    }
+    .ration-category-title {
+      margin: 0 0 0.6rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .ration-section-title {
+      margin: 0 0 1rem;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .ration-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+      gap: 1rem;
+    }
+    .ration-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.65rem;
+      width: 100%;
+      padding: 1rem 0.75rem 0.85rem;
+      text-align: center;
+      background: var(--ration-card-bg, #eff6ff);
+      border: 1px solid var(--ration-card-border, #bfdbfe);
+      border-radius: 14px;
+      cursor: pointer;
+      font: inherit;
+      color: var(--ration-card-text, #1e3a8a);
+      transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    }
+    .ration-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
+      border-color: var(--ration-card-accent, #2563eb);
+    }
+    .ration-card.theme-cwrt {
+      --ration-card-bg: #eff6ff;
+      --ration-card-border: #bfdbfe;
+      --ration-card-text: #1e3a8a;
+      --ration-card-accent: #2563eb;
+      --ration-card-subtle: #3b82f6;
+    }
+    .ration-card.theme-coomb {
+      --ration-card-bg: #fff7ed;
+      --ration-card-border: #fdba74;
+      --ration-card-text: #9a3412;
+      --ration-card-accent: #ea580c;
+      --ration-card-subtle: #f97316;
+    }
+    .ration-card.summary-card {
+      --ration-card-bg: #f8fafc;
+      --ration-card-border: #cbd5e1;
+      --ration-card-text: #334155;
+      --ration-card-accent: #64748b;
+      --ration-card-subtle: #64748b;
+      border-style: dashed;
+    }
+    .ration-card-name {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      line-height: 1.25;
+      min-height: 2.5em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .ration-dial {
+      width: 108px;
+      height: 108px;
+      display: block;
+    }
+    .ration-dial .dial-track {
+      fill: none;
+      stroke: rgba(15, 23, 42, 0.1);
+      stroke-width: 9;
+      stroke-linecap: round;
+    }
+    .ration-dial .dial-target {
+      fill: none;
+      stroke: rgba(15, 23, 42, 0.18);
+      stroke-width: 2;
+    }
+    .ration-dial .dial-value {
+      fill: currentColor;
+      font-size: 1.125rem;
+      font-weight: 700;
+    }
+    .ration-dial .dial-label {
+      fill: currentColor;
+      opacity: 0.72;
+      font-size: 0.625rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .ration-dial .dial-target-label {
+      fill: currentColor;
+      opacity: 0.55;
+      font-size: 0.5625rem;
+      font-weight: 600;
+    }
+    .summary-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(100, 116, 139, 0.12);
+      color: var(--ration-card-subtle);
+    }
+    .summary-icon svg {
+      width: 46px;
+      height: 46px;
+      display: block;
+    }
+
+    .table-wrap {
+
+      overflow-x: auto;
+
+      background: var(--card);
+
+      border: 1px solid var(--border);
+
+      border-radius: 8px;
+
+    }
+
+    #feed-rate-table {
+
+      width: 100%;
+
+      table-layout: auto;
+
+    }
+
+    #feed-rate-table th,
+
+    #feed-rate-table td {
+
+      text-align: right;
+
+      white-space: nowrap;
+
+      padding: 0.55rem 0.75rem;
+
+    }
+
+    #feed-rate-table th:first-child,
+
+    #feed-rate-table td:first-child {
+
+      text-align: left;
+
+    }
+
+    #feed-rate-table thead th {
+
+      background: #eef2f6;
+
+      font-weight: 600;
+
+    }
+
+    #feed-rate-table tr.total-row td {
+
+      font-weight: 700;
+
+      border-top: 2px solid var(--border);
+
+      background: #f8fafc;
+
+    }
+
+    #feed-rate-table td.feed-warning {
+
+      color: var(--danger);
+
+      font-weight: 600;
+
+    }
+
+    .empty-state {
+
+      padding: 2rem;
+
+      color: var(--muted);
+
+      background: var(--card);
+
+      border: 1px solid var(--border);
+
+      border-radius: 8px;
+
+    }
+
+{% endblock %}
+
+
+
+{% block content %}
+
+  <div class="page-layout">
+
+    <div class="sidebar-column">
+
+      <aside class="filter-panel">
+
+        <h2>Actions</h2>
+
+        {% if can_import_feed %}
+
+        <div class="filter-actions">
+
+          <button type="button" id="refresh-feed-btn">Refresh from Feedlync</button>
+
+        </div>
+
+        <div class="import-status" id="import-status" style="display:none;"></div>
+
+        {% else %}
+
+        <p style="margin:0;font-size:0.875rem;color:var(--muted);">Use Refresh from Feedlync to load the latest ration data.</p>
+
+        {% endif %}
+
+      </aside>
+
+      <aside class="filter-panel sidebar-summary" id="summary-sidebar" style="display:none;">
+        <h2>Summary</h2>
+        <div id="summary-category">
+          <div class="ration-grid" id="ration-grid-summary"></div>
+        </div>
+      </aside>
+
+    </div>
+
+
+
+    <section class="content-panel">
+
+      <p class="meta-line" id="meta-line"></p>
+
+
+
+      <div id="home-view" style="display:none;">
+        <section class="ration-section">
+          <h2 class="ration-section-title">Rations</h2>
+          <div id="ration-categories" class="ration-categories-grid"></div>
+        </section>
+        <section class="ration-section" id="premix-section" style="display:none;">
+          <h2 class="ration-section-title">Premixes</h2>
+          <div class="ration-grid" id="ration-grid-premixes"></div>
+        </section>
+      </div>
+
+
+
+      <div id="detail-view" style="display:none;">
+
+        <div class="view-header">
+
+          <h2 id="detail-title"></h2>
+
+          <div class="view-actions">
+
+            <button type="button" id="back-home-btn">Back to home</button>
+
+            <button type="button" id="download-csv-btn">Download CSV</button>
+
+          </div>
+
+        </div>
+
+        <div class="table-wrap">
+
+          <table id="feed-rate-table">
+
+            <thead id="feed-rate-head"></thead>
+
+            <tbody id="feed-rate-body"></tbody>
+
+          </table>
+
+        </div>
+
+      </div>
+
+
+
+      <div id="empty-state" class="empty-state" style="display:none;"></div>
+
+    </section>
+
+  </div>
+
+{% endblock %}
+
+
+
+{% block scripts %}
+
+  <script>
+
+    const CAN_IMPORT_FEED = {{ can_import_feed | default(false) | tojson }};
+
+    let importPollTimer = null;
+
+    let reportData = null;
+
+    let currentView = "home";
+
+    let currentTableKey = null;
+
+
+
+    function formatInt(value) {
+
+      if (value === null || value === undefined || Number.isNaN(Number(value))) {
+
+        return "—";
+
+      }
+
+      return Number(value).toLocaleString("en-GB", {
+
+        maximumFractionDigits: 0,
+
+      });
+
+    }
+
+
+
+    function formatDecimal(value, decimals = 1) {
+
+      if (value === null || value === undefined || Number.isNaN(Number(value))) {
+
+        return "—";
+
+      }
+
+      return Number(value).toLocaleString("en-GB", {
+
+        minimumFractionDigits: decimals,
+
+        maximumFractionDigits: decimals,
+
+      });
+
+    }
+
+
+
+    function formatMoney(value, decimals = 0) {
+
+      if (value === null || value === undefined || Number.isNaN(Number(value))) {
+
+        return "—";
+
+      }
+
+      return Number(value).toLocaleString("en-GB", {
+
+        style: "currency",
+
+        currency: "GBP",
+
+        minimumFractionDigits: decimals,
+
+        maximumFractionDigits: decimals,
+
+      });
+
+    }
+
+
+
+    function formatFeedPercent(value, isTotal) {
+
+      if (value === null || value === undefined || Number.isNaN(Number(value))) {
+
+        return "—";
+
+      }
+
+      const decimals = isTotal ? 1 : 0;
+
+      return formatDecimal(value, decimals);
+
+    }
+
+
+
+    function setView(view, tableKey = null) {
+
+      currentView = view;
+
+      currentTableKey = tableKey;
+
+
+
+      const home = document.getElementById("home-view");
+
+      const detail = document.getElementById("detail-view");
+
+      const empty = document.getElementById("empty-state");
+
+
+
+      if (view === "home") {
+
+        home.style.display = "";
+
+        detail.style.display = "none";
+
+        renderHome();
+
+        return;
+
+      }
+
+
+
+      home.style.display = "none";
+
+      detail.style.display = "";
+
+      empty.style.display = "none";
+
+      renderDetail(tableKey);
+
+    }
+
+
+
+    function renderMeta(data) {
+
+      const meta = document.getElementById("meta-line");
+
+      const scraped = data.scraped_date ? `Data date: ${data.scraped_date}` : "";
+
+      const imported = data.latest_import
+
+        ? `Latest import: ${new Date(data.latest_import).toLocaleString("en-GB")}`
+
+        : "No feed data imported yet.";
+
+      meta.textContent = [imported, scraped].filter(Boolean).join(" · ");
+
+    }
+
+
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function rationThemeClass(name) {
+      return /coomb/i.test(name) ? "theme-coomb" : "theme-cwrt";
+    }
+
+    function feedSummaryMap() {
+      const map = new Map();
+      (reportData?.summary_rows || []).forEach(row => {
+        map.set(row.ration_name, row.feed_percent);
+      });
+      return map;
+    }
+
+    function lerpChannel(a, b, t) {
+      return Math.round(a + (b - a) * t);
+    }
+
+    function lerpColor(colorA, colorB, t) {
+      const parse = hex => [
+        parseInt(hex.slice(1, 3), 16),
+        parseInt(hex.slice(3, 5), 16),
+        parseInt(hex.slice(5, 7), 16),
+      ];
+      const [r1, g1, b1] = parse(colorA);
+      const [r2, g2, b2] = parse(colorB);
+      const clamped = Math.max(0, Math.min(1, t));
+      return `rgb(${lerpChannel(r1, r2, clamped)}, ${lerpChannel(g1, g2, clamped)}, ${lerpChannel(b1, b2, clamped)})`;
+    }
+
+    function feedDialColor(feedPercent) {
+      const dist = Math.abs(feedPercent - 100);
+      if (dist <= 5) {
+        return lerpColor("#16a34a", "#65a30d", dist / 5);
+      }
+      const beyond = Math.min((dist - 5) / 20, 1);
+      return lerpColor("#f59e0b", "#dc2626", beyond);
+    }
+
+    function buildDialSvg(feedPercent) {
+      const min = 0;
+      const max = 200;
+      const actual = Number(feedPercent);
+      if (!Number.isFinite(actual)) {
+        return "";
+      }
+      const dialValue = Math.max(min, Math.min(max, actual));
+      const pct = (dialValue - min) / (max - min);
+      const radius = 42;
+      const cx = 60;
+      const cy = 62;
+      const startAngle = 135;
+      const sweep = 270;
+      const circumference = 2 * Math.PI * radius;
+      const arcLen = (sweep / 360) * circumference;
+      const filledLen = pct * arcLen;
+      const color = feedDialColor(actual);
+      const targetPct = (100 - min) / (max - min);
+      const targetAngle = startAngle + targetPct * sweep;
+      const targetRad = (targetAngle * Math.PI) / 180;
+      const targetX = cx + (radius + 1) * Math.cos(targetRad);
+      const targetY = cy + (radius + 1) * Math.sin(targetRad);
+      const valueText = formatDecimal(actual, 1);
+
+      return `
+        <svg viewBox="0 0 120 120" class="ration-dial" aria-hidden="true">
+          <circle
+            class="dial-track"
+            cx="${cx}" cy="${cy}" r="${radius}"
+            stroke-dasharray="${arcLen.toFixed(2)} ${(circumference - arcLen).toFixed(2)}"
+            transform="rotate(${startAngle} ${cx} ${cy})"
+          />
+          <circle
+            cx="${cx}" cy="${cy}" r="${radius}"
+            fill="none"
+            stroke="${color}"
+            stroke-width="9"
+            stroke-linecap="round"
+            stroke-dasharray="${filledLen.toFixed(2)} ${(circumference - filledLen).toFixed(2)}"
+            transform="rotate(${startAngle} ${cx} ${cy})"
+          />
+          <circle class="dial-target" cx="${targetX}" cy="${targetY}" r="3.5" />
+          <text x="${cx}" y="${cy - 2}" text-anchor="middle" class="dial-value">${valueText}</text>
+          <text x="${cx}" y="${cy + 12}" text-anchor="middle" class="dial-label">Feed %</text>
+          <text x="${cx}" y="${cy + 24}" text-anchor="middle" class="dial-target-label">Target 100</text>
+        </svg>
+      `;
+    }
+
+    const RATION_CATEGORIES = [
+      { id: "milkers", title: "Milkers" },
+      { id: "close-up", title: "Close Up" },
+      { id: "far-off", title: "Far Off" },
+      { id: "bulling-heifer", title: "Bulling Heifer" },
+      { id: "pregnant-heifer", title: "Pregnant Heifer" },
+      { id: "youngstock", title: "Youngstock" },
+    ];
+
+    function rationCategory(name) {
+      if (/milker/i.test(name)) return "milkers";
+      if (/close\s*up/i.test(name)) return "close-up";
+      if (/far\s*off/i.test(name)) return "far-off";
+      if (/bulling\s*heifer/i.test(name)) return "bulling-heifer";
+      if (/pregnant\s*heifer/i.test(name)) return "pregnant-heifer";
+      return "youngstock";
+    }
+
+    function groupRationsByCategory(names) {
+      const groups = Object.fromEntries(
+        RATION_CATEGORIES.map(cat => [cat.id, []])
+      );
+      names.forEach(name => {
+        groups[rationCategory(name)].push(name);
+      });
+      RATION_CATEGORIES.forEach(cat => {
+        groups[cat.id].sort((a, b) => a.localeCompare(b, "en-GB"));
+      });
+      return groups;
+    }
+
+    function isPremixRation(name) {
+      return /premix/i.test(name);
+    }
+
+    function buildRationCard(name, feedByRation) {
+      const theme = rationThemeClass(name);
+      const feedPercent = feedByRation.get(name);
+      const dial = feedPercent === undefined ? "" : buildDialSvg(feedPercent);
+      return `
+        <button type="button" class="ration-card ${theme}" data-ration="${encodeURIComponent(name)}">
+          ${dial}
+          <span class="ration-card-name">${escapeHtml(name)}</span>
+        </button>
+      `;
+    }
+
+    function bindRationCards(container) {
+      container.querySelectorAll(".ration-card").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const key = btn.dataset.ration === "__summary__"
+            ? "__summary__"
+            : decodeURIComponent(btn.dataset.ration);
+          setView("detail", key);
+        });
+      });
+    }
+
+    function buildSummaryFeedIconSvg() {
+      return `
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M7 31h34l-3.5 9H10.5L7 31z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M10 31c2.5-11 9-17 14-17s11.5 6 14 17" fill="currentColor" fill-opacity="0.14" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M13 28.5c3-4.5 7-7 11-7s8 2.5 11 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
+          <path d="M16 25c2.2-2.8 5-4.5 8-4.5s5.8 1.7 8 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M20 14v5M24 12v7M28 14v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+          <rect x="33" y="8" width="4" height="7" rx="1" fill="currentColor" opacity="0.35"/>
+          <rect x="38" y="5" width="4" height="10" rx="1" fill="currentColor" opacity="0.55"/>
+          <rect x="43" y="9" width="4" height="6" rx="1" fill="currentColor" opacity="0.4"/>
+        </svg>
+      `;
+    }
+
+    function renderSummaryCard() {
+      const summarySidebar = document.getElementById("summary-sidebar");
+      const summaryGrid = document.getElementById("ration-grid-summary");
+      const names = reportData?.ration_names || [];
+      if (!names.length) {
+        summarySidebar.style.display = "none";
+        summaryGrid.innerHTML = "";
+        return;
+      }
+      summarySidebar.style.display = "";
+      summaryGrid.innerHTML = `
+        <button type="button" class="ration-card summary-card" data-ration="__summary__">
+          <span class="summary-icon">${buildSummaryFeedIconSvg()}</span>
+          <span class="ration-card-name">View all rations</span>
+        </button>
+      `;
+      bindRationCards(document.getElementById("summary-category"));
+    }
+
+    function renderHome() {
+      const categoriesContainer = document.getElementById("ration-categories");
+      const premixGrid = document.getElementById("ration-grid-premixes");
+      const premixSection = document.getElementById("premix-section");
+      const names = reportData?.ration_names || [];
+      if (!names.length) {
+        return;
+      }
+
+      const feedByRation = feedSummaryMap();
+      const rationNames = names.filter(name => !isPremixRation(name));
+      const premixNames = names.filter(name => isPremixRation(name));
+      const grouped = groupRationsByCategory(rationNames);
+
+      categoriesContainer.innerHTML = RATION_CATEGORIES.map(cat => {
+        const catNames = grouped[cat.id];
+        if (!catNames.length) {
+          return "";
+        }
+        const cards = catNames
+          .map(name => buildRationCard(name, feedByRation))
+          .join("");
+        return `
+          <div class="ration-category" data-category="${cat.id}">
+            <h3 class="ration-category-title">${cat.title}</h3>
+            <div class="ration-grid">${cards}</div>
+          </div>
+        `;
+      }).join("");
+      bindRationCards(categoriesContainer);
+
+      if (premixNames.length) {
+        premixSection.style.display = "";
+        premixGrid.innerHTML = premixNames
+          .map(name => buildRationCard(name, feedByRation))
+          .join("");
+        bindRationCards(premixGrid);
+      } else {
+        premixSection.style.display = "none";
+        premixGrid.innerHTML = "";
+      }
+    }
+
+
+
+    function renderDetail(tableKey) {
+
+      const isSummary = tableKey === "__summary__";
+
+      const title = document.getElementById("detail-title");
+
+      const head = document.getElementById("feed-rate-head");
+
+      const body = document.getElementById("feed-rate-body");
+
+
+
+      title.textContent = isSummary
+
+        ? "Summary"
+
+        : `${tableKey} ration overview`;
+
+
+
+      if (isSummary) {
+
+        head.innerHTML = `
+
+          <tr>
+
+            <th>Ration</th>
+
+            <th>Portions</th>
+
+            <th>Cow Count</th>
+
+            <th>Feed %</th>
+
+            <th>DM kg/cow</th>
+
+            <th>Total DM</th>
+
+            <th>Cost</th>
+
+            <th>Cost per Cow</th>
+
+          </tr>
+
+        `;
+
+        const rows = reportData?.summary_rows || [];
+
+        body.innerHTML = rows.map(row => {
+
+          const feedClass = (row.feed_percent < 95 || row.feed_percent > 105) ? "feed-warning" : "";
+
+          return `
+
+            <tr>
+
+              <td>${row.ration_name}</td>
+
+              <td>${formatInt(row.portions)}</td>
+
+              <td>${formatInt(row.cow_count)}</td>
+
+              <td class="${feedClass}">${formatFeedPercent(row.feed_percent, true)}</td>
+
+              <td>${formatDecimal(row.dm_kg_per_cow, 1)}</td>
+
+              <td>${formatInt(row.total_dm)}</td>
+
+              <td>${formatMoney(row.cost, 0)}</td>
+
+              <td>${formatMoney(row.cost_per_cow, 2)}</td>
+
+            </tr>
+
+          `;
+
+        }).join("");
+
+        return;
+
+      }
+
+
+
+      head.innerHTML = `
+
+        <tr>
+
+          <th>Group</th>
+
+          <th>Portions</th>
+
+          <th>Cow Count</th>
+
+          <th>Feed %</th>
+
+          <th>DM kg/cow</th>
+
+          <th>Total DM</th>
+
+          <th>Cost</th>
+
+          <th>Cost per Cow</th>
+
+        </tr>
+
+      `;
+
+
+
+      const rows = reportData?.ration_tables?.[tableKey] || [];
+
+      body.innerHTML = rows.map(row => {
+
+        const rowClass = row.is_total ? "total-row" : "";
+
+        const label = row.group_name;
+
+        const costPerCow = row.is_total
+
+          ? formatMoney(row.cost_per_cow, 2)
+
+          : "—";
+
+        return `
+
+          <tr class="${rowClass}">
+
+            <td>${label}</td>
+
+            <td>${formatInt(row.portions)}</td>
+
+            <td>${formatInt(row.cow_count)}</td>
+
+            <td>${formatFeedPercent(row.feed_percent, row.is_total)}</td>
+
+            <td>${formatDecimal(row.dm_kg_per_cow, 1)}</td>
+
+            <td>${formatInt(row.total_dm)}</td>
+
+            <td>${formatMoney(row.cost, 0)}</td>
+
+            <td>${costPerCow}</td>
+
+          </tr>
+
+        `;
+
+      }).join("");
+
+    }
+
+
+
+    function currentCsvRows() {
+
+      if (!reportData || !currentTableKey) return [];
+
+
+
+      if (currentTableKey === "__summary__") {
+
+        return (reportData.summary_rows || []).map(row => ({
+
+          "Ration Name": row.ration_name,
+
+          "Portions": row.portions,
+
+          "Cow Count": row.cow_count,
+
+          "Feed %": row.feed_percent,
+
+          "DM Kg/cow": row.dm_kg_per_cow,
+
+          "Total DM": row.total_dm,
+
+          "Cost": row.cost,
+
+          "Cost per Cow": row.cost_per_cow,
+
+        }));
+
+      }
+
+
+
+      return (reportData.ration_tables?.[currentTableKey] || []).map(row => ({
+
+        "Group Name": row.group_name,
+
+        "Portions": row.portions,
+
+        "Cow Count": row.cow_count,
+
+        "Feed %": row.feed_percent,
+
+        "DM Kg/cow": row.dm_kg_per_cow,
+
+        "Total DM": row.total_dm,
+
+        "Cost": row.cost,
+
+        "Cost per Cow": row.cost_per_cow ?? "",
+
+      }));
+
+    }
+
+
+
+    function downloadCurrentCsv() {
+
+      const rows = currentCsvRows();
+
+      if (!rows.length) return;
+
+
+
+      const headers = Object.keys(rows[0]);
+
+      const escape = value => {
+
+        const text = value === null || value === undefined ? "" : String(value);
+
+        return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+
+      };
+
+      const lines = [
+
+        headers.join(","),
+
+        ...rows.map(row => headers.map(h => escape(row[h])).join(",")),
+
+      ];
+
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+
+      const link = document.createElement("a");
+
+      const slug = currentTableKey === "__summary__"
+
+        ? "summary"
+
+        : currentTableKey.replace(/\s+/g, "_").toLowerCase();
+
+      link.href = URL.createObjectURL(blob);
+
+      link.download = `${slug}_ration.csv`;
+
+      link.click();
+
+      URL.revokeObjectURL(link.href);
+
+    }
+
+
+
+    function renderReport(data) {
+
+      reportData = data;
+
+      renderMeta(data);
+      renderSummaryCard();
+
+
+
+      const home = document.getElementById("home-view");
+
+      const detail = document.getElementById("detail-view");
+
+      const empty = document.getElementById("empty-state");
+
+      const names = data.ration_names || [];
+
+
+
+      if (!names.length) {
+
+        home.style.display = "none";
+
+        detail.style.display = "none";
+
+        empty.style.display = "";
+
+        empty.textContent = data.latest_import
+
+          ? "No aggregated feed data available."
+
+          : (CAN_IMPORT_FEED
+
+            ? "No feed data yet. Click Refresh from Feedlync to import."
+
+            : "No feed data available yet.");
+
+        return;
+
+      }
+
+
+
+      empty.style.display = "none";
+
+      if (currentView === "detail" && currentTableKey) {
+
+        const validKey = currentTableKey === "__summary__"
+
+          || names.includes(currentTableKey);
+
+        if (!validKey) {
+
+          currentView = "home";
+
+          currentTableKey = null;
+
+        }
+
+      }
+
+      setView(currentView, currentTableKey);
+
+    }
+
+
+
+    async function loadReport() {
+
+      const res = await fetch("/api/feed-rate");
+
+      if (!res.ok) {
+
+        document.getElementById("empty-state").style.display = "";
+
+        document.getElementById("empty-state").textContent = "Failed to load feed rate data.";
+
+        document.getElementById("home-view").style.display = "none";
+
+        document.getElementById("detail-view").style.display = "none";
+
+        return;
+
+      }
+
+      const data = await res.json();
+
+      renderReport(data);
+
+    }
+
+
+
+    function setImportStatus(text, className = "") {
+
+      const el = document.getElementById("import-status");
+
+      if (!el) return;
+
+      el.style.display = text ? "" : "none";
+
+      el.textContent = text;
+
+      el.className = `import-status${className ? ` ${className}` : ""}`;
+
+    }
+
+
+
+    function stopImportPoll() {
+
+      if (importPollTimer) {
+
+        clearInterval(importPollTimer);
+
+        importPollTimer = null;
+
+      }
+
+    }
+
+
+
+    async function pollImportStatus() {
+
+      const res = await fetch("/api/feed-rate/import/status");
+
+      if (!res.ok) return;
+
+      const data = await res.json();
+
+      if (data.status === "running") {
+
+        setImportStatus(data.message || "Importing from Feedlync…", "running");
+
+        return;
+
+      }
+
+      stopImportPoll();
+
+      const btn = document.getElementById("refresh-feed-btn");
+
+      if (btn) btn.disabled = false;
+
+
+
+      if (data.status === "complete") {
+
+        setImportStatus(data.message || "Import complete.");
+
+        await loadReport();
+
+        return;
+
+      }
+
+      if (data.status === "error") {
+
+        setImportStatus(data.message || "Import failed.", "error");
+
+        return;
+
+      }
+
+      setImportStatus("");
+
+    }
+
+
+
+    async function startImport() {
+
+      const btn = document.getElementById("refresh-feed-btn");
+
+      if (btn) btn.disabled = true;
+
+      setImportStatus("Starting Feedlync import…", "running");
+
+
+
+      const res = await fetch("/api/feed-rate/import", { method: "POST" });
+
+      if (!res.ok) {
+
+        const err = await res.json().catch(() => ({}));
+
+        setImportStatus(err.detail || "Failed to start import.", "error");
+
+        if (btn) btn.disabled = false;
+
+        return;
+
+      }
+
+
+
+      const data = await res.json();
+
+      setImportStatus(data.message || "Import started.", "running");
+
+      stopImportPoll();
+
+      importPollTimer = setInterval(pollImportStatus, 3000);
+
+      pollImportStatus();
+
+    }
+
+
+
+    document.getElementById("back-home-btn").addEventListener("click", () => setView("home"));
+
+    document.getElementById("download-csv-btn").addEventListener("click", downloadCurrentCsv);
+
+    if (CAN_IMPORT_FEED) {
+
+      document.getElementById("refresh-feed-btn").addEventListener("click", startImport);
+
+    }
+
+
+
+    loadReport();
+
+  </script>
+
+{% endblock %}
+
+

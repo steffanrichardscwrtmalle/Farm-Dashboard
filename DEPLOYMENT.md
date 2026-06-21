@@ -113,6 +113,21 @@ After deploying schema changes (e.g. new `supplier` column), Render runs migrati
 
 For local testing without Graph API, set `LOCAL_HERD_EXPORT_DIR` to your synced OneDrive folder path.
 
+### Feed rate (Feedlync)
+
+Uses the Feedlync HTTP API (no Chrome/Selenium in production).
+
+1. **Get a refresh token** (one-time, repeat when it expires):
+   - Log in to [app.feedlync.com](https://app.feedlync.com/)
+   - Open DevTools → **Application** → **Local Storage** → `https://app.feedlync.com`
+   - Find the MSAL cache entry containing a **refresh token** (or copy it from a Network `grant_type=refresh_token` request body after login)
+2. Set on the web service (and optional cron job):
+   - `FEEDLYNC_REFRESH_TOKEN` — long-lived token from step 1
+   - `FEEDLYNC_FARM_ID` — optional; comma-separated farm UUID(s). If unset, imports all farms from `/farms/summary`.
+3. On the **Feed Rate** page, editors click **Refresh from Feedlync** (polls every 3 seconds until complete).
+4. Optional cron: `python scripts/import_feed_data.py` (same env vars as web service).
+5. Or trigger via HTTP: `POST /api/feed-rate/import` with header `X-Import-Key: <IMPORT_API_KEY>`.
+
 ---
 
 ## 6. Security checklist

@@ -320,6 +320,7 @@
         <a href="/" class="{% if active_nav == 'home' and not active_section %}active{% endif %}">Home</a>
 
         <div class="nav-section">
+          {% if perms.page('wynnstay') or perms.page('prostock') %}
           <div class="nav-group{% if active_nav_group == 'suppliers' %} expanded{% endif %}" data-nav-group="suppliers">
             <button
               type="button"
@@ -331,6 +332,7 @@
               <span class="nav-collapsible-label">Suppliers</span>
             </button>
             <div class="nav-group-items" id="suppliers-nav-items">
+              {% if perms.page('wynnstay') %}
               <div class="nav-supplier{% if active_section == 'wynnstay' %} expanded{% endif %}" data-supplier="wynnstay">
                 <button
                   type="button"
@@ -351,7 +353,9 @@
                   <a href="/wynnstay/mappings" class="{% if active_nav == 'mappings' %}active{% endif %}">Product mappings</a>
                 </div>
               </div>
+              {% endif %}
 
+              {% if perms.page('prostock') %}
               <div class="nav-supplier{% if active_section == 'prostock' %} expanded{% endif %}" data-supplier="prostock">
                 <button
                   type="button"
@@ -371,9 +375,12 @@
                   <a href="/prostock/mappings" class="{% if active_section == 'prostock' and active_nav == 'mappings' %}active{% endif %}">Product mappings</a>
                 </div>
               </div>
+              {% endif %}
             </div>
           </div>
+          {% endif %}
 
+          {% if perms.page('stock_inventory') %}
           <div class="nav-group{% if active_nav_group == 'stock-inventory' %} expanded{% endif %}" data-nav-group="stock-inventory">
             <button
               type="button"
@@ -390,7 +397,9 @@
               <a href="/stock-inventory/heifers-due" class="{% if active_nav == 'heifers-due' %}active{% endif %}">Heifers Due</a>
             </div>
           </div>
+          {% endif %}
 
+          {% if perms.page('events') %}
           <div class="nav-group{% if active_nav_group == 'events' %} expanded{% endif %}" data-nav-group="events">
             <button
               type="button"
@@ -409,6 +418,24 @@
               <a href="/events/breedings" class="{% if active_nav == 'breedings' %}active{% endif %}">Breedings</a>
             </div>
           </div>
+          {% endif %}
+
+          {% if perms.page('feed_rate') %}
+          <div class="nav-group{% if active_nav_group == 'feed-rate' %} expanded{% endif %}" data-nav-group="feed-rate">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'feed-rate' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'feed-rate' %}true{% else %}false{% endif %}"
+              aria-controls="feed-rate-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">Feed Rate</span>
+            </button>
+            <div class="nav-group-items" id="feed-rate-nav-items">
+              <a href="/feed-rate" class="{% if active_nav == 'feed-rate' %}active{% endif %}">Feed Rations</a>
+            </div>
+          </div>
+          {% endif %}
         </div>
       </nav>
     </aside>
@@ -509,6 +536,9 @@
           }
           if (group === "events" && !window.location.pathname.startsWith("/events")) {
             window.location.href = "/events/calvings";
+          }
+          if (group === "feed-rate" && !window.location.pathname.startsWith("/feed-rate")) {
+            window.location.href = "/feed-rate";
           }
         });
       });

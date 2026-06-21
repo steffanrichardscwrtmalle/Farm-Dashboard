@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Access denied{% endblock %}
+
+{% block content %}
+    <div class="card">
+      <h2>You do not have access to this page</h2>
+      <p class="muted">Your account does not include permission for this section. Contact an administrator if you need access.</p>
+      <p><a href="/" class="home-btn">Return to home</a></p>
+    </div>
+{% endblock %}

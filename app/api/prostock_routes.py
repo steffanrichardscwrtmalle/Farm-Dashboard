@@ -7,7 +7,12 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.auth.deps import get_current_user, require_editor
+from app.auth.deps import require_action, require_page
+from app.auth.permissions import (
+    ACTION_PROSTOCK_IMPORT,
+    ACTION_PROSTOCK_MAPPINGS,
+    PAGE_PROSTOCK,
+)
 from app.db import get_db
 from app.models import PROSTOCK_BUSINESS_OPTIONS, SUPPLIER_PROSTOCK, ProductMappingRule, User
 from app.services.mapping_options import (
@@ -82,7 +87,7 @@ async def api_prostock_import(
     file: UploadFile = File(...),
     business: str = Form(...),
     db: Session = Depends(get_db),
-    _: User = Depends(require_editor),
+    _: User = Depends(require_action(ACTION_PROSTOCK_IMPORT)),
 ):
     if business not in PROSTOCK_BUSINESS_OPTIONS:
         raise HTTPException(
@@ -102,7 +107,7 @@ async def api_prostock_import(
 
 
 @router.post("/refresh")
-def api_prostock_refresh(db: Session = Depends(get_db), _: User = Depends(require_editor)):
+def api_prostock_refresh(db: Session = Depends(get_db), _: User = Depends(require_action(ACTION_PROSTOCK_IMPORT))):
     count = refresh_prostock_lines(db)
     return {"rows_refreshed": count}
 
@@ -111,7 +116,7 @@ def api_prostock_refresh(db: Session = Depends(get_db), _: User = Depends(requir
 def api_prostock_invoice_months(
     business: list[str] = Query(default=[]),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_PROSTOCK)),
 ):
     return {"items": get_prostock_invoice_months(db, businesses=business or None)}
 
@@ -124,7 +129,7 @@ def api_prostock_invoice_lines(
     limit: int = 500,
     offset: int = 0,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_PROSTOCK)),
 ):
     if (from_month and not to_month) or (to_month and not from_month):
         raise HTTPException(
@@ -152,7 +157,7 @@ def api_prostock_product_prices(
     to_month: str,
     business: list[str] = Query(default=[]),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_PROSTOCK)),
 ):
     try:
         return get_prostock_product_prices(
@@ -171,7 +176,7 @@ def api_prostock_product_quantities(
     to_month: str,
     business: list[str] = Query(default=[]),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_PROSTOCK)),
 ):
     try:
         return get_prostock_product_quantities(
@@ -190,7 +195,7 @@ def api_prostock_monthly_spend(
     to_month: str,
     business: list[str] = Query(default=[]),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_page(PAGE_PROSTOCK)),
 ):
     try:
         return get_prostock_monthly_spend(
@@ -204,7 +209,7 @@ def api_prostock_monthly_spend(
 
 
 @router.get("/mapping-options")
-def api_prostock_mapping_options(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def api_prostock_mapping_options(db: Session = Depends(get_db), _: User = Depends(require_page(PAGE_PROSTOCK))):
     ensure_prostock_mappings_seeded(db)
     return {
         "items": [row.to_dict() for row in list_mapping_option_rows(db, supplier=SUPPLIER_PROSTOCK)],
@@ -216,7 +221,7 @@ def api_prostock_mapping_options(db: Session = Depends(get_db), _: User = Depend
 def api_prostock_create_mapping_option(
     body: MappingOptionCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_editor),
+    _: User = Depends(require_action(ACTION_PROSTOCK_MAPPINGS)),
 ):
     option_type = body.option_type.strip()
     if option_type not in VALID_OPTION_TYPES:
@@ -237,7 +242,7 @@ def api_prostock_create_mapping_option(
 def api_prostock_delete_mapping_option(
     option_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_editor),
+    _: User = Depends(require_action(ACTION_PROSTOCK_MAPPINGS)),
 ):
     try:
         delete_mapping_option(db, option_id, supplier=SUPPLIER_PROSTOCK)
@@ -247,7 +252,7 @@ def api_prostock_delete_mapping_option(
 
 
 @router.get("/mappings")
-def api_prostock_list_mappings(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def api_prostock_list_mappings(db: Session = Depends(get_db), _: User = Depends(require_page(PAGE_PROSTOCK))):
     ensure_prostock_mappings_seeded(db)
     rules = list_mapping_rules(db, supplier=SUPPLIER_PROSTOCK)
     return {"items": [r.to_dict() for r in rules], "total": len(rules)}
@@ -257,7 +262,7 @@ def api_prostock_list_mappings(db: Session = Depends(get_db), _: User = Depends(
 def api_prostock_create_mapping(
     body: MappingCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_editor),
+    _: User = Depends(require_action(ACTION_PROSTOCK_MAPPINGS)),
 ):
     keyword = body.keyword.strip()
     if not keyword:
@@ -297,7 +302,7 @@ def api_prostock_create_mapping(
 def api_prostock_bulk_update_mappings(
     body: MappingBulkUpdateBody,
     db: Session = Depends(get_db),
-    _: User = Depends(require_editor),
+    _: User = Depends(require_action(ACTION_PROSTOCK_MAPPINGS)),
 ):
     updated = 0
     for item in body.items:
@@ -331,7 +336,7 @@ def api_prostock_update_mapping(
     rule_id: int,
     body: MappingUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_editor),
+    _: User = Depends(require_action(ACTION_PROSTOCK_MAPPINGS)),
 ):
     rule = db.get(ProductMappingRule, rule_id)
     if rule is None or rule.supplier != SUPPLIER_PROSTOCK:
@@ -360,7 +365,7 @@ def api_prostock_update_mapping(
 def api_prostock_delete_mapping(
     rule_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_editor),
+    _: User = Depends(require_action(ACTION_PROSTOCK_MAPPINGS)),
 ):
     rule = db.get(ProductMappingRule, rule_id)
     if rule is None or rule.supplier != SUPPLIER_PROSTOCK:
@@ -375,7 +380,7 @@ def api_prostock_delete_mapping(
 def api_prostock_reorder_mappings(
     body: ReorderBody,
     db: Session = Depends(get_db),
-    _: User = Depends(require_editor),
+    _: User = Depends(require_action(ACTION_PROSTOCK_MAPPINGS)),
 ):
     for item in body.items:
         rule = db.get(ProductMappingRule, item.id)
@@ -386,18 +391,18 @@ def api_prostock_reorder_mappings(
 
 
 @router.post("/mappings/apply")
-def api_prostock_apply_mappings(db: Session = Depends(get_db), _: User = Depends(require_editor)):
+def api_prostock_apply_mappings(db: Session = Depends(get_db), _: User = Depends(require_action(ACTION_PROSTOCK_MAPPINGS))):
     count = refresh_prostock_lines(db)
     return {"rows_refreshed": count}
 
 
 @router.get("/mappings/unknown-drugs")
-def api_prostock_unknown_drugs(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def api_prostock_unknown_drugs(db: Session = Depends(get_db), _: User = Depends(require_page(PAGE_PROSTOCK))):
     return {"items": get_unknown_drugs(db)}
 
 
 @router.post("/mappings/reseed-library")
-def api_prostock_reseed_library(db: Session = Depends(get_db), _: User = Depends(require_editor)):
+def api_prostock_reseed_library(db: Session = Depends(get_db), _: User = Depends(require_action(ACTION_PROSTOCK_MAPPINGS))):
     count = reseed_prostock_mappings_from_library(db)
     seed_mapping_options_if_empty(db, supplier=SUPPLIER_PROSTOCK)
     refresh_prostock_lines(db)

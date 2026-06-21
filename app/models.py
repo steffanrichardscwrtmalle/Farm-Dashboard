@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -187,17 +187,75 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
-    role: Mapped[str] = mapped_column(String(32), default="viewer")
+    role: Mapped[str] = mapped_column(String(32), default="user")
+    permissions: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
 
     def to_dict(self) -> dict[str, Any]:
+        from app.auth.permissions import parse_permissions
+
         return {
             "id": self.id,
             "email": self.email,
             "role": self.role,
+            "permissions": parse_permissions(self.permissions),
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class BreedingSireClassification(Base):
+    """Manual beef/dairy classification for breeding sires without .b/.s suffix."""
+
+    __tablename__ = "breeding_sire_classifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sire_code: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    semen_type: Mapped[str] = mapped_column(String(16))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "sire_code": self.sire_code,
+            "semen_type": self.semen_type,
+        }
+
+
+class FeedRateRecord(Base):
+    """Latest feed ration snapshot imported from Feedlync."""
+
+    __tablename__ = "feed_rate_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ration_name: Mapped[str] = mapped_column(String(255), index=True)
+    group_name: Mapped[str] = mapped_column(String(255), index=True)
+    cow_count: Mapped[float | None] = mapped_column(Float, nullable=True)
+    feed_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_fresh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_dm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dm_kg_per_cow: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scraped_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    import_timestamp: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "ration_name": self.ration_name,
+            "group_name": self.group_name,
+            "cow_count": self.cow_count,
+            "feed_percent": self.feed_percent,
+            "total_fresh": self.total_fresh,
+            "total_dm": self.total_dm,
+            "dm_kg_per_cow": self.dm_kg_per_cow,
+            "cost": self.cost,
+            "scraped_date": self.scraped_date.isoformat() if self.scraped_date else None,
+            "import_timestamp": (
+                self.import_timestamp.isoformat() if self.import_timestamp else None
+            ),
         }
 
 

@@ -8,7 +8,8 @@ from typing import Any
 from sqlalchemy import case, func, literal, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import HERD_FARM_OPTIONS, CowEvent
+from app.models import HERD_FARM_OPTIONS, CowEvent, HerdBirth
+from app.services.breeding_sires import classify_semen_type, load_sire_overrides
 
 EVENT_PAGE_TYPES: dict[str, tuple[str, ...]] = {
     "calvings": ("FRESH",),
@@ -18,11 +19,35 @@ EVENT_PAGE_TYPES: dict[str, tuple[str, ...]] = {
     "disease": ("ILL", "SCOURS", "LAME", "MAST", "METR", "RESP", "INJURY", "ABORT", "DA"),
 }
 
+DISEASE_EVENT_LABELS: dict[str, str] = {
+    "ILL": "Illness",
+    "SCOURS": "Scours",
+    "LAME": "Lameness",
+    "MAST": "Mastitis",
+    "METR": "Metritis",
+    "RESP": "Respiratory",
+    "INJURY": "Injury",
+    "ABORT": "Abortion",
+    "DA": "Displaced Abomasum",
+    "DIED": "Died",
+}
+
+DISEASE_FILTER_OPTIONS: tuple[str, ...] = EVENT_PAGE_TYPES["disease"] + ("DIED",)
+
+DEFAULT_DISEASE_EPISODE_GAP_DAYS = 7
+
+# Minimum days between counted episodes for the same cow and disease type.
+DISEASE_EPISODE_GAP_DAYS: dict[str, int] = {
+    code: DEFAULT_DISEASE_EPISODE_GAP_DAYS for code in DISEASE_FILTER_OPTIONS
+}
+
 LACTATION_GROUPS: tuple[str, ...] = ("1", "2", "3+")
 PARITY_GROUPS: tuple[str, ...] = ("primiparous", "multiparous")
 PAGES_WITH_PARITY_FILTER: frozenset[str] = frozenset({"sales", "deaths", "disease", "breedings"})
 SALES_REASON_ORDER: tuple[str, ...] = ("OFS", "TB", "Beef", "CULL")
 SALES_TABLE_REASON_ORDER: tuple[str, ...] = ("CULL", "TB", "OFS", "Beef")
+BREEDINGS_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy", "unknown")
+BREEDINGS_CHART_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy")
 
 
 def normalize_farms(farms: list[str] | None) -> list[str]:
@@ -58,6 +83,33 @@ def normalize_parity_groups(parity_groups: list[str] | None) -> list[str] | None
         return None
     selected = [group for group in parity_groups if group in PARITY_GROUPS]
     return selected or None
+
+
+def normalize_disease_type(disease: str | None) -> str | None:
+    if not disease:
+        return None
+    disease = disease.strip().upper()
+    if disease not in DISEASE_FILTER_OPTIONS:
+        return None
+    return disease
+
+
+def normalize_semen_types(semen_types: list[str] | None) -> list[str] | None:
+    if not semen_types:
+        return None
+    selected = [value.lower() for value in semen_types if value.lower() in BREEDINGS_SEMEN_ORDER]
+    return selected or None
+
+
+def resolve_page_event_types(page_slug: str, disease: str | None = None) -> tuple[str, ...]:
+    event_types = EVENT_PAGE_TYPES.get(page_slug)
+    if not event_types:
+        raise ValueError(f"Unknown events page: {page_slug}")
+    if page_slug == "disease":
+        selected = normalize_disease_type(disease)
+        if selected:
+            return (selected,)
+    return event_types
 
 
 def _apply_parity_groups(query, parity_groups: list[str] | None):
@@ -279,61 +331,406 @@ def _zero_fill_rows(
     return rows
 
 
-def build_events_report(
+def _disease_episode_gap_days(event: str) -> int:
+    return DISEASE_EPISODE_GAP_DAYS.get(event, DEFAULT_DISEASE_EPISODE_GAP_DAYS)
+
+
+def _animal_identifier(cow_id: str | None, etag: str | None) -> str | None:
+    if cow_id:
+        return str(cow_id)
+    if etag:
+        return f"etag:{etag}"
+    return None
+
+
+def _disease_event_date(record: dict[str, Any]) -> dt.date | None:
+    """Event date for disease reports (CSV Date column, not EDAT)."""
+    event_date = record.get("event_date")
+    if event_date is None:
+        return None
+    if hasattr(event_date, "date"):
+        return event_date.date()
+    return event_date
+
+
+def filter_disease_episode_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop repeat disease rows within each disease-specific episode gap for one animal."""
+    sorted_records = sorted(
+        records,
+        key=lambda record: (
+            record.get("farm") or "",
+            _animal_identifier(record.get("cow_id"), record.get("etag")) or "",
+            record.get("event") or "",
+            _disease_event_date(record) or dt.date.min,
+        ),
+    )
+    last_counted: dict[tuple[str, str, str], dt.date] = {}
+    kept: list[dict[str, Any]] = []
+    for record in sorted_records:
+        event_date = _disease_event_date(record)
+        farm = record.get("farm")
+        event = record.get("event")
+        if event_date is None or not farm or not event:
+            continue
+        animal = _animal_identifier(record.get("cow_id"), record.get("etag"))
+        if animal is None:
+            kept.append(record)
+            continue
+        key = (farm, animal, event)
+        gap_days = _disease_episode_gap_days(event)
+        previous = last_counted.get(key)
+        if previous is None or (event_date - previous).days > gap_days:
+            kept.append(record)
+            last_counted[key] = event_date
+    return kept
+
+
+def filter_disease_episodes(
+    events: list[tuple[str | None, str | None, str | None, dt.date | None, str | None, str | None]],
+) -> list[tuple[str | None, str | None, str | None, dt.date | None, str | None, str | None]]:
+    records = [
+        {
+            "cow_id": cow_id,
+            "etag": etag,
+            "event": event,
+            "event_date": event_date,
+            "farm": farm,
+            "month_label": month_label,
+        }
+        for cow_id, etag, event, event_date, farm, month_label in events
+    ]
+    filtered = filter_disease_episode_records(records)
+    return [
+        (
+            record.get("cow_id"),
+            record.get("etag"),
+            record.get("event"),
+            record.get("event_date"),
+            record.get("farm"),
+            record.get("month_label"),
+        )
+        for record in filtered
+    ]
+
+
+def _fetch_disease_event_records(
     db: Session,
     *,
     event_types: tuple[str, ...],
-    farms: list[str] | None = None,
-    event_from: dt.date | None = None,
-    event_to: dt.date | None = None,
-    lact_groups: list[str] | None = None,
-    parity_groups: list[str] | None = None,
-    fiscal_year: int | None = None,
-    include_sales_reason_breakdown: bool = False,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    selected_parity_groups: list[str] | None,
+    fiscal_year: int | None,
+) -> list[dict[str, Any]]:
+    events_query = (
+        select(
+            CowEvent.cow_id,
+            CowEvent.etag,
+            CowEvent.event,
+            CowEvent.event_date,
+            CowEvent.fdat,
+            CowEvent.bdat,
+            CowEvent.lact,
+            CowEvent.farm,
+            CowEvent.month_label,
+        )
+        .where(CowEvent.event.in_(list(event_types)))
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+        .where(CowEvent.event_date >= effective_from)
+        .where(CowEvent.event_date <= effective_to)
+    )
+    events_query = _apply_parity_groups(events_query, selected_parity_groups)
+    events_query = _apply_fiscal_year(events_query, fiscal_year)
+    rows = db.execute(events_query).all()
+    records: list[dict[str, Any]] = []
+    for row in rows:
+        records.append(
+            {
+                "cow_id": row[0],
+                "etag": row[1],
+                "event": row[2],
+                "event_date": row[3],
+                "fdat": row[4],
+                "bdat": row[5],
+                "lact": row[6],
+                "farm": row[7],
+                "month_label": row[8],
+            }
+        )
+    return records
+
+
+def _episode_pivot_from_records(
+    records: list[dict[str, Any]],
+    selected_farms: list[str],
+) -> dict[str, dict[str, int]]:
+    pivot: dict[str, dict[str, int]] = {}
+    for record in records:
+        event_date = _disease_event_date(record)
+        farm = record.get("farm")
+        if event_date is None or farm not in selected_farms:
+            continue
+        month_label = record.get("month_label")
+        month_key = str(month_label or event_date.strftime("%b-%y"))
+        pivot.setdefault(month_key, {"CM": 0, "GAD": 0})
+        if farm in pivot[month_key]:
+            pivot[month_key][farm] += 1
+    return pivot
+
+
+def _record_y_value(
+    record: dict[str, Any],
+    selected_parity_groups: list[str] | None,
+) -> int | None:
+    youngstock = selected_parity_groups == ["primiparous"]
+    event_day = _disease_event_date(record)
+    if event_day is None:
+        return None
+    base_date = record.get("bdat") if youngstock else record.get("fdat")
+    if base_date is None:
+        return None
+    if hasattr(base_date, "date"):
+        base_date = base_date.date()
+    y_value = (event_day - base_date).days
+    if y_value < 0:
+        return None
+    return y_value
+
+
+def _disease_y_bounds(
+    records: list[dict[str, Any]],
+    selected_parity_groups: list[str] | None,
+) -> dict[str, int]:
+    y_values = [_record_y_value(record, selected_parity_groups) for record in records]
+    valid = [y for y in y_values if y is not None]
+    return {"min": 0, "max": max(valid, default=0)}
+
+
+def _apply_y_range_filter(
+    records: list[dict[str, Any]],
+    selected_parity_groups: list[str] | None,
+    y_min: int | None,
+    y_max: int | None,
+) -> list[dict[str, Any]]:
+    if y_min is None and y_max is None:
+        return records
+    lo = y_min if y_min is not None else 0
+    hi = y_max if y_max is not None else 10**9
+    filtered: list[dict[str, Any]] = []
+    for record in records:
+        y_value = _record_y_value(record, selected_parity_groups)
+        if y_value is None:
+            continue
+        if lo <= y_value <= hi:
+            filtered.append(record)
+    return filtered
+
+
+def _build_disease_scatter(
+    records: list[dict[str, Any]],
+    selected_parity_groups: list[str] | None,
+    *,
+    y_bounds: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    selected_farms = normalize_farms(farms)
-    selected_lact_groups = normalize_lact_groups(lact_groups)
-    selected_parity_groups = normalize_parity_groups(parity_groups)
-    latest_import = db.scalar(select(func.max(CowEvent.import_timestamp)))
-
-    empty_result: dict[str, Any] = {
-        "rows": [],
-        "grand_total": {"CM": 0, "GAD": 0, "total": 0},
-        "range_summary": _empty_range_summary(),
-        "fiscal_year_options": [],
-        "latest_import": latest_import.isoformat() if latest_import else None,
+    youngstock = selected_parity_groups == ["primiparous"]
+    y_axis_label = "Age (days)" if youngstock else "DIM"
+    points: list[dict[str, Any]] = []
+    for record in records:
+        event_day = _disease_event_date(record)
+        farm = record.get("farm")
+        y_value = _record_y_value(record, selected_parity_groups)
+        if event_day is None or not farm or y_value is None:
+            continue
+        points.append(
+            {
+                "x": event_day.isoformat(),
+                "y": y_value,
+                "farm": farm,
+                "event": record.get("event"),
+            }
+        )
+    bounds = y_bounds or _disease_y_bounds(records, selected_parity_groups)
+    return {
+        "points": points,
+        "y_axis_label": y_axis_label,
+        "y_bounds": bounds,
     }
-    if include_sales_reason_breakdown:
-        empty_result["sales_table_rows"] = []
 
-    if not selected_farms:
-        return empty_result
 
-    fiscal_year_options = _get_fiscal_year_options(db, event_types, selected_farms)
-    empty_result["fiscal_year_options"] = fiscal_year_options
+def _cohort_date_for_record(
+    record: dict[str, Any],
+    selected_parity_groups: list[str] | None,
+) -> dt.date | None:
+    youngstock = selected_parity_groups == ["primiparous"]
+    cohort_date = record.get("bdat") if youngstock else record.get("fdat")
+    if cohort_date is None:
+        return None
+    if hasattr(cohort_date, "date"):
+        return cohort_date.date()
+    return cohort_date
 
-    bounds_min, bounds_max = _get_date_bounds(db, event_types, selected_farms)
-    if bounds_min is None or bounds_max is None:
-        empty_result["date_bounds"] = None
-        return empty_result
 
-    if fiscal_year is not None:
-        slider_min, slider_max = _fiscal_year_calendar_bounds(fiscal_year)
+def _fetch_cow_cohort_rows(
+    db: Session,
+    selected_farms: list[str],
+) -> list[tuple[str, str | None, str | None, dt.date]]:
+    fresh_rows = db.execute(
+        select(CowEvent.farm, CowEvent.cow_id, CowEvent.etag, CowEvent.fdat)
+        .where(CowEvent.event == "FRESH")
+        .where(CowEvent.fdat.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+    ).all()
+    if fresh_rows:
+        return [(str(r[0]), r[1], r[2], r[3]) for r in fresh_rows]
+    fallback = db.execute(
+        select(CowEvent.farm, CowEvent.cow_id, CowEvent.etag, CowEvent.fdat)
+        .where(CowEvent.lact > 0)
+        .where(CowEvent.fdat.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+    ).all()
+    return [(str(r[0]), r[1], r[2], r[3]) for r in fallback]
+
+
+def _fetch_youngstock_cohort_rows(
+    db: Session,
+    selected_farms: list[str],
+) -> list[tuple[str, str | None, str | None, dt.date]]:
+    birth_rows = db.execute(
+        select(HerdBirth.farm, HerdBirth.cow_id, HerdBirth.etag, HerdBirth.bdat)
+        .where(HerdBirth.bdat.isnot(None))
+        .where(HerdBirth.farm.in_(selected_farms))
+    ).all()
+    if birth_rows:
+        return [(str(r[0]), r[1], r[2], r[3]) for r in birth_rows]
+    fallback = db.execute(
+        select(CowEvent.farm, CowEvent.cow_id, CowEvent.etag, CowEvent.bdat)
+        .where(CowEvent.lact == 0)
+        .where(CowEvent.bdat.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+    ).all()
+    return [(str(r[0]), r[1], r[2], r[3]) for r in fallback]
+
+
+def _build_cohort_denominators(
+    cohort_rows: list[tuple[str, str | None, str | None, dt.date]],
+    selected_farms: list[str],
+) -> dict[str, dict[str, int]]:
+    seen: set[tuple[str, str, dt.date]] = set()
+    denominators: dict[str, dict[str, int]] = {}
+    for farm, cow_id, etag, cohort_date in cohort_rows:
+        if farm not in selected_farms:
+            continue
+        animal = _animal_identifier(cow_id, etag)
+        if animal is None:
+            continue
+        dedupe_key = (farm, animal, cohort_date)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        month_label = cohort_date.strftime("%b-%y")
+        denominators.setdefault(month_label, {"CM": 0, "GAD": 0})
+        if farm in denominators[month_label]:
+            denominators[month_label][farm] += 1
+    return denominators
+
+
+def _build_disease_incidence(
+    db: Session,
+    *,
+    filtered_records: list[dict[str, Any]],
+    selected_farms: list[str],
+    selected_parity_groups: list[str] | None,
+    effective_from: dt.date,
+    effective_to: dt.date,
+) -> dict[str, Any]:
+    youngstock = selected_parity_groups == ["primiparous"]
+    x_axis_label = "Birth month" if youngstock else "Calving month"
+    cohort_label = "Births" if youngstock else "Calvings"
+    if youngstock:
+        cohort_rows = _fetch_youngstock_cohort_rows(db, selected_farms)
     else:
-        slider_min, slider_max = bounds_min, bounds_max
+        cohort_rows = _fetch_cow_cohort_rows(db, selected_farms)
 
-    date_bounds = {
-        "min": slider_min.isoformat(),
-        "max": slider_max.isoformat(),
+    denominators = _build_cohort_denominators(cohort_rows, selected_farms)
+    affected: dict[str, dict[str, set[str]]] = {}
+    for record in filtered_records:
+        farm = record.get("farm")
+        cohort_date = _cohort_date_for_record(record, selected_parity_groups)
+        animal = _animal_identifier(record.get("cow_id"), record.get("etag"))
+        if not farm or cohort_date is None or animal is None:
+            continue
+        month_label = cohort_date.strftime("%b-%y")
+        affected.setdefault(month_label, {}).setdefault(farm, set()).add(animal)
+
+    rows: list[dict[str, Any]] = []
+    for month_start in _iter_month_starts(effective_from, effective_to):
+        month_label = month_start.strftime("%b-%y")
+        row: dict[str, Any] = {
+            "cohort_month": month_label,
+            "sort_key": _sort_key_from_date(month_start),
+            "cohort": {},
+            "affected": {},
+        }
+        for farm in selected_farms:
+            denom = denominators.get(month_label, {}).get(farm, 0)
+            numer = len(affected.get(month_label, {}).get(farm, set()))
+            row["cohort"][farm] = denom
+            row["affected"][farm] = numer
+            row[farm] = round(100 * numer / denom, 1) if denom else 0.0
+        rows.append(row)
+
+    month_labels = [month_start.strftime("%b-%y") for month_start in _iter_month_starts(
+        effective_from, effective_to
+    )]
+    summary: dict[str, Any] = {
+        "cohort_label": cohort_label,
+        "total": {"incidence_pct": 0.0, "cohort_size": 0, "affected": 0},
+    }
+    total_affected: set[str] = set()
+    total_denominator = 0
+    for farm in selected_farms:
+        farm_affected: set[str] = set()
+        farm_denominator = 0
+        for month_label in month_labels:
+            farm_denominator += denominators.get(month_label, {}).get(farm, 0)
+            farm_affected |= affected.get(month_label, {}).get(farm, set())
+        farm_pct = round(100 * len(farm_affected) / farm_denominator, 1) if farm_denominator else 0.0
+        summary[farm] = {
+            "incidence_pct": farm_pct,
+            "cohort_size": farm_denominator,
+            "affected": len(farm_affected),
+        }
+        total_affected |= farm_affected
+        total_denominator += farm_denominator
+    summary["total"] = {
+        "incidence_pct": (
+            round(100 * len(total_affected) / total_denominator, 1) if total_denominator else 0.0
+        ),
+        "cohort_size": total_denominator,
+        "affected": len(total_affected),
     }
 
-    effective_from = event_from if event_from is not None else slider_min
-    effective_to = event_to if event_to is not None else slider_max
-    effective_from = _clamp_date(effective_from, slider_min, slider_max)
-    effective_to = _clamp_date(effective_to, slider_min, slider_max)
-    if effective_from > effective_to:
-        effective_from, effective_to = effective_to, effective_from
+    return {
+        "rows": rows,
+        "x_axis_label": x_axis_label,
+        "cohort_label": cohort_label,
+        "summary": summary,
+    }
 
+
+def _build_standard_event_pivot(
+    db: Session,
+    *,
+    event_types: tuple[str, ...],
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    selected_lact_groups: list[str] | None,
+    selected_parity_groups: list[str] | None,
+    fiscal_year: int | None,
+) -> dict[str, dict[str, int]]:
     counts_query = (
         select(
             CowEvent.month_label,
@@ -363,6 +760,320 @@ def build_events_report(
         pivot.setdefault(key, {"CM": 0, "GAD": 0})
         if farm in pivot[key]:
             pivot[key][farm] = int(count)
+    return pivot
+
+
+def _build_disease_episode_bundle(
+    db: Session,
+    *,
+    event_types: tuple[str, ...],
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    selected_parity_groups: list[str] | None,
+    fiscal_year: int | None,
+    y_min: int | None = None,
+    y_max: int | None = None,
+) -> tuple[dict[str, dict[str, int]], dict[str, Any], dict[str, Any]]:
+    raw_records = _fetch_disease_event_records(
+        db,
+        event_types=event_types,
+        selected_farms=selected_farms,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        selected_parity_groups=selected_parity_groups,
+        fiscal_year=fiscal_year,
+    )
+    kept_records = filter_disease_episode_records(raw_records)
+    y_bounds = _disease_y_bounds(kept_records, selected_parity_groups)
+    filtered_records = _apply_y_range_filter(
+        kept_records, selected_parity_groups, y_min, y_max
+    )
+    pivot = _episode_pivot_from_records(filtered_records, selected_farms)
+    scatter = _build_disease_scatter(
+        filtered_records,
+        selected_parity_groups,
+        y_bounds=y_bounds,
+    )
+    incidence = _build_disease_incidence(
+        db,
+        filtered_records=filtered_records,
+        selected_farms=selected_farms,
+        selected_parity_groups=selected_parity_groups,
+        effective_from=effective_from,
+        effective_to=effective_to,
+    )
+    return pivot, scatter, incidence
+
+
+def _fetch_breeding_records(
+    db: Session,
+    *,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    selected_parity_groups: list[str] | None,
+    fiscal_year: int | None,
+) -> list[tuple[str, str, str, dt.date]]:
+    query = (
+        select(
+            CowEvent.month_label,
+            CowEvent.farm,
+            CowEvent.remark,
+            CowEvent.event_date,
+        )
+        .where(CowEvent.event == "BRED")
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+        .where(CowEvent.event_date >= effective_from)
+        .where(CowEvent.event_date <= effective_to)
+    )
+    query = _apply_parity_groups(query, selected_parity_groups)
+    query = _apply_fiscal_year(query, fiscal_year)
+    rows = db.execute(query).all()
+    result: list[tuple[str, str, str, dt.date]] = []
+    for month_label, farm, remark, event_date in rows:
+        if not month_label or farm not in selected_farms or event_date is None:
+            continue
+        if hasattr(event_date, "date"):
+            event_date = event_date.date()
+        result.append((str(month_label), str(farm), str(remark or ""), event_date))
+    return result
+
+
+def _build_breedings_semen_summary(
+    farm_totals: dict[str, dict[str, int]],
+    selected_farms: list[str],
+    month_count: int,
+) -> dict[str, Any]:
+    by_farm: dict[str, dict[str, int]] = {}
+    total = {name: 0 for name in BREEDINGS_SEMEN_ORDER}
+    for farm in selected_farms:
+        counts = farm_totals.get(farm, {name: 0 for name in BREEDINGS_SEMEN_ORDER})
+        by_farm[farm] = {
+            semen_type: int(counts.get(semen_type, 0)) for semen_type in BREEDINGS_SEMEN_ORDER
+        }
+        for semen_type in BREEDINGS_SEMEN_ORDER:
+            total[semen_type] += by_farm[farm][semen_type]
+    return {"by_farm": by_farm, "total": total, "month_count": month_count}
+
+
+def _build_breedings_bundle(
+    db: Session,
+    *,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    selected_parity_groups: list[str] | None,
+    fiscal_year: int | None,
+    selected_semen_types: list[str] | None,
+) -> tuple[
+    dict[str, dict[str, int]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, dict[str, int]],
+]:
+    overrides = load_sire_overrides(db)
+    records = _fetch_breeding_records(
+        db,
+        selected_farms=selected_farms,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        selected_parity_groups=selected_parity_groups,
+        fiscal_year=fiscal_year,
+    )
+
+    allowed_semen = set(selected_semen_types or BREEDINGS_SEMEN_ORDER)
+
+    farm_pivot: dict[str, dict[str, int]] = {}
+    semen_table_pivot: dict[str, dict[str, dict[str, int]]] = {}
+    semen_chart_pivot: dict[str, dict[str, int]] = {}
+    semen_farm_totals = {
+        farm: {name: 0 for name in BREEDINGS_SEMEN_ORDER} for farm in selected_farms
+    }
+
+    for month_label, farm, remark, event_date in records:
+        semen_type = classify_semen_type(remark, overrides)
+        if semen_type not in allowed_semen:
+            continue
+
+        farm_pivot.setdefault(month_label, {"CM": 0, "GAD": 0})
+        if farm in farm_pivot[month_label]:
+            farm_pivot[month_label][farm] += 1
+
+        semen_table_pivot.setdefault(month_label, {})
+        semen_table_pivot[month_label].setdefault(
+            farm, {name: 0 for name in BREEDINGS_SEMEN_ORDER}
+        )
+        if semen_type in semen_table_pivot[month_label][farm]:
+            semen_table_pivot[month_label][farm][semen_type] += 1
+        if farm in semen_farm_totals and semen_type in semen_farm_totals[farm]:
+            semen_farm_totals[farm][semen_type] += 1
+
+        if semen_type in BREEDINGS_CHART_SEMEN_ORDER:
+            semen_chart_pivot.setdefault(month_label, {name: 0 for name in BREEDINGS_CHART_SEMEN_ORDER})
+            semen_chart_pivot[month_label][semen_type] += 1
+
+    table_rows: list[dict[str, Any]] = []
+    for month_start in _iter_month_starts(effective_from, effective_to):
+        event_month = month_start.strftime("%b-%y")
+        month_counts = semen_table_pivot.get(event_month, {})
+        row: dict[str, Any] = {
+            "event_month": event_month,
+            "sort_key": _sort_key_from_date(month_start),
+        }
+        for farm in selected_farms:
+            row[farm] = {
+                semen_type: month_counts.get(farm, {}).get(semen_type, 0)
+                for semen_type in BREEDINGS_SEMEN_ORDER
+            }
+        table_rows.append(row)
+
+    chart_rows: list[dict[str, Any]] = []
+    for month_start in _iter_month_starts(effective_from, effective_to):
+        event_month = month_start.strftime("%b-%y")
+        counts = semen_chart_pivot.get(event_month, {name: 0 for name in BREEDINGS_CHART_SEMEN_ORDER})
+        beef = counts.get("beef", 0)
+        dairy = counts.get("dairy", 0)
+        chart_rows.append(
+            {
+                "event_month": event_month,
+                "sort_key": _sort_key_from_date(month_start),
+                "beef": beef,
+                "dairy": dairy,
+                "total": beef + dairy,
+            }
+        )
+
+    month_count = _month_count_inclusive(effective_from, effective_to)
+    semen_summary = _build_breedings_semen_summary(semen_farm_totals, selected_farms, month_count)
+    return farm_pivot, table_rows, chart_rows, semen_summary
+
+
+def build_events_report(
+    db: Session,
+    *,
+    event_types: tuple[str, ...],
+    farms: list[str] | None = None,
+    event_from: dt.date | None = None,
+    event_to: dt.date | None = None,
+    lact_groups: list[str] | None = None,
+    parity_groups: list[str] | None = None,
+    fiscal_year: int | None = None,
+    include_sales_reason_breakdown: bool = False,
+    include_breedings_semen_breakdown: bool = False,
+    semen_types: list[str] | None = None,
+    use_disease_episode_counting: bool = False,
+    y_min: int | None = None,
+    y_max: int | None = None,
+) -> dict[str, Any]:
+    selected_farms = normalize_farms(farms)
+    selected_lact_groups = normalize_lact_groups(lact_groups)
+    selected_parity_groups = normalize_parity_groups(parity_groups)
+    selected_semen_types = normalize_semen_types(semen_types) if include_breedings_semen_breakdown else None
+    latest_import = db.scalar(select(func.max(CowEvent.import_timestamp)))
+
+    empty_result: dict[str, Any] = {
+        "rows": [],
+        "grand_total": {"CM": 0, "GAD": 0, "total": 0},
+        "range_summary": _empty_range_summary(),
+        "fiscal_year_options": [],
+        "latest_import": latest_import.isoformat() if latest_import else None,
+    }
+    if include_sales_reason_breakdown:
+        empty_result["sales_table_rows"] = []
+    if include_breedings_semen_breakdown:
+        empty_result["breedings_semen_rows"] = []
+        empty_result["breedings_semen_chart_rows"] = []
+        empty_result["breedings_semen_summary"] = _build_breedings_semen_summary(
+            {farm: {name: 0 for name in BREEDINGS_SEMEN_ORDER} for farm in selected_farms},
+            selected_farms,
+            0,
+        )
+    if use_disease_episode_counting:
+        empty_result["disease_scatter"] = {
+            "points": [],
+            "y_axis_label": "DIM",
+            "y_bounds": {"min": 0, "max": 0},
+        }
+        empty_result["disease_incidence"] = {
+            "rows": [],
+            "x_axis_label": "Calving month",
+            "cohort_label": "Calvings",
+            "summary": {
+                "cohort_label": "Calvings",
+                "total": {"incidence_pct": 0.0, "cohort_size": 0, "affected": 0},
+            },
+        }
+
+    if not selected_farms:
+        return empty_result
+
+    fiscal_year_options = _get_fiscal_year_options(db, event_types, selected_farms)
+    empty_result["fiscal_year_options"] = fiscal_year_options
+
+    bounds_min, bounds_max = _get_date_bounds(db, event_types, selected_farms)
+    if bounds_min is None or bounds_max is None:
+        empty_result["date_bounds"] = None
+        return empty_result
+
+    if fiscal_year is not None:
+        slider_min, slider_max = _fiscal_year_calendar_bounds(fiscal_year)
+    else:
+        slider_min, slider_max = bounds_min, bounds_max
+
+    date_bounds = {
+        "min": slider_min.isoformat(),
+        "max": slider_max.isoformat(),
+    }
+
+    effective_from = event_from if event_from is not None else slider_min
+    effective_to = event_to if event_to is not None else slider_max
+    effective_from = _clamp_date(effective_from, slider_min, slider_max)
+    effective_to = _clamp_date(effective_to, slider_min, slider_max)
+    if effective_from > effective_to:
+        effective_from, effective_to = effective_to, effective_from
+
+    disease_scatter: dict[str, Any] | None = None
+    disease_incidence: dict[str, Any] | None = None
+    breedings_semen_summary: dict[str, Any] | None = None
+    breedings_semen_rows: list[dict[str, Any]] | None = None
+    breedings_semen_chart_rows: list[dict[str, Any]] | None = None
+    if use_disease_episode_counting:
+        pivot, disease_scatter, disease_incidence = _build_disease_episode_bundle(
+            db,
+            event_types=event_types,
+            selected_farms=selected_farms,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            selected_parity_groups=selected_parity_groups,
+            fiscal_year=fiscal_year,
+            y_min=y_min,
+            y_max=y_max,
+        )
+    elif include_breedings_semen_breakdown:
+        pivot, breedings_semen_rows, breedings_semen_chart_rows, breedings_semen_summary = (
+            _build_breedings_bundle(
+                db,
+                selected_farms=selected_farms,
+                effective_from=effective_from,
+                effective_to=effective_to,
+                selected_parity_groups=selected_parity_groups,
+                fiscal_year=fiscal_year,
+                selected_semen_types=selected_semen_types,
+            )
+        )
+    else:
+        pivot = _build_standard_event_pivot(
+            db,
+            event_types=event_types,
+            selected_farms=selected_farms,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            selected_lact_groups=selected_lact_groups,
+            selected_parity_groups=selected_parity_groups,
+            fiscal_year=fiscal_year,
+        )
 
     rows = _zero_fill_rows(pivot, effective_from, effective_to)
 
@@ -383,6 +1094,25 @@ def build_events_report(
         "fiscal_year_options": fiscal_year_options,
         "latest_import": latest_import.isoformat() if latest_import else None,
     }
+    if use_disease_episode_counting:
+        result["counting_mode"] = "disease_episodes"
+        result["disease_episode_gaps"] = {
+            event: _disease_episode_gap_days(event) for event in event_types
+        }
+        result["disease_scatter"] = disease_scatter or {
+            "points": [],
+            "y_axis_label": "DIM",
+            "y_bounds": {"min": 0, "max": 0},
+        }
+        result["disease_incidence"] = disease_incidence or {
+            "rows": [],
+            "x_axis_label": "Calving month",
+            "cohort_label": "Calvings",
+            "summary": {
+                "cohort_label": "Calvings",
+                "total": {"incidence_pct": 0.0, "cohort_size": 0, "affected": 0},
+            },
+        }
     if include_sales_reason_breakdown:
         result["sales_table_rows"] = _build_sales_table_rows(
             db,
@@ -393,6 +1123,15 @@ def build_events_report(
             fiscal_year=fiscal_year,
         )
         result["sales_table_reasons"] = list(SALES_TABLE_REASON_ORDER)
+    if include_breedings_semen_breakdown:
+        result["breedings_semen_rows"] = breedings_semen_rows or []
+        result["breedings_semen_chart_rows"] = breedings_semen_chart_rows or []
+        result["breedings_semen_summary"] = breedings_semen_summary or _build_breedings_semen_summary(
+            {farm: {name: 0 for name in BREEDINGS_SEMEN_ORDER} for farm in selected_farms},
+            selected_farms,
+            month_count,
+        )
+        result["breedings_semen_types"] = list(BREEDINGS_SEMEN_ORDER)
     return result
 
 
@@ -406,10 +1145,12 @@ def build_events_page_report(
     lact_groups: list[str] | None = None,
     parity_groups: list[str] | None = None,
     fiscal_year: int | None = None,
+    disease: str | None = None,
+    semen_types: list[str] | None = None,
+    y_min: int | None = None,
+    y_max: int | None = None,
 ) -> dict[str, Any]:
-    event_types = EVENT_PAGE_TYPES.get(page_slug)
-    if not event_types:
-        raise ValueError(f"Unknown events page: {page_slug}")
+    event_types = resolve_page_event_types(page_slug, disease)
     return build_events_report(
         db,
         event_types=event_types,
@@ -420,4 +1161,9 @@ def build_events_page_report(
         parity_groups=parity_groups if page_slug in PAGES_WITH_PARITY_FILTER else None,
         fiscal_year=fiscal_year,
         include_sales_reason_breakdown=page_slug == "sales",
+        include_breedings_semen_breakdown=page_slug == "breedings",
+        semen_types=semen_types if page_slug == "breedings" else None,
+        use_disease_episode_counting=page_slug == "disease",
+        y_min=y_min if page_slug == "disease" else None,
+        y_max=y_max if page_slug == "disease" else None,
     )

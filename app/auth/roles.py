@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 ROLE_ADMIN = "admin"
-ROLE_EDITOR = "editor"
-ROLE_VIEWER = "viewer"
+ROLE_USER = "user"
 
-ROLES: tuple[str, ...] = (ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER)
+# Legacy roles migrated to ROLE_USER on startup
+LEGACY_ROLE_EDITOR = "editor"
+LEGACY_ROLE_VIEWER = "viewer"
+
+ROLES: tuple[str, ...] = (ROLE_ADMIN, ROLE_USER)
 
 ROLE_LABELS: dict[str, str] = {
     ROLE_ADMIN: "Admin",
-    ROLE_EDITOR: "Editor",
-    ROLE_VIEWER: "Viewer",
+    ROLE_USER: "User",
 }
 
 
@@ -20,4 +22,5 @@ def is_admin(role: str) -> bool:
 
 
 def can_edit(role: str) -> bool:
-    return role in (ROLE_ADMIN, ROLE_EDITOR)
+    """Backward-compatible: admin always; user role uses permissions elsewhere."""
+    return role == ROLE_ADMIN or role == LEGACY_ROLE_EDITOR

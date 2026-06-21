@@ -8,7 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import require_admin
-from app.auth.roles import ROLES, ROLE_LABELS
+from app.auth.permissions import (
+    normalize_permissions,
+    permissions_for_admin_ui,
+    preset_permissions,
+    serialize_permissions,
+)
+from app.auth.roles import ROLE_ADMIN, ROLE_USER, ROLES
 from app.auth.users import create_user, normalize_email, update_user_password, validate_role
 from app.db import get_db
 from app.models import User
@@ -19,13 +25,28 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 class AdminUserCreate(BaseModel):
     email: str
     password: str
-    role: str = "viewer"
+    role: str = ROLE_USER
+    permissions: dict | None = None
 
 
 class AdminUserUpdate(BaseModel):
     role: str | None = None
     is_active: bool | None = None
     password: str | None = Field(default=None, min_length=12)
+    permissions: dict | None = None
+
+
+@router.get("/permissions/catalog")
+def api_permissions_catalog(_: User = Depends(require_admin)):
+    return permissions_for_admin_ui()
+
+
+@router.get("/permissions/presets/{preset_id}")
+def api_permissions_preset(preset_id: str, _: User = Depends(require_admin)):
+    try:
+        return preset_permissions(preset_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/users")
@@ -44,7 +65,13 @@ def api_create_user(
     _: User = Depends(require_admin),
 ):
     try:
-        user = create_user(db, email=body.email, password=body.password, role=body.role)
+        user = create_user(
+            db,
+            email=body.email,
+            password=body.password,
+            role=body.role,
+            permissions=body.permissions,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return user.to_dict()
@@ -72,6 +99,15 @@ def api_update_user(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         user.role = body.role
+        if body.role == ROLE_ADMIN:
+            user.permissions = None
+        elif user.permissions is None:
+            user.permissions = serialize_permissions(normalize_permissions(body.permissions))
+
+    if body.permissions is not None:
+        if user.role == ROLE_ADMIN:
+            raise HTTPException(status_code=400, detail="Admins have full access; permissions are not stored")
+        user.permissions = serialize_permissions(normalize_permissions(body.permissions))
 
     if body.is_active is not None:
         user.is_active = body.is_active

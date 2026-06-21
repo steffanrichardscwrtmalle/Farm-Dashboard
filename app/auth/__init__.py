@@ -1,12 +1,20 @@
-"""Authentication and authorization."""
+"""Authentication and authorization package."""
 
-from app.auth.roles import ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER, ROLES, can_edit, is_admin
+from app.auth.permissions import (
+    can_edit_sires,
+    can_import_feed,
+    has_action,
+    has_page,
+)
+from app.auth.roles import ROLE_ADMIN, ROLE_USER, ROLES, is_admin
 
 __all__ = [
     "ROLE_ADMIN",
-    "ROLE_EDITOR",
-    "ROLE_VIEWER",
+    "ROLE_USER",
     "ROLES",
-    "can_edit",
+    "can_edit_sires",
+    "can_import_feed",
+    "has_action",
+    "has_page",
     "is_admin",
 ]

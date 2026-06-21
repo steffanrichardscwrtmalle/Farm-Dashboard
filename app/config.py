@@ -52,4 +52,25 @@ LOCAL_HERD_EXPORT_DIR = os.getenv("LOCAL_HERD_EXPORT_DIR", "").strip()
 # Secured import endpoint for cron / automation
 IMPORT_API_KEY = os.getenv("IMPORT_API_KEY", "").strip()
 
+# Feedlync API (refresh token from browser MSAL storage after logging in once)
+FEEDLYNC_REFRESH_TOKEN = os.getenv("FEEDLYNC_REFRESH_TOKEN", "").strip()
+FEEDLYNC_FARM_ID = os.getenv("FEEDLYNC_FARM_ID", "").strip()
+FEEDLYNC_API_BASE = os.getenv(
+    "FEEDLYNC_API_BASE", "https://api-eu.feedlync.com/api/v1"
+).strip().rstrip("/")
+FEEDLYNC_TOKEN_URL = os.getenv(
+    "FEEDLYNC_TOKEN_URL",
+    "https://abagrilink.b2clogin.com/abagrilink.onmicrosoft.com/"
+    "b2c_1_feedlyncsignupsignin/oauth2/v2.0/token",
+).strip()
+FEEDLYNC_CLIENT_ID = os.getenv(
+    "FEEDLYNC_CLIENT_ID", "6874a800-aff4-4f4d-99d1-1ff47241fe7f"
+).strip()
+FEEDLYNC_TOKEN_SCOPE = os.getenv(
+    "FEEDLYNC_TOKEN_SCOPE",
+    "https://ABAgriLink.onmicrosoft.com/dairyapidev/admin "
+    "https://ABAgriLink.onmicrosoft.com/dairyapidev/write "
+    "openid profile offline_access",
+).strip()
+
 COOKIE_SECURE = IS_PRODUCTION or os.getenv("COOKIE_SECURE", "").lower() in ("1", "true", "yes")

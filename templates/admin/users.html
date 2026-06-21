@@ -21,10 +21,53 @@
       font-weight: 600;
       font-size: 0.8rem;
     }
-    .role-badge {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--accent);
+    .perm-modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .perm-modal-backdrop.open { display: flex; }
+    .perm-modal {
+      background: var(--card);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      max-width: 520px;
+      width: 100%;
+      max-height: 90vh;
+      overflow: auto;
+      padding: 1.25rem;
+    }
+    .perm-modal h2 { margin: 0 0 0.75rem; font-size: 1.1rem; }
+    .perm-presets {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    .perm-group { margin-bottom: 1rem; }
+    .perm-group h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.9rem;
+    }
+    .perm-check {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      margin-bottom: 0.35rem;
+      font-size: 0.875rem;
+      font-weight: normal;
+    }
+    .perm-check input { width: auto; margin: 0.15rem 0 0; }
+    .perm-modal-actions {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: flex-end;
+      margin-top: 1rem;
     }
 {% endblock %}
 
@@ -50,7 +93,7 @@
         </label>
         <button type="submit">Create user</button>
       </form>
-      <p class="muted" style="margin:0">Passwords must be at least 12 characters. Users sign in with these credentials, not their Microsoft 365 password.</p>
+      <p class="muted" style="margin:0">Passwords must be at least 12 characters. Set permissions after creating non-admin users.</p>
       <div id="create-message" class="message"></div>
     </div>
 
@@ -69,7 +112,7 @@
           </thead>
           <tbody id="users-body">
             {% for user in users %}
-            <tr data-user-id="{{ user.id }}">
+            <tr data-user-id="{{ user.id }}" data-permissions='{{ user.permissions | tojson }}'>
               <td>{{ user.email }}</td>
               <td>
                 <select class="role-select" data-user-id="{{ user.id }}" {% if user.id == current_user.id %}disabled{% endif %}>
@@ -88,12 +131,15 @@
               <td>{{ user.created_at[:10] if user.created_at else "" }}</td>
               <td>
                 {% if user.id != current_user.id %}
+                {% if user.role != 'admin' %}
+                <button type="button" class="secondary small perms-btn" data-user-id="{{ user.id }}" data-email="{{ user.email }}">Permissions</button>
+                {% endif %}
                 <button type="button" class="secondary small reset-btn" data-user-id="{{ user.id }}">Reset password</button>
                 <button type="button" class="secondary small toggle-btn" data-user-id="{{ user.id }}" data-active="{{ '1' if user.is_active else '0' }}">
                   {% if user.is_active %}Disable{% else %}Enable{% endif %}
                 </button>
                 {% else %}
-                <span class="muted">You</span>
+                <span class="muted">You (full access)</span>
                 {% endif %}
               </td>
             </tr>
@@ -103,6 +149,27 @@
       </div>
       <div id="users-message" class="message"></div>
     </div>
+
+    <div class="perm-modal-backdrop" id="perm-modal" aria-hidden="true">
+      <div class="perm-modal" role="dialog" aria-labelledby="perm-modal-title">
+        <h2 id="perm-modal-title">Permissions</h2>
+        <p class="muted" id="perm-modal-email" style="margin:0 0 1rem"></p>
+        <div class="perm-presets" id="perm-presets"></div>
+        <div class="perm-group">
+          <h3>Pages</h3>
+          <div id="perm-pages"></div>
+        </div>
+        <div class="perm-group">
+          <h3>Actions</h3>
+          <div id="perm-actions"></div>
+        </div>
+        <div class="perm-modal-actions">
+          <button type="button" class="secondary" id="perm-cancel">Cancel</button>
+          <button type="button" id="perm-save">Save permissions</button>
+        </div>
+        <div id="perm-message" class="message"></div>
+      </div>
+    </div>
 {% endblock %}
 
 {% block scripts %}
@@ -111,6 +178,123 @@
       el.textContent = text;
       el.className = ok ? "message ok" : "message err";
     }
+
+    let permCatalog = null;
+    let editingUserId = null;
+    let draftPermissions = { pages: [], actions: [] };
+
+    async function loadCatalog() {
+      const res = await fetch("/api/admin/permissions/catalog");
+      if (!res.ok) throw new Error("Failed to load permission catalog");
+      permCatalog = await res.json();
+    }
+
+    function renderPermCheckboxes() {
+      const pagesEl = document.getElementById("perm-pages");
+      const actionsEl = document.getElementById("perm-actions");
+      const presetsEl = document.getElementById("perm-presets");
+      if (!permCatalog) return;
+
+      pagesEl.innerHTML = permCatalog.pages.map(item => `
+        <label class="perm-check">
+          <input type="checkbox" data-kind="page" value="${item.id}" ${draftPermissions.pages.includes(item.id) ? "checked" : ""}>
+          <span>${item.label}</span>
+        </label>
+      `).join("");
+
+      actionsEl.innerHTML = permCatalog.actions.map(item => `
+        <label class="perm-check">
+          <input type="checkbox" data-kind="action" value="${item.id}" ${draftPermissions.actions.includes(item.id) ? "checked" : ""}>
+          <span>${item.label}</span>
+        </label>
+      `).join("");
+
+      presetsEl.innerHTML = permCatalog.presets.map(p => `
+        <button type="button" class="secondary small preset-btn" data-preset="${p.id}">${p.label}</button>
+      `).join("");
+
+      presetsEl.querySelectorAll(".preset-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          try {
+            const res = await fetch(`/api/admin/permissions/presets/${btn.dataset.preset}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Preset failed");
+            draftPermissions = data;
+            renderPermCheckboxes();
+          } catch (err) {
+            showMsg(document.getElementById("perm-message"), err.message, false);
+          }
+        });
+      });
+    }
+
+    function readDraftFromForm() {
+      const pages = [];
+      const actions = [];
+      document.querySelectorAll("#perm-pages input:checked").forEach(el => pages.push(el.value));
+      document.querySelectorAll("#perm-actions input:checked").forEach(el => actions.push(el.value));
+      draftPermissions = { pages, actions };
+    }
+
+    function openPermModal(userId, email, permissions) {
+      editingUserId = userId;
+      draftPermissions = {
+        pages: [...(permissions.pages || [])],
+        actions: [...(permissions.actions || [])],
+      };
+      document.getElementById("perm-modal-email").textContent = email;
+      document.getElementById("perm-message").className = "message";
+      document.getElementById("perm-message").textContent = "";
+      renderPermCheckboxes();
+      const modal = document.getElementById("perm-modal");
+      modal.classList.add("open");
+      modal.setAttribute("aria-hidden", "false");
+    }
+
+    function closePermModal() {
+      editingUserId = null;
+      const modal = document.getElementById("perm-modal");
+      modal.classList.remove("open");
+      modal.setAttribute("aria-hidden", "true");
+    }
+
+    document.getElementById("perm-cancel").addEventListener("click", closePermModal);
+    document.getElementById("perm-modal").addEventListener("click", (e) => {
+      if (e.target.id === "perm-modal") closePermModal();
+    });
+
+    document.getElementById("perm-save").addEventListener("click", async () => {
+      readDraftFromForm();
+      const msg = document.getElementById("perm-message");
+      try {
+        const res = await fetch(`/api/admin/users/${editingUserId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ permissions: draftPermissions }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Save failed");
+        showMsg(msg, "Permissions saved", true);
+        const row = document.querySelector(`tr[data-user-id="${editingUserId}"]`);
+        if (row) row.dataset.permissions = JSON.stringify(data.permissions);
+        setTimeout(() => { closePermModal(); showMsg(document.getElementById("users-message"), `Updated permissions for ${data.email}`, true); }, 400);
+      } catch (err) {
+        showMsg(msg, err.message, false);
+      }
+    });
+
+    loadCatalog().catch(() => {});
+
+    document.querySelectorAll(".perms-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const row = btn.closest("tr");
+        let permissions = { pages: [], actions: [] };
+        try {
+          permissions = JSON.parse(row.dataset.permissions || "{}");
+        } catch (_) {}
+        openPermModal(btn.dataset.userId, btn.dataset.email, permissions);
+      });
+    });
 
     document.getElementById("create-user-form").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -148,6 +332,7 @@
           const data = await res.json();
           if (!res.ok) throw new Error(data.detail || "Update failed");
           showMsg(msg, `Updated role for ${data.email}`, true);
+          setTimeout(() => window.location.reload(), 500);
         } catch (err) {
           showMsg(msg, err.message, false);
         }

@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, Request
+from sqlalchemy.orm import Session
 
 from app.auth.deps import get_session_user_id
-from app.auth.roles import can_edit
+from app.auth.permissions import has_action
 from app.config import IMPORT_API_KEY
 from app.db import get_db
 from app.models import User
-from sqlalchemy.orm import Session
 
 
 def valid_import_key(request: Request) -> bool:
@@ -21,19 +22,20 @@ def valid_import_key(request: Request) -> bool:
     return secrets.compare_digest(provided, IMPORT_API_KEY)
 
 
-def require_import_or_editor(
-    request: Request,
-    db: Session = Depends(get_db),
-) -> None:
-    """Allow cron (X-Import-Key) or logged-in editor/admin."""
-    if valid_import_key(request):
-        return
+def require_import_or_action(action_key: str) -> Callable[..., None]:
+    """Allow cron (X-Import-Key) or logged-in user with the given action permission."""
 
-    user_id = get_session_user_id(request)
-    if user_id is None:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    user = db.get(User, user_id)
-    if user is None or not user.is_active:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    if not can_edit(user.role):
-        raise HTTPException(status_code=403, detail="Editor access required")
+    def _dependency(request: Request, db: Session = Depends(get_db)) -> None:
+        if valid_import_key(request):
+            return
+
+        user_id = get_session_user_id(request)
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        user = db.get(User, user_id)
+        if user is None or not user.is_active:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        if not has_action(user, action_key):
+            raise HTTPException(status_code=403, detail="You do not have permission for this action")
+
+    return _dependency

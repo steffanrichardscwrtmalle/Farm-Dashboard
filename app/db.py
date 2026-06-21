@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import DATABASE_URL
-from app.models import DEFAULT_BUSINESS, SUPPLIER_WYNNSTAY, Base
+from app.models import DEFAULT_BUSINESS, SUPPLIER_WYNNSTAY, Base, User
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DATA_DIR = _PROJECT_ROOT / "data"
@@ -39,6 +39,49 @@ def init_db() -> None:
     _migrate_invoice_lines_schema()
     _migrate_supplier_schema()
     _migrate_herd_inventory_schema()
+    _migrate_user_permissions()
+
+
+def _migrate_user_permissions() -> None:
+    import json
+
+    from app.auth.permissions import (
+        DEFAULT_EDITOR_PERMISSIONS,
+        DEFAULT_VIEWER_PERMISSIONS,
+        serialize_permissions,
+    )
+    from app.auth.roles import LEGACY_ROLE_EDITOR, LEGACY_ROLE_VIEWER, ROLE_USER
+
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("users")}
+    with engine.begin() as conn:
+        if "permissions" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN permissions TEXT"))
+
+    from sqlalchemy import select
+
+    with SessionLocal() as db:
+        users = list(db.scalars(select(User)).all())
+        changed = False
+        for user in users:
+            if user.role == LEGACY_ROLE_EDITOR:
+                user.role = ROLE_USER
+                if not user.permissions:
+                    user.permissions = serialize_permissions(DEFAULT_EDITOR_PERMISSIONS)
+                changed = True
+            elif user.role == LEGACY_ROLE_VIEWER:
+                user.role = ROLE_USER
+                if not user.permissions:
+                    user.permissions = serialize_permissions(DEFAULT_VIEWER_PERMISSIONS)
+                changed = True
+            elif user.role == ROLE_USER and not user.permissions:
+                user.permissions = serialize_permissions(DEFAULT_VIEWER_PERMISSIONS)
+                changed = True
+        if changed:
+            db.commit()
 
 
 def _add_supplier_column(conn, table: str) -> None:

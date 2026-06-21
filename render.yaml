@@ -29,6 +29,10 @@ services:
         sync: false
       - key: IMPORT_API_KEY
         sync: false
+      - key: FEEDLYNC_REFRESH_TOKEN
+        sync: false
+      - key: FEEDLYNC_FARM_ID
+        sync: false
     domains:
       - dashboard.cwrtmalle.co.uk
 

@@ -81,7 +81,7 @@
         <div class="actions">
           <input type="text" id="search-rules" placeholder="Search rules…" style="width:200px;margin:0">
           <button type="button" id="save-all-rules">Save all rules</button>
-          {% if current_user and current_user.role in ['admin', 'editor'] %}
+          {% if perms.action('prostock.mappings') %}
           <button type="button" id="reseed-library-btn" class="secondary">Reload product library</button>
           {% endif %}
         </div>

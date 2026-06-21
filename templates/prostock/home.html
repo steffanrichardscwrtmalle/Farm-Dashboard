@@ -3,7 +3,7 @@
 {% block page_heading %}Import New Data{% endblock %}
 
 {% block content %}
-    {% if current_user and current_user.role in ['admin', 'editor'] %}
+    {% if perms.action('prostock.import') %}
     <section class="grid">
       <div class="card">
         <h2>Import Prostock data</h2>
@@ -37,7 +37,7 @@
       </div>
     </section>
     {% else %}
-    <p class="muted">You have view-only access. Contact an admin or editor to import or refresh Prostock data.</p>
+    <p class="muted">You have view-only access. Contact an administrator to import or refresh Prostock data.</p>
     {% endif %}
 {% endblock %}
 

@@ -6,7 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.passwords import hash_password
-from app.auth.roles import ROLE_ADMIN, ROLES
+from app.auth.permissions import normalize_permissions, serialize_permissions
+from app.auth.roles import ROLE_ADMIN, ROLE_USER, ROLES
 from app.config import ADMIN_EMAIL, ADMIN_PASSWORD, MIN_PASSWORD_LENGTH
 from app.models import User
 
@@ -29,16 +30,27 @@ def get_user_by_email(db: Session, email: str) -> User | None:
     return db.scalar(select(User).where(User.email == normalize_email(email)))
 
 
-def create_user(db: Session, *, email: str, password: str, role: str) -> User:
+def create_user(
+    db: Session,
+    *,
+    email: str,
+    password: str,
+    role: str,
+    permissions: dict | None = None,
+) -> User:
     validate_password(password)
     validate_role(role)
     normalized = normalize_email(email)
     if get_user_by_email(db, normalized):
         raise ValueError("A user with this email already exists")
+    perms_json = None
+    if role != ROLE_ADMIN:
+        perms_json = serialize_permissions(normalize_permissions(permissions))
     user = User(
         email=normalized,
         password_hash=hash_password(password),
         role=role,
+        permissions=perms_json,
         is_active=True,
     )
     db.add(user)

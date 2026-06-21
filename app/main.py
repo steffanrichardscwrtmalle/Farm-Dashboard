@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.events_routes import router as events_api_router
+from app.api.feed_rate_routes import router as feed_rate_api_router
 from app.api.stock_inventory_routes import router as stock_inventory_api_router
 from app.api.admin_routes import router as admin_api_router
 from app.api.herd_routes import router as herd_api_router
@@ -21,6 +22,17 @@ from app.api.routes import router as api_router
 from app.auth.deps import require_admin
 from app.auth.middleware import AuthMiddleware
 from app.auth.passwords import verify_password
+from app.auth.permissions import (
+    PAGE_EVENTS,
+    PAGE_FEED_RATE,
+    PAGE_PROSTOCK,
+    PAGE_STOCK_INVENTORY,
+    PAGE_WYNNSTAY,
+    PermissionContext,
+    can_edit_sires,
+    can_import_feed,
+    has_page,
+)
 from app.auth.roles import ROLE_LABELS, ROLES
 from app.auth.users import get_user_by_email, seed_admin_user
 from app.config import COOKIE_SECURE, SECRET_KEY, SESSION_MAX_AGE_SECONDS
@@ -52,6 +64,7 @@ app.include_router(prostock_api_router)
 app.include_router(herd_api_router)
 app.include_router(stock_inventory_api_router)
 app.include_router(events_api_router)
+app.include_router(feed_rate_api_router)
 app.include_router(admin_api_router)
 
 _WYNNSTAY_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/wynnstay">Wynnstay</a>'
@@ -63,6 +76,10 @@ _STOCK_INVENTORY_BREADCRUMB = (
 _EVENTS_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/events/calvings">Events</a>'
+)
+_FEED_RATE_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/feed-rate">Feed Rate</a>'
 )
 
 _login_attempts: dict[str, list[float]] = defaultdict(list)
@@ -76,8 +93,30 @@ def _template_ctx(request: Request, **extra) -> dict:
         "request": request,
         "current_user": user,
         "roles": [{"id": r, "label": ROLE_LABELS[r]} for r in ROLES],
+        "perms": PermissionContext(user),
+        "can_import_feed": can_import_feed(user),
+        "can_edit_sires": can_edit_sires(user),
         **extra,
     }
+
+
+def _page_guard(request: Request, page_key: str) -> HTMLResponse | None:
+    user = getattr(request.state, "user", None)
+    if has_page(user, page_key):
+        return None
+    return templates.TemplateResponse(
+        request,
+        "forbidden.html",
+        _template_ctx(
+            request,
+            title="Access denied",
+            active_nav=None,
+            active_nav_group=None,
+            active_section=None,
+            breadcrumb=None,
+        ),
+        status_code=403,
+    )
 
 
 def _wynnstay_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
@@ -127,6 +166,19 @@ def _events_context(title: str, active_nav: str, page_name: str | None = None) -
         "title": title,
         "active_nav_group": "events",
         "active_section": "events",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _feed_rate_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _FEED_RATE_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "feed-rate",
+        "active_section": "feed-rate",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -260,6 +312,8 @@ def dashboard(request: Request):
 
 @app.get("/wynnstay", response_class=HTMLResponse)
 def wynnstay_home(request: Request):
+    if denied := _page_guard(request, PAGE_WYNNSTAY):
+        return denied
     return templates.TemplateResponse(
         request,
         "wynnstay/home.html",
@@ -269,6 +323,8 @@ def wynnstay_home(request: Request):
 
 @app.get("/wynnstay/invoices", response_class=HTMLResponse)
 def invoices_page(request: Request):
+    if denied := _page_guard(request, PAGE_WYNNSTAY):
+        return denied
     return templates.TemplateResponse(
         request,
         "invoices.html",
@@ -278,6 +334,8 @@ def invoices_page(request: Request):
 
 @app.get("/wynnstay/category-breakdown", response_class=HTMLResponse)
 def category_breakdown_page(request: Request):
+    if denied := _page_guard(request, PAGE_WYNNSTAY):
+        return denied
     return templates.TemplateResponse(
         request,
         "category_breakdown.html",
@@ -287,6 +345,8 @@ def category_breakdown_page(request: Request):
 
 @app.get("/wynnstay/product-price-by-month", response_class=HTMLResponse)
 def product_price_by_month_page(request: Request):
+    if denied := _page_guard(request, PAGE_WYNNSTAY):
+        return denied
     return templates.TemplateResponse(
         request,
         "product_price_by_month.html",
@@ -296,6 +356,8 @@ def product_price_by_month_page(request: Request):
 
 @app.get("/wynnstay/product-quantity-by-month", response_class=HTMLResponse)
 def product_quantity_by_month_page(request: Request):
+    if denied := _page_guard(request, PAGE_WYNNSTAY):
+        return denied
     return templates.TemplateResponse(
         request,
         "product_quantity_by_month.html",
@@ -305,6 +367,8 @@ def product_quantity_by_month_page(request: Request):
 
 @app.get("/wynnstay/monthly-spend", response_class=HTMLResponse)
 def monthly_spend_page(request: Request):
+    if denied := _page_guard(request, PAGE_WYNNSTAY):
+        return denied
     return templates.TemplateResponse(
         request,
         "monthly_spend.html",
@@ -314,6 +378,8 @@ def monthly_spend_page(request: Request):
 
 @app.get("/wynnstay/mappings", response_class=HTMLResponse)
 def mappings_page(request: Request):
+    if denied := _page_guard(request, PAGE_WYNNSTAY):
+        return denied
     return templates.TemplateResponse(
         request,
         "mappings.html",
@@ -323,6 +389,8 @@ def mappings_page(request: Request):
 
 @app.get("/prostock", response_class=HTMLResponse)
 def prostock_home(request: Request):
+    if denied := _page_guard(request, PAGE_PROSTOCK):
+        return denied
     return templates.TemplateResponse(
         request,
         "prostock/home.html",
@@ -332,6 +400,8 @@ def prostock_home(request: Request):
 
 @app.get("/prostock/mappings", response_class=HTMLResponse)
 def prostock_mappings_page(request: Request, db: Session = Depends(get_db)):
+    if denied := _page_guard(request, PAGE_PROSTOCK):
+        return denied
     from app.models import SUPPLIER_PROSTOCK
     from app.services.mapping_options import list_mapping_options
     from app.services.mappings import list_mapping_rules
@@ -354,6 +424,8 @@ def prostock_mappings_page(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/prostock/invoices", response_class=HTMLResponse)
 def prostock_invoices_page(request: Request):
+    if denied := _page_guard(request, PAGE_PROSTOCK):
+        return denied
     from app.models import PROSTOCK_BUSINESS_OPTIONS
 
     return templates.TemplateResponse(
@@ -369,6 +441,8 @@ def prostock_invoices_page(request: Request):
 
 @app.get("/prostock/product-prices", response_class=HTMLResponse)
 def prostock_product_prices_page(request: Request):
+    if denied := _page_guard(request, PAGE_PROSTOCK):
+        return denied
     from app.models import PROSTOCK_BUSINESS_OPTIONS
 
     return templates.TemplateResponse(
@@ -384,6 +458,8 @@ def prostock_product_prices_page(request: Request):
 
 @app.get("/prostock/product-quantity", response_class=HTMLResponse)
 def prostock_product_quantity_page(request: Request):
+    if denied := _page_guard(request, PAGE_PROSTOCK):
+        return denied
     from app.models import PROSTOCK_BUSINESS_OPTIONS
 
     return templates.TemplateResponse(
@@ -399,6 +475,8 @@ def prostock_product_quantity_page(request: Request):
 
 @app.get("/prostock/monthly-spend", response_class=HTMLResponse)
 def prostock_monthly_spend_page(request: Request):
+    if denied := _page_guard(request, PAGE_PROSTOCK):
+        return denied
     from app.models import PROSTOCK_BUSINESS_OPTIONS
 
     return templates.TemplateResponse(
@@ -414,6 +492,8 @@ def prostock_monthly_spend_page(request: Request):
 
 @app.get("/stock-inventory/heifer-inventory", response_class=HTMLResponse)
 def stock_inventory_heifer_page(request: Request):
+    if denied := _page_guard(request, PAGE_STOCK_INVENTORY):
+        return denied
     from app.models import HERD_FARM_OPTIONS
 
     return templates.TemplateResponse(
@@ -433,6 +513,8 @@ def stock_inventory_heifer_page(request: Request):
 
 @app.get("/stock-inventory/calves-due", response_class=HTMLResponse)
 def stock_inventory_calves_due_page(request: Request):
+    if denied := _page_guard(request, PAGE_STOCK_INVENTORY):
+        return denied
     from app.models import HERD_FARM_OPTIONS
 
     return templates.TemplateResponse(
@@ -452,6 +534,8 @@ def stock_inventory_calves_due_page(request: Request):
 
 @app.get("/stock-inventory/heifers-due", response_class=HTMLResponse)
 def stock_inventory_heifers_due_page(request: Request):
+    if denied := _page_guard(request, PAGE_STOCK_INVENTORY):
+        return denied
     from app.models import HERD_FARM_OPTIONS
 
     return templates.TemplateResponse(
@@ -477,9 +561,26 @@ def _events_page_response(
     chart_title: str,
     show_lact_filter: bool = False,
     show_parity_filter: bool = False,
+    parity_exclusive: bool = False,
+    show_disease_filter: bool = False,
+    show_disease_scatter: bool = False,
     show_reason_table: bool = False,
+    show_breedings_semen_chart: bool = False,
+    show_breedings_semen_table: bool = False,
+    show_breedings_sire_settings: bool = False,
 ):
     from app.models import HERD_FARM_OPTIONS
+    from app.services.events_common import DISEASE_EVENT_LABELS, DISEASE_FILTER_OPTIONS
+
+    if denied := _page_guard(request, PAGE_EVENTS):
+        return denied
+
+    disease_options = []
+    if show_disease_filter:
+        disease_options = [
+            {"value": code, "label": DISEASE_EVENT_LABELS.get(code, code)}
+            for code in DISEASE_FILTER_OPTIONS
+        ]
 
     return templates.TemplateResponse(
         request,
@@ -492,7 +593,14 @@ def _events_page_response(
             chart_title=chart_title,
             show_lact_filter=show_lact_filter,
             show_parity_filter=show_parity_filter,
+            parity_exclusive=parity_exclusive,
+            show_disease_filter=show_disease_filter,
+            show_disease_scatter=show_disease_scatter,
+            disease_options=disease_options,
             show_reason_table=show_reason_table,
+            show_breedings_semen_chart=show_breedings_semen_chart,
+            show_breedings_semen_table=show_breedings_semen_table,
+            show_breedings_sire_settings=show_breedings_sire_settings,
             **_events_context(title, slug, title),
         ),
     )
@@ -540,6 +648,9 @@ def events_disease_page(request: Request):
         title="Disease",
         chart_title="Disease Events by Month — Stacked by Farm",
         show_parity_filter=True,
+        parity_exclusive=True,
+        show_disease_filter=True,
+        show_disease_scatter=True,
     )
 
 
@@ -551,6 +662,24 @@ def events_breedings_page(request: Request):
         title="Breedings",
         chart_title="Breedings by Month — Stacked by Farm",
         show_parity_filter=True,
+        show_breedings_semen_chart=True,
+        show_breedings_semen_table=True,
+        show_breedings_sire_settings=True,
+    )
+
+
+@app.get("/feed-rate", response_class=HTMLResponse)
+def feed_rate_page(request: Request):
+    if denied := _page_guard(request, PAGE_FEED_RATE):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "feed_rate/report.html",
+        _template_ctx(
+            request,
+            page_heading="Feed Rate",
+            **_feed_rate_context("Feed Rate", "feed-rate", "Feed Rate"),
+        ),
     )
 
 
