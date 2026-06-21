@@ -91,37 +91,29 @@
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 8px;
-      max-height: 420px;
-      overflow-y: auto;
     }
     .summary-panel h3 {
       margin: 0;
       font-size: 0.95rem;
     }
-    .summary-breed-block {
+    .summary-row {
       display: flex;
       flex-direction: column;
       gap: 0.15rem;
       font-size: 0.875rem;
-      padding-bottom: 0.5rem;
-      border-bottom: 1px solid var(--border);
     }
-    .summary-breed-block:last-child {
-      border-bottom: none;
-      padding-bottom: 0;
-    }
-    .summary-breed-header {
+    .summary-row-header {
       font-weight: 700;
+      color: var(--text);
     }
-    .summary-breed-detail {
+    .summary-row-detail {
       color: var(--muted);
-      line-height: 1.45;
+      line-height: 1.4;
     }
-    .summary-breed-total {
+    .summary-row-total {
       padding-top: 0.5rem;
       margin-top: 0.15rem;
       border-top: 1px solid var(--border);
-      font-size: 0.875rem;
     }
     .content-panel { min-width: 0; }
     .meta-line {
@@ -410,13 +402,13 @@
       breedOptionsInitialized = true;
     }
 
-    function renderBreedSummary(data) {
+    function renderSummary(data) {
       const panel = document.getElementById("summary-panel");
       const container = document.getElementById("summary-rows");
-      const summary = data.breed_summary;
+      const summary = data.range_summary;
       const farms = selectedFarms();
 
-      if (!summary || !data.date_bounds || !farms.length || !summary.breeds?.length) {
+      if (!summary || !data.date_bounds || !farms.length) {
         panel.style.display = "none";
         container.innerHTML = "";
         return;
@@ -426,29 +418,27 @@
         ? "1 month"
         : `${summary.month_count} months`;
 
-      let html = summary.breeds.map(breedRow => {
-        const farmLines = farms.map(farm => {
-          const stats = breedRow[farm] || { total: 0, average_per_month: 0 };
-          return `${farm}: ${stats.total.toLocaleString("en-GB")} total, ${stats.average_per_month.toLocaleString("en-GB")} avg/month`;
-        }).join("<br>");
+      function farmRow(farm) {
+        const stats = summary[farm] || { total: 0, average_per_month: 0 };
         return `
-          <div class="summary-breed-block">
-            <span class="summary-breed-header">${breedRow.breed}</span>
-            <span class="summary-breed-detail">${farmLines}</span>
-            <span class="summary-breed-detail">
-              All farms: ${breedRow.total.toLocaleString("en-GB")} total,
-              ${breedRow.average_per_month.toLocaleString("en-GB")} avg/month (${monthNote})
+          <div class="summary-row">
+            <span class="summary-row-header">${farm}</span>
+            <span class="summary-row-detail">
+              Total: ${stats.total.toLocaleString("en-GB")}<br>
+              Avg/month: ${stats.average_per_month.toLocaleString("en-GB")} (${monthNote})
             </span>
           </div>
         `;
-      }).join("");
+      }
 
+      let html = farms.map(farmRow).join("");
+      const totalLabel = farms.length > 1 ? "Both farms" : "Total";
       html += `
-        <div class="summary-breed-total">
-          <span class="summary-breed-header">Total (all breeds)</span>
-          <span class="summary-breed-detail">
-            ${summary.total.toLocaleString("en-GB")} total,
-            ${summary.average_per_month.toLocaleString("en-GB")} avg/month (${monthNote})
+        <div class="summary-row summary-row-total">
+          <span class="summary-row-header">${totalLabel}</span>
+          <span class="summary-row-detail">
+            Total: ${summary.total.toLocaleString("en-GB")}<br>
+            Avg/month: ${summary.average_per_month.toLocaleString("en-GB")} (${monthNote})
           </span>
         </div>
       `;
@@ -614,7 +604,7 @@
       }
 
       empty.style.display = "none";
-      renderBreedSummary(data);
+      renderSummary(data);
       updateViewVisibility();
       renderTable(data);
       if (viewMode() === "graph") {
