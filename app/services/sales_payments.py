@@ -345,8 +345,6 @@ def normalize_sales_reasons(reasons: list[str] | None) -> list[str]:
     selected: list[str] = []
     for value in reasons:
         normalized = value.strip().upper()
-        if normalized == "BEEF":
-            normalized = "Beef"
         for reason in SALES_TABLE_REASON_ORDER:
             if reason.upper() == normalized and reason not in selected:
                 selected.append(reason)
