@@ -39,7 +39,6 @@ ACTION_PROSTOCK_IMPORT = "prostock.import"
 ACTION_PROSTOCK_MAPPINGS = "prostock.mappings"
 ACTION_HERD_IMPORT = "herd.import"
 ACTION_OFFICE_ADMIN_SALES_PAYMENT = "office_admin.sales_payment"
-ACTION_OFFICE_ADMIN_STOCK_PURCHASE = "office_admin.stock_purchase"
 
 ACTION_KEYS: tuple[str, ...] = (
     ACTION_WYNNSTAY_IMPORT,
@@ -48,7 +47,6 @@ ACTION_KEYS: tuple[str, ...] = (
     ACTION_PROSTOCK_MAPPINGS,
     ACTION_HERD_IMPORT,
     ACTION_OFFICE_ADMIN_SALES_PAYMENT,
-    ACTION_OFFICE_ADMIN_STOCK_PURCHASE,
 )
 
 ACTION_LABELS: dict[str, str] = {
@@ -58,7 +56,6 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_PROSTOCK_MAPPINGS: "Prostock — edit product mappings",
     ACTION_HERD_IMPORT: "Herd — import CSV data",
     ACTION_OFFICE_ADMIN_SALES_PAYMENT: "Office Admin — confirm sales payments",
-    ACTION_OFFICE_ADMIN_STOCK_PURCHASE: "Office Admin — edit stock purchases",
 }
 
 ALL_PAGES = list(PAGE_KEYS)

@@ -264,7 +264,13 @@ class SalesPaymentRecord(Base):
 
 STOCK_GROUP_COWS = "cows"
 STOCK_GROUP_YOUNGSTOCK = "youngstock"
+STOCK_GROUP_BEEF = "beef"
 STOCK_GROUP_OPTIONS: tuple[str, ...] = (STOCK_GROUP_COWS, STOCK_GROUP_YOUNGSTOCK)
+PURCHASE_STOCK_GROUP_OPTIONS: tuple[str, ...] = (
+    STOCK_GROUP_COWS,
+    STOCK_GROUP_YOUNGSTOCK,
+    STOCK_GROUP_BEEF,
+)
 
 
 class StockOpeningBaseline(Base):
@@ -295,40 +301,41 @@ class StockOpeningBaseline(Base):
         }
 
 
-class StockPurchaseRecord(Base):
-    """Manual monthly purchase entries for stock accruals."""
+class StockPurchaseAnimal(Base):
+    """Purchased animals derived from cow events (EDAT != BDAT), rebuilt on herd import."""
 
-    __tablename__ = "stock_purchase_records"
+    __tablename__ = "stock_purchase_animals"
     __table_args__ = (
-        UniqueConstraint(
-            "farm",
-            "stock_group",
-            "month_start",
-            name="uq_stock_purchase_farm_group_month",
-        ),
+        UniqueConstraint("farm", "etag", name="uq_stock_purchase_animal_farm_etag"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     farm: Mapped[str] = mapped_column(String(8), index=True)
+    etag: Mapped[str] = mapped_column(String(64), index=True)
+    edat: Mapped[datetime.date] = mapped_column(Date, index=True)
+    bdat: Mapped[datetime.date] = mapped_column(Date)
+    lact: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cbrd: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gndr: Mapped[str | None] = mapped_column(String(8), nullable=True)
     stock_group: Mapped[str] = mapped_column(String(16), index=True)
-    month_start: Mapped[datetime.date] = mapped_column(Date, index=True)
-    quantity: Mapped[int] = mapped_column(Integer, default=0)
-    notes: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_by_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id"), nullable=True
+    import_timestamp: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
     )
-    updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "farm": self.farm,
+            "etag": self.etag,
+            "edat": self.edat.isoformat(),
+            "bdat": self.bdat.isoformat(),
+            "lact": self.lact,
+            "cbrd": self.cbrd,
+            "gndr": self.gndr,
             "stock_group": self.stock_group,
-            "month_start": self.month_start.isoformat(),
-            "quantity": self.quantity,
-            "notes": self.notes or "",
-            "created_by_user_id": self.created_by_user_id,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "import_timestamp": self.import_timestamp.isoformat()
+            if self.import_timestamp
+            else None,
         }
 
 

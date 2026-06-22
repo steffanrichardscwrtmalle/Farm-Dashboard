@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from app.auth.deps import require_action, require_page
 from app.auth.permissions import (
     ACTION_OFFICE_ADMIN_SALES_PAYMENT,
-    ACTION_OFFICE_ADMIN_STOCK_PURCHASE,
     PAGE_OFFICE_ADMIN,
 )
 from app.db import get_db
@@ -24,11 +23,7 @@ from app.services.sales_payments import (
     unarchive_payments,
 )
 from app.services.stock_accruals import build_stock_accruals_report
-from app.services.stock_purchases import (
-    delete_stock_purchase,
-    list_stock_purchases,
-    upsert_stock_purchase,
-)
+from app.services.stock_purchases import list_stock_purchases
 
 router = APIRouter(prefix="/api/office-admin")
 
@@ -42,14 +37,6 @@ class PaymentKeyItem(BaseModel):
 
 class PaymentBulkBody(BaseModel):
     items: list[PaymentKeyItem] = Field(default_factory=list)
-
-
-class StockPurchaseBody(BaseModel):
-    farm: str
-    stock_group: str
-    month_start: dt.date
-    quantity: int = Field(ge=0)
-    notes: str = ""
 
 
 @router.get("/sales-payments")
@@ -140,7 +127,7 @@ def api_stock_accruals(
 @router.get("/stock-purchases")
 def api_stock_purchases(
     farm: list[str] | None = Query(None),
-    stock_group: str | None = Query(None),
+    stock_group: list[str] | None = Query(None),
     month_from: dt.date | None = Query(None),
     month_to: dt.date | None = Query(None),
     db: Session = Depends(get_db),
@@ -149,36 +136,7 @@ def api_stock_purchases(
     return list_stock_purchases(
         db,
         farms=farm,
-        stock_group=stock_group,
+        stock_groups=stock_group,
         month_from=month_from,
         month_to=month_to,
     )
-
-
-@router.post("/stock-purchases")
-def api_upsert_stock_purchase(
-    body: StockPurchaseBody,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_action(ACTION_OFFICE_ADMIN_STOCK_PURCHASE)),
-):
-    return upsert_stock_purchase(
-        db,
-        farm=body.farm,
-        stock_group=body.stock_group,
-        month_start=body.month_start,
-        quantity=body.quantity,
-        notes=body.notes,
-        user=user,
-    )
-
-
-@router.delete("/stock-purchases/{record_id}")
-def api_delete_stock_purchase(
-    record_id: int,
-    db: Session = Depends(get_db),
-    _user: User = Depends(require_action(ACTION_OFFICE_ADMIN_STOCK_PURCHASE)),
-):
-    deleted = delete_stock_purchase(db, record_id)
-    if not deleted:
-        return {"deleted": False}
-    return {"deleted": True}

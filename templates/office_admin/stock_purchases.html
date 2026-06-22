@@ -6,146 +6,209 @@
     main { max-width: none; }
     .page-layout {
       display: grid;
-      grid-template-columns: minmax(260px, 1fr) minmax(0, 3fr);
+      grid-template-columns: minmax(220px, 1fr) minmax(0, 4fr);
       gap: 1.5rem;
       align-items: start;
     }
     @media (max-width: 900px) { .page-layout { grid-template-columns: 1fr; } }
-    .panel {
+    .sidebar-column { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    .filter-panel {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 1rem;
     }
-    .panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
-    .form-grid { display: grid; gap: 0.75rem; }
-    .form-grid label {
+    .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-of-type { margin-bottom: 0; }
+    .filter-section .section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .slicer-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .slicer-group.three-col { grid-template-columns: 1fr 1fr 1fr; }
+    .slicer-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      min-height: 3rem;
+      padding: 0.5rem 0.4rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .slicer-btn.selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
+    .slicer-btn[data-value="youngstock"].selected { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
+    .slicer-btn[data-value="beef"].selected { background: #ede9fe; border-color: #a78bfa; color: #5b21b6; }
+    .date-inputs { display: grid; gap: 0.5rem; }
+    .date-inputs label {
       display: grid;
       gap: 0.25rem;
       font-size: 0.875rem;
       font-weight: 600;
       color: var(--muted);
     }
-    .form-grid input, .form-grid select, .form-grid textarea {
-      width: 100%;
-      margin: 0;
-    }
-    .form-grid textarea { min-height: 4rem; resize: vertical; }
+    .date-inputs input { margin: 0; width: 100%; }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
-    .table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+    .table-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 14rem);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
     #purchases-table { width: 100%; border-collapse: collapse; }
     #purchases-table th, #purchases-table td {
-      padding: 0.5rem 0.65rem;
+      padding: 0.45rem 0.55rem;
       text-align: left;
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
     }
-    #purchases-table thead th { background: #1e3a5f; color: #fff; }
+    #purchases-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
     .empty-state { padding: 1.5rem; color: var(--muted); }
+    .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
 {% endblock %}
 
 {% block content %}
   <div class="page-layout">
-    <aside class="panel">
-      <h2>{% if perms.action('office_admin.stock_purchase') %}Add / edit purchase{% else %}Purchases{% endif %}</h2>
-      {% if perms.action('office_admin.stock_purchase') %}
-      <form id="purchase-form" class="form-grid">
-        <input type="hidden" id="record-id" value="">
-        <label>
-          Farm
-          <select id="farm-select" required>
+    <div class="sidebar-column">
+      <aside class="filter-panel">
+        <h2>Filters</h2>
+        <div class="filter-section">
+          <span class="section-label">Farm</span>
+          <div class="slicer-group farm-slicer">
             {% for farm in farm_options %}
-            <option value="{{ farm }}">{{ farm }}</option>
+            <button type="button" class="slicer-btn farm-slicer-btn selected" data-value="{{ farm }}">{{ farm }}</button>
             {% endfor %}
-          </select>
-        </label>
-        <label>
-          Stock group
-          <select id="stock-group-select" required>
-            <option value="cows">Cows</option>
-            <option value="youngstock">Youngstock</option>
-          </select>
-        </label>
-        <label>
-          Month
-          <input type="month" id="month-input" required>
-        </label>
-        <label>
-          Quantity
-          <input type="number" id="quantity-input" min="0" step="1" required>
-        </label>
-        <label>
-          Notes
-          <textarea id="notes-input" placeholder="Optional"></textarea>
-        </label>
-        <button type="submit" class="primary small" id="save-btn">Save purchase</button>
-        <button type="button" class="secondary small" id="reset-btn">Clear form</button>
-      </form>
-      {% else %}
-      <p class="meta-line">You have read-only access. Contact an admin to edit purchases.</p>
-      {% endif %}
-    </aside>
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Stock group</span>
+          <div class="slicer-group three-col stock-group-slicer">
+            <button type="button" class="slicer-btn stock-group-slicer-btn selected" data-value="cows">Cows</button>
+            <button type="button" class="slicer-btn stock-group-slicer-btn selected" data-value="youngstock">Youngstock</button>
+            <button type="button" class="slicer-btn stock-group-slicer-btn selected" data-value="beef">Beef</button>
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">EDAT from</span>
+          <div class="date-inputs">
+            <label>
+              From
+              <input type="month" id="month-from">
+            </label>
+            <label>
+              To
+              <input type="month" id="month-to">
+            </label>
+          </div>
+        </div>
+      </aside>
+      <aside class="filter-panel">
+        <h2>About</h2>
+        <p class="help-text">
+          Purchases are derived automatically from herd events on each import.
+          An animal is counted when <strong>EDAT ≠ BDAT</strong> (enrolled, not born on farm).
+          One row per farm and ETAG. Beef purchases are shown here but excluded from Stock Accruals.
+        </p>
+      </aside>
+    </div>
 
-    <section>
-      <p class="meta-line" id="meta-line"></p>
+    <section class="content-panel">
+      <p class="meta-line" id="meta-line">Loading…</p>
       <div class="table-wrap">
         <table id="purchases-table">
           <thead>
             <tr>
               <th>Farm</th>
+              <th>ETAG</th>
+              <th>EDAT</th>
+              <th>BDAT</th>
+              <th>LACT</th>
+              <th>CBRD</th>
+              <th>GNDR</th>
               <th>Group</th>
-              <th>Month</th>
-              <th>Quantity</th>
-              <th>Notes</th>
-              {% if perms.action('office_admin.stock_purchase') %}<th></th>{% endif %}
             </tr>
           </thead>
           <tbody id="table-body"></tbody>
         </table>
       </div>
-      <div id="empty-state" class="empty-state" style="display:none;">No purchase entries yet.</div>
+      <div id="empty-state" class="empty-state" style="display:none;">No purchased animals match the filters.</div>
     </section>
   </div>
 {% endblock %}
 
 {% block scripts %}
   <script>
-    const CAN_EDIT = {{ 'true' if perms.action('office_admin.stock_purchase') else 'false' }};
-    let rows = [];
+    const GROUP_LABELS = { cows: "Cows", youngstock: "Youngstock", beef: "Beef" };
 
-    function monthInputFromIso(iso) {
-      const [y, m] = iso.split("-");
-      return `${y}-${m}`;
+    function selectedFarmValues() {
+      return [...document.querySelectorAll(".farm-slicer-btn.selected")].map(btn => btn.dataset.value);
     }
 
-    function formatMonthLabel(iso) {
+    function selectedGroupValues() {
+      return [...document.querySelectorAll(".stock-group-slicer-btn.selected")].map(btn => btn.dataset.value);
+    }
+
+    function bindMultiSlicers(selector) {
+      document.querySelectorAll(selector).forEach(btn => {
+        btn.addEventListener("click", () => {
+          const selected = btn.classList.contains("selected");
+          const group = [...document.querySelectorAll(selector)];
+          const selectedCount = group.filter(b => b.classList.contains("selected")).length;
+          if (selected && selectedCount <= 1) return;
+          btn.classList.toggle("selected");
+          loadRows();
+        });
+      });
+    }
+
+    function formatDate(iso) {
+      if (!iso) return "—";
       const d = new Date(iso + "T00:00:00");
-      const mon = d.toLocaleDateString("en-GB", { month: "short" });
-      return `${mon}-${String(d.getFullYear()).slice(-2)}`;
+      return d.toLocaleDateString("en-GB");
     }
 
-    function resetForm() {
-      document.getElementById("record-id").value = "";
-      document.getElementById("quantity-input").value = "";
-      document.getElementById("notes-input").value = "";
-      document.getElementById("save-btn").textContent = "Save purchase";
+    function monthEndIso(monthValue) {
+      if (!monthValue) return null;
+      const [y, m] = monthValue.split("-").map(Number);
+      const last = new Date(y, m, 0).getDate();
+      return `${y}-${String(m).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
     }
 
-    function fillForm(row) {
-      document.getElementById("record-id").value = row.id;
-      document.getElementById("farm-select").value = row.farm;
-      document.getElementById("stock-group-select").value = row.stock_group;
-      document.getElementById("month-input").value = monthInputFromIso(row.month_start);
-      document.getElementById("quantity-input").value = row.quantity;
-      document.getElementById("notes-input").value = row.notes || "";
-      document.getElementById("save-btn").textContent = "Update purchase";
+    function buildQuery() {
+      const params = new URLSearchParams();
+      selectedFarmValues().forEach(f => params.append("farm", f));
+      selectedGroupValues().forEach(g => params.append("stock_group", g));
+      const from = document.getElementById("month-from").value;
+      const to = document.getElementById("month-to").value;
+      if (from) params.set("month_from", `${from}-01`);
+      if (to) params.set("month_to", monthEndIso(to));
+      return params.toString();
     }
 
-    function renderTable() {
+    function renderTable(rows, meta) {
       const body = document.getElementById("table-body");
       const empty = document.getElementById("empty-state");
-      document.getElementById("meta-line").textContent =
-        `${rows.length.toLocaleString("en-GB")} purchase entries`;
+      const parts = [`${rows.length.toLocaleString("en-GB")} purchased animals`];
+      if (meta.latest_import) parts.push(`last rebuilt ${meta.latest_import.slice(0, 10)}`);
+      document.getElementById("meta-line").textContent = parts.join(" · ");
 
       if (!rows.length) {
         body.innerHTML = "";
@@ -156,73 +219,31 @@
       body.innerHTML = rows.map(row => `
         <tr>
           <td>${row.farm}</td>
-          <td>${row.stock_group === "youngstock" ? "Youngstock" : "Cows"}</td>
-          <td>${formatMonthLabel(row.month_start)}</td>
-          <td>${row.quantity.toLocaleString("en-GB")}</td>
-          <td>${row.notes || "—"}</td>
-          ${CAN_EDIT ? `<td>
-            <button type="button" class="secondary small edit-btn" data-id="${row.id}">Edit</button>
-            <button type="button" class="secondary small delete-btn" data-id="${row.id}">Delete</button>
-          </td>` : ""}
+          <td>${row.etag}</td>
+          <td>${formatDate(row.edat)}</td>
+          <td>${formatDate(row.bdat)}</td>
+          <td>${row.lact ?? "—"}</td>
+          <td>${row.cbrd ?? "—"}</td>
+          <td>${row.gndr || "—"}</td>
+          <td>${GROUP_LABELS[row.stock_group] || row.stock_group}</td>
         </tr>
       `).join("");
-
-      if (CAN_EDIT) {
-        body.querySelectorAll(".edit-btn").forEach(btn => {
-          btn.addEventListener("click", () => {
-            const row = rows.find(r => String(r.id) === btn.dataset.id);
-            if (row) fillForm(row);
-          });
-        });
-        body.querySelectorAll(".delete-btn").forEach(btn => {
-          btn.addEventListener("click", async () => {
-            if (!confirm("Delete this purchase entry?")) return;
-            const res = await fetch(`/api/office-admin/stock-purchases/${btn.dataset.id}`, { method: "DELETE" });
-            if (!res.ok) {
-              alert("Failed to delete purchase.");
-              return;
-            }
-            await loadRows();
-            resetForm();
-          });
-        });
-      }
     }
 
     async function loadRows() {
-      const res = await fetch("/api/office-admin/stock-purchases");
-      if (!res.ok) return;
+      const res = await fetch(`/api/office-admin/stock-purchases?${buildQuery()}`);
+      if (!res.ok) {
+        document.getElementById("meta-line").textContent = "Failed to load purchases.";
+        return;
+      }
       const data = await res.json();
-      rows = data.rows || [];
-      renderTable();
+      renderTable(data.rows || [], data);
     }
 
-    if (CAN_EDIT) {
-      document.getElementById("purchase-form").addEventListener("submit", async event => {
-        event.preventDefault();
-        const monthValue = document.getElementById("month-input").value;
-        if (!monthValue) return;
-        const body = {
-          farm: document.getElementById("farm-select").value,
-          stock_group: document.getElementById("stock-group-select").value,
-          month_start: `${monthValue}-01`,
-          quantity: parseInt(document.getElementById("quantity-input").value, 10) || 0,
-          notes: document.getElementById("notes-input").value.trim(),
-        };
-        const res = await fetch("/api/office-admin/stock-purchases", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          alert("Failed to save purchase.");
-          return;
-        }
-        await loadRows();
-        resetForm();
-      });
-      document.getElementById("reset-btn").addEventListener("click", resetForm);
-    }
+    bindMultiSlicers(".farm-slicer-btn");
+    bindMultiSlicers(".stock-group-slicer-btn");
+    document.getElementById("month-from").addEventListener("change", loadRows);
+    document.getElementById("month-to").addEventListener("change", loadRows);
 
     loadRows();
   </script>

@@ -16,6 +16,7 @@ from app.services.graph_onedrive import download_herd_file, graph_is_configured
 from app.services.herd_import_utils import (
     bulk_insert_dataframe,
     birth_category_series,
+    dedupe_birth_rows,
     drop_unnamed_columns,
     fiscal_year_from_dates,
     parse_date_series,
@@ -29,7 +30,7 @@ _BIRTH_ENCODING = "windows-1252"
 _BIRTH_REQUIRED_COLUMNS = ("ID", "ETAG", "BDAT", "CBRD", "GNDR")
 
 
-def _clean_birth_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+def _clean_birth_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     df = drop_unnamed_columns(df)
 
     missing = [col for col in _BIRTH_REQUIRED_COLUMNS if col not in df.columns]
@@ -57,7 +58,7 @@ def _clean_birth_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df["CBRD"] = pd.to_numeric(df["CBRD"], errors="coerce").astype("Int64")
     df["Category"] = birth_category_series(df["CBRD"], df["GNDR"])
 
-    return df
+    return dedupe_birth_rows(df)
 
 
 def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[dict[str, Any]]:
@@ -95,7 +96,7 @@ def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[d
 
 def _import_farm_file(
     db: Session, relative_path: str, farm: str, import_time: dt.datetime
-) -> int:
+) -> tuple[int, int]:
     file_bytes = download_herd_file(relative_path)
     df = pd.read_csv(
         io.BytesIO(file_bytes),
@@ -106,12 +107,12 @@ def _import_farm_file(
     del file_bytes
 
     df["Farm"] = farm
-    df = _clean_birth_dataframe(df)
+    df, duplicates_dropped = _clean_birth_dataframe(df)
     bulk_insert_dataframe(db, HerdBirth, df, _dataframe_to_mappings, import_time)
     rows = len(df)
     del df
     gc.collect()
-    return rows
+    return rows, duplicates_dropped
 
 
 def import_herd_births(db: Session) -> dict[str, Any]:
@@ -125,11 +126,17 @@ def import_herd_births(db: Session) -> dict[str, Any]:
     db.execute(delete(HerdBirth))
 
     rows_imported = 0
+    duplicate_rows_dropped = 0
+    duplicate_rows_dropped_by_farm: dict[str, int] = {}
     for relative_path, farm in (
         (CM_BIRTH_FILE, "CM"),
         (GAD_BIRTH_FILE, "GAD"),
     ):
-        rows_imported += _import_farm_file(db, relative_path, farm, import_time)
+        rows, dropped = _import_farm_file(db, relative_path, farm, import_time)
+        rows_imported += rows
+        duplicate_rows_dropped += dropped
+        if dropped:
+            duplicate_rows_dropped_by_farm[farm] = dropped
 
     db.commit()
 
@@ -140,6 +147,8 @@ def import_herd_births(db: Session) -> dict[str, Any]:
 
     return {
         "rows_imported": rows_imported,
+        "duplicate_rows_dropped": duplicate_rows_dropped,
+        "duplicate_rows_dropped_by_farm": duplicate_rows_dropped_by_farm,
         "farm_counts": farm_counts,
         "latest_birth_date": latest_birth.isoformat() if latest_birth else None,
         "imported_at": import_time.isoformat(timespec="seconds"),

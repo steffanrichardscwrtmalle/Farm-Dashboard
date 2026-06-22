@@ -104,6 +104,44 @@
       font-size: 0.75rem;
       opacity: 0.9;
     }
+    #accruals-table tfoot th,
+    #accruals-table tfoot td {
+      background: #f3f4f6;
+      font-weight: 600;
+      border-top: 2px solid var(--border);
+    }
+    #accruals-table tfoot tr.average-row th,
+    #accruals-table tfoot tr.average-row td {
+      background: #e8eef4;
+      border-bottom: none;
+    }
+    .summary-panel {
+      margin-top: 1rem;
+      padding: 1rem 1.25rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      max-width: 20rem;
+    }
+    .summary-panel h3 {
+      margin: 0 0 0.35rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .summary-panel .summary-value {
+      margin: 0;
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #1e3a5f;
+      line-height: 1.2;
+    }
+    .summary-panel .summary-note {
+      margin: 0.35rem 0 0;
+      font-size: 0.8125rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
     .empty-state {
       padding: 2rem;
       color: var(--muted);
@@ -160,7 +198,13 @@
         <table id="accruals-table">
           <thead id="table-head"></thead>
           <tbody id="table-body"></tbody>
+          <tfoot id="table-foot"></tfoot>
         </table>
+      </div>
+      <div class="summary-panel" id="summary-panel" style="display:none;">
+        <h3>Average stock</h3>
+        <p class="summary-value" id="avg-stock-value">—</p>
+        <p class="summary-note" id="avg-stock-note"></p>
       </div>
     </section>
   </div>
@@ -338,6 +382,119 @@
       ).join("");
     }
 
+    function formatTotal(n) {
+      return Math.round(n).toLocaleString("en-GB");
+    }
+
+    function formatAverage(n) {
+      return n.toLocaleString("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    }
+
+    function salesFooterCells(stats, isAverage) {
+      const fmt = isAverage ? formatAverage : formatTotal;
+      if (!salesExpanded) {
+        const value = isAverage ? stats.sales_total_avg : stats.sales_total;
+        return `<td>${fmt(value)}</td>`;
+      }
+      return SALES_REASONS.map(reason => {
+        const value = isAverage ? stats.sales_avg[reason] : stats.sales[reason];
+        return `<td>${fmt(value)}</td>`;
+      }).join("");
+    }
+
+    function computeTableStats(rows) {
+      const n = rows.length;
+      if (!n) return null;
+
+      const stats = {
+        sales_total: 0,
+        sales: Object.fromEntries(SALES_REASONS.map(r => [r, 0])),
+        deaths: 0,
+        births: 0,
+        calvings: 0,
+        purchases: 0,
+      };
+      let avgStockSum = 0;
+      let monthsWithClosing = 0;
+
+      for (const row of rows) {
+        stats.sales_total += row.sales_total || 0;
+        for (const reason of SALES_REASONS) {
+          stats.sales[reason] += row.sales?.[reason] || 0;
+        }
+        stats.deaths += row.deaths || 0;
+        stats.births += row.births || 0;
+        stats.calvings += row.calvings || 0;
+        stats.purchases += row.purchases || 0;
+        if (row.closing != null && !Number.isNaN(row.closing)) {
+          avgStockSum += (row.opening + row.closing) / 2;
+          monthsWithClosing += 1;
+        }
+      }
+
+      return {
+        ...stats,
+        sales_total_avg: stats.sales_total / n,
+        sales_avg: Object.fromEntries(
+          SALES_REASONS.map(r => [r, stats.sales[r] / n])
+        ),
+        deaths_avg: stats.deaths / n,
+        births_avg: stats.births / n,
+        calvings_avg: stats.calvings / n,
+        purchases_avg: stats.purchases / n,
+        avgStock: monthsWithClosing ? avgStockSum / monthsWithClosing : 0,
+        monthsWithClosing,
+        monthCount: n,
+      };
+    }
+
+    function renderSummaryPanel(stats) {
+      const panel = document.getElementById("summary-panel");
+      if (!stats) {
+        panel.style.display = "none";
+        return;
+      }
+      panel.style.display = "";
+      document.getElementById("avg-stock-value").textContent =
+        formatTotal(stats.avgStock);
+      document.getElementById("avg-stock-note").textContent =
+        `Mean of (opening + closing) ÷ 2 across ${stats.monthsWithClosing.toLocaleString("en-GB")} month${stats.monthsWithClosing === 1 ? "" : "s"}`;
+    }
+
+    function renderTableFoot(rows, stockGroup) {
+      const foot = document.getElementById("table-foot");
+      const stats = computeTableStats(rows);
+      if (!stats) {
+        foot.innerHTML = "";
+        renderSummaryPanel(null);
+        return;
+      }
+      const showBirths = stockGroup === "youngstock";
+      foot.innerHTML = `
+        <tr class="total-row">
+          <td>Total</td>
+          <td>—</td>
+          ${salesFooterCells(stats, false)}
+          <td>${formatTotal(stats.deaths)}</td>
+          ${showBirths ? `<td>${formatTotal(stats.births)}</td>` : ""}
+          <td>${formatTotal(stats.calvings)}</td>
+          <td>${formatTotal(stats.purchases)}</td>
+          <td>—</td>
+        </tr>
+        <tr class="average-row">
+          <td>Average</td>
+          <td>—</td>
+          ${salesFooterCells(stats, true)}
+          <td>${formatAverage(stats.deaths_avg)}</td>
+          ${showBirths ? `<td>${formatAverage(stats.births_avg)}</td>` : ""}
+          <td>${formatAverage(stats.calvings_avg)}</td>
+          <td>${formatAverage(stats.purchases_avg)}</td>
+          <td>—</td>
+        </tr>
+      `;
+      renderSummaryPanel(stats);
+    }
+
     function bindSalesToggle() {
       if (salesToggleBound) return;
       salesToggleBound = true;
@@ -381,6 +538,7 @@
           <td>${row.closing.toLocaleString("en-GB")}</td>
         </tr>
       `).join("");
+      renderTableFoot(rows, stockGroup);
     }
 
     async function loadReport() {
@@ -418,6 +576,7 @@
           empty.style.display = "";
           empty.textContent = "No stock accrual data for the selected filters.";
           wrap.style.display = "none";
+          document.getElementById("summary-panel").style.display = "none";
           return;
         }
 

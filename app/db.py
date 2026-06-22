@@ -43,6 +43,7 @@ def init_db() -> None:
     _migrate_sales_payments_schema()
     _migrate_herd_births_schema()
     _migrate_stock_accruals_schema()
+    _migrate_stock_purchases_schema()
     _migrate_user_permissions()
 
 
@@ -218,6 +219,14 @@ def _migrate_stock_accruals_schema() -> None:
                 )
             )
         db.commit()
+
+
+def _migrate_stock_purchases_schema() -> None:
+    """Drop legacy manual purchase table; animal-level table is created via metadata."""
+    inspector = inspect(engine)
+    if "stock_purchase_records" in inspector.get_table_names():
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE stock_purchase_records"))
 
 
 def _migrate_supplier_schema() -> None:

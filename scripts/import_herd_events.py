@@ -48,6 +48,13 @@ def main() -> int:
             f"(CM: {births['farm_counts'].get('CM', 0):,}, "
             f"GAD: {births['farm_counts'].get('GAD', 0):,})"
         )
+        if births.get("duplicate_rows_dropped", 0) > 0:
+            by_farm = births.get("duplicate_rows_dropped_by_farm", {})
+            farm_detail = ", ".join(f"{farm}: {count:,}" for farm, count in sorted(by_farm.items()))
+            print(
+                f"Dropped {births['duplicate_rows_dropped']:,} duplicate birth rows"
+                + (f" ({farm_detail})" if farm_detail else "")
+            )
         if births.get("latest_birth_date"):
             print(f"Latest birth date: {births['latest_birth_date']}")
 

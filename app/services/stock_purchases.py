@@ -1,23 +1,33 @@
-"""Manual stock purchase entries for Office Admin stock accruals."""
+"""Derived stock purchase listing for Office Admin."""
 
 from __future__ import annotations
 
 import datetime as dt
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import extract, func, select
 from sqlalchemy.orm import Session
 
-from app.models import STOCK_GROUP_OPTIONS, StockPurchaseRecord, User
+from app.models import PURCHASE_STOCK_GROUP_OPTIONS, STOCK_GROUP_OPTIONS, StockPurchaseAnimal
 from app.services.events_common import normalize_farms
 
 VALID_STOCK_GROUPS = set(STOCK_GROUP_OPTIONS)
+VALID_PURCHASE_GROUPS = set(PURCHASE_STOCK_GROUP_OPTIONS)
 
 
 def normalize_stock_group(value: str | None) -> str:
     normalized = (value or STOCK_GROUP_OPTIONS[0]).strip().lower()
     if normalized not in VALID_STOCK_GROUPS:
         return STOCK_GROUP_OPTIONS[0]
+    return normalized
+
+
+def normalize_purchase_stock_group(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    if normalized not in VALID_PURCHASE_GROUPS:
+        return None
     return normalized
 
 
@@ -29,80 +39,86 @@ def list_stock_purchases(
     db: Session,
     *,
     farms: list[str] | None = None,
-    stock_group: str | None = None,
+    stock_groups: list[str] | None = None,
     month_from: dt.date | None = None,
     month_to: dt.date | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
-    query = select(StockPurchaseRecord).order_by(
-        StockPurchaseRecord.month_start.desc(),
-        StockPurchaseRecord.farm.asc(),
+    selected_groups = [
+        group
+        for group in (
+            normalize_purchase_stock_group(value) for value in (stock_groups or [])
+        )
+        if group
+    ]
+
+    query = select(StockPurchaseAnimal).order_by(
+        StockPurchaseAnimal.edat.desc(),
+        StockPurchaseAnimal.farm.asc(),
+        StockPurchaseAnimal.etag.asc(),
     )
     if selected_farms:
-        query = query.where(StockPurchaseRecord.farm.in_(selected_farms))
-    if stock_group:
-        query = query.where(StockPurchaseRecord.stock_group == normalize_stock_group(stock_group))
+        query = query.where(StockPurchaseAnimal.farm.in_(selected_farms))
+    if selected_groups:
+        query = query.where(StockPurchaseAnimal.stock_group.in_(selected_groups))
     if month_from is not None:
-        query = query.where(StockPurchaseRecord.month_start >= _month_start(month_from))
+        query = query.where(StockPurchaseAnimal.edat >= _month_start(month_from))
     if month_to is not None:
-        query = query.where(StockPurchaseRecord.month_start <= _month_start(month_to))
+        query = query.where(StockPurchaseAnimal.edat <= month_to)
 
     records = list(db.scalars(query).all())
-    return {"rows": [record.to_dict() for record in records], "total": len(records)}
+    latest_import = db.scalar(select(func.max(StockPurchaseAnimal.import_timestamp)))
 
-
-def upsert_stock_purchase(
-    db: Session,
-    *,
-    farm: str,
-    stock_group: str,
-    month_start: dt.date,
-    quantity: int,
-    notes: str | None,
-    user: User,
-) -> dict[str, Any]:
-    farm = farm.strip().upper()
-    if farm not in normalize_farms([farm]):
-        raise ValueError(f"Invalid farm: {farm}")
-    stock_group = normalize_stock_group(stock_group)
-    month = _month_start(month_start)
-    if quantity < 0:
-        raise ValueError("Quantity cannot be negative")
-
-    record = db.scalar(
-        select(StockPurchaseRecord).where(
-            StockPurchaseRecord.farm == farm,
-            StockPurchaseRecord.stock_group == stock_group,
-            StockPurchaseRecord.month_start == month,
+    summary_query = (
+        select(
+            StockPurchaseAnimal.farm,
+            StockPurchaseAnimal.stock_group,
+            extract("year", StockPurchaseAnimal.edat),
+            extract("month", StockPurchaseAnimal.edat),
+            func.count(),
+        )
+        .group_by(
+            StockPurchaseAnimal.farm,
+            StockPurchaseAnimal.stock_group,
+            extract("year", StockPurchaseAnimal.edat),
+            extract("month", StockPurchaseAnimal.edat),
+        )
+        .order_by(
+            extract("year", StockPurchaseAnimal.edat).desc(),
+            extract("month", StockPurchaseAnimal.edat).desc(),
+            StockPurchaseAnimal.farm.asc(),
         )
     )
-    now = dt.datetime.now(dt.UTC).replace(tzinfo=None)
-    if record:
-        record.quantity = quantity
-        record.notes = (notes or "").strip() or None
-        record.created_by_user_id = user.id
-        record.updated_at = now
-    else:
-        record = StockPurchaseRecord(
-            farm=farm,
-            stock_group=stock_group,
-            month_start=month,
-            quantity=quantity,
-            notes=(notes or "").strip() or None,
-            created_by_user_id=user.id,
-            updated_at=now,
+    if selected_farms:
+        summary_query = summary_query.where(StockPurchaseAnimal.farm.in_(selected_farms))
+    if selected_groups:
+        summary_query = summary_query.where(
+            StockPurchaseAnimal.stock_group.in_(selected_groups)
         )
-        db.add(record)
+    if month_from is not None:
+        summary_query = summary_query.where(
+            StockPurchaseAnimal.edat >= _month_start(month_from)
+        )
+    if month_to is not None:
+        summary_query = summary_query.where(StockPurchaseAnimal.edat <= month_to)
 
-    db.commit()
-    db.refresh(record)
-    return record.to_dict()
+    summary_rows: list[dict[str, Any]] = []
+    for farm, group, year, month, count in db.execute(summary_query).all():
+        if year is None or month is None:
+            continue
+        month_start = dt.date(int(year), int(month), 1)
+        summary_rows.append(
+            {
+                "farm": str(farm),
+                "stock_group": str(group),
+                "month_start": month_start.isoformat(),
+                "quantity": int(count),
+            }
+        )
 
-
-def delete_stock_purchase(db: Session, record_id: int) -> bool:
-    record = db.get(StockPurchaseRecord, record_id)
-    if record is None:
-        return False
-    db.delete(record)
-    db.commit()
-    return True
+    return {
+        "rows": [record.to_dict() for record in records],
+        "total": len(records),
+        "summary_rows": summary_rows,
+        "latest_import": latest_import.isoformat() if latest_import else None,
+    }

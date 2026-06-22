@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models import CowEvent
 from app.services.graph_onedrive import download_herd_file, graph_is_configured
+from app.services.stock_purchase_derivation import rebuild_stock_purchases
 
 CM_EVENTS_FILE = "DCEXPORTCM/CMEVENTS.CSV"
 GAD_EVENTS_FILE = "DCEXPORTGAD/GADEVENTS.CSV"
@@ -207,6 +208,7 @@ def import_cow_events(db: Session) -> dict[str, Any]:
     ):
         rows_imported += _import_farm_file(db, relative_path, farm, import_time)
 
+    purchase_stats = rebuild_stock_purchases(db)
     db.commit()
 
     farm_counts = dict(
@@ -223,4 +225,5 @@ def import_cow_events(db: Session) -> dict[str, Any]:
         "latest_event_date": latest_date.isoformat() if latest_date else None,
         "imported_at": import_time.isoformat(timespec="seconds"),
         "source_files": [CM_EVENTS_FILE, GAD_EVENTS_FILE],
+        "purchase_stats": purchase_stats,
     }

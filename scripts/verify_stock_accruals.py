@@ -8,14 +8,50 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
+from sqlalchemy import func, select
+
 from app.db import SessionLocal, init_db
+from app.models import STOCK_GROUP_BEEF, HerdBirth, StockPurchaseAnimal
 from app.services.stock_accruals import build_stock_accruals_report
+from app.services.stock_purchase_derivation import rebuild_stock_purchases
 
 
 def main() -> None:
     init_db()
     db = SessionLocal()
     try:
+        stats = rebuild_stock_purchases(db)
+        db.commit()
+        print("Purchases rebuilt:", stats["rows_imported"], stats["stock_group_counts"])
+
+        dupes = db.scalar(
+            select(func.count())
+            .select_from(
+                select(StockPurchaseAnimal.farm, StockPurchaseAnimal.etag)
+                .group_by(StockPurchaseAnimal.farm, StockPurchaseAnimal.etag)
+                .having(func.count() > 1)
+                .subquery()
+            )
+        )
+        assert dupes == 0, f"duplicate farm+etag rows: {dupes}"
+
+        birth_dupes = db.scalar(
+            select(func.count())
+            .select_from(
+                select(HerdBirth.farm, HerdBirth.etag)
+                .where(HerdBirth.etag.isnot(None))
+                .group_by(HerdBirth.farm, HerdBirth.etag)
+                .having(func.count() > 1)
+                .subquery()
+            )
+        )
+        assert birth_dupes == 0, f"duplicate herd_births farm+etag rows: {birth_dupes}"
+
+        beef_count = db.scalar(
+            select(func.count()).where(StockPurchaseAnimal.stock_group == STOCK_GROUP_BEEF)
+        )
+        assert beef_count and beef_count > 0, "expected some beef purchases"
+
         report = build_stock_accruals_report(
             db,
             farms=["CM"],

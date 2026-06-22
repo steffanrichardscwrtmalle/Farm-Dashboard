@@ -14,7 +14,7 @@ from app.models import (
     CowEvent,
     HerdBirth,
     StockOpeningBaseline,
-    StockPurchaseRecord,
+    StockPurchaseAnimal,
 )
 from app.services.events_common import (
     SALES_TABLE_REASON_ORDER,
@@ -43,6 +43,8 @@ def _apply_cow_event_stock_group(query, stock_group: str):
     return (
         query.where(CowEvent.lact == 0)
         .where(func.upper(func.coalesce(CowEvent.gndr, "")) == "F")
+        .where(CowEvent.cbrd.isnot(None))
+        .where(CowEvent.cbrd < BEEF_CBREED_MIN)
     )
 
 
@@ -171,13 +173,25 @@ def _fetch_purchases_by_month(
     month_to: dt.date,
 ) -> dict[tuple[int, int], int]:
     rows = db.execute(
-        select(StockPurchaseRecord.month_start, StockPurchaseRecord.quantity)
-        .where(StockPurchaseRecord.farm == farm)
-        .where(StockPurchaseRecord.stock_group == stock_group)
-        .where(StockPurchaseRecord.month_start >= _month_start(month_from))
-        .where(StockPurchaseRecord.month_start <= _month_start(month_to))
+        select(
+            extract("year", StockPurchaseAnimal.edat),
+            extract("month", StockPurchaseAnimal.edat),
+            func.count(),
+        )
+        .where(StockPurchaseAnimal.farm == farm)
+        .where(StockPurchaseAnimal.stock_group == stock_group)
+        .where(StockPurchaseAnimal.edat >= month_from)
+        .where(StockPurchaseAnimal.edat <= month_to)
+        .group_by(
+            extract("year", StockPurchaseAnimal.edat),
+            extract("month", StockPurchaseAnimal.edat),
+        )
     ).all()
-    return {_month_key(month_start): int(quantity) for month_start, quantity in rows}
+    return {
+        (int(year), int(month)): int(count)
+        for year, month, count in rows
+        if year is not None and month is not None
+    }
 
 
 def _last_day_of_month(value: dt.date) -> dt.date:

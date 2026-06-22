@@ -73,6 +73,21 @@ def remove_invalid_id_rows(df: pd.DataFrame, id_column: str = "ID") -> pd.DataFr
     ].copy()
 
 
+def dedupe_birth_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Drop duplicate birth rows per farm; keep the first occurrence in file order."""
+    if df.empty:
+        return df, 0
+
+    before = len(df)
+    etag = df["ETAG"].astype(str).str.strip()
+    has_etag = etag.ne("") & etag.str.lower().ne("nan")
+
+    with_etag = df[has_etag].drop_duplicates(subset=["Farm", "ETAG"], keep="first")
+    without_etag = df[~has_etag].drop_duplicates(subset=["Farm", "ID", "BDAT"], keep="first")
+    out = pd.concat([with_etag, without_etag], ignore_index=True)
+    return out, before - len(out)
+
+
 def normalize_mapping_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for row in records:
         for key, val in list(row.items()):
