@@ -262,6 +262,76 @@ class SalesPaymentRecord(Base):
         }
 
 
+STOCK_GROUP_COWS = "cows"
+STOCK_GROUP_YOUNGSTOCK = "youngstock"
+STOCK_GROUP_OPTIONS: tuple[str, ...] = (STOCK_GROUP_COWS, STOCK_GROUP_YOUNGSTOCK)
+
+
+class StockOpeningBaseline(Base):
+    """Opening stock count for a farm/group from a specific month onward."""
+
+    __tablename__ = "stock_opening_baselines"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm",
+            "stock_group",
+            name="uq_stock_opening_baseline_farm_group",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    stock_group: Mapped[str] = mapped_column(String(16), index=True)
+    month_start: Mapped[datetime.date] = mapped_column(Date, index=True)
+    opening_count: Mapped[int] = mapped_column(Integer)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "farm": self.farm,
+            "stock_group": self.stock_group,
+            "month_start": self.month_start.isoformat(),
+            "opening_count": self.opening_count,
+        }
+
+
+class StockPurchaseRecord(Base):
+    """Manual monthly purchase entries for stock accruals."""
+
+    __tablename__ = "stock_purchase_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm",
+            "stock_group",
+            "month_start",
+            name="uq_stock_purchase_farm_group_month",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    stock_group: Mapped[str] = mapped_column(String(16), index=True)
+    month_start: Mapped[datetime.date] = mapped_column(Date, index=True)
+    quantity: Mapped[int] = mapped_column(Integer, default=0)
+    notes: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "farm": self.farm,
+            "stock_group": self.stock_group,
+            "month_start": self.month_start.isoformat(),
+            "quantity": self.quantity,
+            "notes": self.notes or "",
+            "created_by_user_id": self.created_by_user_id,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class FeedRateRecord(Base):
     """Latest feed ration snapshot imported from Feedlync."""
 

@@ -759,6 +759,42 @@ def office_admin_sales_payments_page(request: Request):
     )
 
 
+@app.get("/office-admin/stock-accruals", response_class=HTMLResponse)
+def office_admin_stock_accruals_page(request: Request):
+    if denied := _page_guard(request, PAGE_OFFICE_ADMIN):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "office_admin/stock_accruals.html",
+        _template_ctx(
+            request,
+            page_heading="Stock Accruals",
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_office_admin_context("Stock Accruals", "stock-accruals", "Stock Accruals"),
+        ),
+    )
+
+
+@app.get("/office-admin/purchases", response_class=HTMLResponse)
+def office_admin_purchases_page(request: Request):
+    if denied := _page_guard(request, PAGE_OFFICE_ADMIN):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "office_admin/stock_purchases.html",
+        _template_ctx(
+            request,
+            page_heading="Purchases",
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_office_admin_context("Purchases", "purchases", "Purchases"),
+        ),
+    )
+
+
 @app.get("/invoices")
 def redirect_invoices():
     return RedirectResponse("/wynnstay/invoices", status_code=301)

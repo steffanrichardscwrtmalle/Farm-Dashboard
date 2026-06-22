@@ -42,6 +42,7 @@ def init_db() -> None:
     _migrate_cow_events_schema()
     _migrate_sales_payments_schema()
     _migrate_herd_births_schema()
+    _migrate_stock_accruals_schema()
     _migrate_user_permissions()
 
 
@@ -178,6 +179,45 @@ def _migrate_herd_births_schema() -> None:
     if "category" not in columns:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE herd_births ADD COLUMN category VARCHAR(16)"))
+
+
+def _migrate_stock_accruals_schema() -> None:
+    """Seed opening baselines once tables exist."""
+    from app.models import (
+        STOCK_GROUP_COWS,
+        STOCK_GROUP_YOUNGSTOCK,
+        StockOpeningBaseline,
+    )
+
+    inspector = inspect(engine)
+    if "stock_opening_baselines" not in inspector.get_table_names():
+        return
+
+    seeds = [
+        ("CM", STOCK_GROUP_COWS, "2024-04-01", 2504),
+        ("CM", STOCK_GROUP_YOUNGSTOCK, "2024-04-01", 1780),
+        ("GAD", STOCK_GROUP_COWS, "2024-12-01", 851),
+        ("GAD", STOCK_GROUP_YOUNGSTOCK, "2024-12-01", 1319),
+    ]
+
+    with SessionLocal() as db:
+        from sqlalchemy import func, select
+
+        count = db.scalar(select(func.count()).select_from(StockOpeningBaseline)) or 0
+        if count > 0:
+            return
+        import datetime as dt
+
+        for farm, stock_group, month_iso, opening in seeds:
+            db.add(
+                StockOpeningBaseline(
+                    farm=farm,
+                    stock_group=stock_group,
+                    month_start=dt.date.fromisoformat(month_iso),
+                    opening_count=opening,
+                )
+            )
+        db.commit()
 
 
 def _migrate_supplier_schema() -> None:

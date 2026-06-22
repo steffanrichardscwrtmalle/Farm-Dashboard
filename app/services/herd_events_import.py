@@ -79,6 +79,10 @@ def _clean_events_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         )
         df.loc[fresh_mask, "Event"] = "FRESH"
 
+    if {"Date", "EDAT"}.issubset(df.columns):
+        invalid_edat = df["Date"].notna() & df["EDAT"].notna() & (df["Date"] < df["EDAT"])
+        df = df.loc[~invalid_edat]
+
     return df
 
 
