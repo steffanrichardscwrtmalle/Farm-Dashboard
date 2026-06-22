@@ -44,8 +44,10 @@ DISEASE_EPISODE_GAP_DAYS: dict[str, int] = {
 LACTATION_GROUPS: tuple[str, ...] = ("1", "2", "3+")
 PARITY_GROUPS: tuple[str, ...] = ("primiparous", "multiparous")
 PAGES_WITH_PARITY_FILTER: frozenset[str] = frozenset({"sales", "deaths", "disease", "breedings"})
-SALES_REASON_ORDER: tuple[str, ...] = ("OFS", "TB", "Beef", "CULL")
-SALES_TABLE_REASON_ORDER: tuple[str, ...] = ("CULL", "TB", "OFS", "Beef")
+SALES_REASON_ORDER: tuple[str, ...] = ("OFS", "TB", "Beef", "Dairy", "CULL")
+SALES_TABLE_REASON_ORDER: tuple[str, ...] = ("CULL", "TB", "OFS", "Beef", "Dairy")
+SALES_DAIRY_REMARKS: tuple[str, ...] = ("CAR18", "CAR19")
+SALES_MAPPED_REMARKS: tuple[str, ...] = ("OFS", "CAR11", "CAR16", *SALES_DAIRY_REMARKS)
 BREEDINGS_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy", "unknown")
 BREEDINGS_CHART_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy")
 
@@ -210,6 +212,7 @@ def _sales_reason_expression():
         (CowEvent.remark == "OFS", literal("OFS")),
         (CowEvent.remark == "CAR11", literal("TB")),
         (CowEvent.remark == "CAR16", literal("Beef")),
+        (CowEvent.remark.in_(list(SALES_DAIRY_REMARKS)), literal("Dairy")),
         else_=literal("CULL"),
     )
 

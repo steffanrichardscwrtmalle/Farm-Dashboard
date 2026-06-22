@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.models import CowEvent, SalesPaymentRecord, User
 from app.services.events_common import (
+    SALES_DAIRY_REMARKS,
+    SALES_MAPPED_REMARKS,
     SALES_TABLE_REASON_ORDER,
     _sales_reason_expression,
 )
@@ -71,11 +73,13 @@ def _reason_filter_conditions(reasons: list[str] | None):
         conditions.append(CowEvent.remark == "CAR11")
     if "Beef" in reasons:
         conditions.append(CowEvent.remark == "CAR16")
+    if "Dairy" in reasons:
+        conditions.append(CowEvent.remark.in_(list(SALES_DAIRY_REMARKS)))
     if "CULL" in reasons:
         conditions.append(
             or_(
                 CowEvent.remark.is_(None),
-                CowEvent.remark.notin_(["OFS", "CAR11", "CAR16"]),
+                CowEvent.remark.notin_(list(SALES_MAPPED_REMARKS)),
             )
         )
     if not conditions:

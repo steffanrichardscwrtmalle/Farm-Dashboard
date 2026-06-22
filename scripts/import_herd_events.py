@@ -34,6 +34,12 @@ def main() -> int:
         )
         if events.get("latest_event_date"):
             print(f"Latest event date: {events['latest_event_date']}")
+        purchase_stats = events.get("purchase_stats") or {}
+        if purchase_stats.get("excluded_count", 0) > 0:
+            print(
+                f"Excluded {purchase_stats['excluded_count']:,} GAD purchases "
+                f"(UK752261* with EDAT before Apr-2025)"
+            )
 
         inventory = import_herd_inventory(db)
         print(

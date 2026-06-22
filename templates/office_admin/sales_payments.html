@@ -119,6 +119,11 @@
       border-color: #8B4513;
       color: #5c2e0a;
     }
+    .slicer-btn[data-value="Dairy"].selected {
+      background: #dbeafe;
+      border-color: #3b82f6;
+      color: #1e40af;
+    }
     .date-inputs {
       display: grid;
       gap: 0.5rem;
@@ -227,6 +232,7 @@
     .reason-pill-TB { background: #fee2e2; color: #991b1b; }
     .reason-pill-OFS { background: #fef3c7; color: #92400e; }
     .reason-pill-Beef { background: #f5e6d3; color: #5c2e0a; }
+    .reason-pill-Dairy { background: #dbeafe; color: #1e40af; }
 {% endblock %}
 
 {% block content %}
@@ -257,6 +263,7 @@
             <button type="button" class="slicer-btn selected" data-value="TB" aria-pressed="true">TB</button>
             <button type="button" class="slicer-btn selected" data-value="OFS" aria-pressed="true">OFS</button>
             <button type="button" class="slicer-btn selected" data-value="Beef" aria-pressed="true">Beef</button>
+            <button type="button" class="slicer-btn selected" data-value="Dairy" aria-pressed="true">Dairy</button>
           </div>
         </div>
         <div class="filter-section">
@@ -316,7 +323,7 @@
 {% block scripts %}
   <script>
     const CAN_EDIT = {{ 'true' if perms.action('office_admin.sales_payment') else 'false' }};
-    const REASONS = ["CULL", "TB", "OFS", "Beef"];
+    const REASONS = ["CULL", "TB", "OFS", "Beef", "Dairy"];
     const DEFAULT_MONTH_SPAN = 12;
     let currentStatus = "active";
     let rows = [];
