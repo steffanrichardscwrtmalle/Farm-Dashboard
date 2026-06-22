@@ -217,7 +217,7 @@ def _migrate_stock_accruals_schema() -> None:
         ("CM", STOCK_GROUP_COWS, "2024-04-01", 2504),
         ("CM", STOCK_GROUP_YOUNGSTOCK, "2024-04-01", 1782),
         ("GAD", STOCK_GROUP_COWS, "2024-12-01", 851),
-        ("GAD", STOCK_GROUP_YOUNGSTOCK, "2024-12-01", 1319),
+        ("GAD", STOCK_GROUP_YOUNGSTOCK, "2024-12-01", 1315),
     ]
 
     import datetime as dt
@@ -236,6 +236,16 @@ def _migrate_stock_accruals_schema() -> None:
             )
             if baseline and baseline.opening_count == 1780:
                 baseline.opening_count = 1782
+                db.commit()
+            gad_ys = db.scalar(
+                select(StockOpeningBaseline).where(
+                    StockOpeningBaseline.farm == "GAD",
+                    StockOpeningBaseline.stock_group == STOCK_GROUP_YOUNGSTOCK,
+                    StockOpeningBaseline.month_start == dt.date(2024, 12, 1),
+                )
+            )
+            if gad_ys and gad_ys.opening_count == 1319:
+                gad_ys.opening_count = 1315
                 db.commit()
             return
 
