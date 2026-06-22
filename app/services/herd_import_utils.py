@@ -88,27 +88,49 @@ def dedupe_birth_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     return out, before - len(out)
 
 
+def _dedupe_matching_event_rows(
+    df: pd.DataFrame,
+    match: pd.Series,
+) -> tuple[pd.DataFrame, int]:
+    """Drop duplicate rows per farm/animal/date/lact/event; keep first in file order."""
+    if df.empty or not match.any():
+        return df, 0
+
+    before = len(df)
+    matched = df[match]
+    other = df[~match]
+
+    etag = (
+        matched["ETAG"].astype(str).str.strip()
+        if "ETAG" in matched.columns
+        else pd.Series([""] * len(matched), index=matched.index)
+    )
+    has_etag = etag.ne("") & etag.str.lower().ne("nan")
+
+    dedupe_cols_etag = ["Farm", "ETAG", "Date", "LACT", "Event"]
+    dedupe_cols_id = ["Farm", "ID", "Date", "LACT", "Event"]
+
+    with_etag = matched[has_etag].drop_duplicates(subset=dedupe_cols_etag, keep="first")
+    without_etag = matched[~has_etag].drop_duplicates(subset=dedupe_cols_id, keep="first")
+    deduped = pd.concat([with_etag, without_etag]).sort_index()
+    out = pd.concat([other, deduped]).sort_index()
+    return out, before - len(out)
+
+
 def dedupe_fresh_event_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     """Drop duplicate FRESH rows per farm/animal/date/lact; keep first in file order."""
     if df.empty or "Event" not in df.columns:
         return df, 0
-
-    before = len(df)
     fresh_mask = df["Event"].astype(str).str.strip().str.upper().eq("FRESH")
-    if not fresh_mask.any():
+    return _dedupe_matching_event_rows(df, fresh_mask)
+
+
+def dedupe_exit_event_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Drop duplicate SOLD/DIED rows per farm/animal/date/lact; keep first in file order."""
+    if df.empty or "Event" not in df.columns:
         return df, 0
-
-    fresh = df[fresh_mask]
-    other = df[~fresh_mask]
-
-    etag = fresh["ETAG"].astype(str).str.strip() if "ETAG" in fresh.columns else pd.Series([""] * len(fresh), index=fresh.index)
-    has_etag = etag.ne("") & etag.str.lower().ne("nan")
-
-    with_etag = fresh[has_etag].drop_duplicates(subset=["Farm", "ETAG", "Date", "LACT"], keep="first")
-    without_etag = fresh[~has_etag].drop_duplicates(subset=["Farm", "ID", "Date", "LACT"], keep="first")
-    deduped_fresh = pd.concat([with_etag, without_etag]).sort_index()
-    out = pd.concat([other, deduped_fresh]).sort_index()
-    return out, before - len(out)
+    exit_mask = df["Event"].astype(str).str.strip().str.upper().isin({"SOLD", "DIED"})
+    return _dedupe_matching_event_rows(df, exit_mask)
 
 
 def normalize_mapping_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -47,6 +47,30 @@ def main() -> None:
         )
         assert fresh_dupes == 0, f"duplicate FRESH event groups: {fresh_dupes}"
 
+        for exit_event in ("SOLD", "DIED"):
+            exit_dupes = db.scalar(
+                select(func.count())
+                .select_from(
+                    select(
+                        CowEvent.farm,
+                        func.coalesce(CowEvent.etag, CowEvent.cow_id),
+                        CowEvent.event_date,
+                        CowEvent.lact,
+                    )
+                    .where(CowEvent.event == exit_event)
+                    .where(CowEvent.event_date.isnot(None))
+                    .group_by(
+                        CowEvent.farm,
+                        func.coalesce(CowEvent.etag, CowEvent.cow_id),
+                        CowEvent.event_date,
+                        CowEvent.lact,
+                    )
+                    .having(func.count() > 1)
+                    .subquery()
+                )
+            )
+            assert exit_dupes == 0, f"duplicate {exit_event} event groups: {exit_dupes}"
+
         dupes = db.scalar(
             select(func.count())
             .select_from(

@@ -44,6 +44,10 @@ def main() -> int:
             print(
                 f"Dropped {events['duplicate_fresh_dropped']:,} duplicate FRESH event rows"
             )
+        if events.get("duplicate_exit_dropped", 0) > 0:
+            print(
+                f"Dropped {events['duplicate_exit_dropped']:,} duplicate SOLD/DIED event rows"
+            )
 
         inventory = import_herd_inventory(db)
         print(

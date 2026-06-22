@@ -6,7 +6,7 @@ import datetime as dt
 
 import pandas as pd
 
-from app.services.herd_import_utils import dedupe_fresh_event_rows
+from app.services.herd_import_utils import dedupe_exit_event_rows, dedupe_fresh_event_rows
 
 
 def test_dedupe_fresh_event_rows_keeps_first_occurrence() -> None:
@@ -38,5 +38,40 @@ def test_dedupe_fresh_event_rows_leaves_other_events() -> None:
         }
     )
     out, dropped = dedupe_fresh_event_rows(df)
+    assert dropped == 0
+    assert len(out) == 2
+
+
+def test_dedupe_exit_event_rows_died_ofs_converted_to_sold() -> None:
+    df = pd.DataFrame(
+        {
+            "Farm": ["GAD", "GAD"],
+            "ETAG": ["UK752261609096", "UK752261609096"],
+            "ID": ["609096", "609096"],
+            "Date": pd.to_datetime(["2025-05-16", "2025-05-16"]),
+            "LACT": [2, 2],
+            "Event": ["SOLD", "SOLD"],
+            "Remark": ["OFS", "OFS"],
+        }
+    )
+    out, dropped = dedupe_exit_event_rows(df)
+    assert dropped == 1
+    assert len(out) == 1
+    assert out.iloc[0]["Event"] == "SOLD"
+
+
+def test_dedupe_exit_event_rows_keeps_distinct_died_and_sold() -> None:
+    df = pd.DataFrame(
+        {
+            "Farm": ["GAD", "GAD"],
+            "ETAG": ["UK1", "UK1"],
+            "ID": ["1", "1"],
+            "Date": pd.to_datetime(["2025-05-16", "2025-05-16"]),
+            "LACT": [1, 1],
+            "Event": ["SOLD", "DIED"],
+            "Remark": ["CULL", "NATURAL"],
+        }
+    )
+    out, dropped = dedupe_exit_event_rows(df)
     assert dropped == 0
     assert len(out) == 2

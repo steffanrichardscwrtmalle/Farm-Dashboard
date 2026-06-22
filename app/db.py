@@ -159,14 +159,19 @@ def _migrate_cow_events_schema() -> None:
 
 
 def _dedupe_fresh_cow_events() -> None:
-    """Remove duplicate FRESH rows left in cow_events from older imports."""
-    from app.services.herd_events_import import remove_duplicate_fresh_cow_events
+    """Remove duplicate FRESH / SOLD / DIED rows left in cow_events from older imports."""
+    from app.services.herd_events_import import (
+        remove_duplicate_exit_cow_events,
+        remove_duplicate_fresh_cow_events,
+    )
 
     inspector = inspect(engine)
     if "cow_events" not in inspector.get_table_names():
         return
     with SessionLocal() as db:
-        removed = remove_duplicate_fresh_cow_events(db)
+        removed = remove_duplicate_fresh_cow_events(db) + remove_duplicate_exit_cow_events(
+            db
+        )
         if removed:
             db.commit()
 
