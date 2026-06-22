@@ -11,7 +11,7 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 from sqlalchemy import func, select
 
 from app.db import SessionLocal, init_db
-from app.models import STOCK_GROUP_BEEF, HerdBirth, StockPurchaseAnimal
+from app.models import STOCK_GROUP_BEEF, CowEvent, HerdBirth, StockPurchaseAnimal
 from app.services.stock_accruals import build_stock_accruals_report
 from app.services.stock_purchase_derivation import rebuild_stock_purchases
 
@@ -23,6 +23,29 @@ def main() -> None:
         stats = rebuild_stock_purchases(db)
         db.commit()
         print("Purchases rebuilt:", stats["rows_imported"], stats["stock_group_counts"])
+
+        fresh_dupes = db.scalar(
+            select(func.count())
+            .select_from(
+                select(
+                    CowEvent.farm,
+                    func.coalesce(CowEvent.etag, CowEvent.cow_id),
+                    CowEvent.event_date,
+                    CowEvent.lact,
+                )
+                .where(CowEvent.event == "FRESH")
+                .where(CowEvent.event_date.isnot(None))
+                .group_by(
+                    CowEvent.farm,
+                    func.coalesce(CowEvent.etag, CowEvent.cow_id),
+                    CowEvent.event_date,
+                    CowEvent.lact,
+                )
+                .having(func.count() > 1)
+                .subquery()
+            )
+        )
+        assert fresh_dupes == 0, f"duplicate FRESH event groups: {fresh_dupes}"
 
         dupes = db.scalar(
             select(func.count())
@@ -81,8 +104,30 @@ def main() -> None:
             month_from=dt.date(2024, 12, 1),
             month_to=dt.date(2024, 12, 31),
         )
-        assert gad["rows"][0]["opening"] == 851
-        print("GAD Dec-24 cows opening:", gad["rows"][0]["opening"])
+        gad_dec = gad["rows"][0]
+        assert gad_dec["opening"] == 851
+        assert gad_dec["purchases"] == 0, (
+            f"GAD Dec-24 cow purchases should be 0 after heifer reclass: {gad_dec['purchases']}"
+        )
+        print("GAD Dec-24 cows opening:", gad_dec["opening"], "purchases:", gad_dec["purchases"])
+
+        gad_ys = build_stock_accruals_report(
+            db,
+            farms=["GAD"],
+            stock_group="youngstock",
+            month_from=dt.date(2024, 12, 1),
+            month_to=dt.date(2024, 12, 31),
+        )
+        gad_ys_dec = gad_ys["rows"][0]
+        assert gad_ys_dec["purchases"] >= 10, (
+            f"expected purchased heifers in GAD Dec-24 youngstock: {gad_ys_dec['purchases']}"
+        )
+        print(
+            "GAD Dec-24 youngstock purchases:",
+            gad_ys_dec["purchases"],
+            "calvings:",
+            gad_ys_dec["calvings"],
+        )
 
         both = build_stock_accruals_report(
             db,

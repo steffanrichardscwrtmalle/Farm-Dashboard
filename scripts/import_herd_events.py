@@ -40,6 +40,10 @@ def main() -> int:
                 f"Excluded {purchase_stats['excluded_count']:,} GAD purchases "
                 f"(UK752261* with EDAT before Apr-2025)"
             )
+        if events.get("duplicate_fresh_dropped", 0) > 0:
+            print(
+                f"Dropped {events['duplicate_fresh_dropped']:,} duplicate FRESH event rows"
+            )
 
         inventory = import_herd_inventory(db)
         print(

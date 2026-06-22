@@ -40,6 +40,7 @@ def init_db() -> None:
     _migrate_supplier_schema()
     _migrate_herd_inventory_schema()
     _migrate_cow_events_schema()
+    _dedupe_fresh_cow_events()
     _migrate_sales_payments_schema()
     _migrate_herd_births_schema()
     _migrate_stock_accruals_schema()
@@ -157,6 +158,19 @@ def _migrate_cow_events_schema() -> None:
             )
 
 
+def _dedupe_fresh_cow_events() -> None:
+    """Remove duplicate FRESH rows left in cow_events from older imports."""
+    from app.services.herd_events_import import remove_duplicate_fresh_cow_events
+
+    inspector = inspect(engine)
+    if "cow_events" not in inspector.get_table_names():
+        return
+    with SessionLocal() as db:
+        removed = remove_duplicate_fresh_cow_events(db)
+        if removed:
+            db.commit()
+
+
 def _migrate_sales_payments_schema() -> None:
     if not DATABASE_URL.startswith("sqlite"):
         return
@@ -196,18 +210,29 @@ def _migrate_stock_accruals_schema() -> None:
 
     seeds = [
         ("CM", STOCK_GROUP_COWS, "2024-04-01", 2504),
-        ("CM", STOCK_GROUP_YOUNGSTOCK, "2024-04-01", 1780),
+        ("CM", STOCK_GROUP_YOUNGSTOCK, "2024-04-01", 1782),
         ("GAD", STOCK_GROUP_COWS, "2024-12-01", 851),
         ("GAD", STOCK_GROUP_YOUNGSTOCK, "2024-12-01", 1319),
     ]
+
+    import datetime as dt
 
     with SessionLocal() as db:
         from sqlalchemy import func, select
 
         count = db.scalar(select(func.count()).select_from(StockOpeningBaseline)) or 0
         if count > 0:
+            baseline = db.scalar(
+                select(StockOpeningBaseline).where(
+                    StockOpeningBaseline.farm == "CM",
+                    StockOpeningBaseline.stock_group == STOCK_GROUP_YOUNGSTOCK,
+                    StockOpeningBaseline.month_start == dt.date(2024, 4, 1),
+                )
+            )
+            if baseline and baseline.opening_count == 1780:
+                baseline.opening_count = 1782
+                db.commit()
             return
-        import datetime as dt
 
         for farm, stock_group, month_iso, opening in seeds:
             db.add(

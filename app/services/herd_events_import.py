@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models import CowEvent
 from app.services.graph_onedrive import download_herd_file, graph_is_configured
+from app.services.herd_import_utils import dedupe_fresh_event_rows
 from app.services.stock_purchase_derivation import rebuild_stock_purchases
 
 CM_EVENTS_FILE = "DCEXPORTCM/CMEVENTS.CSV"
@@ -84,7 +85,26 @@ def _clean_events_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         invalid_edat = df["Date"].notna() & df["EDAT"].notna() & (df["Date"] < df["EDAT"])
         df = df.loc[~invalid_edat]
 
+    df, _ = dedupe_fresh_event_rows(df)
     return df
+
+
+def remove_duplicate_fresh_cow_events(db: Session) -> int:
+    """Delete duplicate FRESH rows in cow_events; keep the lowest id per animal/date/lact."""
+    animal_key = func.coalesce(CowEvent.etag, CowEvent.cow_id)
+    keep_ids = (
+        select(func.min(CowEvent.id))
+        .where(CowEvent.event == "FRESH")
+        .where(CowEvent.event_date.isnot(None))
+        .group_by(CowEvent.farm, animal_key, CowEvent.event_date, CowEvent.lact)
+    )
+    result = db.execute(
+        delete(CowEvent).where(
+            CowEvent.event == "FRESH",
+            ~CowEvent.id.in_(keep_ids),
+        )
+    )
+    return int(result.rowcount or 0)
 
 
 def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[dict[str, Any]]:
@@ -208,6 +228,7 @@ def import_cow_events(db: Session) -> dict[str, Any]:
     ):
         rows_imported += _import_farm_file(db, relative_path, farm, import_time)
 
+    duplicate_fresh_dropped = remove_duplicate_fresh_cow_events(db)
     purchase_stats = rebuild_stock_purchases(db)
     db.commit()
 
@@ -221,6 +242,7 @@ def import_cow_events(db: Session) -> dict[str, Any]:
 
     return {
         "rows_imported": rows_imported,
+        "duplicate_fresh_dropped": duplicate_fresh_dropped,
         "farm_counts": farm_counts,
         "latest_event_date": latest_date.isoformat() if latest_date else None,
         "imported_at": import_time.isoformat(timespec="seconds"),

@@ -88,6 +88,29 @@ def dedupe_birth_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     return out, before - len(out)
 
 
+def dedupe_fresh_event_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Drop duplicate FRESH rows per farm/animal/date/lact; keep first in file order."""
+    if df.empty or "Event" not in df.columns:
+        return df, 0
+
+    before = len(df)
+    fresh_mask = df["Event"].astype(str).str.strip().str.upper().eq("FRESH")
+    if not fresh_mask.any():
+        return df, 0
+
+    fresh = df[fresh_mask]
+    other = df[~fresh_mask]
+
+    etag = fresh["ETAG"].astype(str).str.strip() if "ETAG" in fresh.columns else pd.Series([""] * len(fresh), index=fresh.index)
+    has_etag = etag.ne("") & etag.str.lower().ne("nan")
+
+    with_etag = fresh[has_etag].drop_duplicates(subset=["Farm", "ETAG", "Date", "LACT"], keep="first")
+    without_etag = fresh[~has_etag].drop_duplicates(subset=["Farm", "ID", "Date", "LACT"], keep="first")
+    deduped_fresh = pd.concat([with_etag, without_etag]).sort_index()
+    out = pd.concat([other, deduped_fresh]).sort_index()
+    return out, before - len(out)
+
+
 def normalize_mapping_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for row in records:
         for key, val in list(row.items()):

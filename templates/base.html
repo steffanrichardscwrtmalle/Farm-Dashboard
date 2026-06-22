@@ -748,11 +748,74 @@
     })();
 
     (function initCollapsibleNav() {
+      const navGroups = Array.from(document.querySelectorAll("[data-nav-group]"));
+      const navGroupControllers = new Map();
+
       function initNode(el, key, toggleSelector, onExpand) {
         const toggle = el.querySelector(toggleSelector);
-        if (!toggle || !key) return;
+        if (!toggle || !key) return null;
 
         const storageKey = `nav-${key}-expanded`;
+
+        function setExpanded(open) {
+          el.classList.toggle("expanded", open);
+          toggle.setAttribute("aria-expanded", open ? "true" : "false");
+          try { sessionStorage.setItem(storageKey, open ? "1" : "0"); } catch (_) {}
+        }
+
+        toggle.addEventListener("click", () => {
+          const willExpand = !el.classList.contains("expanded");
+          if (willExpand) {
+            navGroupControllers.forEach((ctrl, groupEl) => {
+              if (groupEl !== el) ctrl.setExpanded(false);
+            });
+            setExpanded(true);
+            if (onExpand) onExpand();
+          } else {
+            setExpanded(false);
+          }
+        });
+
+        return { setExpanded, storageKey };
+      }
+
+      navGroups.forEach(el => {
+        const controller = initNode(el, el.dataset.navGroup, ":scope > .nav-group-toggle", () => {
+          const group = el.dataset.navGroup;
+          if (group === "stock-inventory" && !window.location.pathname.startsWith("/stock-inventory")) {
+            window.location.href = "/stock-inventory/heifer-inventory";
+          }
+          if (group === "events" && !window.location.pathname.startsWith("/events")) {
+            window.location.href = "/events/calvings";
+          }
+          if (group === "feed-rate" && !window.location.pathname.startsWith("/feed-rate")) {
+            window.location.href = "/feed-rate";
+          }
+          if (group === "office-admin" && !window.location.pathname.startsWith("/office-admin")) {
+            window.location.href = "/office-admin/sales-payments";
+          }
+        });
+        if (controller) navGroupControllers.set(el, controller);
+      });
+
+      let openGroup = navGroups.find(el => el.classList.contains("expanded"));
+      if (!openGroup) {
+        openGroup = navGroups.find(el => {
+          const ctrl = navGroupControllers.get(el);
+          if (!ctrl) return false;
+          try { return sessionStorage.getItem(ctrl.storageKey) === "1"; } catch (_) {}
+          return false;
+        });
+      }
+      navGroupControllers.forEach((ctrl, el) => {
+        ctrl.setExpanded(el === openGroup);
+      });
+
+      document.querySelectorAll("[data-supplier]").forEach(el => {
+        const toggle = el.querySelector(":scope > .nav-supplier-toggle");
+        if (!toggle) return;
+
+        const storageKey = `nav-${el.dataset.supplier}-expanded`;
         const serverExpanded = el.classList.contains("expanded");
 
         function setExpanded(open) {
@@ -772,36 +835,14 @@
         toggle.addEventListener("click", () => {
           const willExpand = !el.classList.contains("expanded");
           setExpanded(willExpand);
-          if (willExpand && onExpand) onExpand();
-        });
-      }
-
-      document.querySelectorAll("[data-nav-group]").forEach(el => {
-        initNode(el, el.dataset.navGroup, ":scope > .nav-group-toggle", () => {
-          const group = el.dataset.navGroup;
-          if (group === "stock-inventory" && !window.location.pathname.startsWith("/stock-inventory")) {
-            window.location.href = "/stock-inventory/heifer-inventory";
-          }
-          if (group === "events" && !window.location.pathname.startsWith("/events")) {
-            window.location.href = "/events/calvings";
-          }
-          if (group === "feed-rate" && !window.location.pathname.startsWith("/feed-rate")) {
-            window.location.href = "/feed-rate";
-          }
-          if (group === "office-admin" && !window.location.pathname.startsWith("/office-admin")) {
-            window.location.href = "/office-admin/sales-payments";
-          }
-        });
-      });
-
-      document.querySelectorAll("[data-supplier]").forEach(el => {
-        initNode(el, el.dataset.supplier, ":scope > .nav-supplier-toggle", () => {
-          const supplier = el.dataset.supplier;
-          if (supplier === "wynnstay" && !window.location.pathname.startsWith("/wynnstay")) {
-            window.location.href = "/wynnstay";
-          }
-          if (supplier === "prostock" && !window.location.pathname.startsWith("/prostock")) {
-            window.location.href = "/prostock";
+          if (willExpand) {
+            const supplier = el.dataset.supplier;
+            if (supplier === "wynnstay" && !window.location.pathname.startsWith("/wynnstay")) {
+              window.location.href = "/wynnstay";
+            }
+            if (supplier === "prostock" && !window.location.pathname.startsWith("/prostock")) {
+              window.location.href = "/prostock";
+            }
           }
         });
       });
