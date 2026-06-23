@@ -262,6 +262,46 @@ class SalesPaymentRecord(Base):
         }
 
 
+class FallenStockRecord(Base):
+    """Tracks confirmed collection for dead animals; survives herd event reimports."""
+
+    __tablename__ = "fallen_stock_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm",
+            "cow_id",
+            "etag",
+            "event_date",
+            name="uq_fallen_stock_natural_key",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    cow_id: Mapped[str] = mapped_column(String(64), index=True)
+    etag: Mapped[str] = mapped_column(String(64), index=True)
+    event_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    collected_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    archived_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    unarchived_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    confirmed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "farm": self.farm,
+            "cow_id": self.cow_id,
+            "etag": self.etag,
+            "event_date": self.event_date.isoformat(),
+            "collected_at": self.collected_at.isoformat() if self.collected_at else None,
+            "archived_at": self.archived_at.isoformat() if self.archived_at else None,
+            "unarchived_at": self.unarchived_at.isoformat() if self.unarchived_at else None,
+            "confirmed_by_user_id": self.confirmed_by_user_id,
+        }
+
+
 STOCK_GROUP_COWS = "cows"
 STOCK_GROUP_YOUNGSTOCK = "youngstock"
 STOCK_GROUP_BEEF = "beef"

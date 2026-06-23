@@ -10,14 +10,21 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import require_action, require_page
 from app.auth.permissions import (
+    ACTION_OFFICE_ADMIN_FALLEN_STOCK,
     ACTION_OFFICE_ADMIN_SALES_PAYMENT,
     PAGE_OFFICE_ADMIN,
 )
 from app.db import get_db
 from app.models import User
+from app.services.fallen_stock import (
+    confirm_collections,
+    list_dest_filter_options as list_fallen_stock_dest_options,
+    list_fallen_stock,
+    unarchive_collections,
+)
 from app.services.sales_payments import (
     confirm_payments,
-    list_dest_filter_options,
+    list_dest_filter_options as list_sales_dest_filter_options,
     list_sales_payments,
     normalize_sales_reasons,
     unarchive_payments,
@@ -71,7 +78,7 @@ def api_sales_payments_filter_options(
     db: Session = Depends(get_db),
     _user: User = Depends(require_page(PAGE_OFFICE_ADMIN)),
 ):
-    options = list_dest_filter_options(
+    options = list_sales_dest_filter_options(
         db,
         status=status,
         farms=farm,
@@ -102,6 +109,66 @@ def api_unarchive_sales_payments(
 ):
     items = [item.model_dump() for item in body.items]
     return unarchive_payments(db, items, user)
+
+
+@router.get("/fallen-stock")
+def api_fallen_stock(
+    status: str = Query("active", pattern="^(active|archived)$"),
+    farm: list[str] | None = Query(None),
+    dest: str | None = Query(None),
+    event_from: dt.date | None = Query(None),
+    event_to: dt.date | None = Query(None),
+    include_date_bounds: bool = Query(True),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_OFFICE_ADMIN)),
+):
+    return list_fallen_stock(
+        db,
+        status=status,
+        farms=farm,
+        dest=dest,
+        event_from=event_from,
+        event_to=event_to,
+        include_date_bounds=include_date_bounds,
+    )
+
+
+@router.get("/fallen-stock/filter-options")
+def api_fallen_stock_filter_options(
+    status: str = Query("active", pattern="^(active|archived)$"),
+    farm: list[str] | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_OFFICE_ADMIN)),
+):
+    options = list_fallen_stock_dest_options(
+        db,
+        status=status,
+        farms=farm,
+    )
+    return {
+        "dest_options": options["dest_options"],
+        "date_bounds": options["date_bounds"],
+    }
+
+
+@router.post("/fallen-stock/confirm")
+def api_confirm_fallen_stock(
+    body: PaymentBulkBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_OFFICE_ADMIN_FALLEN_STOCK)),
+):
+    items = [item.model_dump() for item in body.items]
+    return confirm_collections(db, items, user)
+
+
+@router.post("/fallen-stock/unarchive")
+def api_unarchive_fallen_stock(
+    body: PaymentBulkBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_OFFICE_ADMIN_FALLEN_STOCK)),
+):
+    items = [item.model_dump() for item in body.items]
+    return unarchive_collections(db, items, user)
 
 
 @router.get("/stock-accruals")

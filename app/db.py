@@ -42,6 +42,7 @@ def init_db() -> None:
     _migrate_cow_events_schema()
     _dedupe_fresh_cow_events()
     _migrate_sales_payments_schema()
+    _migrate_fallen_stock_schema()
     _migrate_herd_births_schema()
     _migrate_stock_accruals_schema()
     _migrate_stock_purchases_schema()
@@ -188,6 +189,21 @@ def _migrate_sales_payments_schema() -> None:
             text(
                 "CREATE INDEX IF NOT EXISTS ix_sales_payment_natural_key "
                 "ON sales_payment_records (farm, cow_id, etag, event_date)"
+            )
+        )
+
+
+def _migrate_fallen_stock_schema() -> None:
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    inspector = inspect(engine)
+    if "fallen_stock_records" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_fallen_stock_natural_key "
+                "ON fallen_stock_records (farm, cow_id, etag, event_date)"
             )
         )
 
