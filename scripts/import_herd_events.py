@@ -20,6 +20,7 @@ from app.db import SessionLocal, init_db
 from app.services.herd_birth_import import import_herd_births
 from app.services.herd_events_import import import_cow_events
 from app.services.herd_inventory_import import import_herd_inventory
+from app.services.stock_valuations import rebuild_stock_valuation_snapshots
 
 
 def main() -> int:
@@ -71,6 +72,12 @@ def main() -> int:
             )
         if births.get("latest_birth_date"):
             print(f"Latest birth date: {births['latest_birth_date']}")
+
+        valuation_stats = rebuild_stock_valuation_snapshots(db)
+        print(
+            f"Rebuilt stock valuation snapshots: {valuation_stats['rows_written']:,} rows "
+            f"for anchor {valuation_stats.get('anchor_import_timestamp') or 'n/a'}"
+        )
 
         return 0
     except Exception as exc:

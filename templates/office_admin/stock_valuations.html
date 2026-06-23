@@ -1,0 +1,656 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .page-layout { grid-template-columns: 1fr; } }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-of-type { margin-bottom: 0; }
+    .filter-section .section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .filter-select { width: 100%; margin: 0; }
+    .date-inputs { display: grid; gap: 0.5rem; }
+    .date-inputs label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.8125rem;
+      color: var(--muted);
+    }
+    .date-inputs input[type="range"] { width: 100%; }
+    .date-inputs .month-label { font-weight: 600; min-width: 4.5rem; text-align: right; }
+    .slicer-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .slicer-btn {
+      padding: 0.5rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .slicer-btn.selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
+    .content-panel { min-width: 0; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
+    .methodology-note {
+      font-size: 0.8125rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+      padding: 0.75rem;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 1.5rem;
+    }
+    #valuations-table { width: 100%; border-collapse: collapse; }
+    #valuations-table th, #valuations-table td {
+      padding: 0.45rem 0.55rem;
+      text-align: right;
+      white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+    }
+    #valuations-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    #valuations-table thead tr.group-row th {
+      top: 0;
+      text-align: center;
+      border-left: 1px solid rgba(255,255,255,0.25);
+    }
+    #valuations-table thead tr.subhead-row th {
+      top: 2.1rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      border-left: 1px solid rgba(255,255,255,0.15);
+    }
+    #valuations-table tbody td {
+      border-left: 1px solid var(--border);
+    }
+    #valuations-table tbody td.month-cell {
+      font-weight: 600;
+      text-align: left;
+      position: sticky;
+      left: 0;
+      background: var(--card);
+      z-index: 1;
+    }
+    #valuations-table tbody tr.selected td.month-cell {
+      background: #e8f4fc;
+    }
+    #valuations-table .group-start {
+      border-left: 2px solid #94a3b8 !important;
+    }
+    #valuations-table tbody tr { cursor: pointer; }
+    #valuations-table tbody tr.selected { background: #e8f4fc; }
+    #valuations-table tbody tr:hover { background: #f8fafc; }
+    .detail-panel { margin-top: 1rem; }
+    .detail-panel h3 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    @media (max-width: 700px) { .kpi-grid { grid-template-columns: 1fr; } }
+    .kpi-card {
+      padding: 1rem;
+      border-radius: 8px;
+      text-align: center;
+      border: 1px solid var(--border);
+    }
+    .kpi-card .label { font-size: 0.875rem; color: #666; margin-bottom: 0.35rem; }
+    .kpi-card .value { font-size: 1.5rem; font-weight: 700; }
+    .kpi-card.blue { background: #e8f4f8; }
+    .kpi-card.orange { background: #fff4e6; }
+    .kpi-card.gray { background: #f0f0f0; }
+    .kpi-card.green { background: #e8f5e9; }
+    .kpi-card.gold { background: #fff9c4; }
+    .farm-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 900px) { .farm-columns { grid-template-columns: 1fr; } }
+    .farm-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .farm-card h4 { margin: 0 0 0.75rem; }
+    .category-block {
+      background: #f0f2f6;
+      border-radius: 6px;
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+    .category-block h5 { margin: 0 0 0.5rem; font-size: 0.9375rem; }
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+      text-align: center;
+    }
+    .metric-row.three { grid-template-columns: repeat(3, 1fr); }
+    .metric-row .metric-label { color: #666; font-size: 0.75rem; }
+    .metric-row .metric-value { font-weight: 600; }
+    .empty-state {
+      padding: 2rem;
+      color: var(--muted);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="page-layout">
+    <aside class="sidebar-column">
+      <div class="filter-panel">
+        <h2>Filters</h2>
+        <div class="filter-section">
+          <span class="section-label">Farm</span>
+          <div class="slicer-group farm-slicer" role="group" aria-label="Farm">
+            {% for farm in farm_options %}
+            <button type="button" class="slicer-btn selected" data-value="{{ farm }}" aria-pressed="true">{{ farm }}</button>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Fiscal year</span>
+          <select id="fiscal-year-select" class="filter-select"></select>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Month range</span>
+          <div class="date-inputs">
+            <label>From <span class="month-label" id="min-date-label">—</span></label>
+            <input type="range" id="min-date-range" min="0" max="0" value="0">
+            <label>To <span class="month-label" id="max-date-label">—</span></label>
+            <input type="range" id="max-date-range" min="0" max="0" value="0">
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="content-panel">
+      <p class="meta-line" id="meta-line">Loading stock valuations…</p>
+      <div class="methodology-note" id="methodology-note" style="display:none;"></div>
+      <div id="empty-state" class="empty-state" style="display:none;"></div>
+      <div class="table-wrap" id="table-wrap" style="display:none;">
+        <table id="valuations-table">
+          <thead>
+            <tr class="group-row">
+              <th rowspan="2">Month</th>
+              <th colspan="3">Cows</th>
+              <th colspan="3">Youngstock</th>
+              <th colspan="3">Beef</th>
+              <th colspan="3">Total</th>
+            </tr>
+            <tr class="subhead-row">
+              <th class="group-start">No</th>
+              <th>Avg Value</th>
+              <th>Total Value</th>
+              <th class="group-start">No</th>
+              <th>Avg Value</th>
+              <th>Total Value</th>
+              <th class="group-start">No</th>
+              <th>Avg Value</th>
+              <th>Total Value</th>
+              <th class="group-start">No</th>
+              <th>Avg Value</th>
+              <th>Total Value</th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+      <div class="detail-panel" id="detail-panel" style="display:none;">
+        <h3 id="detail-heading">Month detail</h3>
+        <div class="kpi-grid" id="kpi-grid"></div>
+        <div class="farm-columns" id="farm-columns"></div>
+        <h3>Sum of all valuations</h3>
+        <div class="table-wrap">
+          <table id="summary-table">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>CM</th>
+                <th>GAD</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="summary-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const DEFAULT_MONTH_SPAN = 12;
+    let selectedMonthStart = null;
+    let monthList = [];
+    let loadTimer = null;
+    let initialBoundsSynced = false;
+
+    function selectedFarms() {
+      return [...document.querySelectorAll(".farm-slicer .slicer-btn.selected")]
+        .map(btn => btn.dataset.value);
+    }
+
+    function bindFarmSlicers() {
+      document.querySelectorAll(".farm-slicer .slicer-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const selected = btn.classList.contains("selected");
+          const count = document.querySelectorAll(".farm-slicer .slicer-btn.selected").length;
+          if (selected && count <= 1) return;
+          btn.classList.toggle("selected", !selected);
+          btn.setAttribute("aria-pressed", btn.classList.contains("selected") ? "true" : "false");
+          loadReport();
+        });
+      });
+    }
+
+    function formatGbp(value) {
+      const n = Number(value) || 0;
+      return `£${n.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
+    }
+
+    function parseIsoDate(iso) {
+      const [y, m, d] = iso.split("-").map(Number);
+      return new Date(y, m - 1, d);
+    }
+
+    function buildMonthList(minIso, maxIso) {
+      const months = [];
+      let d = parseIsoDate(minIso);
+      d = new Date(d.getFullYear(), d.getMonth(), 1);
+      const end = parseIsoDate(maxIso);
+      const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
+      while (d <= endMonth) {
+        months.push(new Date(d));
+        d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+      }
+      return months;
+    }
+
+    function formatMonthLabel(date) {
+      const mon = date.toLocaleDateString("en-GB", { month: "short" });
+      return `${mon}-${String(date.getFullYear()).slice(-2)}`;
+    }
+
+    function toIsoDate(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+
+    function lastDayOfMonth(date) {
+      return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    }
+
+    function updateDateLabels() {
+      const minIdx = parseInt(document.getElementById("min-date-range").value, 10);
+      const maxIdx = parseInt(document.getElementById("max-date-range").value, 10);
+      document.getElementById("min-date-label").textContent =
+        monthList[minIdx] ? formatMonthLabel(monthList[minIdx]) : "—";
+      document.getElementById("max-date-label").textContent =
+        monthList[maxIdx] ? formatMonthLabel(monthList[maxIdx]) : "—";
+    }
+
+    function syncDateBounds(bounds) {
+      const minRange = document.getElementById("min-date-range");
+      const maxRange = document.getElementById("max-date-range");
+      if (!bounds?.min || !bounds?.max) {
+        monthList = [];
+        return;
+      }
+      monthList = buildMonthList(bounds.min, bounds.max);
+      const maxIdx = Math.max(0, monthList.length - 1);
+      const minIdx = Math.max(0, maxIdx - (DEFAULT_MONTH_SPAN - 1));
+      minRange.min = 0;
+      minRange.max = maxIdx;
+      maxRange.min = 0;
+      maxRange.max = maxIdx;
+      minRange.value = minIdx;
+      maxRange.value = maxIdx;
+      updateDateLabels();
+    }
+
+    function renderFiscalYearOptions(options, selected) {
+      const select = document.getElementById("fiscal-year-select");
+      const current = selected != null ? String(selected) : select.value;
+      select.innerHTML = "";
+      (options || []).forEach(fy => {
+        const opt = document.createElement("option");
+        opt.value = String(fy);
+        opt.textContent = String(fy);
+        select.appendChild(opt);
+      });
+      if (current && [...select.options].some(opt => opt.value === current)) {
+        select.value = current;
+      } else if (options?.length) {
+        select.value = String(options[0]);
+      }
+    }
+
+    function categoryLabel(cat) {
+      return cat === "Dairy" ? "Cows" : cat;
+    }
+
+    function renderCategoryBlock(cat, data, accent) {
+      const isDairy = cat === "Dairy";
+      const metrics = isDairy
+        ? `
+          <div><div class="metric-label"># Animals</div><div class="metric-value">${data.count.toLocaleString("en-GB")}</div></div>
+          <div><div class="metric-label">Avg Age</div><div class="metric-value">${data.avg_age_days.toLocaleString("en-GB")}</div></div>
+          <div><div class="metric-label">Avg LACT</div><div class="metric-value">${data.avg_lact != null ? data.avg_lact : "—"}</div></div>
+          <div><div class="metric-label">Avg Value</div><div class="metric-value" style="color:${accent}">${formatGbp(data.avg_value_gbp)}</div></div>
+        `
+        : `
+          <div><div class="metric-label"># Animals</div><div class="metric-value">${data.count.toLocaleString("en-GB")}</div></div>
+          <div><div class="metric-label">Avg Age</div><div class="metric-value">${data.avg_age_days.toLocaleString("en-GB")}</div></div>
+          <div><div class="metric-label">Avg Value</div><div class="metric-value" style="color:${accent}">${formatGbp(data.avg_value_gbp)}</div></div>
+        `;
+      return `
+        <div class="category-block">
+          <h5>${categoryLabel(cat)}</h5>
+          <div class="metric-row${isDairy ? "" : " three"}">${metrics}</div>
+        </div>
+      `;
+    }
+
+    function renderFarmCard(farm, label, data, accent) {
+      const cats = data.categories || {};
+      const order = ["Beef", "Dairy", "Youngstock"];
+      return `
+        <div class="farm-card">
+          <h4>${label}</h4>
+          ${order.filter(c => cats[c] && cats[c].count > 0).map(c => renderCategoryBlock(c, cats[c], accent)).join("")}
+          ${order.every(c => !cats[c] || cats[c].count === 0) ? "<p class='meta-line'>No animals in this category.</p>" : ""}
+        </div>
+      `;
+    }
+
+    function renderDetail(detail) {
+      if (!detail) {
+        document.getElementById("detail-panel").style.display = "none";
+        return;
+      }
+      document.getElementById("detail-panel").style.display = "";
+      document.getElementById("detail-heading").textContent =
+        `Detail — ${detail.month_label} (close ${detail.close_date})`;
+
+      document.getElementById("kpi-grid").innerHTML = `
+        <div class="kpi-card blue"><div class="label">Total Cows</div><div class="value">${detail.total_cows.toLocaleString("en-GB")}</div></div>
+        <div class="kpi-card orange"><div class="label">Total Youngstock</div><div class="value">${detail.total_youngstock.toLocaleString("en-GB")}</div></div>
+        <div class="kpi-card gray"><div class="label">Total Beef</div><div class="value">${detail.total_beef.toLocaleString("en-GB")}</div></div>
+        <div class="kpi-card green"><div class="label">Total Animals</div><div class="value">${detail.total_animals.toLocaleString("en-GB")}</div></div>
+        <div class="kpi-card gold" style="grid-column: span 2;"><div class="label">Sum of Value</div><div class="value">${formatGbp(detail.sum_value_gbp)}</div></div>
+      `;
+
+      const farms = detail.farms || {};
+      document.getElementById("farm-columns").innerHTML = `
+        ${farms.CM ? renderFarmCard("CM", "Cwrt Malle Stock Valuations", farms.CM, "#1f77b4") : ""}
+        ${farms.GAD ? renderFarmCard("GAD", "Green Acre Valuations", farms.GAD, "#ff7f0e") : ""}
+      `;
+
+      document.getElementById("summary-body").innerHTML = (detail.summary_table || []).map(row => `
+        <tr>
+          <td>${categoryLabel(row.category)}</td>
+          <td>${formatGbp(row.cm_gbp)}</td>
+          <td>${formatGbp(row.gad_gbp)}</td>
+          <td>${formatGbp(row.total_gbp)}</td>
+        </tr>
+      `).join("");
+    }
+
+    function formatNum(value) {
+      const n = Number(value) || 0;
+      return n.toLocaleString("en-GB", { maximumFractionDigits: 0 });
+    }
+
+    function rowTotalsForFarms(row, farms) {
+      if (farms.length === 1 && row.totals?.[farms[0]]) {
+        return row.totals[farms[0]];
+      }
+      return row.totals?.all || {};
+    }
+
+    function categoryCells(totals, categoryKey, options = {}) {
+      const cats = totals.categories || {};
+      const data = cats[categoryKey] || { count: 0, avg_value_gbp: 0, value_gbp: 0 };
+      const count = options.useDairyCows
+        ? (totals.dairy_cows ?? data.count)
+        : data.count;
+      const avg = data.avg_value_gbp ?? 0;
+      const total = data.value_gbp ?? 0;
+      return `
+        <td class="group-start">${formatNum(count)}</td>
+        <td>${formatGbp(avg)}</td>
+        <td>${formatGbp(total)}</td>
+      `;
+    }
+
+    function totalCells(totals) {
+      const cats = totals.categories || {};
+      const totalAnimals = Number(totals.total_animals) || (
+        Number(totals.dairy_cows ?? cats.Dairy?.count ?? 0)
+        + Number(cats.Youngstock?.count ?? 0)
+        + Number(cats.Beef?.count ?? 0)
+      );
+      const grandTotal = Number(totals.grand_total_gbp) || (
+        Number(cats.Dairy?.value_gbp ?? 0)
+        + Number(cats.Youngstock?.value_gbp ?? 0)
+        + Number(cats.Beef?.value_gbp ?? 0)
+      );
+      const avgValue = totalAnimals > 0 ? Math.floor(grandTotal / totalAnimals) : 0;
+      return `
+        <td class="group-start">${formatNum(totalAnimals)}</td>
+        <td>${formatGbp(avgValue)}</td>
+        <td>${formatGbp(grandTotal)}</td>
+      `;
+    }
+
+    function renderMonths(months) {
+      const farms = selectedFarms();
+      const body = document.getElementById("table-body");
+      body.innerHTML = (months || []).map(row => {
+        const totals = rowTotalsForFarms(row, farms);
+        const selected = selectedMonthStart === row.month_start ? "selected" : "";
+        return `
+          <tr class="${selected}" data-month="${row.month_start}">
+            <td class="month-cell">${row.month_label}</td>
+            ${categoryCells(totals, "Dairy", { useDairyCows: true })}
+            ${categoryCells(totals, "Youngstock")}
+            ${categoryCells(totals, "Beef")}
+            ${totalCells(totals)}
+          </tr>
+        `;
+      }).join("");
+
+      body.querySelectorAll("tr").forEach(tr => {
+        tr.addEventListener("click", () => {
+          selectedMonthStart = tr.dataset.month;
+          body.querySelectorAll("tr").forEach(r => r.classList.toggle("selected", r.dataset.month === selectedMonthStart));
+          loadReport(false);
+        });
+      });
+    }
+
+    function buildParams() {
+      const params = new URLSearchParams();
+      selectedFarms().forEach(f => params.append("farm", f));
+      const fy = document.getElementById("fiscal-year-select").value;
+      if (fy) params.set("fiscal_year", fy);
+      if (monthList.length) {
+        const minIdx = parseInt(document.getElementById("min-date-range").value, 10);
+        const maxIdx = parseInt(document.getElementById("max-date-range").value, 10);
+        params.set("month_from", toIsoDate(monthList[minIdx]));
+        params.set("month_to", toIsoDate(lastDayOfMonth(monthList[maxIdx])));
+      }
+      if (selectedMonthStart) params.set("month", selectedMonthStart);
+      return params;
+    }
+
+    async function loadReport(resetMonth = true) {
+      const farms = selectedFarms();
+      const meta = document.getElementById("meta-line");
+      const empty = document.getElementById("empty-state");
+      const wrap = document.getElementById("table-wrap");
+
+      if (!farms.length) {
+        meta.textContent = "";
+        empty.style.display = "";
+        empty.textContent = "Please select at least one farm.";
+        wrap.style.display = "none";
+        document.getElementById("detail-panel").style.display = "none";
+        return;
+      }
+
+      const params = buildParams();
+      if (resetMonth) {
+        params.delete("month");
+        selectedMonthStart = null;
+      }
+
+      meta.textContent = "Loading stock valuations…";
+      const res = await fetch(`/api/office-admin/stock-valuations?${params}`);
+      if (!res.ok) {
+        meta.textContent = "";
+        empty.style.display = "";
+        empty.textContent = "Failed to load stock valuations.";
+        wrap.style.display = "none";
+        return;
+      }
+
+      const data = await res.json();
+      renderFiscalYearOptions(data.fiscal_year_options || [], data.fiscal_year);
+
+      if (data.date_bounds && !initialBoundsSynced) {
+        syncDateBounds(data.date_bounds);
+        initialBoundsSynced = true;
+        await loadReport(resetMonth);
+        return;
+      }
+
+      const methodology = data.methodology || {};
+      const note = document.getElementById("methodology-note");
+      if (data.anchor_date) {
+        note.style.display = "";
+        note.innerHTML = `
+          <strong>Inventory anchor:</strong> ${data.anchor_date}.
+          ${methodology.anchor || ""}
+          Dairy cows: ${methodology.dairy_cows || ""}.
+          Beef: ${methodology.beef || ""}.
+          Youngstock: ${methodology.youngstock || ""}.
+          ${methodology.joint_venture || ""}
+        `;
+      } else {
+        note.style.display = "none";
+      }
+
+      if (!data.months || !data.months.length) {
+        meta.textContent = data.anchor_date
+          ? `No fiscal months available through anchor ${data.anchor_date}.`
+          : "No inventory data — import herd inventory first.";
+        empty.style.display = "";
+        empty.textContent = meta.textContent;
+        wrap.style.display = "none";
+        document.getElementById("detail-panel").style.display = "none";
+        return;
+      }
+
+      if (resetMonth || !selectedMonthStart) {
+        selectedMonthStart = data.selected_month?.month_start || data.months[data.months.length - 1].month_start;
+      }
+
+      empty.style.display = "none";
+      wrap.style.display = "";
+      meta.textContent = `${data.fiscal_year} — ${data.months.length} month(s) through anchor ${data.anchor_date}`;
+      renderMonths(data.months);
+      renderDetail(data.selected_month);
+    }
+
+    function scheduleLoad(resetMonth = true) {
+      if (loadTimer) clearTimeout(loadTimer);
+      loadTimer = setTimeout(() => loadReport(resetMonth), 250);
+    }
+
+    function bindDateInputs() {
+      const minRange = document.getElementById("min-date-range");
+      const maxRange = document.getElementById("max-date-range");
+      function clamp() {
+        if (!monthList.length) return;
+        let minVal = parseInt(minRange.value, 10);
+        let maxVal = parseInt(maxRange.value, 10);
+        if (minVal > maxVal) maxVal = minVal;
+        minRange.value = minVal;
+        maxRange.value = maxVal;
+        updateDateLabels();
+        scheduleLoad(true);
+      }
+      minRange.addEventListener("input", () => {
+        if (parseInt(minRange.value, 10) > parseInt(maxRange.value, 10)) {
+          maxRange.value = minRange.value;
+        }
+        updateDateLabels();
+        scheduleLoad(true);
+      });
+      maxRange.addEventListener("input", () => {
+        if (parseInt(maxRange.value, 10) < parseInt(minRange.value, 10)) {
+          minRange.value = maxRange.value;
+        }
+        updateDateLabels();
+        scheduleLoad(true);
+      });
+      minRange.addEventListener("change", clamp);
+      maxRange.addEventListener("change", clamp);
+    }
+
+    document.getElementById("fiscal-year-select").addEventListener("change", () => {
+      initialBoundsSynced = false;
+      selectedMonthStart = null;
+      loadReport(true);
+    });
+
+    bindFarmSlicers();
+    bindDateInputs();
+    loadReport(true);
+  </script>
+{% endblock %}

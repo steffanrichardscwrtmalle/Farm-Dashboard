@@ -31,6 +31,7 @@ from app.services.sales_payments import (
 )
 from app.services.stock_accruals import build_stock_accruals_report
 from app.services.stock_purchases import list_stock_purchases
+from app.services.stock_valuations import build_stock_valuations_report
 
 router = APIRouter(prefix="/api/office-admin")
 
@@ -169,6 +170,26 @@ def api_unarchive_fallen_stock(
 ):
     items = [item.model_dump() for item in body.items]
     return unarchive_collections(db, items, user)
+
+
+@router.get("/stock-valuations")
+def api_stock_valuations(
+    farm: list[str] | None = Query(None),
+    fiscal_year: int | None = Query(None),
+    month_from: dt.date | None = Query(None),
+    month_to: dt.date | None = Query(None),
+    month: dt.date | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_OFFICE_ADMIN)),
+):
+    return build_stock_valuations_report(
+        db,
+        farms=farm,
+        fiscal_year=fiscal_year,
+        month_from=month_from,
+        month_to=month_to,
+        selected_month=month,
+    )
 
 
 @router.get("/stock-accruals")

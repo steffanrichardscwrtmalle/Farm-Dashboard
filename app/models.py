@@ -345,6 +345,44 @@ class StockOpeningBaseline(Base):
         }
 
 
+class StockValuationSnapshot(Base):
+    """Pre-computed month-end stock valuations per farm (rebuilt on herd import)."""
+
+    __tablename__ = "stock_valuation_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "anchor_import_timestamp",
+            "farm",
+            "month_start",
+            name="uq_stock_valuation_snapshot",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    anchor_import_timestamp: Mapped[datetime.datetime] = mapped_column(
+        DateTime, index=True
+    )
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    month_start: Mapped[datetime.date] = mapped_column(Date, index=True)
+    close_date: Mapped[datetime.date] = mapped_column(Date)
+    dairy_cows: Mapped[int] = mapped_column(Integer, default=0)
+    beef_count: Mapped[int] = mapped_column(Integer, default=0)
+    beef_value_gbp: Mapped[float] = mapped_column(Float, default=0)
+    beef_aged_sum: Mapped[int] = mapped_column(Integer, default=0)
+    beef_lact_sum: Mapped[float] = mapped_column(Float, default=0)
+    beef_lact_count: Mapped[int] = mapped_column(Integer, default=0)
+    dairy_count: Mapped[int] = mapped_column(Integer, default=0)
+    dairy_value_gbp: Mapped[float] = mapped_column(Float, default=0)
+    dairy_aged_sum: Mapped[int] = mapped_column(Integer, default=0)
+    dairy_lact_sum: Mapped[float] = mapped_column(Float, default=0)
+    dairy_lact_count: Mapped[int] = mapped_column(Integer, default=0)
+    youngstock_count: Mapped[int] = mapped_column(Integer, default=0)
+    youngstock_value_gbp: Mapped[float] = mapped_column(Float, default=0)
+    youngstock_aged_sum: Mapped[int] = mapped_column(Integer, default=0)
+    youngstock_lact_sum: Mapped[float] = mapped_column(Float, default=0)
+    youngstock_lact_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class StockPurchaseAnimal(Base):
     """Purchased animals derived from cow events (EDAT != BDAT), rebuilt on herd import."""
 

@@ -801,6 +801,24 @@ def office_admin_fallen_stock_page(request: Request):
     )
 
 
+@app.get("/office-admin/stock-valuations", response_class=HTMLResponse)
+def office_admin_stock_valuations_page(request: Request):
+    if denied := _page_guard(request, PAGE_OFFICE_ADMIN):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "office_admin/stock_valuations.html",
+        _template_ctx(
+            request,
+            page_heading="Stock Valuations",
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_office_admin_context("Stock Valuations", "stock-valuations", "Stock Valuations"),
+        ),
+    )
+
+
 @app.get("/office-admin/stock-accruals", response_class=HTMLResponse)
 def office_admin_stock_accruals_page(request: Request):
     if denied := _page_guard(request, PAGE_OFFICE_ADMIN):

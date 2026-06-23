@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from app.services.herd_import_utils import HERD_DATE_FORMAT
+from app.services.inventory_valuation import category_from_inventory, compute_value
 
 INVENTORY_ENCODING = "windows-1252"
 INVENTORY_DATE_COLUMNS = ("BDAT", "FDAT", "HDAT", "DUE")
@@ -40,13 +41,12 @@ def _standardize_lsbrd(val: Any) -> str:
 def _get_category(row: pd.Series) -> str:
     lact = row.get("LACT")
     sbrd = row.get("SBRD")
-    if pd.notna(lact) and lact > 0:
-        return "Dairy"
-    if sbrd == "Beef":
-        return "Beef"
-    if sbrd == "Holstein" and pd.notna(lact) and lact == 0:
-        return "Youngstock"
-    return "Dairy"
+    try:
+        lact_val = int(lact) if pd.notna(lact) else 0
+    except (TypeError, ValueError):
+        lact_val = 0
+    sbrd_val = str(sbrd).strip() if pd.notna(sbrd) else ""
+    return category_from_inventory(lact_val, sbrd_val)
 
 
 def _get_expected_due(row: pd.Series) -> pd.Timestamp | None:
@@ -105,27 +105,12 @@ def _get_value(row: pd.Series) -> float:
     lact = row.get("LACT")
     category = row.get("Category")
     aged = row.get("AGED")
-
     try:
         lact_numeric = int(lact) if pd.notna(lact) else 0
     except (TypeError, ValueError):
         lact_numeric = 0
-
-    if lact_numeric == 1:
-        return 2500.0
-    if lact_numeric == 2:
-        return 2200.0
-    if lact_numeric > 2:
-        return 1800.0
-
     aged_val = aged if pd.notna(aged) else 0
-    if category == "Beef":
-        base_value = 100 + (1.90 * aged_val)
-    elif category == "Youngstock":
-        base_value = 100 + (2.5 * aged_val)
-    else:
-        base_value = 100.0
-    return round(min(base_value, 1800), 0)
+    return compute_value(lact_numeric, str(category), aged_val)
 
 
 def process_inventory_file(df: pd.DataFrame, farm: str) -> pd.DataFrame:
