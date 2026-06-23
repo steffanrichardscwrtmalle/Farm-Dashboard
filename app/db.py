@@ -219,9 +219,9 @@ def _migrate_stock_accruals_schema() -> None:
         ("CM", STOCK_GROUP_COWS, "2024-04-01", 2504),
         ("CM", STOCK_GROUP_YOUNGSTOCK, "2024-04-01", 1782),
         ("GAD", STOCK_GROUP_COWS, "2024-12-01", 851),
-        ("GAD", STOCK_GROUP_YOUNGSTOCK, "2024-12-01", 1315),
+        ("GAD", STOCK_GROUP_YOUNGSTOCK, "2024-12-01", 1318),
         ("CM", STOCK_GROUP_BEEF, "2025-04-01", 74),
-        ("GAD", STOCK_GROUP_BEEF, "2025-04-01", 13),
+        ("GAD", STOCK_GROUP_BEEF, "2025-04-01", 15),
     ]
 
     import datetime as dt
@@ -251,9 +251,12 @@ def _migrate_stock_accruals_schema() -> None:
             if gad_ys and gad_ys.opening_count == 1319:
                 gad_ys.opening_count = 1315
                 db.commit()
+            if gad_ys and gad_ys.opening_count == 1315:
+                gad_ys.opening_count = 1318
+                db.commit()
             beef_seeds = [
                 ("CM", STOCK_GROUP_BEEF, dt.date(2025, 4, 1), 74),
-                ("GAD", STOCK_GROUP_BEEF, dt.date(2025, 4, 1), 13),
+                ("GAD", STOCK_GROUP_BEEF, dt.date(2025, 4, 1), 15),
             ]
             for farm, stock_group, month_start, opening in beef_seeds:
                 existing = db.scalar(
@@ -280,7 +283,9 @@ def _migrate_stock_accruals_schema() -> None:
                 )
             )
             if gad_beef and gad_beef.opening_count == 0:
-                gad_beef.opening_count = 13
+                gad_beef.opening_count = 15
+            if gad_beef and gad_beef.opening_count == 13:
+                gad_beef.opening_count = 15
             cm_beef = db.scalar(
                 select(StockOpeningBaseline).where(
                     StockOpeningBaseline.farm == "CM",
