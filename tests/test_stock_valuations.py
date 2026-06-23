@@ -8,12 +8,13 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import Base, CowEvent, HerdBirth, HerdInventory
+from app.models import Base, CowEvent, HerdBirth, HerdInventory, StockOpeningBaseline
 from app.services.inventory_valuation import (
     category_from_event_proxy,
     category_from_inventory,
     compute_value,
 )
+from app.services.stock_accruals import build_stock_accruals_report
 from app.services.stock_valuations import (
     _on_farm_keys,
     animal_key,
@@ -236,3 +237,65 @@ def test_rebuild_snapshots_served_from_table(db: Session) -> None:
     cached = build_stock_valuations_report(db, farms=["GAD"], fiscal_year=2026)
     assert cached.get("from_snapshot") is True
     assert cached["months"] == live["months"]
+
+
+def test_headcounts_match_accruals_except_jv_beef(db: Session) -> None:
+    anchor_ts = dt.datetime(2025, 6, 30, 12, 0, 0)
+    db.add(
+        StockOpeningBaseline(
+            farm="GAD",
+            stock_group="beef",
+            month_start=dt.date(2024, 4, 1),
+            opening_count=1,
+        )
+    )
+    db.add(
+        HerdInventory(
+            farm="GAD",
+            cow_id="500",
+            etag="UK500",
+            bdat=dt.date(2024, 1, 1),
+            lact=0,
+            sbrd="Beef",
+            category="Beef",
+            import_timestamp=anchor_ts,
+        )
+    )
+    db.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="500",
+            etag="UK500",
+            event="PATHWAY",
+            event_date=dt.date(2025, 5, 15),
+            lact=0,
+            cbrd=121,
+            gndr="M",
+            bdat=dt.date(2024, 1, 1),
+        )
+    )
+    db.commit()
+    rebuild_stock_valuation_snapshots(db)
+
+    fiscal_year = 2026
+    month = dt.date(2025, 5, 1)
+    acc = build_stock_accruals_report(
+        db,
+        farms=["GAD"],
+        stock_group="beef",
+        fiscal_year=fiscal_year,
+        month_from=month,
+        month_to=dt.date(2025, 5, 31),
+    )
+    acc_beef = next(r["closing"] for r in acc["rows"] if r["month_start"] == "2025-05-01")
+
+    val = build_stock_valuations_report(
+        db,
+        farms=["GAD"],
+        fiscal_year=fiscal_year,
+        month_from=month,
+        month_to=dt.date(2025, 5, 31),
+    )
+    may = next(m for m in val["months"] if m["month_start"] == "2025-05-01")
+    val_beef = may["totals"]["GAD"]["categories"]["Beef"]["count"]
+    assert val_beef == acc_beef - 1

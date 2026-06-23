@@ -91,4 +91,8 @@ METHODOLOGY_SUMMARY: dict[str, str] = {
         "Beef animals with a GAME or PATHWAY event are excluded from valuations "
         "from that event date onwards (joint venture transfer)."
     ),
+    "headcount": (
+        "Headcounts match Stock Accruals closing figures; beef excludes animals "
+        "transferred to joint venture (GAME/PATHWAY) that accruals still counts."
+    ),
 }

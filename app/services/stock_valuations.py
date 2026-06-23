@@ -15,6 +15,9 @@ from app.models import (
     HERD_FARM_OPTIONS,
     HerdBirth,
     HerdInventory,
+    STOCK_GROUP_BEEF,
+    STOCK_GROUP_COWS,
+    STOCK_GROUP_YOUNGSTOCK,
     StockPurchaseAnimal,
     StockValuationSnapshot,
 )
@@ -31,6 +34,7 @@ from app.services.inventory_valuation import (
     category_from_inventory,
     compute_value,
 )
+from app.services.stock_accruals import build_stock_accruals_report
 
 _EXIT_EVENTS = ("SOLD", "DIED")
 _JV_EVENTS = ("GAME", "PATHWAY")
@@ -404,6 +408,131 @@ def _farm_summary_row(
         "total_animals": total_animals,
         "dairy_cows": int((meta or {}).get("dairy_cows", 0)),
     }
+
+
+def _jv_beef_still_on_farm_count(
+    profiles: dict[tuple[str, str], AnimalProfile],
+    jv_keys: dict[tuple[str, str], dt.date],
+    exit_keys: dict[tuple[str, str], dt.date],
+    close_date: dt.date,
+    farm: str,
+) -> int:
+    """Beef animals with JV transfer on/before close_date that accruals still counts."""
+    count = 0
+    for key, jv_date in jv_keys.items():
+        if jv_date > close_date:
+            continue
+        exit_date = exit_keys.get(key)
+        if exit_date is not None and exit_date <= close_date:
+            continue
+        profile = profiles.get(key)
+        if profile is None or profile.farm != farm:
+            continue
+        state = _resolve_state_at(profile, jv_date)
+        if state is not None and state["category"] == "Beef":
+            count += 1
+    return count
+
+
+def _accruals_closing_for_month(
+    db: Session,
+    *,
+    farm: str,
+    stock_group: str,
+    month_start: dt.date,
+    fiscal_year: int,
+) -> int | None:
+    month_end = min(_month_end(month_start), _fiscal_year_calendar_bounds(fiscal_year)[1])
+    report = build_stock_accruals_report(
+        db,
+        farms=[farm],
+        stock_group=stock_group,
+        fiscal_year=fiscal_year,
+        month_from=month_start,
+        month_to=month_end,
+    )
+    for row in report.get("rows", []):
+        if row.get("month_start") == month_start.isoformat():
+            return int(row["closing"])
+    return None
+
+
+def _set_category_count(summary: dict[str, Any], category: str, new_count: int) -> None:
+    cats = summary.setdefault("categories", {})
+    bucket = cats.setdefault(
+        category,
+        {"count": 0, "value_gbp": 0, "avg_age_days": 0, "avg_value_gbp": 0, "avg_lact": None},
+    )
+    value_gbp = float(bucket.get("value_gbp", 0))
+    aged_sum = int(bucket.get("avg_age_days", 0)) * int(bucket.get("count", 0))
+    bucket["count"] = int(new_count)
+    bucket["avg_value_gbp"] = math.floor(value_gbp / new_count) if new_count else 0
+    bucket["avg_age_days"] = math.floor(aged_sum / new_count) if new_count else 0
+    summary["total_animals"] = sum(int(cats[cat].get("count", 0)) for cat in CATEGORIES)
+    if category == "Dairy":
+        summary["dairy_cows"] = int(new_count)
+
+
+def _overlay_accruals_headcounts(
+    db: Session,
+    *,
+    months: list[dict[str, Any]],
+    selected_farms: list[str],
+    fiscal_year: int,
+    profiles: dict[tuple[str, str], AnimalProfile],
+    exit_keys: dict[tuple[str, str], dt.date],
+    jv_keys: dict[tuple[str, str], dt.date],
+) -> None:
+    """Align displayed headcounts with Stock Accruals; beef net of JV transfers."""
+    accruals_cache: dict[tuple[str, str, str], int | None] = {}
+
+    def closing(farm: str, stock_group: str, month_start: dt.date) -> int | None:
+        key = (farm, stock_group, month_start.isoformat())
+        if key not in accruals_cache:
+            accruals_cache[key] = _accruals_closing_for_month(
+                db,
+                farm=farm,
+                stock_group=stock_group,
+                month_start=month_start,
+                fiscal_year=fiscal_year,
+            )
+        return accruals_cache[key]
+
+    for month_row in months:
+        month_start = dt.date.fromisoformat(month_row["month_start"])
+        close_date = dt.date.fromisoformat(month_row["close_date"])
+        totals = month_row.setdefault("totals", {})
+
+        for farm in selected_farms:
+            if farm not in totals:
+                continue
+            cows = closing(farm, STOCK_GROUP_COWS, month_start)
+            youngstock = closing(farm, STOCK_GROUP_YOUNGSTOCK, month_start)
+            beef = closing(farm, STOCK_GROUP_BEEF, month_start)
+            if cows is None or youngstock is None or beef is None:
+                continue
+            jv_beef = _jv_beef_still_on_farm_count(
+                profiles, jv_keys, exit_keys, close_date, farm
+            )
+            beef = max(0, beef - jv_beef)
+            _set_category_count(totals[farm], "Dairy", cows)
+            _set_category_count(totals[farm], "Youngstock", youngstock)
+            _set_category_count(totals[farm], "Beef", beef)
+
+        if len(selected_farms) > 1 and "all" in totals:
+            cows = sum(closing(f, STOCK_GROUP_COWS, month_start) or 0 for f in selected_farms)
+            youngstock = sum(
+                closing(f, STOCK_GROUP_YOUNGSTOCK, month_start) or 0 for f in selected_farms
+            )
+            beef = sum(closing(f, STOCK_GROUP_BEEF, month_start) or 0 for f in selected_farms)
+            jv_beef = sum(
+                _jv_beef_still_on_farm_count(profiles, jv_keys, exit_keys, close_date, f)
+                for f in selected_farms
+            )
+            beef = max(0, beef - jv_beef)
+            _set_category_count(totals["all"], "Dairy", cows)
+            _set_category_count(totals["all"], "Youngstock", youngstock)
+            _set_category_count(totals["all"], "Beef", beef)
 
 
 def _build_kpi_detail(
@@ -825,8 +954,15 @@ def build_stock_valuations_report(
             "fiscal_year_options": fiscal_year_options,
         }
 
+    profile_farms = list(HERD_FARM_OPTIONS)
+    _, profiles, _, exit_keys, _, jv_keys = _build_profiles(
+        db,
+        selected_farms=profile_farms,
+        anchor_ts=anchor_ts,
+    )
+
     if _snapshot_has_data(db, anchor_ts):
-        return _report_from_snapshots(
+        result = _report_from_snapshots(
             db,
             selected_farms=selected_farms,
             anchor_ts=anchor_ts,
@@ -835,25 +971,41 @@ def build_stock_valuations_report(
             fiscal_year_options=fiscal_year_options,
             month_from=month_from,
             month_to=month_to,
-            selected_month=selected_month,
+            selected_month=None,
+        )
+    else:
+        _, date_bounds, months, _ = _compute_stock_valuations_report(
+            db,
+            selected_farms=selected_farms,
+            anchor_ts=anchor_ts,
+            fiscal_year=fiscal_year,
+            month_from=month_from,
+            month_to=month_to,
+            selected_month=None,
+        )
+        result = {
+            "anchor_date": anchor_date.isoformat(),
+            "fiscal_year": fiscal_year,
+            "fiscal_year_options": fiscal_year_options,
+            "date_bounds": date_bounds,
+            "months": months,
+            "selected_month": None,
+            "methodology": METHODOLOGY_SUMMARY,
+            "from_snapshot": False,
+        }
+
+    if result.get("months"):
+        _overlay_accruals_headcounts(
+            db,
+            months=result["months"],
+            selected_farms=selected_farms,
+            fiscal_year=fiscal_year,
+            profiles=profiles,
+            exit_keys=exit_keys,
+            jv_keys=jv_keys,
+        )
+        result["selected_month"] = _selected_month_detail(
+            result["months"], selected_month
         )
 
-    _, date_bounds, months, selected_detail = _compute_stock_valuations_report(
-        db,
-        selected_farms=selected_farms,
-        anchor_ts=anchor_ts,
-        fiscal_year=fiscal_year,
-        month_from=month_from,
-        month_to=month_to,
-        selected_month=selected_month,
-    )
-    return {
-        "anchor_date": anchor_date.isoformat(),
-        "fiscal_year": fiscal_year,
-        "fiscal_year_options": fiscal_year_options,
-        "date_bounds": date_bounds,
-        "months": months,
-        "selected_month": selected_detail,
-        "methodology": METHODOLOGY_SUMMARY,
-        "from_snapshot": False,
-    }
+    return result
