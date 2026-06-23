@@ -220,7 +220,7 @@ def _migrate_stock_accruals_schema() -> None:
         ("CM", STOCK_GROUP_YOUNGSTOCK, "2024-04-01", 1782),
         ("GAD", STOCK_GROUP_COWS, "2024-12-01", 851),
         ("GAD", STOCK_GROUP_YOUNGSTOCK, "2024-12-01", 1315),
-        ("CM", STOCK_GROUP_BEEF, "2025-04-01", 66),
+        ("CM", STOCK_GROUP_BEEF, "2025-04-01", 74),
         ("GAD", STOCK_GROUP_BEEF, "2025-04-01", 13),
     ]
 
@@ -252,7 +252,7 @@ def _migrate_stock_accruals_schema() -> None:
                 gad_ys.opening_count = 1315
                 db.commit()
             beef_seeds = [
-                ("CM", STOCK_GROUP_BEEF, dt.date(2025, 4, 1), 66),
+                ("CM", STOCK_GROUP_BEEF, dt.date(2025, 4, 1), 74),
                 ("GAD", STOCK_GROUP_BEEF, dt.date(2025, 4, 1), 13),
             ]
             for farm, stock_group, month_start, opening in beef_seeds:
@@ -289,7 +289,9 @@ def _migrate_stock_accruals_schema() -> None:
                 )
             )
             if cm_beef and cm_beef.opening_count == 0:
-                cm_beef.opening_count = 66
+                cm_beef.opening_count = 74
+            if cm_beef and cm_beef.opening_count == 66:
+                cm_beef.opening_count = 74
             db.commit()
             return
 
