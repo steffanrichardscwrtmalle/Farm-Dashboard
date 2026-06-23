@@ -82,6 +82,31 @@
 
     .import-status.running { color: var(--accent); }
 
+    .reconnect-panel {
+      margin-top: 0.75rem;
+      padding: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      display: none;
+    }
+    .reconnect-panel p {
+      margin: 0 0 0.5rem;
+      font-size: 0.8125rem;
+      color: #991b1b;
+      line-height: 1.4;
+    }
+    .reconnect-panel a {
+      display: inline-block;
+      font-size: 0.8125rem;
+      font-weight: 600;
+    }
+    .connection-line {
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
     .content-panel { min-width: 0; }
 
     .meta-line {
@@ -372,9 +397,20 @@
 
           <button type="button" id="refresh-feed-btn">Refresh from Feedlync</button>
 
+          <p style="margin:0.5rem 0 0;font-size:0.75rem;">
+            <a href="/feed-rate/connect?return=%2Ffeed-rate">Connect / reconnect FeedLync</a>
+          </p>
+
         </div>
 
         <div class="import-status" id="import-status" style="display:none;"></div>
+
+        <div class="reconnect-panel" id="reconnect-panel">
+          <p id="reconnect-message">FeedLync session expired.</p>
+          <a href="/feed-rate/connect?return=%2Ffeed-rate">Reconnect FeedLync</a>
+        </div>
+
+        <p class="connection-line" id="connection-line" style="display:none;"></p>
 
         {% else %}
 
@@ -1193,9 +1229,11 @@
 
 
 
-    function setImportStatus(text, className = "") {
+    function setImportStatus(text, className = "", needsAuth = false) {
 
       const el = document.getElementById("import-status");
+
+      const reconnect = document.getElementById("reconnect-panel");
 
       if (!el) return;
 
@@ -1204,6 +1242,14 @@
       el.textContent = text;
 
       el.className = `import-status${className ? ` ${className}` : ""}`;
+
+      if (reconnect) {
+        reconnect.style.display = needsAuth ? "" : "none";
+        if (needsAuth && text) {
+          const msg = document.getElementById("reconnect-message");
+          if (msg) msg.textContent = text;
+        }
+      }
 
     }
 
@@ -1251,6 +1297,8 @@
 
         setImportStatus(data.message || "Import complete.");
 
+        await loadConnectionStatus();
+
         await loadReport();
 
         return;
@@ -1259,7 +1307,11 @@
 
       if (data.status === "error") {
 
-        setImportStatus(data.message || "Import failed.", "error");
+        setImportStatus(data.message || "Import failed.", "error", !!data.needs_auth);
+
+        const btn = document.getElementById("refresh-feed-btn");
+
+        if (btn) btn.disabled = false;
 
         return;
 
@@ -1321,7 +1373,42 @@
 
     }
 
+    async function loadConnectionStatus() {
+      if (!CAN_IMPORT_FEED) return;
+      const res = await fetch("/api/feedlync/status");
+      if (!res.ok) return;
+      const data = await res.json();
+      const line = document.getElementById("connection-line");
+      if (!line) return;
+      if (data.connected) {
+        line.style.display = "";
+        const when = data.updated_at || data.connected_at;
+        line.textContent = when
+          ? `FeedLync connected (${data.source || "saved"}) · updated ${new Date(when).toLocaleString("en-GB")}`
+          : "FeedLync connected.";
+      } else {
+        line.style.display = "";
+        line.textContent = "FeedLync not connected.";
+      }
+    }
 
+    function maybeRetryAfterConnect() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("feedlync") !== "connected") return;
+      const clean = new URL(window.location.href);
+      clean.searchParams.delete("feedlync");
+      clean.searchParams.delete("retry_import");
+      window.history.replaceState({}, "", clean.pathname + clean.search);
+      if (params.get("retry_import") === "1" && CAN_IMPORT_FEED) {
+        startImport();
+      }
+    }
+
+
+
+    loadConnectionStatus();
+
+    maybeRetryAfterConnect();
 
     loadReport();
 

@@ -72,5 +72,17 @@ FEEDLYNC_TOKEN_SCOPE = os.getenv(
     "https://ABAgriLink.onmicrosoft.com/dairyapidev/write "
     "openid profile offline_access",
 ).strip()
+PUBLIC_APP_URL = os.getenv(
+    "PUBLIC_APP_URL", os.getenv("RENDER_EXTERNAL_URL", "http://localhost:8000")
+).strip().rstrip("/")
+FEEDLYNC_AUTHORIZE_URL = os.getenv(
+    "FEEDLYNC_AUTHORIZE_URL",
+    "https://abagrilink.b2clogin.com/abagrilink.onmicrosoft.com/"
+    "b2c_1_feedlyncsignupsignin/oauth2/v2.0/authorize",
+).strip()
+FEEDLYNC_REDIRECT_URI = os.getenv(
+    "FEEDLYNC_REDIRECT_URI",
+    f"{PUBLIC_APP_URL}/api/feedlync/oauth/callback",
+).strip()
 
 COOKIE_SECURE = IS_PRODUCTION or os.getenv("COOKIE_SECURE", "").lower() in ("1", "true", "yes")

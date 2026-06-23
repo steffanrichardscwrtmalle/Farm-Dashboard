@@ -117,16 +117,17 @@ For local testing without Graph API, set `LOCAL_HERD_EXPORT_DIR` to your synced 
 
 Uses the Feedlync HTTP API (no Chrome/Selenium in production).
 
-1. **Get a refresh token** (one-time, repeat when it expires):
-   - Log in to [app.feedlync.com](https://app.feedlync.com/)
-   - Open DevTools → **Application** → **Local Storage** → `https://app.feedlync.com`
-   - Find the MSAL cache entry containing a **refresh token** (or copy it from a Network `grant_type=refresh_token` request body after login)
-2. Set on the web service (and optional cron job):
-   - `FEEDLYNC_REFRESH_TOKEN` — long-lived token from step 1
-   - `FEEDLYNC_FARM_ID` — optional; comma-separated farm UUID(s). If unset, imports all farms from `/farms/summary`.
-3. On the **Feed Rate** page, editors click **Refresh from Feedlync** (polls every 3 seconds until complete).
-4. Optional cron: `python scripts/import_feed_data.py` (same env vars as web service).
-5. Or trigger via HTTP: `POST /api/feed-rate/import` with header `X-Import-Key: <IMPORT_API_KEY>`.
+1. **Connect FeedLync** (recommended):
+   - On the **Feed Rate** page, if the session expires you’ll see **Reconnect FeedLync**
+   - Or open **Feed Rate → Connect FeedLync** (`/feed-rate/connect`)
+   - **Sign in with FeedLync** (OAuth), or paste a refresh token from DevTools if OAuth redirect is blocked
+   - The app stores the token in the database and rotates it on each import
+2. **Optional env fallback** (first deploy only):
+   - `FEEDLYNC_REFRESH_TOKEN` — seeded into the DB on startup if no token is stored yet
+   - `PUBLIC_APP_URL` — your app’s public URL (OAuth callback; defaults to `RENDER_EXTERNAL_URL` on Render)
+   - `FEEDLYNC_FARM_ID` — optional; comma-separated farm UUID(s)
+3. On the **Feed Rate** page, click **Refresh from Feedlync** (polls every 3 seconds until complete).
+4. Optional cron: `python scripts/import_feed_data.py` (uses stored DB token).
 
 ---
 

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models import FeedRateRecord
 from app.services.feed_rate_display import build_feed_rate_display
 from app.services.feedlync_api import fetch_feed_data
+from app.services.feedlync_auth import FeedlyncAuthError
 
 _lock = threading.Lock()
 _import_status: dict[str, Any] = {
@@ -20,6 +21,7 @@ _import_status: dict[str, Any] = {
     "latest_import": None,
     "rows_imported": 0,
     "ration_names": [],
+    "needs_auth": False,
 }
 
 
@@ -39,15 +41,15 @@ def is_import_running() -> bool:
 
 
 def mark_import_started() -> None:
-    _set_status(status="running", message="Starting Feedlync import…", rows_imported=0)
+    _set_status(status="running", message="Starting Feedlync import…", rows_imported=0, needs_auth=False)
 
 
 def import_feed_rate(db: Session) -> dict[str, Any]:
     """Fetch from Feedlync API and replace feed_rate_records with the latest snapshot."""
-    _set_status(status="running", message="Fetching feed data from Feedlync…", rows_imported=0)
+    _set_status(status="running", message="Fetching feed data from Feedlync…", rows_imported=0, needs_auth=False)
 
     try:
-        rows = fetch_feed_data()
+        rows = fetch_feed_data(db)
         if not rows:
             raise ValueError("No feed data rows returned from Feedlync")
 
@@ -88,11 +90,16 @@ def import_feed_rate(db: Session) -> dict[str, Any]:
             latest_import=latest_import,
             rows_imported=len(rows),
             ration_names=ration_names,
+            needs_auth=False,
         )
         return result
+    except FeedlyncAuthError as exc:
+        db.rollback()
+        _set_status(status="error", message=str(exc), needs_auth=True)
+        raise
     except Exception as exc:
         db.rollback()
-        _set_status(status="error", message=str(exc))
+        _set_status(status="error", message=str(exc), needs_auth=False)
         raise
 
 

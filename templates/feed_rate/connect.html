@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+  main { max-width: 720px; }
+  .connect-panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .connect-panel h2 {
+    margin: 0 0 0.5rem;
+    font-size: 1.125rem;
+  }
+  .connect-panel p {
+    margin: 0 0 1rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .connect-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .error-banner {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+  }
+  .token-form label {
+    display: block;
+    font-size: 0.875rem;
+    margin-bottom: 0.35rem;
+  }
+  .token-form textarea {
+    width: 100%;
+    min-height: 6rem;
+    font-family: monospace;
+    font-size: 0.8125rem;
+    margin-bottom: 0.75rem;
+  }
+  .help-steps {
+    margin: 0;
+    padding-left: 1.2rem;
+    color: var(--muted);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+  .help-steps li { margin-bottom: 0.35rem; }
+  .status-msg {
+    margin-top: 0.75rem;
+    font-size: 0.875rem;
+  }
+  .status-msg.error { color: var(--danger); }
+  .status-msg.ok { color: var(--accent); }
+{% endblock %}
+
+{% block content %}
+  <p style="margin:0 0 1rem;">
+    <a href="{{ return_to }}">&larr; Back to Feed Rate</a>
+  </p>
+
+  {% if error %}
+  <div class="error-banner">{{ error }}</div>
+  {% endif %}
+
+  <section class="connect-panel">
+    <h2>Sign in with FeedLync</h2>
+    <p>
+      Connect your FeedLync account so the dashboard can import ration data automatically.
+      You may need to do this again if your session expires.
+    </p>
+    <div class="connect-actions">
+      <a class="primary" href="/api/feedlync/oauth/start?return_to={{ return_to | urlencode }}">
+        Sign in with FeedLync
+      </a>
+      <a class="secondary" href="https://app.feedlync.com/" target="_blank" rel="noopener">
+        Open FeedLync
+      </a>
+    </div>
+    <p style="margin-bottom:0.5rem;font-size:0.8125rem;">
+      If sign-in does not return here automatically, use the manual token option below.
+    </p>
+  </section>
+
+  <section class="connect-panel">
+    <h2>Paste refresh token</h2>
+    <p>After logging in at FeedLync, copy the refresh token from your browser:</p>
+    <ol class="help-steps">
+      <li>Open <a href="https://app.feedlync.com/" target="_blank" rel="noopener">app.feedlync.com</a> and sign in.</li>
+      <li>Press F12 → <strong>Network</strong> → filter <code>token</code>.</li>
+      <li>Find a request with <code>grant_type=refresh_token</code>.</li>
+      <li>Copy the full <code>refresh_token</code> value from the request or response.</li>
+    </ol>
+    <form class="token-form" id="token-form" style="margin-top:1rem;">
+      <label for="refresh-token">Refresh token</label>
+      <textarea id="refresh-token" name="refresh_token" placeholder="eyJ..." required></textarea>
+      <button type="submit" class="primary">Save and connect</button>
+    </form>
+    <div class="status-msg" id="status-msg" style="display:none;"></div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const RETURN_TO = {{ return_to | tojson }};
+
+    document.getElementById("token-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const status = document.getElementById("status-msg");
+      const token = document.getElementById("refresh-token").value.trim();
+      status.style.display = "";
+      status.className = "status-msg";
+      status.textContent = "Saving…";
+
+      const res = await fetch("/api/feedlync/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: token }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        status.className = "status-msg error";
+        status.textContent = err.detail || "Failed to save token.";
+        return;
+      }
+
+      status.className = "status-msg ok";
+      status.textContent = "Connected. Returning to Feed Rate…";
+      const sep = RETURN_TO.includes("?") ? "&" : "?";
+      window.location.href = `${RETURN_TO}${sep}feedlync=connected&retry_import=1`;
+    });
+  </script>
+{% endblock %}

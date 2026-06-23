@@ -33,6 +33,8 @@ services:
         sync: false
       - key: FEEDLYNC_FARM_ID
         sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
     domains:
       - dashboard.cwrtmalle.co.uk
 

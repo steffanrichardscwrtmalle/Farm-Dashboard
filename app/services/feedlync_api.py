@@ -6,14 +6,19 @@ import datetime as dt
 from typing import Any
 
 import httpx
+from sqlalchemy.orm import Session
 
 from app.config import (
     FEEDLYNC_API_BASE,
     FEEDLYNC_CLIENT_ID,
     FEEDLYNC_FARM_ID,
-    FEEDLYNC_REFRESH_TOKEN,
     FEEDLYNC_TOKEN_SCOPE,
     FEEDLYNC_TOKEN_URL,
+)
+from app.services.feedlync_auth import (
+    FeedlyncAuthError,
+    resolve_refresh_token,
+    save_refresh_token,
 )
 
 _RATION_DETAIL_PARAMS = {
@@ -24,7 +29,10 @@ _RATION_DETAIL_PARAMS = {
 }
 
 
-def _get_access_token(client: httpx.Client, refresh_token: str) -> str:
+def _refresh_access_token(
+    client: httpx.Client,
+    refresh_token: str,
+) -> tuple[str, str | None]:
     response = client.post(
         FEEDLYNC_TOKEN_URL,
         data={
@@ -36,12 +44,17 @@ def _get_access_token(client: httpx.Client, refresh_token: str) -> str:
         },
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
+    if response.status_code in (400, 401):
+        raise FeedlyncAuthError(
+            "FeedLync session expired. Use Reconnect FeedLync on the Feed Rate page."
+        )
     response.raise_for_status()
     payload = response.json()
     access_token = payload.get("access_token")
     if not access_token:
-        raise ValueError("Feedlync token response did not include access_token")
-    return access_token
+        raise FeedlyncAuthError("Feedlync token response did not include access_token")
+    new_refresh = payload.get("refresh_token")
+    return str(access_token), str(new_refresh) if new_refresh else None
 
 
 def _api_headers(access_token: str, farm_id: str) -> dict[str, str]:
@@ -197,29 +210,30 @@ def _fetch_farm_rows(
     return rows
 
 
-def fetch_feed_data(*, ration_name: str | None = None) -> list[dict[str, Any]]:
+def fetch_feed_data(db: Session, *, ration_name: str | None = None) -> list[dict[str, Any]]:
     """
     Fetch all feed-plan pen rows from Feedlync for configured farm(s).
 
     Returns the same row dict shape used by feed_rate_import.
     """
-    refresh_token = FEEDLYNC_REFRESH_TOKEN.strip()
-    if not refresh_token:
-        raise ValueError(
-            "FEEDLYNC_REFRESH_TOKEN must be set. "
-            "Log in to app.feedlync.com and copy the refresh token from browser storage."
-        )
+    refresh_token = resolve_refresh_token(db)
 
     scraped_date = dt.date.today()
     all_rows: list[dict[str, Any]] = []
 
     with httpx.Client(timeout=60.0) as client:
-        access_token = _get_access_token(client, refresh_token)
+        access_token, new_refresh = _refresh_access_token(client, refresh_token)
+        if new_refresh:
+            save_refresh_token(db, new_refresh)
 
         summary_response = client.get(
             f"{FEEDLYNC_API_BASE}/farms/summary",
             headers={"Authorization": f"Bearer {access_token}", "accept": "application/json"},
         )
+        if summary_response.status_code in (401, 403):
+            raise FeedlyncAuthError(
+                "FeedLync session expired. Use Reconnect FeedLync on the Feed Rate page."
+            )
         summary_response.raise_for_status()
         farm_ids = _extract_farm_ids(summary_response.json())
 

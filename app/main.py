@@ -15,6 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.api.office_admin_routes import router as office_admin_api_router
 from app.api.events_routes import router as events_api_router
 from app.api.feed_rate_routes import router as feed_rate_api_router
+from app.api.feedlync_routes import router as feedlync_api_router
 from app.api.stock_inventory_routes import router as stock_inventory_api_router
 from app.api.admin_routes import router as admin_api_router
 from app.api.herd_routes import router as herd_api_router
@@ -67,6 +68,7 @@ app.include_router(herd_api_router)
 app.include_router(stock_inventory_api_router)
 app.include_router(events_api_router)
 app.include_router(feed_rate_api_router)
+app.include_router(feedlync_api_router)
 app.include_router(office_admin_api_router)
 app.include_router(admin_api_router)
 
@@ -737,6 +739,28 @@ def feed_rate_page(request: Request):
             request,
             page_heading="Feed Rate",
             **_feed_rate_context("Feed Rate", "feed-rate", "Feed Rate"),
+        ),
+    )
+
+
+@app.get("/feed-rate/connect", response_class=HTMLResponse)
+def feed_rate_connect_page(request: Request):
+    if denied := _page_guard(request, PAGE_FEED_RATE):
+        return denied
+    if not can_import_feed(request.state.user):
+        return RedirectResponse("/feed-rate", status_code=302)
+    return_to = request.query_params.get("return", "/feed-rate")
+    if not return_to.startswith("/") or return_to.startswith("//"):
+        return_to = "/feed-rate"
+    return templates.TemplateResponse(
+        request,
+        "feed_rate/connect.html",
+        _template_ctx(
+            request,
+            page_heading="Connect FeedLync",
+            error=request.query_params.get("error"),
+            return_to=return_to,
+            **_feed_rate_context("Connect FeedLync", "feed-rate", "Connect FeedLync"),
         ),
     )
 

@@ -46,6 +46,7 @@ def init_db() -> None:
     _migrate_stock_accruals_schema()
     _migrate_stock_purchases_schema()
     _migrate_user_permissions()
+    _migrate_feedlync_auth()
 
 
 def _migrate_user_permissions() -> None:
@@ -342,6 +343,16 @@ def _drop_legacy_tables() -> None:
     with engine.begin() as conn:
         for table in to_drop:
             conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
+
+
+def _migrate_feedlync_auth() -> None:
+    from app.services.feedlync_auth import seed_refresh_token_from_env
+
+    inspector = inspect(engine)
+    if "feedlync_auth" not in inspector.get_table_names():
+        return
+    with SessionLocal() as db:
+        seed_refresh_token_from_env(db)
 
 
 def get_db() -> Generator[Session, None, None]:

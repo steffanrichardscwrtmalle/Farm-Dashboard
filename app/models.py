@@ -376,6 +376,24 @@ class FeedRateRecord(Base):
         }
 
 
+class FeedlyncAuth(Base):
+    """Stored Feedlync OAuth refresh token (singleton row id=1)."""
+
+    __tablename__ = "feedlync_auth"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    refresh_token: Mapped[str] = mapped_column(Text)
+    connected_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    connected_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+
+
 class CowEvent(Base):
     """Cow events from DCEXPORT CMEVENTS / GADEVENTS files."""
 
