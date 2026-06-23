@@ -107,7 +107,7 @@ def api_unarchive_sales_payments(
 @router.get("/stock-accruals")
 def api_stock_accruals(
     farm: list[str] | None = Query(None),
-    stock_group: str = Query("cows", pattern="^(cows|youngstock)$"),
+    stock_group: str = Query("cows", pattern="^(cows|youngstock|beef)$"),
     month_from: dt.date | None = Query(None),
     month_to: dt.date | None = Query(None),
     fiscal_year: int | None = Query(None),

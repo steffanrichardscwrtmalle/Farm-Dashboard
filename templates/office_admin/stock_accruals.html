@@ -31,6 +31,7 @@
       margin-bottom: 0.35rem;
     }
     .slicer-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .stock-group-slicer { grid-template-columns: 1fr 1fr 1fr; }
     .slicer-btn {
       display: flex;
       flex-direction: column;
@@ -50,6 +51,7 @@
     .slicer-btn.selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
     .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
     .slicer-btn[data-value="youngstock"].selected { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
+    .slicer-btn[data-value="beef"].selected { background: #ede9fe; border-color: #a78bfa; color: #5b21b6; }
     .date-inputs { display: grid; gap: 0.5rem; }
     .filter-select { width: 100%; margin: 0; }
     .date-inputs label {
@@ -171,6 +173,7 @@
           <div class="slicer-group stock-group-slicer" role="group" aria-label="Stock group">
             <button type="button" class="slicer-btn selected" data-value="cows" aria-pressed="true">Cows</button>
             <button type="button" class="slicer-btn" data-value="youngstock" aria-pressed="false">Youngstock</button>
+            <button type="button" class="slicer-btn" data-value="beef" aria-pressed="false">Beef</button>
           </div>
         </div>
         <div class="filter-section">
@@ -214,6 +217,11 @@
   <script>
     const DEFAULT_MONTH_SPAN = 12;
     const SALES_REASONS = ["CULL", "TB", "OFS", "Beef", "Dairy"];
+    const STOCK_GROUP_LABELS = {
+      cows: "Cows",
+      youngstock: "Youngstock (F)",
+      beef: "Beef",
+    };
     let monthList = [];
     let loadTimer = null;
     let initialBoundsSynced = false;
@@ -239,6 +247,14 @@
       });
     }
 
+
+    function showBirthsColumn(stockGroup) {
+      return stockGroup === "youngstock" || stockGroup === "beef";
+    }
+
+    function stockGroupLabel(stockGroup) {
+      return STOCK_GROUP_LABELS[stockGroup] || "Cows";
+    }
 
     function selectedStockGroup() {
       return document.querySelector(".stock-group-slicer .slicer-btn.selected")?.dataset.value || "cows";
@@ -469,7 +485,7 @@
         renderSummaryPanel(null);
         return;
       }
-      const showBirths = stockGroup === "youngstock";
+      const showBirths = showBirthsColumn(stockGroup);
       foot.innerHTML = `
         <tr class="total-row">
           <td>Total</td>
@@ -507,7 +523,7 @@
     }
 
     function renderTableHead(stockGroup) {
-      const showBirths = stockGroup === "youngstock";
+      const showBirths = showBirthsColumn(stockGroup);
       document.getElementById("table-head").innerHTML = `
         <tr>
           <th>Month</th>
@@ -525,7 +541,7 @@
     function renderTable(rows, stockGroup) {
       const body = document.getElementById("table-body");
       renderTableHead(stockGroup);
-      const showBirths = stockGroup === "youngstock";
+      const showBirths = showBirthsColumn(stockGroup);
       body.innerHTML = rows.map(row => `
         <tr class="${row.warning ? "warn-row" : ""}">
           <td>${row.event_month}</td>
@@ -569,7 +585,7 @@
         }
 
         const rows = data.rows || [];
-        const groupLabel = data.stock_group === "youngstock" ? "Youngstock (F)" : "Cows";
+        const groupLabel = stockGroupLabel(data.stock_group);
         meta.textContent = `${farms.join(" + ")} · ${groupLabel}: ${rows.length.toLocaleString("en-GB")} months`;
 
         if (!rows.length) {

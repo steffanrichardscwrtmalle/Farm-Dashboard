@@ -9,6 +9,7 @@ from sqlalchemy import and_, extract, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    STOCK_GROUP_BEEF,
     STOCK_GROUP_COWS,
     STOCK_GROUP_YOUNGSTOCK,
     CowEvent,
@@ -23,7 +24,7 @@ from app.services.events_common import (
     _sales_reason_expression,
     normalize_farms,
 )
-from app.services.herd_import_utils import BEEF_CBREED_MIN, CATEGORY_DAIRY
+from app.services.herd_import_utils import BEEF_CBREED_MIN, CATEGORY_BEEF, CATEGORY_DAIRY
 from app.services.stock_purchases import normalize_stock_group
 
 _ZERO_SALES = {reason: 0 for reason in SALES_TABLE_REASON_ORDER}
@@ -37,15 +38,30 @@ def _month_key(value: dt.date) -> tuple[int, int]:
     return (value.year, value.month)
 
 
+def _youngstock_cow_event_filter():
+    return (
+        CowEvent.lact == 0,
+        func.upper(func.coalesce(CowEvent.gndr, "")) == "F",
+        CowEvent.cbrd.isnot(None),
+        CowEvent.cbrd < BEEF_CBREED_MIN,
+    )
+
+
 def _apply_cow_event_stock_group(query, stock_group: str):
     if stock_group == STOCK_GROUP_COWS:
         return query.where(CowEvent.lact.isnot(None)).where(CowEvent.lact > 0)
-    return (
-        query.where(CowEvent.lact == 0)
-        .where(func.upper(func.coalesce(CowEvent.gndr, "")) == "F")
-        .where(CowEvent.cbrd.isnot(None))
-        .where(CowEvent.cbrd < BEEF_CBREED_MIN)
-    )
+    if stock_group == STOCK_GROUP_BEEF:
+        query = query.where(CowEvent.lact == 0)
+        return query.where(
+            or_(
+                func.upper(func.coalesce(CowEvent.gndr, "")) != "F",
+                CowEvent.cbrd.is_(None),
+                CowEvent.cbrd >= BEEF_CBREED_MIN,
+            )
+        )
+    for condition in _youngstock_cow_event_filter():
+        query = query.where(condition)
+    return query
 
 
 def _fetch_sales_by_month(
@@ -164,6 +180,48 @@ def _fetch_births_by_month(
     }
 
 
+def _fetch_beef_births_by_month(
+    db: Session,
+    *,
+    farm: str,
+    month_from: dt.date,
+    month_to: dt.date,
+) -> dict[tuple[int, int], int]:
+    query = (
+        select(
+            extract("year", HerdBirth.bdat),
+            extract("month", HerdBirth.bdat),
+            func.count(),
+        )
+        .where(HerdBirth.bdat.isnot(None))
+        .where(HerdBirth.farm == farm)
+        .where(
+            or_(
+                HerdBirth.category == CATEGORY_BEEF,
+                and_(
+                    HerdBirth.category.is_(None),
+                    or_(
+                        func.upper(func.coalesce(HerdBirth.gndr, "")) != "F",
+                        HerdBirth.cbrd.is_(None),
+                        HerdBirth.cbrd >= BEEF_CBREED_MIN,
+                    ),
+                ),
+            )
+        )
+        .where(HerdBirth.bdat >= month_from)
+        .where(HerdBirth.bdat <= month_to)
+        .group_by(
+            extract("year", HerdBirth.bdat),
+            extract("month", HerdBirth.bdat),
+        )
+    )
+    return {
+        (int(year), int(month)): int(count)
+        for year, month, count in db.execute(query).all()
+        if year is not None and month is not None
+    }
+
+
 def _fetch_purchases_by_month(
     db: Session,
     *,
@@ -251,18 +309,33 @@ def _compute_farm_rows(
     )
 
     births: dict[tuple[int, int], int] = {}
-    calvings = _fetch_event_count_by_month(
-        db,
-        farm=farm,
-        stock_group=stock_group,
-        event_type="FRESH",
-        month_from=baseline_month,
-        month_to=calc_end,
-        lact_filter="fresh_heifers",
-    )
+    calvings: dict[tuple[int, int], int] = {}
     if stock_group == STOCK_GROUP_YOUNGSTOCK:
         births = _fetch_births_by_month(
             db, farm=farm, month_from=baseline_month, month_to=calc_end
+        )
+        calvings = _fetch_event_count_by_month(
+            db,
+            farm=farm,
+            stock_group=stock_group,
+            event_type="FRESH",
+            month_from=baseline_month,
+            month_to=calc_end,
+            lact_filter="fresh_heifers",
+        )
+    elif stock_group == STOCK_GROUP_BEEF:
+        births = _fetch_beef_births_by_month(
+            db, farm=farm, month_from=baseline_month, month_to=calc_end
+        )
+    elif stock_group == STOCK_GROUP_COWS:
+        calvings = _fetch_event_count_by_month(
+            db,
+            farm=farm,
+            stock_group=stock_group,
+            event_type="FRESH",
+            month_from=baseline_month,
+            month_to=calc_end,
+            lact_filter="fresh_heifers",
         )
 
     all_months = _iter_month_starts(baseline_month, end_month)
@@ -274,9 +347,15 @@ def _compute_farm_rows(
         month_sales = sales.get(key, dict(_ZERO_SALES))
         sales_total = sum(month_sales.values())
         month_deaths = deaths.get(key, 0)
-        month_births = births.get(key, 0) if stock_group == STOCK_GROUP_YOUNGSTOCK else 0
+        show_births = stock_group in (STOCK_GROUP_YOUNGSTOCK, STOCK_GROUP_BEEF)
+        month_births = births.get(key, 0) if show_births else 0
         raw_calvings = calvings.get(key, 0)
-        month_calvings = raw_calvings if stock_group == STOCK_GROUP_COWS else -raw_calvings
+        if stock_group == STOCK_GROUP_COWS:
+            month_calvings = raw_calvings
+        elif stock_group == STOCK_GROUP_YOUNGSTOCK:
+            month_calvings = -raw_calvings
+        else:
+            month_calvings = 0
         month_purchases = purchases.get(key, 0)
 
         closing = (

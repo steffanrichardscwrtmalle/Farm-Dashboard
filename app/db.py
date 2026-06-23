@@ -205,6 +205,7 @@ def _migrate_herd_births_schema() -> None:
 def _migrate_stock_accruals_schema() -> None:
     """Seed opening baselines once tables exist."""
     from app.models import (
+        STOCK_GROUP_BEEF,
         STOCK_GROUP_COWS,
         STOCK_GROUP_YOUNGSTOCK,
         StockOpeningBaseline,
@@ -219,6 +220,8 @@ def _migrate_stock_accruals_schema() -> None:
         ("CM", STOCK_GROUP_YOUNGSTOCK, "2024-04-01", 1782),
         ("GAD", STOCK_GROUP_COWS, "2024-12-01", 851),
         ("GAD", STOCK_GROUP_YOUNGSTOCK, "2024-12-01", 1315),
+        ("CM", STOCK_GROUP_BEEF, "2025-04-01", 66),
+        ("GAD", STOCK_GROUP_BEEF, "2025-04-01", 13),
     ]
 
     import datetime as dt
@@ -248,6 +251,46 @@ def _migrate_stock_accruals_schema() -> None:
             if gad_ys and gad_ys.opening_count == 1319:
                 gad_ys.opening_count = 1315
                 db.commit()
+            beef_seeds = [
+                ("CM", STOCK_GROUP_BEEF, dt.date(2025, 4, 1), 66),
+                ("GAD", STOCK_GROUP_BEEF, dt.date(2025, 4, 1), 13),
+            ]
+            for farm, stock_group, month_start, opening in beef_seeds:
+                existing = db.scalar(
+                    select(StockOpeningBaseline).where(
+                        StockOpeningBaseline.farm == farm,
+                        StockOpeningBaseline.stock_group == stock_group,
+                        StockOpeningBaseline.month_start == month_start,
+                    )
+                )
+                if existing is None:
+                    db.add(
+                        StockOpeningBaseline(
+                            farm=farm,
+                            stock_group=stock_group,
+                            month_start=month_start,
+                            opening_count=opening,
+                        )
+                    )
+            gad_beef = db.scalar(
+                select(StockOpeningBaseline).where(
+                    StockOpeningBaseline.farm == "GAD",
+                    StockOpeningBaseline.stock_group == STOCK_GROUP_BEEF,
+                    StockOpeningBaseline.month_start == dt.date(2025, 4, 1),
+                )
+            )
+            if gad_beef and gad_beef.opening_count == 0:
+                gad_beef.opening_count = 13
+            cm_beef = db.scalar(
+                select(StockOpeningBaseline).where(
+                    StockOpeningBaseline.farm == "CM",
+                    StockOpeningBaseline.stock_group == STOCK_GROUP_BEEF,
+                    StockOpeningBaseline.month_start == dt.date(2025, 4, 1),
+                )
+            )
+            if cm_beef and cm_beef.opening_count == 0:
+                cm_beef.opening_count = 66
+            db.commit()
             return
 
         for farm, stock_group, month_iso, opening in seeds:
