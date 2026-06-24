@@ -26,15 +26,15 @@ from app.services.events_common import (
     _iter_month_starts,
     normalize_farms,
 )
-from app.services.inventory_valuation import (
-    CATEGORIES,
-    METHODOLOGY_SUMMARY,
-    birth_category_to_stock_category,
-    category_from_event_proxy,
-    category_from_inventory,
-    compute_value,
-)
+from app.services.inventory_valuation import CATEGORIES, METHODOLOGY_SUMMARY, compute_value
 from app.services.stock_accruals import build_stock_accruals_report
+from app.services.stock_group import (
+    VALUATION_CATEGORY_BY_STOCK_GROUP,
+    stock_group_from_birth,
+    stock_group_from_event_fields,
+    stock_group_from_inventory,
+    valuation_category_from_stock_group,
+)
 
 _EXIT_EVENTS = ("SOLD", "DIED")
 _JV_EVENTS = ("GAME", "PATHWAY")
@@ -42,6 +42,15 @@ _CATEGORY_PREFIX: dict[str, str] = {
     "Beef": "beef",
     "Dairy": "dairy",
     "Youngstock": "youngstock",
+}
+
+# Missing FRESH lact=1 in cow_events (corrupt DC305 export); keyed by ETAG.
+_MANUAL_FRESH_HEIFER_DATES: dict[str, dt.date] = {
+    "UK752261609397": dt.date(2024, 3, 15),
+    "UK752261509354": dt.date(2024, 6, 22),
+    "UK752261509403": dt.date(2024, 5, 11),
+    "UK752261308883": dt.date(2024, 4, 12),
+    "UK752261509641": dt.date(2024, 9, 28),
 }
 
 
@@ -52,6 +61,18 @@ class EventSnapshot:
     cbrd: int | None
     gndr: str | None
     bdat: dt.date | None
+    event: str | None = None
+    seq: int = 0
+    farm: str | None = None
+
+
+@dataclass
+class PurchaseRecord:
+    edat: dt.date
+    lact: int | None
+    cbrd: int | None
+    gndr: str | None
+    stock_group: str
 
 
 @dataclass
@@ -65,14 +86,293 @@ class AnimalProfile:
     inventory_category: str | None = None
     in_anchor_inventory: bool = False
     events: list[EventSnapshot] = field(default_factory=list)
+    purchases: list[PurchaseRecord] = field(default_factory=list)
     birth_category: str | None = None
+    birth_cbrd: int | None = None
+    birth_gndr: str | None = None
+    transfer_stint_start: dt.date | None = None
 
-    def latest_event_on_or_before(self, close_date: dt.date) -> EventSnapshot | None:
+    def best_event_on_or_before(
+        self,
+        close_date: dt.date,
+        *,
+        since: dt.date | None = None,
+    ) -> EventSnapshot | None:
+        """Latest event on or before close_date; same-day ties broken by import row order."""
         best: EventSnapshot | None = None
         for snap in self.events:
-            if snap.event_date <= close_date and (best is None or snap.event_date > best.event_date):
+            if snap.event_date > close_date:
+                continue
+            if since is not None and snap.event_date < since:
+                continue
+            if best is None:
+                best = snap
+                continue
+            if snap.event_date > best.event_date or (
+                snap.event_date == best.event_date and snap.seq > best.seq
+            ):
                 best = snap
         return best
+
+
+def _last_exit_on_or_before(profile: AnimalProfile, close_date: dt.date) -> dt.date | None:
+    last: dt.date | None = None
+    for snap in profile.events:
+        if snap.event not in _EXIT_EVENTS or snap.event_date > close_date:
+            continue
+        if snap.farm is not None and snap.farm != profile.farm:
+            continue
+        if last is None or snap.event_date > last:
+            last = snap.event_date
+    return last
+
+
+def _events_for_membership(profile: AnimalProfile) -> list[EventSnapshot]:
+    """Farm-scoped events for on-farm stint and exit logic."""
+    return [
+        snap
+        for snap in profile.events
+        if snap.farm is None or snap.farm == profile.farm
+    ]
+
+
+def _compute_transfer_stint_start(
+    profile: AnimalProfile,
+    *,
+    farm_events_by_etag: dict[str, dict[str, list[EventSnapshot]]] | None = None,
+) -> dt.date | None:
+    """On-farm membership starts at purchase when an animal transferred after birth elsewhere."""
+    if not profile.bdat or not profile.purchases or not profile.etag:
+        return None
+    transfer_purchase: PurchaseRecord | None = None
+    for purchase in profile.purchases:
+        if purchase.edat <= profile.bdat:
+            continue
+        if transfer_purchase is None or purchase.edat < transfer_purchase.edat:
+            transfer_purchase = purchase
+    if transfer_purchase is None:
+        return None
+    for snap in _events_for_membership(profile):
+        if snap.event_date < transfer_purchase.edat:
+            return None
+
+    if farm_events_by_etag is not None:
+        other_farm_events = False
+        for farm, snaps in farm_events_by_etag.get(profile.etag, {}).items():
+            if farm == profile.farm:
+                continue
+            if any(snap.event_date < transfer_purchase.edat for snap in snaps):
+                other_farm_events = True
+                break
+        if not other_farm_events:
+            return None
+
+    return transfer_purchase.edat
+
+
+def _effective_transfer_start(
+    profile: AnimalProfile,
+    close_date: dt.date,
+) -> dt.date | None:
+    """Cross-farm CM membership starts at purchase when the animal was raised elsewhere."""
+    return profile.transfer_stint_start
+
+
+def _animal_on_farm_at_close(profile: AnimalProfile, close_date: dt.date) -> bool:
+    """True when the animal is on farm at month-end (excludes sales/deaths on close_date)."""
+    transfer_start = _effective_transfer_start(profile, close_date)
+    if transfer_start is not None and close_date < transfer_start:
+        return False
+    last_exit = _last_exit_on_or_before(profile, close_date)
+    if last_exit is not None and last_exit == close_date:
+        return False
+    since, _ = _stint_at_close(profile, close_date)
+    if since is not None and since <= close_date:
+        return last_exit is None or last_exit < since
+    if profile.bdat is not None and profile.bdat <= close_date:
+        return last_exit is None or last_exit < profile.bdat
+    return False
+
+
+def _stint_at_close(
+    profile: AnimalProfile,
+    close_date: dt.date,
+) -> tuple[dt.date | None, PurchaseRecord | None]:
+    """Start of the on-farm period at close_date (after last exit, or birth)."""
+    transfer_start = _effective_transfer_start(profile, close_date)
+    if transfer_start is not None and transfer_start > close_date:
+        return None, None
+    if transfer_start is not None:
+        last_exit = _last_exit_on_or_before(profile, close_date)
+        stint_purchase: PurchaseRecord | None = None
+        for purchase in profile.purchases:
+            if purchase.edat == transfer_start:
+                stint_purchase = purchase
+                break
+        if stint_purchase is None:
+            for purchase in profile.purchases:
+                if purchase.edat >= transfer_start:
+                    stint_purchase = purchase
+                    break
+        if last_exit is not None and last_exit >= transfer_start:
+            if last_exit == close_date:
+                return None, None
+            if last_exit < close_date:
+                for purchase in profile.purchases:
+                    if purchase.edat > last_exit and purchase.edat <= close_date:
+                        if stint_purchase is None or purchase.edat > stint_purchase.edat:
+                            stint_purchase = purchase
+                if stint_purchase is not None:
+                    return stint_purchase.edat, stint_purchase
+                return None, None
+        return transfer_start, stint_purchase
+
+    last_exit = _last_exit_on_or_before(profile, close_date)
+    stint_purchase = None
+    for purchase in profile.purchases:
+        if purchase.edat > close_date:
+            continue
+        if last_exit is not None and purchase.edat <= last_exit:
+            continue
+        if stint_purchase is None or purchase.edat > stint_purchase.edat:
+            stint_purchase = purchase
+    if stint_purchase is not None:
+        return stint_purchase.edat, stint_purchase
+    if profile.bdat is not None and profile.bdat <= close_date:
+        return profile.bdat, None
+    return None, None
+
+
+def _manual_fresh_heifer_in_stint(
+    profile: AnimalProfile,
+    close_date: dt.date,
+    *,
+    since: dt.date | None,
+) -> bool:
+    """True when a known first-lact freshen date applies but FRESH is missing from events."""
+    fresh_date = _MANUAL_FRESH_HEIFER_DATES.get(profile.etag)
+    if fresh_date is None or fresh_date > close_date:
+        return False
+    if since is not None and fresh_date < since:
+        return False
+    return True
+
+
+def _effective_lact_at_close(
+    profile: AnimalProfile,
+    close_date: dt.date,
+    *,
+    since: dt.date | None = None,
+    stint_purchase: PurchaseRecord | None = None,
+) -> int:
+    """Lactation for stock-group rules; honours FRESH calvings like Stock Accruals."""
+    lact = 0
+    if stint_purchase is not None and stint_purchase.edat <= close_date:
+        lact = max(lact, int(stint_purchase.lact or 0))
+    for snap in profile.events:
+        if snap.event_date > close_date:
+            continue
+        if since is not None and snap.event_date < since:
+            continue
+        if snap.event == "FRESH" and snap.lact == 1:
+            lact = max(lact, 1)
+    if _manual_fresh_heifer_in_stint(profile, close_date, since=since):
+        lact = max(lact, 1)
+    best = profile.best_event_on_or_before(close_date, since=since)
+    if best is not None:
+        lact = max(lact, int(best.lact or 0))
+    return lact
+
+
+def _had_fresh_heifer_in_stint(
+    profile: AnimalProfile,
+    close_date: dt.date,
+    *,
+    since: dt.date | None,
+) -> bool:
+    """True when a FRESH lact=1 calving occurred in the current on-farm stint."""
+    if _manual_fresh_heifer_in_stint(profile, close_date, since=since):
+        return True
+    for snap in profile.events:
+        if snap.event_date > close_date:
+            continue
+        if since is not None and snap.event_date < since:
+            continue
+        if snap.event == "FRESH" and snap.lact == 1:
+            return True
+    return False
+
+
+def _had_any_fresh_in_stint(
+    profile: AnimalProfile,
+    close_date: dt.date,
+    *,
+    since: dt.date | None,
+) -> bool:
+    """True when any FRESH calving occurred in the current on-farm stint."""
+    for snap in profile.events:
+        if snap.event_date > close_date:
+            continue
+        if since is not None and snap.event_date < since:
+            continue
+        if snap.event == "FRESH":
+            return True
+    return False
+
+
+def _stock_group_from_accruals_rules(
+    profile: AnimalProfile,
+    close_date: dt.date,
+    *,
+    since: dt.date | None,
+    stint_purchase: PurchaseRecord | None,
+    lact: int,
+    snap: EventSnapshot | None,
+) -> str:
+    """Mirror Stock Accruals: cows need FRESH lact=1 or lact>1 / cow purchase."""
+    if stint_purchase is not None and stint_purchase.stock_group == STOCK_GROUP_COWS:
+        return STOCK_GROUP_COWS
+
+    if stint_purchase is not None and stint_purchase.stock_group == STOCK_GROUP_YOUNGSTOCK:
+        purchase_lact = int(stint_purchase.lact or 0)
+        if purchase_lact == 0:
+            if not _had_fresh_heifer_in_stint(profile, close_date, since=since):
+                return STOCK_GROUP_YOUNGSTOCK
+        elif not _had_any_fresh_in_stint(profile, close_date, since=since):
+            return STOCK_GROUP_YOUNGSTOCK
+
+    if snap is None:
+        if stint_purchase is not None:
+            return stint_purchase.stock_group
+        if profile.birth_category is not None:
+            return stock_group_from_birth(
+                profile.birth_category, profile.birth_cbrd, profile.birth_gndr
+            )
+        return STOCK_GROUP_BEEF
+
+    snap_group = stock_group_from_event_fields(lact, snap.cbrd, snap.gndr)
+    if snap_group != STOCK_GROUP_COWS:
+        return snap_group
+
+    if _had_fresh_heifer_in_stint(profile, close_date, since=since):
+        return STOCK_GROUP_COWS
+
+    # Lact 1 without FRESH only stays youngstock when newly promoted this month
+    # (e.g. ILL marking). Animals already lact>=1 at month open remain cows.
+    if lact <= 1:
+        month_open = _month_start(close_date)
+        prior_close = month_open - dt.timedelta(days=1)
+        if since is None or since <= prior_close:
+            prior_lact = _effective_lact_at_close(
+                profile,
+                prior_close,
+                since=since,
+                stint_purchase=stint_purchase,
+            )
+            if prior_lact <= 0:
+                return STOCK_GROUP_YOUNGSTOCK
+
+    return STOCK_GROUP_COWS
 
 
 def _normalize_key_part(value: str | None) -> str:
@@ -110,29 +410,113 @@ def _empty_farm_meta() -> dict[str, int]:
     return {"dairy_cows": 0}
 
 
-def _resolve_state_at(profile: AnimalProfile, close_date: dt.date) -> dict[str, Any] | None:
-    snap = profile.latest_event_on_or_before(close_date)
-    if snap is None and profile.events:
-        # Animal still on farm at close_date but only has later events (e.g. sale next month).
-        snap = profile.events[-1]
+def _earliest_event_after(profile: AnimalProfile, close_date: dt.date) -> EventSnapshot | None:
+    for snap in profile.events:
+        if snap.event_date > close_date:
+            return snap
+    return None
 
+
+def _earliest_fresh_after(profile: AnimalProfile, close_date: dt.date) -> EventSnapshot | None:
+    best: EventSnapshot | None = None
+    for snap in profile.events:
+        if snap.event_date <= close_date:
+            continue
+        if snap.event != "FRESH":
+            continue
+        if best is None or snap.event_date < best.event_date or (
+            snap.event_date == best.event_date and snap.seq < best.seq
+        ):
+            best = snap
+    return best
+
+
+def _try_lact_from_first_future_fresh(
+    profile: AnimalProfile,
+    close_date: dt.date,
+) -> tuple[int, str, dt.date | None] | None:
+    """When event history starts after close, infer lact from first FRESH lact - 1."""
+    if profile.best_event_on_or_before(close_date, since=None) is not None:
+        return None
+    fresh = _earliest_fresh_after(profile, close_date)
+    if fresh is None:
+        return None
+    lact = max(0, int(fresh.lact or 0) - 1)
+    cbrd = fresh.cbrd if fresh.cbrd is not None else profile.birth_cbrd
+    gndr = fresh.gndr if fresh.gndr is not None else profile.birth_gndr
+    if cbrd is None and gndr is None and profile.in_anchor_inventory:
+        stock_group = stock_group_from_inventory(lact, profile.inventory_sbrd)
+    else:
+        stock_group = stock_group_from_event_fields(lact, cbrd, gndr)
+    return lact, stock_group, fresh.bdat
+
+
+def _resolve_state_at(
+    profile: AnimalProfile,
+    close_date: dt.date,
+    *,
+    anchor_date: dt.date | None = None,
+) -> dict[str, Any] | None:
     bdat = profile.bdat
 
-    if snap is not None:
-        lact = snap.lact if snap.lact is not None else 0
-        if snap.bdat is not None:
-            bdat = snap.bdat
-        category = category_from_event_proxy(lact, snap.cbrd, snap.gndr)
-    elif profile.in_anchor_inventory:
+    if (
+        anchor_date is not None
+        and close_date == anchor_date
+        and profile.in_anchor_inventory
+    ):
         lact = profile.inventory_lact if profile.inventory_lact is not None else 0
-        category = profile.inventory_category or category_from_inventory(
-            lact, profile.inventory_sbrd
-        )
-    elif profile.birth_category is not None:
-        lact = 0
-        category = birth_category_to_stock_category(profile.birth_category)
+        stock_group = stock_group_from_inventory(lact, profile.inventory_sbrd)
     else:
-        return None
+        since, stint_purchase = _stint_at_close(profile, close_date)
+        snap = profile.best_event_on_or_before(close_date, since=since)
+        if snap is not None:
+            lact = _effective_lact_at_close(
+                profile,
+                close_date,
+                since=since,
+                stint_purchase=stint_purchase,
+            )
+            if snap.bdat is not None:
+                bdat = snap.bdat
+            stock_group = _stock_group_from_accruals_rules(
+                profile,
+                close_date,
+                since=since,
+                stint_purchase=stint_purchase,
+                lact=lact,
+                snap=snap,
+            )
+        elif stint_purchase is not None and stint_purchase.edat <= close_date:
+            lact = int(stint_purchase.lact or 0)
+            stock_group = stint_purchase.stock_group
+        elif profile.in_anchor_inventory:
+            inferred = _try_lact_from_first_future_fresh(profile, close_date)
+            if inferred is not None:
+                lact, stock_group, fresh_bdat = inferred
+                if fresh_bdat is not None:
+                    bdat = fresh_bdat
+            else:
+                lact = profile.inventory_lact if profile.inventory_lact is not None else 0
+                stock_group = stock_group_from_inventory(lact, profile.inventory_sbrd)
+        elif profile.birth_category is not None:
+            lact = 0
+            stock_group = stock_group_from_birth(
+                profile.birth_category, profile.birth_cbrd, profile.birth_gndr
+            )
+        else:
+            inferred = _try_lact_from_first_future_fresh(profile, close_date)
+            if inferred is not None:
+                lact, stock_group, fresh_bdat = inferred
+                if fresh_bdat is not None:
+                    bdat = fresh_bdat
+            else:
+                future = _earliest_event_after(profile, close_date)
+                if future is None:
+                    return None
+                lact = future.lact if future.lact is not None else 0
+                if future.bdat is not None:
+                    bdat = future.bdat
+                stock_group = stock_group_from_event_fields(lact, future.cbrd, future.gndr)
 
     if bdat is None:
         return None
@@ -141,10 +525,12 @@ def _resolve_state_at(profile: AnimalProfile, close_date: dt.date) -> dict[str, 
     if aged_days < 0:
         return None
 
+    category = valuation_category_from_stock_group(stock_group)
     value = compute_value(lact, category, aged_days)
     return {
         "farm": profile.farm,
         "lact": lact,
+        "stock_group": stock_group,
         "category": category,
         "aged_days": aged_days,
         "value": value,
@@ -196,41 +582,6 @@ def _build_profiles(
         profile.inventory_category = row.category
 
     exit_keys: dict[tuple[str, str], dt.date] = {}
-    exit_rows = db.execute(
-        select(
-            CowEvent.farm,
-            CowEvent.etag,
-            CowEvent.cow_id,
-            CowEvent.event_date,
-            CowEvent.lact,
-            CowEvent.cbrd,
-            CowEvent.gndr,
-            CowEvent.bdat,
-        )
-        .where(CowEvent.farm.in_(selected_farms))
-        .where(CowEvent.event.in_(_EXIT_EVENTS))
-        .where(CowEvent.event_date.isnot(None))
-        .where(CowEvent.event_date <= anchor_date)
-    ).all()
-    for farm, etag, cow_id, event_date, lact, cbrd, gndr, bdat in exit_rows:
-        if event_date is None:
-            continue
-        key = animal_key(farm, etag, cow_id)
-        profile = get_profile(farm, etag, cow_id)
-        profile.bdat = bdat or profile.bdat
-        profile.events.append(
-            EventSnapshot(
-                event_date=event_date,
-                lact=int(lact) if lact is not None else None,
-                cbrd=int(cbrd) if cbrd is not None else None,
-                gndr=gndr,
-                bdat=bdat,
-            )
-        )
-        prev = exit_keys.get(key)
-        if prev is None or event_date > prev:
-            exit_keys[key] = event_date
-
     jv_keys: dict[tuple[str, str], dt.date] = {}
     jv_rows = db.execute(
         select(
@@ -257,18 +608,28 @@ def _build_profiles(
 
     entry_keys: dict[tuple[str, str], dt.date] = {}
     birth_rows = db.execute(
-        select(HerdBirth.farm, HerdBirth.etag, HerdBirth.cow_id, HerdBirth.bdat, HerdBirth.category)
+        select(
+            HerdBirth.farm,
+            HerdBirth.etag,
+            HerdBirth.cow_id,
+            HerdBirth.bdat,
+            HerdBirth.category,
+            HerdBirth.cbrd,
+            HerdBirth.gndr,
+        )
         .where(HerdBirth.farm.in_(selected_farms))
         .where(HerdBirth.bdat.isnot(None))
         .where(HerdBirth.bdat <= anchor_date)
     ).all()
-    for farm, etag, cow_id, bdat, category in birth_rows:
+    for farm, etag, cow_id, bdat, category, cbrd, gndr in birth_rows:
         if bdat is None:
             continue
         key = animal_key(farm, etag, cow_id)
         profile = get_profile(farm, etag, cow_id)
         profile.bdat = bdat
         profile.birth_category = category
+        profile.birth_cbrd = int(cbrd) if cbrd is not None else None
+        profile.birth_gndr = gndr
         prev = entry_keys.get(key)
         if prev is None or bdat < prev:
             entry_keys[key] = bdat
@@ -283,15 +644,29 @@ def _build_profiles(
         key = animal_key(row.farm, row.etag, None)
         profile = get_profile(row.farm, row.etag, None)
         profile.bdat = row.bdat or profile.bdat
+        profile.purchases.append(
+            PurchaseRecord(
+                edat=row.edat,
+                lact=int(row.lact) if row.lact is not None else None,
+                cbrd=int(row.cbrd) if row.cbrd is not None else None,
+                gndr=row.gndr,
+                stock_group=row.stock_group,
+            )
+        )
         prev = entry_keys.get(key)
         if prev is None or row.edat < prev:
             entry_keys[key] = row.edat
 
+    for profile in profiles.values():
+        profile.purchases.sort(key=lambda purchase: purchase.edat)
+
     all_event_rows = db.execute(
         select(
+            CowEvent.id,
             CowEvent.farm,
             CowEvent.etag,
             CowEvent.cow_id,
+            CowEvent.event,
             CowEvent.event_date,
             CowEvent.lact,
             CowEvent.cbrd,
@@ -301,11 +676,12 @@ def _build_profiles(
         .where(CowEvent.farm.in_(selected_farms))
         .where(CowEvent.event_date.isnot(None))
         .where(CowEvent.event_date <= anchor_date)
-        .order_by(CowEvent.event_date.asc())
+        .order_by(CowEvent.event_date.asc(), CowEvent.id.asc())
     ).all()
-    for farm, etag, cow_id, event_date, lact, cbrd, gndr, bdat in all_event_rows:
+    for row_id, farm, etag, cow_id, event_name, event_date, lact, cbrd, gndr, bdat in all_event_rows:
         if event_date is None:
             continue
+        key = animal_key(farm, etag, cow_id)
         profile = get_profile(farm, etag, cow_id)
         profile.bdat = bdat or profile.bdat
         profile.events.append(
@@ -315,11 +691,45 @@ def _build_profiles(
                 cbrd=int(cbrd) if cbrd is not None else None,
                 gndr=gndr,
                 bdat=bdat,
+                event=str(event_name) if event_name is not None else None,
+                seq=int(row_id),
+                farm=farm,
             )
+        )
+        if event_name in _EXIT_EVENTS:
+            prev = exit_keys.get(key)
+            if prev is None or event_date > prev:
+                exit_keys[key] = event_date
+
+    for profile in profiles.values():
+        profile.events.sort(key=lambda snap: (snap.event_date, snap.seq))
+
+    farm_events_by_etag: dict[str, dict[str, list[EventSnapshot]]] = {}
+    for profile in profiles.values():
+        if not profile.etag:
+            continue
+        farm_events_by_etag.setdefault(profile.etag, {})[profile.farm] = list(
+            profile.events
         )
 
     for profile in profiles.values():
-        profile.events.sort(key=lambda snap: snap.event_date)
+        profile.transfer_stint_start = _compute_transfer_stint_start(
+            profile,
+            farm_events_by_etag=farm_events_by_etag,
+        )
+
+    etag_events: dict[str, list[EventSnapshot]] = {}
+    for profile in profiles.values():
+        if not profile.etag:
+            continue
+        etag_events.setdefault(profile.etag, []).extend(profile.events)
+
+    for profile in profiles.values():
+        if not profile.etag:
+            continue
+        merged = list(etag_events.get(profile.etag, profile.events))
+        merged.sort(key=lambda snap: (snap.event_date, snap.seq))
+        profile.events = merged
 
     return anchor_date, profiles, inventory_keys, exit_keys, entry_keys, jv_keys
 
@@ -331,6 +741,7 @@ def _on_farm_keys(
     exit_keys: dict[tuple[str, str], dt.date],
     entry_keys: dict[tuple[str, str], dt.date],
     jv_keys: dict[tuple[str, str], dt.date],
+    profiles: dict[tuple[str, str], AnimalProfile] | None = None,
 ) -> set[tuple[str, str]]:
     if close_date > anchor_date:
         return set()
@@ -348,6 +759,12 @@ def _on_farm_keys(
     for key, entry_date in entry_keys.items():
         if close_date < entry_date <= anchor_date:
             keys.discard(key)
+    if profiles is not None:
+        keys = {
+            key
+            for key in keys
+            if key in profiles and _animal_on_farm_at_close(profiles[key], close_date)
+        }
     return keys
 
 
@@ -355,6 +772,8 @@ def _aggregate_animals(
     profiles: dict[tuple[str, str], AnimalProfile],
     keys: set[tuple[str, str]],
     close_date: dt.date,
+    *,
+    anchor_date: dt.date | None = None,
 ) -> tuple[dict[str, dict[str, dict[str, int | float]]], dict[str, dict[str, int]]]:
     farms: dict[str, dict[str, dict[str, int | float]]] = {}
     farm_meta: dict[str, dict[str, int]] = {}
@@ -362,7 +781,7 @@ def _aggregate_animals(
         profile = profiles.get(key)
         if profile is None:
             continue
-        state = _resolve_state_at(profile, close_date)
+        state = _resolve_state_at(profile, close_date, anchor_date=anchor_date)
         if state is None:
             continue
         farm = state["farm"]
@@ -374,7 +793,7 @@ def _aggregate_animals(
         bucket["value_gbp"] = float(bucket["value_gbp"]) + float(state["value"])
         bucket["aged_sum"] = int(bucket["aged_sum"]) + int(state["aged_days"])
         lact = int(state["lact"])
-        if category == "Dairy" and lact > 0:
+        if state["stock_group"] == STOCK_GROUP_COWS:
             farm_meta[farm]["dairy_cows"] += 1
             bucket["lact_sum"] = float(bucket["lact_sum"]) + lact
             bucket["lact_count"] = int(bucket["lact_count"]) + 1
@@ -429,7 +848,7 @@ def _jv_beef_still_on_farm_count(
         if profile is None or profile.farm != farm:
             continue
         state = _resolve_state_at(profile, jv_date)
-        if state is not None and state["category"] == "Beef":
+        if state is not None and state["stock_group"] == STOCK_GROUP_BEEF:
             count += 1
     return count
 
@@ -457,82 +876,119 @@ def _accruals_closing_for_month(
     return None
 
 
-def _set_category_count(summary: dict[str, Any], category: str, new_count: int) -> None:
-    cats = summary.setdefault("categories", {})
-    bucket = cats.setdefault(
-        category,
-        {"count": 0, "value_gbp": 0, "avg_age_days": 0, "avg_value_gbp": 0, "avg_lact": None},
-    )
-    value_gbp = float(bucket.get("value_gbp", 0))
-    aged_sum = int(bucket.get("avg_age_days", 0)) * int(bucket.get("count", 0))
-    bucket["count"] = int(new_count)
-    bucket["avg_value_gbp"] = math.floor(value_gbp / new_count) if new_count else 0
-    bucket["avg_age_days"] = math.floor(aged_sum / new_count) if new_count else 0
-    summary["total_animals"] = sum(int(cats[cat].get("count", 0)) for cat in CATEGORIES)
-    if category == "Dairy":
-        summary["dairy_cows"] = int(new_count)
+def _valuation_count_for_stock_group(
+    month_totals: dict[str, Any],
+    farm: str,
+    stock_group: str,
+) -> int:
+    category = VALUATION_CATEGORY_BY_STOCK_GROUP[stock_group]
+    farm_totals = month_totals.get(farm, {})
+    if stock_group == STOCK_GROUP_COWS:
+        return int(farm_totals.get("dairy_cows", 0))
+    return int(farm_totals.get("categories", {}).get(category, {}).get("count", 0))
 
 
-def _overlay_accruals_headcounts(
+def _comparison_rows_from_val_months(
     db: Session,
     *,
-    months: list[dict[str, Any]],
     selected_farms: list[str],
     fiscal_year: int,
-    profiles: dict[tuple[str, str], AnimalProfile],
-    exit_keys: dict[tuple[str, str], dt.date],
-    jv_keys: dict[tuple[str, str], dt.date],
-) -> None:
-    """Align displayed headcounts with Stock Accruals; beef net of JV transfers."""
-    accruals_cache: dict[tuple[str, str, str], int | None] = {}
+    val_months: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    anchor_ts = db.scalar(select(func.max(HerdInventory.import_timestamp)))
+    if anchor_ts is None or not selected_farms or not val_months:
+        return []
 
-    def closing(farm: str, stock_group: str, month_start: dt.date) -> int | None:
-        key = (farm, stock_group, month_start.isoformat())
-        if key not in accruals_cache:
-            accruals_cache[key] = _accruals_closing_for_month(
-                db,
-                farm=farm,
-                stock_group=stock_group,
-                month_start=month_start,
-                fiscal_year=fiscal_year,
-            )
-        return accruals_cache[key]
+    _, profiles, _, exit_keys, _, jv_keys = _build_profiles(
+        db,
+        selected_farms=list(HERD_FARM_OPTIONS),
+        anchor_ts=anchor_ts,
+    )
 
-    for month_row in months:
+    stock_groups = (
+        (STOCK_GROUP_COWS, "cows"),
+        (STOCK_GROUP_YOUNGSTOCK, "youngstock"),
+        (STOCK_GROUP_BEEF, "beef"),
+    )
+    rows: list[dict[str, Any]] = []
+
+    for month_row in val_months:
         month_start = dt.date.fromisoformat(month_row["month_start"])
         close_date = dt.date.fromisoformat(month_row["close_date"])
-        totals = month_row.setdefault("totals", {})
+        totals = month_row.get("totals", {})
 
         for farm in selected_farms:
             if farm not in totals:
                 continue
-            cows = closing(farm, STOCK_GROUP_COWS, month_start)
-            youngstock = closing(farm, STOCK_GROUP_YOUNGSTOCK, month_start)
-            beef = closing(farm, STOCK_GROUP_BEEF, month_start)
-            if cows is None or youngstock is None or beef is None:
-                continue
             jv_beef = _jv_beef_still_on_farm_count(
                 profiles, jv_keys, exit_keys, close_date, farm
             )
-            beef = max(0, beef - jv_beef)
-            _set_category_count(totals[farm], "Dairy", cows)
-            _set_category_count(totals[farm], "Youngstock", youngstock)
-            _set_category_count(totals[farm], "Beef", beef)
+            for stock_group, label in stock_groups:
+                acc_closing = _accruals_closing_for_month(
+                    db,
+                    farm=farm,
+                    stock_group=stock_group,
+                    month_start=month_start,
+                    fiscal_year=fiscal_year,
+                )
+                if acc_closing is None:
+                    continue
+                expected = acc_closing
+                if stock_group == STOCK_GROUP_BEEF:
+                    expected = max(0, acc_closing - jv_beef)
+                val_count = _valuation_count_for_stock_group(totals, farm, stock_group)
+                delta = val_count - expected
+                rows.append(
+                    {
+                        "month_start": month_start.isoformat(),
+                        "farm": farm,
+                        "stock_group": label,
+                        "accruals_closing": acc_closing,
+                        "jv_beef_adjustment": jv_beef if stock_group == STOCK_GROUP_BEEF else 0,
+                        "expected": expected,
+                        "valuation_count": val_count,
+                        "delta": delta,
+                        "matched": delta == 0,
+                    }
+                )
 
-        if len(selected_farms) > 1 and "all" in totals:
-            cows = sum(closing(f, STOCK_GROUP_COWS, month_start) or 0 for f in selected_farms)
-            youngstock = sum(
-                closing(f, STOCK_GROUP_YOUNGSTOCK, month_start) or 0 for f in selected_farms
-            )
-            beef = sum(closing(f, STOCK_GROUP_BEEF, month_start) or 0 for f in selected_farms)
-            jv_beef = sum(
-                _jv_beef_still_on_farm_count(profiles, jv_keys, exit_keys, close_date, f)
-                for f in selected_farms
-            )
-            beef = max(0, beef - jv_beef)
-            _set_category_count(totals["all"], "Dairy", cows)
-            _set_category_count(totals["all"], "Youngstock", youngstock)
-            _set_category_count(totals["all"], "Beef", beef)
+    return rows
+
+
+def compare_valuations_to_accruals(
+    db: Session,
+    *,
+    farms: list[str] | None = None,
+    fiscal_year: int,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
+) -> dict[str, Any]:
+    """Compare reconstruction headcounts to Stock Accruals closing (beef net of JV)."""
+    selected_farms = normalize_farms(farms)
+    if not selected_farms:
+        return {"rows": [], "mismatches": 0}
+
+    val_report = build_stock_valuations_report(
+        db,
+        farms=selected_farms,
+        fiscal_year=fiscal_year,
+        month_from=month_from,
+        month_to=month_to,
+    )
+    rows = _comparison_rows_from_val_months(
+        db,
+        selected_farms=selected_farms,
+        fiscal_year=fiscal_year,
+        val_months=val_report.get("months", []),
+    )
+    mismatches = sum(1 for row in rows if not row["matched"])
+
+    return {
+        "anchor_date": val_report.get("anchor_date"),
+        "fiscal_year": fiscal_year,
+        "rows": rows,
+        "mismatches": mismatches,
+    }
 
 
 def _build_kpi_detail(
@@ -670,9 +1126,17 @@ def _compute_month_rows(
         if close_date < month_start:
             continue
         keys = _on_farm_keys(
-            close_date, anchor_date, inventory_keys, exit_keys, entry_keys, jv_keys
+            close_date,
+            anchor_date,
+            inventory_keys,
+            exit_keys,
+            entry_keys,
+            jv_keys,
+            profiles,
         )
-        farm_agg, farm_meta = _aggregate_animals(profiles, keys, close_date)
+        farm_agg, farm_meta = _aggregate_animals(
+            profiles, keys, close_date, anchor_date=anchor_date
+        )
 
         totals: dict[str, Any] = {}
         for farm in selected_farms:
@@ -741,9 +1205,10 @@ def _compute_stock_valuations_report(
     month_to: dt.date | None = None,
     selected_month: dt.date | None = None,
 ) -> tuple[dt.date, dict[str, str], list[dict[str, Any]], dict[str, Any] | None]:
+    profile_farms = list(HERD_FARM_OPTIONS)
     anchor_date, profiles, inventory_keys, exit_keys, entry_keys, jv_keys = _build_profiles(
         db,
-        selected_farms=selected_farms,
+        selected_farms=profile_farms,
         anchor_ts=anchor_ts,
     )
 
@@ -807,9 +1272,17 @@ def rebuild_stock_valuation_snapshots(db: Session) -> dict[str, Any]:
             if close_date < month_start:
                 continue
             keys = _on_farm_keys(
-                close_date, anchor_date, inventory_keys, exit_keys, entry_keys, jv_keys
+                close_date,
+                anchor_date,
+                inventory_keys,
+                exit_keys,
+                entry_keys,
+                jv_keys,
+                profiles,
             )
-            farm_agg, farm_meta = _aggregate_animals(profiles, keys, close_date)
+            farm_agg, farm_meta = _aggregate_animals(
+                profiles, keys, close_date, anchor_date=anchor_date
+            )
             for farm in farms:
                 db.add(
                     _snapshot_from_farm_month(
@@ -954,13 +1427,6 @@ def build_stock_valuations_report(
             "fiscal_year_options": fiscal_year_options,
         }
 
-    profile_farms = list(HERD_FARM_OPTIONS)
-    _, profiles, _, exit_keys, _, jv_keys = _build_profiles(
-        db,
-        selected_farms=profile_farms,
-        anchor_ts=anchor_ts,
-    )
-
     if _snapshot_has_data(db, anchor_ts):
         result = _report_from_snapshots(
             db,
@@ -971,17 +1437,17 @@ def build_stock_valuations_report(
             fiscal_year_options=fiscal_year_options,
             month_from=month_from,
             month_to=month_to,
-            selected_month=None,
+            selected_month=selected_month,
         )
     else:
-        _, date_bounds, months, _ = _compute_stock_valuations_report(
+        _, date_bounds, months, selected_detail = _compute_stock_valuations_report(
             db,
             selected_farms=selected_farms,
             anchor_ts=anchor_ts,
             fiscal_year=fiscal_year,
             month_from=month_from,
             month_to=month_to,
-            selected_month=None,
+            selected_month=selected_month,
         )
         result = {
             "anchor_date": anchor_date.isoformat(),
@@ -989,23 +1455,9 @@ def build_stock_valuations_report(
             "fiscal_year_options": fiscal_year_options,
             "date_bounds": date_bounds,
             "months": months,
-            "selected_month": None,
+            "selected_month": selected_detail,
             "methodology": METHODOLOGY_SUMMARY,
             "from_snapshot": False,
         }
-
-    if result.get("months"):
-        _overlay_accruals_headcounts(
-            db,
-            months=result["months"],
-            selected_farms=selected_farms,
-            fiscal_year=fiscal_year,
-            profiles=profiles,
-            exit_keys=exit_keys,
-            jv_keys=jv_keys,
-        )
-        result["selected_month"] = _selected_month_detail(
-            result["months"], selected_month
-        )
 
     return result

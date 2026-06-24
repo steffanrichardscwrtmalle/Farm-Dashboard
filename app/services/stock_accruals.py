@@ -129,6 +129,11 @@ def _fetch_event_count_by_month(
     )
     if lact_filter == "fresh_heifers":
         query = query.where(CowEvent.lact == 1)
+        query = query.where(func.upper(func.coalesce(CowEvent.gndr, "")) == "F")
+        query = query.where(CowEvent.cbrd.isnot(None))
+        query = query.where(CowEvent.cbrd < BEEF_CBREED_MIN)
+    elif lact_filter == "fresh_cows":
+        query = query.where(CowEvent.lact == 1)
     else:
         query = _apply_cow_event_stock_group(query, stock_group)
 
@@ -335,7 +340,7 @@ def _compute_farm_rows(
             event_type="FRESH",
             month_from=baseline_month,
             month_to=calc_end,
-            lact_filter="fresh_heifers",
+            lact_filter="fresh_cows",
         )
 
     all_months = _iter_month_starts(baseline_month, end_month)

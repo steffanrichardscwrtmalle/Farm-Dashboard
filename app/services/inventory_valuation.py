@@ -92,7 +92,8 @@ METHODOLOGY_SUMMARY: dict[str, str] = {
         "from that event date onwards (joint venture transfer)."
     ),
     "headcount": (
-        "Headcounts match Stock Accruals closing figures; beef excludes animals "
-        "transferred to joint venture (GAME/PATHWAY) that accruals still counts."
+        "Headcounts are reconstructed from inventory and events using the same stock-group "
+        "rules as Stock Accruals. Beef excludes joint-venture transfers (GAME/PATHWAY) "
+        "that accruals still counts."
     ),
 }
