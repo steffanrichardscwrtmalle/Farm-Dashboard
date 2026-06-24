@@ -100,6 +100,30 @@ def test_on_farm_keys_joint_venture_adds_back_before_anchor() -> None:
     assert beef_key in keys
 
 
+def test_on_farm_keys_joint_venture_not_restored_after_later_sold() -> None:
+    """JV animals sold after close must not reappear via exit reconstruction."""
+    anchor = dt.date(2025, 6, 30)
+    beef_key = animal_key("GAD", "UK777", "777")
+    jv = {beef_key: dt.date(2025, 4, 15)}
+    exits = {beef_key: dt.date(2025, 6, 20)}
+
+    may_close = dt.date(2025, 5, 31)
+    keys = _on_farm_keys(may_close, anchor, set(), exits, {}, jv, profiles=None)
+    assert beef_key not in keys
+
+
+def test_on_farm_keys_game_after_close_date_stays_in_set() -> None:
+    """GAME dated after valuation close but in jv_keys is not excluded until close reaches it."""
+    anchor = dt.date(2025, 6, 24)
+    beef_key = animal_key("GAD", "UK666", "666")
+    inv = {beef_key}
+    jv = {beef_key: dt.date(2025, 6, 28)}
+
+    june_close = min(dt.date(2025, 6, 30), anchor)
+    keys = _on_farm_keys(june_close, anchor, inv, {}, {}, jv)
+    assert beef_key in keys
+
+
 def test_animal_excluded_when_sold_on_close_date() -> None:
     profile = AnimalProfile(
         farm="CM",
@@ -909,4 +933,71 @@ def test_compare_valuations_to_accruals_jv_beef(db: Session) -> None:
     beef_rows = [r for r in comparison["rows"] if r["stock_group"] == "beef"]
     assert len(beef_rows) == 1
     assert beef_rows[0]["matched"] is True
+    assert comparison["mismatches"] == 0
+
+
+def test_compare_valuations_to_accruals_game_then_sold(db: Session) -> None:
+    """GAME then later SOLD: accruals shows sale; valuations stay excluded after JV."""
+    anchor_ts = dt.datetime(2025, 6, 30, 12, 0, 0)
+    db.add(
+        StockOpeningBaseline(
+            farm="GAD",
+            stock_group="beef",
+            month_start=dt.date(2024, 4, 1),
+            opening_count=2,
+        )
+    )
+    for cow_id, etag in (("501", "UK501"), ("502", "UK502")):
+        db.add(
+            HerdInventory(
+                farm="GAD",
+                cow_id=cow_id,
+                etag=etag,
+                bdat=dt.date(2024, 1, 1),
+                lact=0,
+                sbrd="Beef",
+                category="Beef",
+                import_timestamp=anchor_ts,
+            )
+        )
+    db.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="501",
+            etag="UK501",
+            event="GAME",
+            event_date=dt.date(2025, 4, 15),
+            lact=0,
+            cbrd=121,
+            gndr="M",
+            bdat=dt.date(2024, 1, 1),
+        )
+    )
+    db.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="501",
+            etag="UK501",
+            event="SOLD",
+            event_date=dt.date(2025, 6, 20),
+            lact=0,
+            cbrd=121,
+            gndr="M",
+            bdat=dt.date(2024, 1, 1),
+            remark="CAR16",
+        )
+    )
+    db.commit()
+    rebuild_stock_valuation_snapshots(db)
+
+    comparison = compare_valuations_to_accruals(
+        db,
+        farms=["GAD"],
+        fiscal_year=2026,
+        month_from=dt.date(2025, 5, 1),
+        month_to=dt.date(2025, 6, 30),
+    )
+    beef_rows = [r for r in comparison["rows"] if r["stock_group"] == "beef"]
+    assert len(beef_rows) == 2
+    assert all(row["matched"] for row in beef_rows)
     assert comparison["mismatches"] == 0

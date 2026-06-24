@@ -218,6 +218,101 @@ def _migrate_herd_births_schema() -> None:
             conn.execute(text("ALTER TABLE herd_births ADD COLUMN category VARCHAR(16)"))
 
 
+def _beef_baseline_start_month(farm: str):
+    """Beef accruals start with dairy cows (CM Apr-24, GAD Dec-24)."""
+    import datetime as dt
+
+    if farm == "GAD":
+        return dt.date(2024, 12, 1)
+    return dt.date(2024, 4, 1)
+
+
+def _beef_net_change_between(
+    db: Session,
+    *,
+    farm: str,
+    month_from: dt.date,
+    month_to: dt.date,
+) -> int:
+    """Net beef movement from month_from through month_to (inclusive)."""
+    from app.models import STOCK_GROUP_BEEF
+    from app.services.events_common import _iter_month_starts
+    from app.services.stock_accruals import (
+        _ZERO_SALES,
+        _fetch_beef_births_by_month,
+        _fetch_event_count_by_month,
+        _fetch_purchases_by_month,
+        _fetch_sales_by_month,
+        _last_day_of_month,
+        _month_key,
+    )
+
+    calc_end = _last_day_of_month(month_to)
+    sales = _fetch_sales_by_month(
+        db, farm=farm, stock_group=STOCK_GROUP_BEEF, month_from=month_from, month_to=calc_end
+    )
+    deaths = _fetch_event_count_by_month(
+        db,
+        farm=farm,
+        stock_group=STOCK_GROUP_BEEF,
+        event_type="DIED",
+        month_from=month_from,
+        month_to=calc_end,
+    )
+    purchases = _fetch_purchases_by_month(
+        db,
+        farm=farm,
+        stock_group=STOCK_GROUP_BEEF,
+        month_from=month_from,
+        month_to=calc_end,
+    )
+    births = _fetch_beef_births_by_month(
+        db, farm=farm, month_from=month_from, month_to=calc_end
+    )
+    total = 0
+    for month_start in _iter_month_starts(month_from, month_to):
+        key = _month_key(month_start)
+        sales_total = sum(sales.get(key, dict(_ZERO_SALES)).values())
+        total += (
+            births.get(key, 0)
+            + purchases.get(key, 0)
+            - sales_total
+            - deaths.get(key, 0)
+        )
+    return total
+
+
+def _extend_beef_opening_baselines(db: Session) -> None:
+    """Move beef baselines back to CM Apr-24 / GAD Dec-24, preserving later openings."""
+    from app.models import STOCK_GROUP_BEEF, StockOpeningBaseline
+
+    import datetime as dt
+
+    from sqlalchemy import select
+
+    for farm in ("CM", "GAD"):
+        beef = db.scalar(
+            select(StockOpeningBaseline).where(
+                StockOpeningBaseline.farm == farm,
+                StockOpeningBaseline.stock_group == STOCK_GROUP_BEEF,
+            )
+        )
+        if beef is None:
+            continue
+
+        new_month = _beef_baseline_start_month(farm)
+        if beef.month_start <= new_month:
+            continue
+
+        old_month = beef.month_start
+        month_before_old = (old_month - dt.timedelta(days=1)).replace(day=1)
+        net = _beef_net_change_between(
+            db, farm=farm, month_from=new_month, month_to=month_before_old
+        )
+        beef.opening_count = int(beef.opening_count) - net
+        beef.month_start = new_month
+
+
 def _migrate_stock_accruals_schema() -> None:
     """Seed opening baselines once tables exist."""
     from app.models import (
@@ -236,8 +331,8 @@ def _migrate_stock_accruals_schema() -> None:
         ("CM", STOCK_GROUP_YOUNGSTOCK, "2024-04-01", 1780),
         ("GAD", STOCK_GROUP_COWS, "2024-12-01", 851),
         ("GAD", STOCK_GROUP_YOUNGSTOCK, "2024-12-01", 1318),
-        ("CM", STOCK_GROUP_BEEF, "2025-04-01", 74),
-        ("GAD", STOCK_GROUP_BEEF, "2025-04-01", 15),
+        ("CM", STOCK_GROUP_BEEF, "2024-04-01", 217),
+        ("GAD", STOCK_GROUP_BEEF, "2024-12-01", 13),
     ]
 
     import datetime as dt
@@ -270,49 +365,61 @@ def _migrate_stock_accruals_schema() -> None:
             if gad_ys and gad_ys.opening_count == 1315:
                 gad_ys.opening_count = 1318
                 db.commit()
-            beef_seeds = [
-                ("CM", STOCK_GROUP_BEEF, dt.date(2025, 4, 1), 74),
-                ("GAD", STOCK_GROUP_BEEF, dt.date(2025, 4, 1), 15),
-            ]
-            for farm, stock_group, month_start, opening in beef_seeds:
+            for farm, legacy_month, opening in (
+                ("CM", dt.date(2025, 4, 1), 74),
+                ("GAD", dt.date(2025, 4, 1), 15),
+            ):
+                beef = db.scalar(
+                    select(StockOpeningBaseline).where(
+                        StockOpeningBaseline.farm == farm,
+                        StockOpeningBaseline.stock_group == STOCK_GROUP_BEEF,
+                    )
+                )
+                if beef is None:
+                    db.add(
+                        StockOpeningBaseline(
+                            farm=farm,
+                            stock_group=STOCK_GROUP_BEEF,
+                            month_start=legacy_month,
+                            opening_count=opening,
+                        )
+                    )
+                    db.flush()
+                elif beef.month_start == legacy_month:
+                    if farm == "GAD" and beef.opening_count in (0, 13):
+                        beef.opening_count = 15
+                    if farm == "CM" and beef.opening_count in (0, 66):
+                        beef.opening_count = 74
+            _extend_beef_opening_baselines(db)
+            cm_beef = db.scalar(
+                select(StockOpeningBaseline).where(
+                    StockOpeningBaseline.farm == "CM",
+                    StockOpeningBaseline.stock_group == STOCK_GROUP_BEEF,
+                )
+            )
+            if (
+                cm_beef is not None
+                and cm_beef.month_start == _beef_baseline_start_month("CM")
+                and cm_beef.opening_count == 191
+            ):
+                cm_beef.opening_count = 217
+            for farm, opening in (("CM", 217), ("GAD", 13)):
+                new_month = _beef_baseline_start_month(farm)
                 existing = db.scalar(
                     select(StockOpeningBaseline).where(
                         StockOpeningBaseline.farm == farm,
-                        StockOpeningBaseline.stock_group == stock_group,
-                        StockOpeningBaseline.month_start == month_start,
+                        StockOpeningBaseline.stock_group == STOCK_GROUP_BEEF,
                     )
                 )
                 if existing is None:
                     db.add(
                         StockOpeningBaseline(
                             farm=farm,
-                            stock_group=stock_group,
-                            month_start=month_start,
+                            stock_group=STOCK_GROUP_BEEF,
+                            month_start=new_month,
                             opening_count=opening,
                         )
                     )
-            gad_beef = db.scalar(
-                select(StockOpeningBaseline).where(
-                    StockOpeningBaseline.farm == "GAD",
-                    StockOpeningBaseline.stock_group == STOCK_GROUP_BEEF,
-                    StockOpeningBaseline.month_start == dt.date(2025, 4, 1),
-                )
-            )
-            if gad_beef and gad_beef.opening_count == 0:
-                gad_beef.opening_count = 15
-            if gad_beef and gad_beef.opening_count == 13:
-                gad_beef.opening_count = 15
-            cm_beef = db.scalar(
-                select(StockOpeningBaseline).where(
-                    StockOpeningBaseline.farm == "CM",
-                    StockOpeningBaseline.stock_group == STOCK_GROUP_BEEF,
-                    StockOpeningBaseline.month_start == dt.date(2025, 4, 1),
-                )
-            )
-            if cm_beef and cm_beef.opening_count == 0:
-                cm_beef.opening_count = 74
-            if cm_beef and cm_beef.opening_count == 66:
-                cm_beef.opening_count = 74
             db.commit()
             return
 

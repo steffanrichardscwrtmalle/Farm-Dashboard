@@ -81,19 +81,24 @@ def birth_category_to_stock_category(birth_category: str | None) -> str:
 METHODOLOGY_SUMMARY: dict[str, str] = {
     "anchor": (
         "Closing valuations are reconstructed from the latest herd inventory import, "
-        "adjusted backwards for sales, deaths, births, and purchases."
+        "adjusted backwards for sales, deaths, births, and purchases. "
+        "Each month’s close date is the earlier of calendar month-end and the inventory "
+        "anchor date — GAME/PATHWAY after that date do not affect that month’s headcount."
     ),
     "dairy_cows": "Lact 1: £2,500; Lact 2: £2,200; Lact 3+: £1,800",
     "beef": "£100 + £1.90 × age in days (max £1,800)",
     "youngstock": "£100 + £2.50 × age in days (max £1,800)",
     "age": "Age is calculated to each fiscal month-end closing date from birth date.",
     "joint_venture": (
-        "Beef animals with a GAME or PATHWAY event are excluded from valuations "
-        "from that event date onwards (joint venture transfer)."
+        "Beef animals with a GAME or PATHWAY event on or before the month close are "
+        "excluded from valuations (joint venture transfer). Accruals still counts them "
+        "until SOLD or DIED; a later sale does not restore them to historical valuations."
     ),
     "headcount": (
         "Headcounts are reconstructed from inventory and events using the same stock-group "
         "rules as Stock Accruals. Beef excludes joint-venture transfers (GAME/PATHWAY) "
-        "that accruals still counts."
+        "that accruals still counts — compare to accruals beef minus JV beef. "
+        "On the anchor month, close date may be before calendar month-end; small compare "
+        "deltas can still appear if the accruals ledger and reconstruction disagree."
     ),
 }

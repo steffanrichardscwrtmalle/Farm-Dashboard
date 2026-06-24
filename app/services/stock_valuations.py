@@ -752,6 +752,9 @@ def _on_farm_keys(
             keys.discard(key)
     for key, exit_date in exit_keys.items():
         if close_date < exit_date <= anchor_date:
+            jv_date = jv_keys.get(key)
+            if jv_date is not None and jv_date <= close_date:
+                continue
             keys.add(key)
     for key, jv_date in jv_keys.items():
         if close_date < jv_date <= anchor_date:
