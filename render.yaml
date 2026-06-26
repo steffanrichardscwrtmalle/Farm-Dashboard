@@ -4,6 +4,10 @@ services:
     runtime: docker
     plan: starter
     healthCheckPath: /health
+    disk:
+      name: farm-dashboard-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: ENVIRONMENT
         value: production
@@ -34,6 +38,20 @@ services:
       - key: FEEDLYNC_FARM_ID
         sync: false
       - key: PUBLIC_APP_URL
+        sync: false
+      - key: DOCUSEAL_API_KEY
+        sync: false
+      - key: DOCUSEAL_WEBHOOK_SECRET
+        sync: false
+      - key: HR_ENCRYPTION_KEY
+        sync: false
+      - key: HR_HR_TEAM_EMAILS
+        sync: false
+      - key: CONTRACTS_STORAGE_DIR
+        value: /var/data/contracts
+      - key: DOCUSEAL_CWRTMALLE_TEMPLATE_ID
+        sync: false
+      - key: DOCUSEAL_CWRTMALLE_TEMPLATE_NAME
         sync: false
     domains:
       - dashboard.cwrtmalle.co.uk

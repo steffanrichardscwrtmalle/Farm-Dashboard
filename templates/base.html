@@ -550,6 +550,24 @@
             </div>
           </div>
           {% endif %}
+
+          {% if perms.page('hr') %}
+          <div class="nav-group{% if active_nav_group == 'hr' %} expanded{% endif %}" data-nav-group="hr">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'hr' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'hr' %}true{% else %}false{% endif %}"
+              aria-controls="hr-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">Staff / HR</span>
+            </button>
+            <div class="nav-group-items" id="hr-nav-items">
+              <a href="/hr/staff" class="{% if active_nav == 'staff-directory' %}active{% endif %}">Staff Directory</a>
+              <a href="/hr/enroll" class="{% if active_nav == 'enroll' %}active{% endif %}">Enroll New Staff</a>
+            </div>
+          </div>
+          {% endif %}
         </div>
       </nav>
     </aside>
@@ -795,6 +813,9 @@
           }
           if (group === "office-admin" && !window.location.pathname.startsWith("/office-admin")) {
             window.location.href = "/office-admin/sales-payments";
+          }
+          if (group === "hr" && !window.location.pathname.startsWith("/hr")) {
+            window.location.href = "/hr/staff";
           }
         });
         if (controller) navGroupControllers.set(el, controller);

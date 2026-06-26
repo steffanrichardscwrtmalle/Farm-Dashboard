@@ -19,14 +19,18 @@ from app.api.feedlync_routes import router as feedlync_api_router
 from app.api.stock_inventory_routes import router as stock_inventory_api_router
 from app.api.admin_routes import router as admin_api_router
 from app.api.herd_routes import router as herd_api_router
+from app.api.hr_routes import router as hr_api_router
 from app.api.prostock_routes import router as prostock_api_router
 from app.api.routes import router as api_router
 from app.auth.deps import require_admin
 from app.auth.middleware import AuthMiddleware
 from app.auth.passwords import verify_password
 from app.auth.permissions import (
+    ACTION_HR_ENROLL,
+    ACTION_HR_VIEW_SENSITIVE,
     PAGE_EVENTS,
     PAGE_FEED_RATE,
+    PAGE_HR,
     PAGE_OFFICE_ADMIN,
     PAGE_PROSTOCK,
     PAGE_STOCK_INVENTORY,
@@ -34,6 +38,7 @@ from app.auth.permissions import (
     PermissionContext,
     can_edit_sires,
     can_import_feed,
+    has_action,
     has_page,
 )
 from app.auth.roles import ROLE_LABELS, ROLES
@@ -71,6 +76,7 @@ app.include_router(feed_rate_api_router)
 app.include_router(feedlync_api_router)
 app.include_router(office_admin_api_router)
 app.include_router(admin_api_router)
+app.include_router(hr_api_router)
 
 _WYNNSTAY_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/wynnstay">Wynnstay</a>'
 _PROSTOCK_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/prostock">Prostock</a>'
@@ -89,6 +95,10 @@ _FEED_RATE_BREADCRUMB = (
 _OFFICE_ADMIN_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/office-admin/sales-payments">Office Admin</a>'
+)
+_HR_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/hr/staff">Staff / HR</a>'
 )
 
 _login_attempts: dict[str, list[float]] = defaultdict(list)
@@ -201,6 +211,19 @@ def _office_admin_context(title: str, active_nav: str, page_name: str | None = N
         "title": title,
         "active_nav_group": "office-admin",
         "active_section": "office-admin",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _hr_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _HR_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "hr",
+        "active_section": "hr",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -851,6 +874,74 @@ def office_admin_purchases_page(request: Request):
             page_heading="Purchases",
             farm_options=list(HERD_FARM_OPTIONS),
             **_office_admin_context("Purchases", "purchases", "Purchases"),
+        ),
+    )
+
+
+@app.get("/hr/staff", response_class=HTMLResponse)
+def hr_staff_directory_page(request: Request):
+    if denied := _page_guard(request, PAGE_HR):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "hr/directory.html",
+        _template_ctx(
+            request,
+            page_heading="Staff Directory",
+            can_enroll=has_action(request.state.user, ACTION_HR_ENROLL),
+            **_hr_context("Staff Directory", "staff-directory", "Directory"),
+        ),
+    )
+
+
+@app.get("/hr/staff/{employee_id}", response_class=HTMLResponse)
+def hr_staff_detail_page(request: Request, employee_id: int):
+    if denied := _page_guard(request, PAGE_HR):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "hr/staff_detail.html",
+        _template_ctx(
+            request,
+            page_heading="Staff Profile",
+            employee_id=employee_id,
+            can_view_sensitive=has_action(request.state.user, ACTION_HR_VIEW_SENSITIVE),
+            **_hr_context("Staff Profile", "staff-directory", "Profile"),
+        ),
+    )
+
+
+@app.get("/hr/enroll", response_class=HTMLResponse)
+def hr_enroll_page(request: Request):
+    if denied := _page_guard(request, PAGE_HR):
+        return denied
+    user = getattr(request.state, "user", None)
+    if not has_action(user, ACTION_HR_ENROLL):
+        return templates.TemplateResponse(
+            request,
+            "forbidden.html",
+            _template_ctx(
+                request,
+                title="Access denied",
+                active_nav=None,
+                active_nav_group=None,
+                active_section=None,
+                breadcrumb=None,
+            ),
+            status_code=403,
+        )
+    from app.models import HR_BUSINESS_OPTIONS, JOB_TITLE_OPTIONS, TITLE_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "hr/enroll.html",
+        _template_ctx(
+            request,
+            page_heading="Enroll New Staff",
+            business_options=list(HR_BUSINESS_OPTIONS),
+            title_options=list(TITLE_OPTIONS),
+            job_title_options=list(JOB_TITLE_OPTIONS),
+            **_hr_context("Enroll New Staff", "enroll", "Enroll"),
         ),
     )
 

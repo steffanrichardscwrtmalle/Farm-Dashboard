@@ -568,6 +568,135 @@ class HerdBirth(Base):
     )
 
 
+# --- HR / Staff management ---
+
+EMPLOYEE_STATUS_ONBOARDING = "onboarding"
+EMPLOYEE_STATUS_PENDING_SIGNATURE = "pending_signature"
+EMPLOYEE_STATUS_ACTIVE = "active"
+EMPLOYEE_STATUS_ARCHIVED = "archived"
+EMPLOYEE_STATUSES: tuple[str, ...] = (
+    EMPLOYEE_STATUS_ONBOARDING,
+    EMPLOYEE_STATUS_PENDING_SIGNATURE,
+    EMPLOYEE_STATUS_ACTIVE,
+    EMPLOYEE_STATUS_ARCHIVED,
+)
+
+CONTRACT_STATUS_PENDING = "pending"
+CONTRACT_STATUS_COMPLETED = "completed"
+CONTRACT_STATUS_DECLINED = "declined"
+CONTRACT_STATUSES: tuple[str, ...] = (
+    CONTRACT_STATUS_PENDING,
+    CONTRACT_STATUS_COMPLETED,
+    CONTRACT_STATUS_DECLINED,
+)
+
+PAY_TYPE_HOURLY = "hourly"
+PAY_TYPE_SALARY = "salary"
+PAY_TYPES: tuple[str, ...] = (PAY_TYPE_HOURLY, PAY_TYPE_SALARY)
+
+# Legal entities staff can be employed by (full registered names).
+HR_BUSINESS_OPTIONS: tuple[str, ...] = ("Cwrt Malle Ltd", "Green Acre Dairy Ltd")
+# Personal title options for the new-starter form.
+TITLE_OPTIONS: tuple[str, ...] = ("Mr", "Mrs", "Miss", "Ms", "Dr")
+# Job titles (single option for now; more can be added later).
+JOB_TITLE_OPTIONS: tuple[str, ...] = ("Farm Worker",)
+
+
+class ContractTemplate(Base):
+    """DocuSeal template metadata (template lives in DocuSeal)."""
+
+    __tablename__ = "contract_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    docuseal_template_id: Mapped[int] = mapped_column(Integer, index=True)
+    description: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+    employees: Mapped[list[Employee]] = relationship(back_populates="template")
+    contracts: Mapped[list[EmployeeContract]] = relationship(back_populates="template")
+
+
+class Employee(Base):
+    """Staff member enrolled through HR."""
+
+    __tablename__ = "employees"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    business: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    title: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    full_name: Mapped[str] = mapped_column(String(255), index=True)
+    email: Mapped[str] = mapped_column(String(255), index=True)
+    phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    dob: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ni_number_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pay_type: Mapped[str] = mapped_column(String(16), default=PAY_TYPE_HOURLY)
+    pay_rate_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    role_title: Mapped[str] = mapped_column(String(128), index=True)
+    start_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    working_days_per_week: Mapped[float | None] = mapped_column(Float, nullable=True)
+    working_hours_per_day: Mapped[float | None] = mapped_column(Float, nullable=True)
+    driving_license_number_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    license_points: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    right_to_work_share_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bank_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    account_holder_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    sort_code_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    account_number_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_of_kin_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    next_of_kin_relationship: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    next_of_kin_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(32), default=EMPLOYEE_STATUS_ONBOARDING, index=True
+    )
+    template_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contract_templates.id"), nullable=True
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    template: Mapped[ContractTemplate | None] = relationship(back_populates="employees")
+    contracts: Mapped[list[EmployeeContract]] = relationship(
+        back_populates="employee", order_by="EmployeeContract.created_at.desc()"
+    )
+
+
+class EmployeeContract(Base):
+    """DocuSeal submission linked to an employee."""
+
+    __tablename__ = "employee_contracts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    template_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contract_templates.id"), nullable=True
+    )
+    docuseal_submission_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    status: Mapped[str] = mapped_column(
+        String(32), default=CONTRACT_STATUS_PENDING, index=True
+    )
+    signed_pdf_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    signed_pdf_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    completed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+    employee: Mapped[Employee] = relationship(back_populates="contracts")
+    template: Mapped[ContractTemplate | None] = relationship(back_populates="contracts")
+
+
 def _str_or_none(value: Any) -> str | None:
     if value is None:
         return None

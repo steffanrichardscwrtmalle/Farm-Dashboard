@@ -146,7 +146,85 @@ the B2C sign-in flow over HTTP — no browser/Chromium needed):
 
 ---
 
-## 6. Security checklist
+## 6. HR / Staff management (DocuSeal)
+
+Staff onboarding uses [DocuSeal Cloud](https://www.docuseal.com/) for employment contract e-signing. Signed PDFs are stored on a **Render persistent disk**; NI numbers and pay rates are **encrypted at rest**.
+
+### Render persistent disk
+
+The blueprint [`render.yaml`](render.yaml) mounts disk `farm-dashboard-data` at `/var/data`. Signed contracts are written to:
+
+`/var/data/contracts/signed/` (override with `CONTRACTS_STORAGE_DIR`)
+
+PDFs are **write-once**; a SHA-256 hash is stored in the database for audit.
+
+### Environment variables
+
+Set on the web service (see `.env.example`):
+
+| Variable | Purpose |
+|----------|---------|
+| `DOCUSEAL_API_KEY` | API key from DocuSeal console |
+| `DOCUSEAL_BASE_URL` | `https://api.docuseal.com` (default; change for self-host later) |
+| `DOCUSEAL_WEBHOOK_SECRET` | Long random string; verify incoming webhooks |
+| `HR_HR_TEAM_EMAILS` | Comma-separated HR reviewer emails (sign after new staff) |
+| `HR_ENCRYPTION_KEY` | Optional Fernet key for PII encryption (generate if unset, derived from `SECRET_KEY` in dev) |
+| `CONTRACTS_STORAGE_DIR` | `/var/data/contracts` on Render |
+| `DOCUSEAL_CWRTMALLE_TEMPLATE_ID` | Optional: seeds the Cwrt Malle `contract_templates` row on startup |
+| `DOCUSEAL_CWRTMALLE_TEMPLATE_NAME` | Display name for the seeded Cwrt Malle template |
+
+Generate a Fernet key locally:
+
+```powershell
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+### DocuSeal template setup
+
+1. Create an employment contract template in the DocuSeal console.
+2. Add **field tags** matching the prefill keys sent by the app:
+   - `full_name`, `email`, `phone`, `dob`, `address`
+   - `ni_number`, `hourly_rate`, `salary`, `pay_rate`, `pay_type`
+   - `start_date`, `role_title`
+3. Note the template **numeric ID** from DocuSeal.
+4. Either set `DOCUSEAL_CWRTMALLE_TEMPLATE_ID` for automatic seeding, or insert a row into `contract_templates` (via SQL/admin) with `docuseal_template_id`. Seeding is idempotent by template id, so adding more businesses later (e.g. a `DOCUSEAL_GREENACRE_TEMPLATE_ID`) won't duplicate existing rows.
+
+### Signing flow
+
+1. HR user with **hr.enroll** opens **Staff / HR → Enroll New Staff**.
+2. App creates the employee (`pending_signature`), calls DocuSeal with **ordered signers**: new staff first, then `HR_HR_TEAM_EMAILS`.
+3. DocuSeal sends branded signing emails in sequence.
+4. On completion, DocuSeal POSTs to your webhook; the app downloads the merged PDF, stores it on disk, and sets employee status to **active**.
+
+### Webhook URL
+
+In DocuSeal, add a webhook pointing at:
+
+`https://dashboard.cwrtmalle.co.uk/api/hr/webhook?token=YOUR_DOCUSEAL_WEBHOOK_SECRET`
+
+Alternatively send header `X-Webhook-Secret: YOUR_DOCUSEAL_WEBHOOK_SECRET`.
+
+The route is allowlisted in auth middleware (no login session); the secret must match.
+
+### Permissions
+
+| Permission | Access |
+|------------|--------|
+| Page `hr` | Staff directory, profiles, contract downloads |
+| Action `hr.enroll` | Enroll new staff / send contracts |
+| Action `hr.view_sensitive` | View NI number and pay rate on profiles |
+
+Office preset users receive all pages/actions including HR. Assign `hr` page and actions per user under **Users → Permissions**.
+
+### GDPR / data handling
+
+- PII (NI, pay) is encrypted in PostgreSQL; signed PDFs contain contractual data on the persistent disk.
+- Ensure DocuSeal DPA covers employee data processed in their cloud.
+- Disable dashboard users who leave; signed PDFs are retained for audit (immutable + hashed).
+
+---
+
+## 7. Security checklist
 
 - [ ] `ADMIN_PASSWORD` is strong and not committed to git
 - [ ] `SECRET_KEY` is unique per environment

@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .detail-item label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.2rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .detail-item .value { font-size: 0.95rem; }
+    .detail-section {
+      grid-column: 1 / -1;
+      margin: 0.5rem 0 0;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--accent);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.25rem;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: capitalize;
+    }
+    .status-onboarding { background: #f3f4f6; color: #6b7280; }
+    .status-pending_signature { background: #fef3c7; color: #b45309; }
+    .status-active { background: #d1fae5; color: #047857; }
+    .status-archived { background: #fee2e2; color: #b91c1c; }
+    .sensitive-mask { color: var(--muted); font-style: italic; }
+{% endblock %}
+
+{% block content %}
+    <div class="card" style="margin-bottom:1rem">
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin-bottom:0.75rem">
+        <button type="button" class="secondary small" onclick="window.location.href='/hr/staff'">← Back to directory</button>
+        <span id="profile-status"></span>
+      </div>
+      <div id="profile-message" class="message"></div>
+      <div class="detail-grid" id="profile-grid">
+        <p class="muted">Loading profile…</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Contracts</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>DocuSeal submission</th>
+              <th>Status</th>
+              <th>Completed</th>
+              <th>Signed PDF</th>
+            </tr>
+          </thead>
+          <tbody id="contracts-body">
+            <tr><td colspan="5" class="muted">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const employeeId = {{ employee_id }};
+  const canViewSensitive = {{ 'true' if can_view_sensitive else 'false' }};
+  const profileGrid = document.getElementById('profile-grid');
+  const contractsBody = document.getElementById('contracts-body');
+  const profileStatus = document.getElementById('profile-status');
+  const messageEl = document.getElementById('profile-message');
+
+  function showMessage(text, isError) {
+    messageEl.textContent = text || '';
+    messageEl.className = 'message' + (isError ? ' err' : text ? ' ok' : '');
+  }
+
+  function statusBadge(status) {
+    const label = (status || '').replace(/_/g, ' ');
+    return '<span class="status-badge status-' + status + '">' + label + '</span>';
+  }
+
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function sensitiveValue(value, hasData) {
+    if (value) return escapeHtml(value);
+    if (hasData && !canViewSensitive) {
+      return '<span class="sensitive-mask">Restricted — requires hr.view_sensitive</span>';
+    }
+    return '<span class="muted">—</span>';
+  }
+
+  function fmtName(emp) {
+    return [emp.title, emp.full_name].filter(Boolean).join(' ');
+  }
+
+  function fmtNum(v) {
+    return (v === null || v === undefined || v === '') ? '—' : String(v);
+  }
+
+  function payRateLabel(emp) {
+    return emp.pay_type === 'salary' ? 'Annual rate' : 'Hourly rate';
+  }
+
+  function renderProfile(emp) {
+    profileStatus.innerHTML = statusBadge(emp.status);
+    profileGrid.innerHTML =
+      sectionHeading('Role &amp; personal') +
+      detailItem('Business', escapeHtml(emp.business || '—')) +
+      detailItem('Full name', escapeHtml(fmtName(emp) || '—')) +
+      detailItem('Job title', escapeHtml(emp.role_title || '—')) +
+      detailItem('Email', escapeHtml(emp.email || '—')) +
+      detailItem('Phone', escapeHtml(emp.phone || '—')) +
+      detailItem('Date of birth', escapeHtml(emp.dob || '—')) +
+      detailItem('Address', escapeHtml(emp.address || '—')) +
+      detailItem('NI number', sensitiveValue(emp.ni_number, emp.has_sensitive_data)) +
+
+      sectionHeading('Work &amp; pay') +
+      detailItem('Start date', escapeHtml(emp.start_date || '—')) +
+      detailItem('Pay type', escapeHtml(emp.pay_type || '—')) +
+      detailItem(payRateLabel(emp), sensitiveValue(emp.pay_rate, emp.has_sensitive_data)) +
+      detailItem('Working days/week', escapeHtml(fmtNum(emp.working_days_per_week))) +
+      detailItem('Working hours/day', escapeHtml(fmtNum(emp.working_hours_per_day))) +
+
+      sectionHeading('Driving &amp; right to work') +
+      detailItem('Driving licence', sensitiveValue(emp.driving_license_number, emp.has_sensitive_data)) +
+      detailItem('Points on licence', escapeHtml(emp.license_points || '—')) +
+      detailItem('Right to work code', escapeHtml(emp.right_to_work_share_code || '—')) +
+
+      sectionHeading('Bank details') +
+      detailItem('Bank name', escapeHtml(emp.bank_name || '—')) +
+      detailItem('Account holder', escapeHtml(emp.account_holder_name || '—')) +
+      detailItem('Sort code', sensitiveValue(emp.sort_code, emp.has_sensitive_data)) +
+      detailItem('Account number', sensitiveValue(emp.account_number, emp.has_sensitive_data)) +
+
+      sectionHeading('Next of kin') +
+      detailItem('Name', escapeHtml(emp.next_of_kin_name || '—')) +
+      detailItem('Relationship', escapeHtml(emp.next_of_kin_relationship || '—')) +
+      detailItem('Phone', escapeHtml(emp.next_of_kin_phone || '—')) +
+
+      sectionHeading('Record') +
+      detailItem('Created', escapeHtml((emp.created_at || '').slice(0, 10) || '—'));
+  }
+
+  function sectionHeading(label) {
+    return '<h3 class="detail-section">' + label + '</h3>';
+  }
+
+  function detailItem(label, valueHtml) {
+    return '<div class="detail-item"><label>' + label + '</label><div class="value">' + valueHtml + '</div></div>';
+  }
+
+  function renderContracts(contracts) {
+    if (!contracts.length) {
+      contractsBody.innerHTML = '<tr><td colspan="5" class="muted">No contracts yet.</td></tr>';
+      return;
+    }
+    contractsBody.innerHTML = contracts.map(function (c) {
+      const download = c.has_signed_pdf
+        ? '<a href="/api/hr/contracts/' + c.id + '/download" target="_blank" rel="noopener">Download PDF</a>'
+        : '<span class="muted">Not ready</span>';
+      const completed = c.completed_at ? c.completed_at.slice(0, 10) : '—';
+      return '<tr>' +
+        '<td>' + c.id + '</td>' +
+        '<td>' + escapeHtml(String(c.docuseal_submission_id || '')) + '</td>' +
+        '<td>' + statusBadge(c.status) + '</td>' +
+        '<td>' + escapeHtml(completed) + '</td>' +
+        '<td>' + download + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  async function loadProfile() {
+    try {
+      const res = await fetch('/api/hr/staff/' + employeeId);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Staff member not found');
+      }
+      const emp = await res.json();
+      renderProfile(emp);
+      renderContracts(emp.contracts || []);
+    } catch (err) {
+      profileGrid.innerHTML = '<p class="muted">Could not load profile.</p>';
+      contractsBody.innerHTML = '<tr><td colspan="5" class="muted">—</td></tr>';
+      showMessage(err.message, true);
+    }
+  }
+
+  loadProfile();
+})();
+</script>
+{% endblock %}

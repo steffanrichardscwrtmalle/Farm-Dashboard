@@ -95,4 +95,21 @@ FEEDLYNC_SPA_REDIRECT_URI = os.getenv(
     "https://app.feedlync.com/redirect.html",
 ).strip()
 
+# DocuSeal (HR contract signing)
+DOCUSEAL_API_KEY = os.getenv("DOCUSEAL_API_KEY", "").strip()
+DOCUSEAL_BASE_URL = os.getenv(
+    "DOCUSEAL_BASE_URL", "https://api.docuseal.com"
+).strip().rstrip("/")
+DOCUSEAL_WEBHOOK_SECRET = os.getenv("DOCUSEAL_WEBHOOK_SECRET", "").strip()
+HR_ENCRYPTION_KEY = os.getenv("HR_ENCRYPTION_KEY", "").strip()
+HR_HR_TEAM_EMAILS = os.getenv("HR_HR_TEAM_EMAILS", "").strip()
+CONTRACTS_STORAGE_DIR = os.getenv(
+    "CONTRACTS_STORAGE_DIR",
+    "/var/data/contracts" if IS_PRODUCTION else str(_PROJECT_ROOT / "data" / "contracts"),
+).strip()
+DOCUSEAL_CWRTMALLE_TEMPLATE_ID = os.getenv("DOCUSEAL_CWRTMALLE_TEMPLATE_ID", "").strip()
+DOCUSEAL_CWRTMALLE_TEMPLATE_NAME = os.getenv(
+    "DOCUSEAL_CWRTMALLE_TEMPLATE_NAME", "Cwrt Malle Employment Contract"
+).strip()
+
 COOKIE_SECURE = IS_PRODUCTION or os.getenv("COOKIE_SECURE", "").lower() in ("1", "true", "yes")

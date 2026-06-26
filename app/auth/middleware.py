@@ -15,6 +15,7 @@ from app.auth.import_key import valid_import_key
 _PUBLIC_PATHS = frozenset({"/login", "/health", "/favicon.ico"})
 _PUBLIC_PREFIXES = ("/static",)
 _IMPORT_API_PREFIX = "/api/herd"
+_HR_WEBHOOK_PATH = "/api/hr/webhook"
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -43,6 +44,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         if path.startswith(_IMPORT_API_PREFIX) and valid_import_key(request):
+            return await call_next(request)
+
+        if path == _HR_WEBHOOK_PATH and request.method == "POST":
             return await call_next(request)
 
         if path.startswith("/api"):

@@ -1,0 +1,431 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    .step { display: none; }
+    .step.active { display: block; }
+    .business-choice {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }
+    .business-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      min-height: 7rem;
+      padding: 1.25rem;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      background: var(--card);
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text, #1f2937);
+      cursor: pointer;
+    }
+    .business-btn:hover {
+      border-color: var(--accent);
+      background: #f3f7f4;
+    }
+    .business-btn .sub { font-size: 0.8rem; font-weight: 500; color: var(--muted); }
+    .selected-business {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    .selected-business .pill {
+      background: #e8f5ee;
+      color: #145530;
+      border: 1px solid #b7dfc9;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+    fieldset.form-section {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem 1.25rem;
+      margin: 0 0 1.25rem;
+    }
+    fieldset.form-section legend {
+      font-weight: 700;
+      font-size: 0.95rem;
+      padding: 0 0.4rem;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem 1rem;
+    }
+    @media (max-width: 700px) {
+      .form-grid { grid-template-columns: 1fr; }
+    }
+    .form-grid label { display: block; margin: 0; }
+    .form-grid label.full-width { grid-column: 1 / -1; }
+    .form-grid input,
+    .form-grid select,
+    .form-grid textarea {
+      width: 100%;
+      margin: 0.25rem 0 0;
+    }
+    .form-actions {
+      margin-top: 1rem;
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+{% endblock %}
+
+{% block content %}
+    <!-- Step 1: choose business -->
+    <div class="card step active" id="step-business">
+      <h2>Which business is this employee for?</h2>
+      <p class="muted">Select the employing company to begin the new starter form.</p>
+      <div class="business-choice">
+        {% for biz in business_options %}
+        <button type="button" class="business-btn" data-business="{{ biz }}">
+          {{ biz }}
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Step 2: details -->
+    <div class="card step" id="step-details">
+      <div class="selected-business">
+        <span>Employer:</span>
+        <span class="pill" id="business-pill">—</span>
+        <button type="button" class="secondary small" id="change-business">Change</button>
+      </div>
+
+      <form id="enroll-form" novalidate>
+        <input type="hidden" id="business" value="">
+
+        <fieldset class="form-section">
+          <legend>Role &amp; personal details</legend>
+          <div class="form-grid">
+            <label>
+              Job title *
+              <select id="role_title" required>
+                {% for jt in job_title_options %}
+                <option value="{{ jt }}">{{ jt }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              Title
+              <select id="title">
+                <option value="">—</option>
+                {% for t in title_options %}
+                <option value="{{ t }}">{{ t }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="full-width">
+              Full name *
+              <input type="text" id="full_name" required minlength="2" autocomplete="name">
+            </label>
+            <label class="full-width">
+              Address
+              <textarea id="address" rows="2" autocomplete="street-address"></textarea>
+            </label>
+            <label>
+              Telephone number
+              <input type="tel" id="phone" autocomplete="tel">
+            </label>
+            <label>
+              Email address *
+              <input type="email" id="email" required autocomplete="email">
+            </label>
+            <label>
+              National Insurance number
+              <input type="text" id="ni_number" autocomplete="off" maxlength="32" placeholder="QQ123456C">
+            </label>
+            <label>
+              Date of birth
+              <input type="date" id="dob">
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>Work &amp; pay</legend>
+          <div class="form-grid">
+            <label>
+              Date started work *
+              <input type="date" id="start_date" required>
+            </label>
+            <label>
+              Payment type *
+              <select id="pay_type" required>
+                <option value="hourly">Hourly</option>
+                <option value="salary">Salary</option>
+              </select>
+            </label>
+            <label>
+              <span id="pay_rate_label">Hourly rate (£)</span>
+              <input type="text" id="pay_rate" placeholder="e.g. 12.50" autocomplete="off">
+            </label>
+            <label>
+              Working days per week
+              <input type="number" id="working_days_per_week" min="0" max="7" step="0.5">
+            </label>
+            <label>
+              Working hours per day
+              <input type="number" id="working_hours_per_day" min="0" max="24" step="0.25">
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>Driving &amp; right to work</legend>
+          <div class="form-grid">
+            <label>
+              Driving licence number
+              <input type="text" id="driving_license_number" autocomplete="off" maxlength="64">
+            </label>
+            <label>
+              Any points on licence?
+              <input type="text" id="license_points" placeholder="e.g. None, or 3 points (SP30)">
+            </label>
+            <label class="full-width">
+              Right to work share code (if applicable)
+              <input type="text" id="right_to_work_share_code" autocomplete="off" maxlength="64">
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>Bank details</legend>
+          <div class="form-grid">
+            <label>
+              Bank name
+              <input type="text" id="bank_name" autocomplete="off" maxlength="128">
+            </label>
+            <label>
+              Account holder's name
+              <input type="text" id="account_holder_name" autocomplete="off" maxlength="128">
+            </label>
+            <label>
+              Sort code
+              <input type="text" id="sort_code" autocomplete="off" maxlength="16" placeholder="00-00-00">
+            </label>
+            <label>
+              Account number
+              <input type="text" id="account_number" autocomplete="off" maxlength="32" placeholder="12345678">
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>Next of kin</legend>
+          <div class="form-grid">
+            <label>
+              Next of kin full name
+              <input type="text" id="next_of_kin_name" autocomplete="off" maxlength="255">
+            </label>
+            <label>
+              Relationship to next of kin
+              <input type="text" id="next_of_kin_relationship" autocomplete="off" maxlength="64">
+            </label>
+            <label>
+              Next of kin telephone number
+              <input type="tel" id="next_of_kin_phone" autocomplete="off" maxlength="64">
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>Contract</legend>
+          <div class="form-grid">
+            <label class="full-width">
+              Contract template *
+              <select id="template_id" required>
+                <option value="">Loading templates…</option>
+              </select>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="form-actions">
+          <button type="submit" id="submit-btn">Send contract for signing</button>
+          <a href="/hr/staff" class="secondary-link">Cancel</a>
+        </div>
+      </form>
+      <div id="enroll-message" class="message"></div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const stepBusiness = document.getElementById('step-business');
+  const stepDetails = document.getElementById('step-details');
+  const businessPill = document.getElementById('business-pill');
+  const businessInput = document.getElementById('business');
+  const form = document.getElementById('enroll-form');
+  const messageEl = document.getElementById('enroll-message');
+  const submitBtn = document.getElementById('submit-btn');
+  const templateSelect = document.getElementById('template_id');
+  const payTypeEl = document.getElementById('pay_type');
+  const payRateLabel = document.getElementById('pay_rate_label');
+
+  function showMessage(text, isError) {
+    messageEl.textContent = text || '';
+    messageEl.className = 'message' + (isError ? ' err' : text ? ' ok' : '');
+  }
+
+  // --- Step navigation ---
+  document.querySelectorAll('.business-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const biz = btn.dataset.business;
+      businessInput.value = biz;
+      businessPill.textContent = biz;
+      stepBusiness.classList.remove('active');
+      stepDetails.classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+
+  document.getElementById('change-business').addEventListener('click', function () {
+    stepDetails.classList.remove('active');
+    stepBusiness.classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  // --- Pay rate label toggles with pay type ---
+  const payRateInput = document.getElementById('pay_rate');
+  function updatePayLabel() {
+    const isSalary = payTypeEl.value === 'salary';
+    payRateLabel.textContent = isSalary ? 'Annual rate (£)' : 'Hourly rate (£)';
+    payRateInput.placeholder = isSalary ? 'e.g. 30000' : 'e.g. 12.50';
+  }
+  payTypeEl.addEventListener('change', updatePayLabel);
+  updatePayLabel();
+
+  // --- Templates ---
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  async function loadTemplates() {
+    try {
+      const res = await fetch('/api/hr/templates');
+      if (!res.ok) throw new Error('Failed to load templates');
+      const data = await res.json();
+      const templates = data.templates || [];
+      if (!templates.length) {
+        templateSelect.innerHTML = '<option value="">No templates configured</option>';
+        showMessage('No contract templates in the database. Add one or set DOCUSEAL_CWRTMALLE_TEMPLATE_ID.', true);
+        submitBtn.disabled = true;
+        return;
+      }
+      templateSelect.innerHTML = templates.map(function (t) {
+        return '<option value="' + t.id + '">' + escapeHtml(t.name) + '</option>';
+      }).join('');
+    } catch (err) {
+      templateSelect.innerHTML = '<option value="">Error loading templates</option>';
+      showMessage(err.message, true);
+      submitBtn.disabled = true;
+    }
+  }
+
+  function val(id) {
+    const el = document.getElementById(id);
+    return el ? el.value.trim() : '';
+  }
+
+  function numOrNull(id) {
+    const v = val(id);
+    if (v === '') return null;
+    const n = Number(v);
+    return isNaN(n) ? null : n;
+  }
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    showMessage('');
+    if (!businessInput.value) {
+      showMessage('Please select a business first.', true);
+      return;
+    }
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+    const templateId = parseInt(templateSelect.value, 10);
+    if (!templateId) {
+      showMessage('Select a contract template.', true);
+      return;
+    }
+    const payload = {
+      business: businessInput.value,
+      title: val('title') || null,
+      full_name: val('full_name'),
+      email: val('email'),
+      phone: val('phone') || null,
+      dob: val('dob') || null,
+      address: val('address') || null,
+      ni_number: val('ni_number') || null,
+      role_title: val('role_title'),
+      start_date: val('start_date'),
+      pay_type: val('pay_type'),
+      pay_rate: val('pay_rate') || null,
+      working_days_per_week: numOrNull('working_days_per_week'),
+      working_hours_per_day: numOrNull('working_hours_per_day'),
+      driving_license_number: val('driving_license_number') || null,
+      license_points: val('license_points') || null,
+      right_to_work_share_code: val('right_to_work_share_code') || null,
+      bank_name: val('bank_name') || null,
+      account_holder_name: val('account_holder_name') || null,
+      sort_code: val('sort_code') || null,
+      account_number: val('account_number') || null,
+      next_of_kin_name: val('next_of_kin_name') || null,
+      next_of_kin_relationship: val('next_of_kin_relationship') || null,
+      next_of_kin_phone: val('next_of_kin_phone') || null,
+      template_id: templateId,
+    };
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Sending…';
+    try {
+      const res = await fetch('/api/hr/staff/enroll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail;
+        const msg = Array.isArray(detail)
+          ? detail.map(function (d) { return (d.loc ? d.loc.join('.') + ': ' : '') + (d.msg || d); }).join('; ')
+          : (detail || 'Enrollment failed');
+        throw new Error(msg);
+      }
+      showMessage('Contract sent for signing. Redirecting to staff profile…', false);
+      const employeeId = data.employee && data.employee.id;
+      setTimeout(function () {
+        window.location.href = employeeId ? '/hr/staff/' + employeeId : '/hr/staff';
+      }, 1200);
+    } catch (err) {
+      showMessage(err.message, true);
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Send contract for signing';
+    }
+  });
+
+  loadTemplates();
+})();
+</script>
+{% endblock %}

@@ -48,6 +48,7 @@ def init_db() -> None:
     _migrate_stock_purchases_schema()
     _migrate_user_permissions()
     _migrate_feedlync_auth()
+    _migrate_hr_schema()
 
 
 def _migrate_user_permissions() -> None:
@@ -526,6 +527,91 @@ def _migrate_feedlync_auth() -> None:
         return
     with SessionLocal() as db:
         seed_refresh_token_from_env(db)
+
+
+def _migrate_hr_schema() -> None:
+    """Ensure contract storage exists; optionally seed default DocuSeal template."""
+    from pathlib import Path
+
+    from sqlalchemy import select
+
+    from app.config import (
+        CONTRACTS_STORAGE_DIR,
+        DOCUSEAL_CWRTMALLE_TEMPLATE_ID,
+        DOCUSEAL_CWRTMALLE_TEMPLATE_NAME,
+    )
+    from app.models import ContractTemplate
+
+    Path(CONTRACTS_STORAGE_DIR, "signed").mkdir(parents=True, exist_ok=True)
+
+    inspector = inspect(engine)
+
+    # Add new-starter columns to the employees table if missing.
+    if "employees" in inspector.get_table_names():
+        existing_cols = {col["name"] for col in inspector.get_columns("employees")}
+        new_columns = {
+            "business": "VARCHAR(64)",
+            "title": "VARCHAR(16)",
+            "working_days_per_week": "FLOAT",
+            "working_hours_per_day": "FLOAT",
+            "driving_license_number_enc": "TEXT",
+            "license_points": "VARCHAR(255)",
+            "right_to_work_share_code": "VARCHAR(64)",
+            "bank_name": "VARCHAR(128)",
+            "account_holder_name": "VARCHAR(128)",
+            "sort_code_enc": "TEXT",
+            "account_number_enc": "TEXT",
+            "next_of_kin_name": "VARCHAR(255)",
+            "next_of_kin_relationship": "VARCHAR(64)",
+            "next_of_kin_phone": "VARCHAR(64)",
+        }
+        missing = {k: v for k, v in new_columns.items() if k not in existing_cols}
+        if missing:
+            with engine.begin() as conn:
+                for name, ddl_type in missing.items():
+                    conn.execute(
+                        text(f"ALTER TABLE employees ADD COLUMN {name} {ddl_type}")
+                    )
+
+    if "contract_templates" not in inspector.get_table_names():
+        return
+
+    # (env var, display name, description) pairs to seed by DocuSeal template id.
+    seeds = [
+        (
+            DOCUSEAL_CWRTMALLE_TEMPLATE_ID,
+            DOCUSEAL_CWRTMALLE_TEMPLATE_NAME,
+            "Cwrt Malle employment contract (seeded from env)",
+        ),
+    ]
+
+    with SessionLocal() as db:
+        added = False
+        for raw_id, name, description in seeds:
+            if not raw_id:
+                continue
+            try:
+                template_id = int(raw_id)
+            except ValueError:
+                continue
+            exists = db.scalar(
+                select(ContractTemplate).where(
+                    ContractTemplate.docuseal_template_id == template_id
+                )
+            )
+            if exists:
+                continue
+            db.add(
+                ContractTemplate(
+                    name=name,
+                    docuseal_template_id=template_id,
+                    description=description,
+                    is_active=True,
+                )
+            )
+            added = True
+        if added:
+            db.commit()
 
 
 def get_db() -> Generator[Session, None, None]:

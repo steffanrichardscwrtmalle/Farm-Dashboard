@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    .hr-toolbar {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      margin-bottom: 1rem;
+    }
+    .hr-toolbar label { margin: 0; }
+    .hr-toolbar input,
+    .hr-toolbar select {
+      margin: 0;
+      min-width: 160px;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: capitalize;
+    }
+    .status-onboarding { background: #f3f4f6; color: #6b7280; }
+    .status-pending_signature { background: #fef3c7; color: #b45309; }
+    .status-active { background: #d1fae5; color: #047857; }
+    .status-archived { background: #fee2e2; color: #b91c1c; }
+    tr.staff-row { cursor: pointer; }
+    tr.staff-row:hover { background: rgba(0,0,0,0.03); }
+{% endblock %}
+
+{% block content %}
+    <div class="card" style="margin-bottom:1rem">
+      <div class="hr-toolbar">
+        <label>
+          Search
+          <input type="search" id="search-input" placeholder="Name, email, role…" autocomplete="off">
+        </label>
+        <label>
+          Status
+          <select id="status-filter">
+            <option value="">All</option>
+            <option value="onboarding">Onboarding</option>
+            <option value="pending_signature">Pending signature</option>
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+          </select>
+        </label>
+        <button type="button" id="refresh-btn" class="secondary">Refresh</button>
+        {% if can_enroll %}
+        <button type="button" id="enroll-btn" style="margin-left:auto"
+          onclick="window.location.href='/hr/enroll'">Enroll new staff</button>
+        {% endif %}
+      </div>
+      <div id="directory-message" class="message"></div>
+    </div>
+
+    <div class="card">
+      <h2>Staff</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Business</th>
+              <th>Role</th>
+              <th>Email</th>
+              <th>Start date</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="staff-body">
+            <tr><td colspan="6" class="muted">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const searchInput = document.getElementById('search-input');
+  const statusFilter = document.getElementById('status-filter');
+  const refreshBtn = document.getElementById('refresh-btn');
+  const staffBody = document.getElementById('staff-body');
+  const messageEl = document.getElementById('directory-message');
+
+  function statusBadge(status) {
+    const label = (status || '').replace(/_/g, ' ');
+    return '<span class="status-badge status-' + status + '">' + label + '</span>';
+  }
+
+  function showMessage(text, isError) {
+    messageEl.textContent = text || '';
+    messageEl.className = 'message' + (isError ? ' err' : text ? ' ok' : '');
+  }
+
+  async function loadStaff() {
+    showMessage('');
+    staffBody.innerHTML = '<tr><td colspan="6" class="muted">Loading…</td></tr>';
+    const params = new URLSearchParams();
+    const q = searchInput.value.trim();
+    const status = statusFilter.value;
+    if (q) params.set('search', q);
+    if (status) params.set('status', status);
+    try {
+      const res = await fetch('/api/hr/staff?' + params.toString());
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to load staff');
+      }
+      const data = await res.json();
+      const rows = data.staff || [];
+      if (!rows.length) {
+        staffBody.innerHTML = '<tr><td colspan="6" class="muted">No staff found.</td></tr>';
+        return;
+      }
+      staffBody.innerHTML = rows.map(function (s) {
+        return '<tr class="staff-row" data-id="' + s.id + '">' +
+          '<td>' + escapeHtml(s.full_name) + '</td>' +
+          '<td>' + escapeHtml(s.business || '—') + '</td>' +
+          '<td>' + escapeHtml(s.role_title) + '</td>' +
+          '<td>' + escapeHtml(s.email) + '</td>' +
+          '<td>' + escapeHtml(s.start_date || '') + '</td>' +
+          '<td>' + statusBadge(s.status) + '</td>' +
+          '</tr>';
+      }).join('');
+    } catch (err) {
+      staffBody.innerHTML = '<tr><td colspan="6" class="muted">Could not load staff.</td></tr>';
+      showMessage(err.message, true);
+    }
+  }
+
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  let searchTimer;
+  searchInput.addEventListener('input', function () {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(loadStaff, 300);
+  });
+  statusFilter.addEventListener('change', loadStaff);
+  refreshBtn.addEventListener('click', loadStaff);
+  staffBody.addEventListener('click', function (e) {
+    const row = e.target.closest('tr.staff-row');
+    if (row && row.dataset.id) {
+      window.location.href = '/hr/staff/' + row.dataset.id;
+    }
+  });
+
+  loadStaff();
+})();
+</script>
+{% endblock %}
