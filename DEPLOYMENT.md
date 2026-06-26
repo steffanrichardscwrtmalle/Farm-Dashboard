@@ -117,8 +117,23 @@ For local testing without Graph API, set `LOCAL_HERD_EXPORT_DIR` to your synced 
 
 Uses the Feedlync HTTP API (no Chrome/Selenium in production).
 
-1. **Connect FeedLync** (recommended):
-   - On the **Feed Rate** page, if the session expires you’ll see **Reconnect FeedLync**
+**Unattended login (recommended for cron):** FeedLync's Azure AD B2C SPA refresh
+tokens expire after ~24h and cannot be extended by rotation, so a pasted token
+will not survive between weekly imports. If the FeedLync account has **no MFA**,
+set credentials and the importer logs in automatically each run (it replicates
+the B2C sign-in flow over HTTP — no browser/Chromium needed):
+
+- `FEEDLYNC_USERNAME` / `FEEDLYNC_PASSWORD` — store as Render secrets
+- `FEEDLYNC_SPA_REDIRECT_URI` — optional; defaults to `https://app.feedlync.com/redirect.html`
+- Run a **daily** cron `python scripts/import_feed_data.py`; it logs in, refreshes
+  the token, stores it, and imports. No manual reconnect needed.
+
+> Note: this depends on FeedLync's current B2C sign-in flow. If they change it,
+> the import falls back to the manual reconnect path below until updated.
+
+**Manual connect (fallback when auto-login is not configured):**
+
+1. On the **Feed Rate** page, if the session expires you’ll see **Reconnect FeedLync**
    - Or open **Feed Rate → Connect FeedLync** (`/feed-rate/connect`)
    - **Sign in with FeedLync** (OAuth), or paste a refresh token from DevTools if OAuth redirect is blocked
    - The app stores the token in the database and rotates it on each import
@@ -127,7 +142,7 @@ Uses the Feedlync HTTP API (no Chrome/Selenium in production).
    - `PUBLIC_APP_URL` — your app’s public URL (OAuth callback; defaults to `RENDER_EXTERNAL_URL` on Render)
    - `FEEDLYNC_FARM_ID` — optional; comma-separated farm UUID(s)
 3. On the **Feed Rate** page, click **Refresh from Feedlync** (polls every 3 seconds until complete).
-4. Optional cron: `python scripts/import_feed_data.py` (uses stored DB token).
+4. Cron: `python scripts/import_feed_data.py` (uses stored DB token, or auto-login if configured).
 
 ---
 

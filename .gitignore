@@ -4,3 +4,6 @@ render-env-paste.txt
 /data/
 __pycache__/
 *.pyc
+*.har
+*feedlync*recording*.json
+Recording*.json

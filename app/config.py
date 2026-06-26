@@ -85,4 +85,14 @@ FEEDLYNC_REDIRECT_URI = os.getenv(
     f"{PUBLIC_APP_URL}/api/feedlync/oauth/callback",
 ).strip()
 
+# Unattended login (B2C self-asserted flow replication). The redirect URI here
+# must be one already registered by FeedLync for their SPA client; we intercept
+# the redirect server-side and never actually load the page.
+FEEDLYNC_USERNAME = os.getenv("FEEDLYNC_USERNAME", "").strip()
+FEEDLYNC_PASSWORD = os.getenv("FEEDLYNC_PASSWORD", "")
+FEEDLYNC_SPA_REDIRECT_URI = os.getenv(
+    "FEEDLYNC_SPA_REDIRECT_URI",
+    "https://app.feedlync.com/redirect.html",
+).strip()
+
 COOKIE_SECURE = IS_PRODUCTION or os.getenv("COOKIE_SECURE", "").lower() in ("1", "true", "yes")

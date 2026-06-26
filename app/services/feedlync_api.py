@@ -20,6 +20,10 @@ from app.services.feedlync_auth import (
     resolve_refresh_token,
     save_refresh_token,
 )
+from app.services.feedlync_ro_login import (
+    auto_login_enabled,
+    fetch_refresh_token_via_login,
+)
 
 _RATION_DETAIL_PARAMS = {
     "feedplans": "true",
@@ -55,6 +59,40 @@ def _refresh_access_token(
         raise FeedlyncAuthError("Feedlync token response did not include access_token")
     new_refresh = payload.get("refresh_token")
     return str(access_token), str(new_refresh) if new_refresh else None
+
+
+def _login_and_store(db: Session) -> str:
+    """Run the unattended login and persist the resulting refresh token."""
+    refresh_token = fetch_refresh_token_via_login()
+    save_refresh_token(db, refresh_token)
+    return refresh_token
+
+
+def _acquire_access_token(db: Session, client: httpx.Client) -> str:
+    """Return a valid access token, using auto-login when needed/possible.
+
+    Handles two cases transparently: no stored token yet, and a stored token
+    that has expired (FeedLync SPA refresh tokens last ~24h). Falls back to the
+    manual reconnect error when auto-login is not configured.
+    """
+    try:
+        refresh_token = resolve_refresh_token(db)
+    except FeedlyncAuthError:
+        if not auto_login_enabled():
+            raise
+        refresh_token = _login_and_store(db)
+
+    try:
+        access_token, new_refresh = _refresh_access_token(client, refresh_token)
+    except FeedlyncAuthError:
+        if not auto_login_enabled():
+            raise
+        refresh_token = _login_and_store(db)
+        access_token, new_refresh = _refresh_access_token(client, refresh_token)
+
+    if new_refresh:
+        save_refresh_token(db, new_refresh)
+    return access_token
 
 
 def _api_headers(access_token: str, farm_id: str) -> dict[str, str]:
@@ -216,15 +254,11 @@ def fetch_feed_data(db: Session, *, ration_name: str | None = None) -> list[dict
 
     Returns the same row dict shape used by feed_rate_import.
     """
-    refresh_token = resolve_refresh_token(db)
-
     scraped_date = dt.date.today()
     all_rows: list[dict[str, Any]] = []
 
     with httpx.Client(timeout=60.0) as client:
-        access_token, new_refresh = _refresh_access_token(client, refresh_token)
-        if new_refresh:
-            save_refresh_token(db, new_refresh)
+        access_token = _acquire_access_token(db, client)
 
         summary_response = client.get(
             f"{FEEDLYNC_API_BASE}/farms/summary",
