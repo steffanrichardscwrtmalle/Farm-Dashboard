@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -104,6 +105,19 @@ def get_template_field_names(template_id: int) -> set[str]:
     return names
 
 
+def _unknown_field_from_response(response: httpx.Response) -> str | None:
+    """Extract the field name from a DocuSeal 'Unknown field: X' 422 error."""
+    try:
+        data = response.json()
+    except ValueError:
+        return None
+    error = data.get("error") if isinstance(data, dict) else None
+    if not error:
+        return None
+    match = re.search(r"Unknown field:\s*(\S+)", str(error))
+    return match.group(1) if match else None
+
+
 def create_submission(
     *,
     template_id: int,
@@ -164,11 +178,30 @@ def create_submission(
         payload["message"] = message
 
     with httpx.Client(timeout=60.0) as client:
-        response = client.post(
-            f"{DOCUSEAL_BASE_URL}/submissions",
-            headers=_headers(),
-            json=payload,
-        )
+        # Self-heal: if DocuSeal rejects a field the template doesn't define
+        # (e.g. the template-field pre-fetch failed and we fell back to sending
+        # everything), strip that field and retry rather than hard-failing.
+        max_attempts = len(fields) + 1
+        for _ in range(max_attempts):
+            response = client.post(
+                f"{DOCUSEAL_BASE_URL}/submissions",
+                headers=_headers(),
+                json=payload,
+            )
+            if response.status_code < 400:
+                break
+            unknown = _unknown_field_from_response(response)
+            if not unknown:
+                break
+            remaining = [f for f in fields if f.get("name") != unknown]
+            if len(remaining) == len(fields):
+                break
+            logger.warning(
+                "DocuSeal rejected unknown field '%s'; retrying without it.",
+                unknown,
+            )
+            fields[:] = remaining
+
     if response.status_code >= 400:
         logger.error("DocuSeal create submission failed: %s", response.text[:500])
         raise DocuSealError(
