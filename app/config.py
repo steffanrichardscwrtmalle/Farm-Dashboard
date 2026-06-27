@@ -121,12 +121,25 @@ DOCUSEAL_GREENACRE_TEMPLATE_NAME = os.getenv(
 # Customise the email DocuSeal sends to signers. Leave blank to use DocuSeal's
 # defaults. Body supports DocuSeal tags e.g. {{template.name}}, {{submitter.link}}.
 # Global values are the fallback; per-business values override them.
-DOCUSEAL_EMAIL_SUBJECT = os.getenv("DOCUSEAL_EMAIL_SUBJECT", "").strip()
-DOCUSEAL_EMAIL_BODY = os.getenv("DOCUSEAL_EMAIL_BODY", "").strip()
-DOCUSEAL_CWRTMALLE_EMAIL_SUBJECT = os.getenv("DOCUSEAL_CWRTMALLE_EMAIL_SUBJECT", "").strip()
-DOCUSEAL_CWRTMALLE_EMAIL_BODY = os.getenv("DOCUSEAL_CWRTMALLE_EMAIL_BODY", "").strip()
-DOCUSEAL_GREENACRE_EMAIL_SUBJECT = os.getenv("DOCUSEAL_GREENACRE_EMAIL_SUBJECT", "").strip()
-DOCUSEAL_GREENACRE_EMAIL_BODY = os.getenv("DOCUSEAL_GREENACRE_EMAIL_BODY", "").strip()
+
+
+def _email_env(name: str) -> str:
+    """Read an email body/subject env var, decoding literal \\n escapes.
+
+    Render passes env values raw, so a literal backslash-n stays as two
+    characters; local .env (python-dotenv, double-quoted) already decodes them.
+    Normalise both so newlines render correctly in the signer email.
+    """
+    raw = os.getenv(name, "").strip()
+    return raw.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "\t")
+
+
+DOCUSEAL_EMAIL_SUBJECT = _email_env("DOCUSEAL_EMAIL_SUBJECT")
+DOCUSEAL_EMAIL_BODY = _email_env("DOCUSEAL_EMAIL_BODY")
+DOCUSEAL_CWRTMALLE_EMAIL_SUBJECT = _email_env("DOCUSEAL_CWRTMALLE_EMAIL_SUBJECT")
+DOCUSEAL_CWRTMALLE_EMAIL_BODY = _email_env("DOCUSEAL_CWRTMALLE_EMAIL_BODY")
+DOCUSEAL_GREENACRE_EMAIL_SUBJECT = _email_env("DOCUSEAL_GREENACRE_EMAIL_SUBJECT")
+DOCUSEAL_GREENACRE_EMAIL_BODY = _email_env("DOCUSEAL_GREENACRE_EMAIL_BODY")
 
 
 def _hr_business_key(business: str | None) -> str | None:
