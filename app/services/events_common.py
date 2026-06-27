@@ -442,6 +442,7 @@ def _fetch_disease_event_records(
             CowEvent.lact,
             CowEvent.farm,
             CowEvent.month_label,
+            CowEvent.remark,
         )
         .where(CowEvent.event.in_(list(event_types)))
         .where(CowEvent.event_date.isnot(None))
@@ -454,17 +455,31 @@ def _fetch_disease_event_records(
     rows = db.execute(events_query).all()
     records: list[dict[str, Any]] = []
     for row in rows:
+        event = row[2]
+        lact = row[6]
+        event_date = row[3]
+        bdat = row[5]
+        remark = row[9]
+        # Apply the same youngstock death exclusions as the Deaths page when
+        # DIED events are shown via the disease-type filter.
+        if (
+            event == "DIED"
+            and lact == 0
+            and _exclude_youngstock_death(remark, event_date, bdat)
+        ):
+            continue
         records.append(
             {
                 "cow_id": row[0],
                 "etag": row[1],
-                "event": row[2],
-                "event_date": row[3],
+                "event": event,
+                "event_date": event_date,
                 "fdat": row[4],
-                "bdat": row[5],
-                "lact": row[6],
+                "bdat": bdat,
+                "lact": lact,
                 "farm": row[7],
                 "month_label": row[8],
+                "remark": remark,
             }
         )
     return records
