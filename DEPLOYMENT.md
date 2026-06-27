@@ -158,6 +158,11 @@ The blueprint [`render.yaml`](render.yaml) mounts disk `farm-dashboard-data` at 
 
 PDFs are **write-once**; a SHA-256 hash is stored in the database for audit.
 
+Staff documents (passport, driving licence, right-to-work, etc.) uploaded from a
+staff profile are stored on the same disk under `/var/data/contracts/documents/employee_<id>/`.
+Uploads accept PDFs and images up to 20 MB. Uploading/deleting requires the
+`hr.enroll` action; viewing/downloading requires the `hr` page permission.
+
 ### Environment variables
 
 Set on the web service (see `.env.example`):

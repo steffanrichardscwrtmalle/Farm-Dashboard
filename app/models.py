@@ -600,6 +600,16 @@ HR_BUSINESS_OPTIONS: tuple[str, ...] = ("Cwrt Malle Ltd", "Green Acre Dairy Ltd"
 TITLE_OPTIONS: tuple[str, ...] = ("Mr", "Mrs", "Miss", "Ms", "Dr")
 # Job titles (single option for now; more can be added later).
 JOB_TITLE_OPTIONS: tuple[str, ...] = ("Farm Worker",)
+# Document categories that can be attached to a staff profile.
+DOCUMENT_TYPE_OPTIONS: tuple[str, ...] = (
+    "Passport",
+    "Driving Licence",
+    "Right to Work",
+    "Visa / BRP",
+    "Proof of Address",
+    "Qualification",
+    "Other",
+)
 
 
 class ContractTemplate(Base):
@@ -670,6 +680,11 @@ class Employee(Base):
     contracts: Mapped[list[EmployeeContract]] = relationship(
         back_populates="employee", order_by="EmployeeContract.created_at.desc()"
     )
+    documents: Mapped[list[EmployeeDocument]] = relationship(
+        back_populates="employee",
+        order_by="EmployeeDocument.created_at.desc()",
+        cascade="all, delete-orphan",
+    )
 
 
 class EmployeeContract(Base):
@@ -695,6 +710,32 @@ class EmployeeContract(Base):
 
     employee: Mapped[Employee] = relationship(back_populates="contracts")
     template: Mapped[ContractTemplate | None] = relationship(back_populates="contracts")
+
+
+class EmployeeDocument(Base):
+    """An uploaded document attached to a staff profile (passport, licence, etc.)."""
+
+    __tablename__ = "employee_documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id"), index=True
+    )
+    doc_type: Mapped[str] = mapped_column(String(64), default="Other")
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    original_filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stored_path: Mapped[str] = mapped_column(String(512))
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    uploaded_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+    employee: Mapped[Employee] = relationship(back_populates="documents")
 
 
 def _str_or_none(value: Any) -> str | None:

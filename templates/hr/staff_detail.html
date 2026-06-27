@@ -75,6 +75,47 @@
         </table>
       </div>
     </div>
+
+    <div class="card">
+      <h2>Documents</h2>
+      {% if can_enroll %}
+      <form id="doc-upload-form" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1rem">
+        <label style="display:flex;flex-direction:column;font-size:0.8rem;gap:0.2rem">
+          Document type
+          <select id="doc-type" style="min-width:160px">
+            {% for dt in document_types %}
+            <option value="{{ dt }}">{{ dt }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label style="display:flex;flex-direction:column;font-size:0.8rem;gap:0.2rem">
+          Label (optional)
+          <input type="text" id="doc-label" placeholder="e.g. Front and back" style="min-width:200px">
+        </label>
+        <label style="display:flex;flex-direction:column;font-size:0.8rem;gap:0.2rem">
+          File (PDF or image)
+          <input type="file" id="doc-file" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.tif,.tiff,application/pdf,image/*" required>
+        </label>
+        <button type="submit" class="small" id="doc-upload-btn">Upload</button>
+      </form>
+      {% endif %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>File</th>
+              <th>Size</th>
+              <th>Uploaded</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="documents-body">
+            <tr><td colspan="5" class="muted">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 {% endblock %}
 
 {% block scripts %}
@@ -85,9 +126,11 @@
   const canEnroll = {{ 'true' if can_enroll else 'false' }};
   const profileGrid = document.getElementById('profile-grid');
   const contractsBody = document.getElementById('contracts-body');
+  const documentsBody = document.getElementById('documents-body');
   const profileStatus = document.getElementById('profile-status');
   const profileActions = document.getElementById('profile-actions');
   const messageEl = document.getElementById('profile-message');
+  const docUploadForm = document.getElementById('doc-upload-form');
 
   function showMessage(text, isError) {
     messageEl.textContent = text || '';
@@ -251,6 +294,105 @@
     }).join('');
   }
 
+  function fmtSize(bytes) {
+    if (bytes === null || bytes === undefined) return '—';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function renderDocuments(docs) {
+    if (!docs.length) {
+      documentsBody.innerHTML = '<tr><td colspan="5" class="muted">No documents uploaded.</td></tr>';
+      return;
+    }
+    documentsBody.innerHTML = docs.map(function (d) {
+      const fileLabel = d.label
+        ? escapeHtml(d.original_filename) + ' — ' + escapeHtml(d.label)
+        : escapeHtml(d.original_filename);
+      const uploaded = d.created_at ? d.created_at.slice(0, 10) : '—';
+      let actions = '<a href="/api/hr/documents/' + d.id + '/download?inline=true" target="_blank" rel="noopener">View</a>' +
+        ' · <a href="/api/hr/documents/' + d.id + '/download" target="_blank" rel="noopener">Download</a>';
+      if (canEnroll) {
+        actions += ' · <a href="#" class="doc-delete" data-id="' + d.id + '" style="color:#b91c1c">Delete</a>';
+      }
+      return '<tr>' +
+        '<td>' + escapeHtml(d.doc_type || 'Other') + '</td>' +
+        '<td>' + fileLabel + '</td>' +
+        '<td>' + escapeHtml(fmtSize(d.file_size)) + '</td>' +
+        '<td>' + escapeHtml(uploaded) + '</td>' +
+        '<td>' + actions + '</td>' +
+        '</tr>';
+    }).join('');
+
+    documentsBody.querySelectorAll('.doc-delete').forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        deleteDocument(link.dataset.id);
+      });
+    });
+  }
+
+  async function loadDocuments() {
+    try {
+      const res = await fetch('/api/hr/staff/' + employeeId + '/documents');
+      if (!res.ok) throw new Error('Could not load documents');
+      const data = await res.json();
+      renderDocuments(data.documents || []);
+    } catch (err) {
+      documentsBody.innerHTML = '<tr><td colspan="5" class="muted">—</td></tr>';
+    }
+  }
+
+  async function deleteDocument(docId) {
+    if (!window.confirm('Delete this document? This cannot be undone.')) return;
+    showMessage('');
+    try {
+      const res = await fetch('/api/hr/documents/' + docId, { method: 'DELETE' });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.detail || 'Delete failed');
+      showMessage('Document deleted.', false);
+      loadDocuments();
+    } catch (err) {
+      showMessage(err.message, true);
+    }
+  }
+
+  if (docUploadForm) {
+    docUploadForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const fileInput = document.getElementById('doc-file');
+      const btn = document.getElementById('doc-upload-btn');
+      if (!fileInput.files || !fileInput.files.length) {
+        showMessage('Choose a file to upload.', true);
+        return;
+      }
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      formData.append('doc_type', document.getElementById('doc-type').value);
+      formData.append('label', document.getElementById('doc-label').value);
+      showMessage('');
+      btn.disabled = true;
+      btn.textContent = 'Uploading…';
+      try {
+        const res = await fetch('/api/hr/staff/' + employeeId + '/documents', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.detail || 'Upload failed');
+        showMessage('Document uploaded.', false);
+        docUploadForm.reset();
+        loadDocuments();
+      } catch (err) {
+        showMessage(err.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Upload';
+      }
+    });
+  }
+
   async function loadProfile() {
     try {
       const res = await fetch('/api/hr/staff/' + employeeId);
@@ -261,9 +403,11 @@
       const emp = await res.json();
       renderProfile(emp);
       renderContracts(emp.contracts || []);
+      renderDocuments(emp.documents || []);
     } catch (err) {
       profileGrid.innerHTML = '<p class="muted">Could not load profile.</p>';
       contractsBody.innerHTML = '<tr><td colspan="5" class="muted">—</td></tr>';
+      documentsBody.innerHTML = '<tr><td colspan="5" class="muted">—</td></tr>';
       showMessage(err.message, true);
     }
   }

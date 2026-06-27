@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -13,6 +14,7 @@ from app.config import hr_team_emails_for
 from app.models import (
     CONTRACT_STATUS_COMPLETED,
     CONTRACT_STATUS_PENDING,
+    DOCUMENT_TYPE_OPTIONS,
     EMPLOYEE_STATUS_ACTIVE,
     EMPLOYEE_STATUS_ARCHIVED,
     EMPLOYEE_STATUS_ONBOARDING,
@@ -21,6 +23,7 @@ from app.models import (
     ContractTemplate,
     Employee,
     EmployeeContract,
+    EmployeeDocument,
     User,
 )
 from app.services.contract_storage import ContractStorageError, default_storage
@@ -518,6 +521,146 @@ def handle_webhook(db: Session, event: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# --- Staff documents ---
+
+# Accept common identity-document formats. Keep PDFs and images only.
+ALLOWED_DOCUMENT_CONTENT_TYPES = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "image/heic",
+    "image/heif",
+    "image/tiff",
+}
+ALLOWED_DOCUMENT_EXTENSIONS = {
+    ".pdf",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".gif",
+    ".heic",
+    ".heif",
+    ".tif",
+    ".tiff",
+}
+MAX_DOCUMENT_BYTES = 20 * 1024 * 1024  # 20 MB
+
+
+def list_employee_documents(db: Session, employee_id: int) -> list[dict[str, Any]]:
+    employee = db.get(Employee, employee_id)
+    if employee is None:
+        raise HRServiceError("Employee not found.")
+    return [_document_dict(d) for d in employee.documents]
+
+
+def add_employee_document(
+    db: Session,
+    employee_id: int,
+    *,
+    doc_type: str,
+    label: str | None,
+    filename: str,
+    content: bytes,
+    content_type: str | None,
+    user: User,
+) -> dict[str, Any]:
+    employee = db.get(Employee, employee_id)
+    if employee is None:
+        raise HRServiceError("Employee not found.")
+
+    if not content:
+        raise HRServiceError("The uploaded file is empty.")
+    if len(content) > MAX_DOCUMENT_BYTES:
+        raise HRServiceError("File is too large (20 MB maximum).")
+
+    ext = os.path.splitext(filename or "")[1].lower()
+    type_ok = (content_type or "").lower() in ALLOWED_DOCUMENT_CONTENT_TYPES
+    ext_ok = ext in ALLOWED_DOCUMENT_EXTENSIONS
+    if not (type_ok or ext_ok):
+        raise HRServiceError(
+            "Unsupported file type. Upload a PDF or image (JPG, PNG, etc.)."
+        )
+
+    resolved_type = doc_type if doc_type in DOCUMENT_TYPE_OPTIONS else "Other"
+
+    try:
+        stored_path, sha256, size = default_storage.save_document(
+            employee_id=employee.id,
+            original_filename=filename or "document",
+            content=content,
+        )
+    except ContractStorageError as exc:
+        raise HRServiceError(str(exc)) from exc
+
+    document = EmployeeDocument(
+        employee_id=employee.id,
+        doc_type=resolved_type,
+        label=(label or "").strip() or None,
+        original_filename=(filename or "document")[:255],
+        content_type=content_type,
+        file_size=size,
+        stored_path=stored_path,
+        sha256=sha256,
+        uploaded_by_user_id=user.id,
+    )
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+    logger.info(
+        "Added document id=%s employee_id=%s type=%s",
+        document.id,
+        employee.id,
+        resolved_type,
+    )
+    return {"document": _document_dict(document)}
+
+
+def get_document_for_download(db: Session, document_id: int) -> EmployeeDocument:
+    document = db.get(EmployeeDocument, document_id)
+    if document is None:
+        raise HRServiceError("Document not found.")
+    return document
+
+
+def delete_employee_document(
+    db: Session, document_id: int, user: User
+) -> dict[str, Any]:
+    document = db.get(EmployeeDocument, document_id)
+    if document is None:
+        raise HRServiceError("Document not found.")
+    stored_path = document.stored_path
+    employee_id = document.employee_id
+    db.delete(document)
+    db.commit()
+    try:
+        default_storage.delete_document(stored_path)
+    except ContractStorageError:
+        logger.warning("Document record deleted but file remained: %s", stored_path)
+    logger.info(
+        "Deleted document id=%s employee_id=%s by user=%s",
+        document_id,
+        employee_id,
+        user.id,
+    )
+    return {"status": "deleted", "document_id": document_id}
+
+
+def _document_dict(document: EmployeeDocument) -> dict[str, Any]:
+    return {
+        "id": document.id,
+        "employee_id": document.employee_id,
+        "doc_type": document.doc_type,
+        "label": document.label,
+        "original_filename": document.original_filename,
+        "content_type": document.content_type,
+        "file_size": document.file_size,
+        "created_at": document.created_at.isoformat() if document.created_at else None,
+    }
+
+
 def get_contract_for_download(db: Session, contract_id: int) -> EmployeeContract:
     contract = db.get(EmployeeContract, contract_id)
     if contract is None:
@@ -561,6 +704,7 @@ def _employee_detail(employee: Employee, *, include_sensitive: bool) -> dict[str
             "created_at": employee.created_at.isoformat() if employee.created_at else None,
             "updated_at": employee.updated_at.isoformat() if employee.updated_at else None,
             "contracts": [_contract_dict(c) for c in employee.contracts],
+            "documents": [_document_dict(d) for d in employee.documents],
         }
     )
     sensitive_enc = (

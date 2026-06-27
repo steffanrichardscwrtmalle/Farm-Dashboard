@@ -4,7 +4,17 @@ from __future__ import annotations
 
 import datetime as dt
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
@@ -17,16 +27,20 @@ from app.auth.permissions import (
     has_action,
 )
 from app.db import get_db
-from app.models import HR_BUSINESS_OPTIONS, PAY_TYPES, User
+from app.models import DOCUMENT_TYPE_OPTIONS, HR_BUSINESS_OPTIONS, PAY_TYPES, User
 from app.services.contract_storage import ContractStorageError, default_storage
 from app.services.docuseal_api import verify_webhook_secret
 from app.services.hr_service import (
     HRServiceError,
+    add_employee_document,
+    delete_employee_document,
     enroll_employee,
     get_contract_for_download,
+    get_document_for_download,
     get_staff_detail,
     handle_webhook,
     list_employee_contracts,
+    list_employee_documents,
     list_staff,
     list_templates,
     save_draft,
@@ -260,6 +274,82 @@ def api_download_contract(
         media_type="application/pdf",
         filename=filename,
     )
+
+
+@router.get("/document-types")
+def api_list_document_types(
+    _: User = Depends(require_page(PAGE_HR)),
+):
+    return {"document_types": list(DOCUMENT_TYPE_OPTIONS)}
+
+
+@router.get("/staff/{employee_id}/documents")
+def api_list_staff_documents(
+    employee_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_HR)),
+):
+    try:
+        return {"documents": list_employee_documents(db, employee_id)}
+    except HRServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/staff/{employee_id}/documents")
+async def api_upload_staff_document(
+    employee_id: int,
+    file: UploadFile = File(...),
+    doc_type: str = Form("Other"),
+    label: str | None = Form(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_HR_ENROLL)),
+):
+    content = await file.read()
+    try:
+        return add_employee_document(
+            db,
+            employee_id,
+            doc_type=doc_type,
+            label=label,
+            filename=file.filename or "document",
+            content=content,
+            content_type=file.content_type,
+            user=user,
+        )
+    except HRServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/documents/{document_id}/download")
+def api_download_document(
+    document_id: int,
+    inline: bool = Query(False),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_HR)),
+):
+    try:
+        document = get_document_for_download(db, document_id)
+        path = default_storage.resolve_document_path(document.stored_path)
+    except (HRServiceError, ContractStorageError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(
+        path,
+        media_type=document.content_type or "application/octet-stream",
+        filename=document.original_filename or f"document_{document_id}",
+        content_disposition_type="inline" if inline else "attachment",
+    )
+
+
+@router.delete("/documents/{document_id}")
+def api_delete_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_HR_ENROLL)),
+):
+    try:
+        return delete_employee_document(db, document_id, user)
+    except HRServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/webhook")

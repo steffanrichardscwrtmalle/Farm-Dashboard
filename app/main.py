@@ -901,6 +901,8 @@ def hr_staff_directory_page(request: Request):
 def hr_staff_detail_page(request: Request, employee_id: int):
     if denied := _page_guard(request, PAGE_HR):
         return denied
+    from app.models import DOCUMENT_TYPE_OPTIONS
+
     return templates.TemplateResponse(
         request,
         "hr/staff_detail.html",
@@ -910,6 +912,7 @@ def hr_staff_detail_page(request: Request, employee_id: int):
             employee_id=employee_id,
             can_view_sensitive=has_action(request.state.user, ACTION_HR_VIEW_SENSITIVE),
             can_enroll=has_action(request.state.user, ACTION_HR_ENROLL),
+            document_types=list(DOCUMENT_TYPE_OPTIONS),
             **_hr_context("Staff Profile", "staff-directory", "Profile"),
         ),
     )
