@@ -247,16 +247,18 @@
           <legend>Contract</legend>
           <div class="form-grid">
             <label class="full-width">
-              Contract template *
-              <select id="template_id" required>
+              Contract template <span id="template-required">*</span>
+              <select id="template_id">
                 <option value="">Loading templates…</option>
               </select>
+              <small class="muted">Not required when saving as a draft.</small>
             </label>
           </div>
         </fieldset>
 
         <div class="form-actions">
           <button type="submit" id="submit-btn">Send contract for signing</button>
+          <button type="button" id="draft-btn" class="secondary">Save as draft</button>
           <a href="/hr/staff" class="secondary-link">Cancel</a>
         </div>
       </form>
@@ -274,9 +276,13 @@
   const form = document.getElementById('enroll-form');
   const messageEl = document.getElementById('enroll-message');
   const submitBtn = document.getElementById('submit-btn');
+  const draftBtn = document.getElementById('draft-btn');
   const templateSelect = document.getElementById('template_id');
   const payTypeEl = document.getElementById('pay_type');
   const payRateLabel = document.getElementById('pay_rate_label');
+
+  const EDIT_ID = {{ edit_employee_id if edit_employee_id is not none else 'null' }};
+  const CAN_VIEW_SENSITIVE = {{ 'true' if can_view_sensitive else 'false' }};
 
   function showMessage(text, isError) {
     messageEl.textContent = text || '';
@@ -354,23 +360,8 @@
     return isNaN(n) ? null : n;
   }
 
-  form.addEventListener('submit', async function (e) {
-    e.preventDefault();
-    showMessage('');
-    if (!businessInput.value) {
-      showMessage('Please select a business first.', true);
-      return;
-    }
-    if (!form.checkValidity()) {
-      form.reportValidity();
-      return;
-    }
-    const templateId = parseInt(templateSelect.value, 10);
-    if (!templateId) {
-      showMessage('Select a contract template.', true);
-      return;
-    }
-    const payload = {
+  function buildPayload(templateId) {
+    return {
       business: businessInput.value,
       title: val('title') || null,
       full_name: val('full_name'),
@@ -397,35 +388,176 @@
       next_of_kin_phone: val('next_of_kin_phone') || null,
       template_id: templateId,
     };
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Sending…';
+  }
+
+  function parseError(data, fallback) {
+    const detail = data && data.detail;
+    return Array.isArray(detail)
+      ? detail.map(function (d) { return (d.loc ? d.loc.join('.') + ': ' : '') + (d.msg || d); }).join('; ')
+      : (detail || fallback);
+  }
+
+  async function postStaff(url, payload, btn, busyText, idleText, method) {
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = busyText;
     try {
-      const res = await fetch('/api/hr/staff/enroll', {
-        method: 'POST',
+      const res = await fetch(url, {
+        method: method || 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const detail = data.detail;
-        const msg = Array.isArray(detail)
-          ? detail.map(function (d) { return (d.loc ? d.loc.join('.') + ': ' : '') + (d.msg || d); }).join('; ')
-          : (detail || 'Enrollment failed');
-        throw new Error(msg);
+      if (!res.ok) throw new Error(parseError(data, idleText + ' failed'));
+      return data;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  function redirectTo(data) {
+    const id = (data && data.employee && data.employee.id) || EDIT_ID;
+    setTimeout(function () {
+      window.location.href = id ? '/hr/staff/' + id : '/hr/staff';
+    }, 1100);
+  }
+
+  // --- Primary action: send for signing (create) / save & send (edit) ---
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    showMessage('');
+    if (!businessInput.value) {
+      showMessage('Please select a business first.', true);
+      return;
+    }
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+    const templateId = parseInt(templateSelect.value, 10);
+    if (!templateId) {
+      showMessage('Select a contract template (or use ' +
+        (EDIT_ID ? 'Save changes' : 'Save as draft') + ').', true);
+      return;
+    }
+    try {
+      if (EDIT_ID) {
+        await postStaff('/api/hr/staff/' + EDIT_ID, buildPayload(templateId),
+          submitBtn, 'Saving…', 'Update', 'PUT');
+        const data = await postStaff('/api/hr/staff/' + EDIT_ID + '/send',
+          { template_id: templateId }, submitBtn, 'Sending…', 'Send');
+        showMessage('Saved and sent for signing. Redirecting…', false);
+        redirectTo(data);
+      } else {
+        const data = await postStaff('/api/hr/staff/enroll', buildPayload(templateId),
+          submitBtn, 'Sending…', 'Enrollment');
+        showMessage('Contract sent for signing. Redirecting to staff profile…', false);
+        redirectTo(data);
       }
-      showMessage('Contract sent for signing. Redirecting to staff profile…', false);
-      const employeeId = data.employee && data.employee.id;
-      setTimeout(function () {
-        window.location.href = employeeId ? '/hr/staff/' + employeeId : '/hr/staff';
-      }, 1200);
     } catch (err) {
       showMessage(err.message, true);
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Send contract for signing';
     }
   });
 
-  loadTemplates();
+  // --- Secondary action: save as draft (create) / save changes (edit) ---
+  draftBtn.addEventListener('click', async function () {
+    showMessage('');
+    if (!businessInput.value) {
+      showMessage('Please select a business first.', true);
+      return;
+    }
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+    const templateId = parseInt(templateSelect.value, 10);
+    const tid = isNaN(templateId) ? null : templateId;
+    try {
+      if (EDIT_ID) {
+        const data = await postStaff('/api/hr/staff/' + EDIT_ID, buildPayload(tid),
+          draftBtn, 'Saving…', 'Update', 'PUT');
+        showMessage('Changes saved. Redirecting…', false);
+        redirectTo(data);
+      } else {
+        const data = await postStaff('/api/hr/staff/draft', buildPayload(tid),
+          draftBtn, 'Saving…', 'Draft save');
+        showMessage('Draft saved. Redirecting to staff profile…', false);
+        redirectTo(data);
+      }
+    } catch (err) {
+      showMessage(err.message, true);
+    }
+  });
+
+  // --- Edit-mode prefill ---
+  function setVal(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = (value === null || value === undefined) ? '' : value;
+  }
+
+  function applySensitive(id, value, hasData) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (value !== null && value !== undefined && value !== '') {
+      el.value = value;
+    } else if (hasData && !CAN_VIEW_SENSITIVE) {
+      el.placeholder = 'Hidden — leave blank to keep';
+    }
+  }
+
+  async function prefill() {
+    try {
+      const res = await fetch('/api/hr/staff/' + EDIT_ID);
+      if (!res.ok) throw new Error('Could not load draft');
+      const emp = await res.json();
+      const isDraft = !emp.status || emp.status === 'onboarding';
+      submitBtn.textContent = isDraft
+        ? 'Save & send for signing'
+        : 'Save & send new contract';
+      businessInput.value = emp.business || '';
+      businessPill.textContent = emp.business || '—';
+      setVal('title', emp.title);
+      setVal('full_name', emp.full_name);
+      setVal('email', emp.email);
+      setVal('phone', emp.phone);
+      setVal('dob', emp.dob);
+      setVal('address', emp.address);
+      setVal('role_title', emp.role_title);
+      setVal('start_date', emp.start_date);
+      setVal('pay_type', emp.pay_type || 'hourly');
+      updatePayLabel();
+      setVal('working_days_per_week', emp.working_days_per_week);
+      setVal('working_hours_per_day', emp.working_hours_per_day);
+      setVal('license_points', emp.license_points);
+      setVal('right_to_work_share_code', emp.right_to_work_share_code);
+      setVal('bank_name', emp.bank_name);
+      setVal('account_holder_name', emp.account_holder_name);
+      setVal('next_of_kin_name', emp.next_of_kin_name);
+      setVal('next_of_kin_relationship', emp.next_of_kin_relationship);
+      setVal('next_of_kin_phone', emp.next_of_kin_phone);
+      applySensitive('ni_number', emp.ni_number, emp.has_sensitive_data);
+      applySensitive('pay_rate', emp.pay_rate, emp.has_sensitive_data);
+      applySensitive('sort_code', emp.sort_code, emp.has_sensitive_data);
+      applySensitive('account_number', emp.account_number, emp.has_sensitive_data);
+      applySensitive('driving_license_number', emp.driving_license_number, emp.has_sensitive_data);
+      if (emp.template_id) templateSelect.value = emp.template_id;
+    } catch (err) {
+      showMessage(err.message, true);
+    }
+  }
+
+  function enterEditMode() {
+    stepBusiness.classList.remove('active');
+    stepDetails.classList.add('active');
+    submitBtn.textContent = 'Save & send for signing';
+    draftBtn.textContent = 'Save changes';
+    prefill();
+  }
+
+  loadTemplates().then(function () {
+    if (EDIT_ID) enterEditMode();
+  });
 })();
 </script>
 {% endblock %}

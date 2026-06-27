@@ -906,6 +906,7 @@ def hr_staff_detail_page(request: Request, employee_id: int):
             page_heading="Staff Profile",
             employee_id=employee_id,
             can_view_sensitive=has_action(request.state.user, ACTION_HR_VIEW_SENSITIVE),
+            can_enroll=has_action(request.state.user, ACTION_HR_ENROLL),
             **_hr_context("Staff Profile", "staff-directory", "Profile"),
         ),
     )
@@ -941,7 +942,47 @@ def hr_enroll_page(request: Request):
             business_options=list(HR_BUSINESS_OPTIONS),
             title_options=list(TITLE_OPTIONS),
             job_title_options=list(JOB_TITLE_OPTIONS),
+            edit_employee_id=None,
+            can_view_sensitive=has_action(request.state.user, ACTION_HR_VIEW_SENSITIVE),
             **_hr_context("Enroll New Staff", "enroll", "Enroll"),
+        ),
+    )
+
+
+@app.get("/hr/staff/{employee_id}/edit", response_class=HTMLResponse)
+def hr_edit_staff_page(request: Request, employee_id: int):
+    if denied := _page_guard(request, PAGE_HR):
+        return denied
+    user = getattr(request.state, "user", None)
+    if not has_action(user, ACTION_HR_ENROLL):
+        return templates.TemplateResponse(
+            request,
+            "forbidden.html",
+            _template_ctx(
+                request,
+                title="Access denied",
+                active_nav=None,
+                active_nav_group=None,
+                active_section=None,
+                breadcrumb=None,
+            ),
+            status_code=403,
+        )
+
+    from app.models import HR_BUSINESS_OPTIONS, JOB_TITLE_OPTIONS, TITLE_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "hr/enroll.html",
+        _template_ctx(
+            request,
+            page_heading="Edit Draft Staff",
+            business_options=list(HR_BUSINESS_OPTIONS),
+            title_options=list(TITLE_OPTIONS),
+            job_title_options=list(JOB_TITLE_OPTIONS),
+            edit_employee_id=employee_id,
+            can_view_sensitive=has_action(user, ACTION_HR_VIEW_SENSITIVE),
+            **_hr_context("Edit Draft Staff", "staff-directory", "Edit"),
         ),
     )
 

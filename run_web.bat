@@ -48,6 +48,10 @@ if not errorlevel 1 (
 
 echo Starting server at http://127.0.0.1:%PORT%
 echo.
+
+"%PY%" -c "from app.config import DOCUSEAL_API_KEY, HR_HR_TEAM_EMAILS; print('DOCUSEAL_API_KEY:', 'set' if DOCUSEAL_API_KEY else 'NOT SET — add to .env and restart'); print('HR_HR_TEAM_EMAILS:', HR_HR_TEAM_EMAILS or 'NOT SET')"
+echo.
+
 echo Keep this window open while you use the app.
 echo Press Ctrl+C to stop the server.
 echo.

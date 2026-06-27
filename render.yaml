@@ -47,11 +47,31 @@ services:
         sync: false
       - key: HR_HR_TEAM_EMAILS
         sync: false
+      - key: DOCUSEAL_CM_HR_TEAM_EMAILS
+        sync: false
+      - key: DOCUSEAL_GAD_HR_TEAM_EMAILS
+        sync: false
       - key: CONTRACTS_STORAGE_DIR
         value: /var/data/contracts
       - key: DOCUSEAL_CWRTMALLE_TEMPLATE_ID
         sync: false
       - key: DOCUSEAL_CWRTMALLE_TEMPLATE_NAME
+        sync: false
+      - key: DOCUSEAL_GREENACRE_TEMPLATE_ID
+        sync: false
+      - key: DOCUSEAL_GREENACRE_TEMPLATE_NAME
+        sync: false
+      - key: DOCUSEAL_EMAIL_SUBJECT
+        sync: false
+      - key: DOCUSEAL_EMAIL_BODY
+        sync: false
+      - key: DOCUSEAL_CWRTMALLE_EMAIL_SUBJECT
+        sync: false
+      - key: DOCUSEAL_CWRTMALLE_EMAIL_BODY
+        sync: false
+      - key: DOCUSEAL_GREENACRE_EMAIL_SUBJECT
+        sync: false
+      - key: DOCUSEAL_GREENACRE_EMAIL_BODY
         sync: false
     domains:
       - dashboard.cwrtmalle.co.uk

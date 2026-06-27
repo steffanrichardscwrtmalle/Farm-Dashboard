@@ -48,6 +48,7 @@
       <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin-bottom:0.75rem">
         <button type="button" class="secondary small" onclick="window.location.href='/hr/staff'">← Back to directory</button>
         <span id="profile-status"></span>
+        <span id="profile-actions" style="margin-left:auto"></span>
       </div>
       <div id="profile-message" class="message"></div>
       <div class="detail-grid" id="profile-grid">
@@ -81,9 +82,11 @@
 (function () {
   const employeeId = {{ employee_id }};
   const canViewSensitive = {{ 'true' if can_view_sensitive else 'false' }};
+  const canEnroll = {{ 'true' if can_enroll else 'false' }};
   const profileGrid = document.getElementById('profile-grid');
   const contractsBody = document.getElementById('contracts-body');
   const profileStatus = document.getElementById('profile-status');
+  const profileActions = document.getElementById('profile-actions');
   const messageEl = document.getElementById('profile-message');
 
   function showMessage(text, isError) {
@@ -124,8 +127,64 @@
     return emp.pay_type === 'salary' ? 'Annual rate' : 'Hourly rate';
   }
 
+  function renderActions(emp) {
+    if (!canEnroll) {
+      profileActions.innerHTML = '';
+      return;
+    }
+    const editLabel = (!emp.status || emp.status === 'onboarding')
+      ? 'Edit / send draft'
+      : 'Edit / resend contract';
+    let html = '<button type="button" class="small" id="edit-btn">' + editLabel + '</button> ';
+    if (emp.status === 'archived') {
+      html += '<button type="button" class="small secondary" id="restore-btn">Restore</button>';
+    } else {
+      html += '<button type="button" class="small secondary" id="archive-btn">Archive</button>';
+    }
+    profileActions.innerHTML = html;
+
+    const editBtn = document.getElementById('edit-btn');
+    if (editBtn) {
+      editBtn.onclick = function () {
+        window.location.href = '/hr/staff/' + employeeId + '/edit';
+      };
+    }
+    const archiveBtn = document.getElementById('archive-btn');
+    if (archiveBtn) {
+      archiveBtn.onclick = function () {
+        changeStatus('archive',
+          'Archive this staff member? They will be removed from active employment.');
+      };
+    }
+    const restoreBtn = document.getElementById('restore-btn');
+    if (restoreBtn) {
+      restoreBtn.onclick = function () {
+        changeStatus('restore', 'Restore this staff member to active employment?');
+      };
+    }
+  }
+
+  async function changeStatus(action, confirmMsg) {
+    if (!window.confirm(confirmMsg)) return;
+    showMessage('');
+    try {
+      const res = await fetch('/api/hr/staff/' + employeeId + '/' + action, {
+        method: 'POST',
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.detail || (action + ' failed'));
+      showMessage(action === 'archive'
+        ? 'Staff member archived.'
+        : 'Staff member restored.', false);
+      loadProfile();
+    } catch (err) {
+      showMessage(err.message, true);
+    }
+  }
+
   function renderProfile(emp) {
     profileStatus.innerHTML = statusBadge(emp.status);
+    renderActions(emp);
     profileGrid.innerHTML =
       sectionHeading('Role &amp; personal') +
       detailItem('Business', escapeHtml(emp.business || '—')) +

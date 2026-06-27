@@ -102,7 +102,10 @@ DOCUSEAL_BASE_URL = os.getenv(
 ).strip().rstrip("/")
 DOCUSEAL_WEBHOOK_SECRET = os.getenv("DOCUSEAL_WEBHOOK_SECRET", "").strip()
 HR_ENCRYPTION_KEY = os.getenv("HR_ENCRYPTION_KEY", "").strip()
+# Global HR reviewer emails (fallback) + per-business overrides.
 HR_HR_TEAM_EMAILS = os.getenv("HR_HR_TEAM_EMAILS", "").strip()
+HR_HR_TEAM_EMAILS_CWRTMALLE = os.getenv("DOCUSEAL_CM_HR_TEAM_EMAILS", "").strip()
+HR_HR_TEAM_EMAILS_GREENACRE = os.getenv("DOCUSEAL_GAD_HR_TEAM_EMAILS", "").strip()
 CONTRACTS_STORAGE_DIR = os.getenv(
     "CONTRACTS_STORAGE_DIR",
     "/var/data/contracts" if IS_PRODUCTION else str(_PROJECT_ROOT / "data" / "contracts"),
@@ -111,5 +114,54 @@ DOCUSEAL_CWRTMALLE_TEMPLATE_ID = os.getenv("DOCUSEAL_CWRTMALLE_TEMPLATE_ID", "")
 DOCUSEAL_CWRTMALLE_TEMPLATE_NAME = os.getenv(
     "DOCUSEAL_CWRTMALLE_TEMPLATE_NAME", "Cwrt Malle Employment Contract"
 ).strip()
+DOCUSEAL_GREENACRE_TEMPLATE_ID = os.getenv("DOCUSEAL_GREENACRE_TEMPLATE_ID", "").strip()
+DOCUSEAL_GREENACRE_TEMPLATE_NAME = os.getenv(
+    "DOCUSEAL_GREENACRE_TEMPLATE_NAME", "Green Acre Dairy Employment Contract"
+).strip()
+# Customise the email DocuSeal sends to signers. Leave blank to use DocuSeal's
+# defaults. Body supports DocuSeal tags e.g. {{template.name}}, {{submitter.link}}.
+# Global values are the fallback; per-business values override them.
+DOCUSEAL_EMAIL_SUBJECT = os.getenv("DOCUSEAL_EMAIL_SUBJECT", "").strip()
+DOCUSEAL_EMAIL_BODY = os.getenv("DOCUSEAL_EMAIL_BODY", "").strip()
+DOCUSEAL_CWRTMALLE_EMAIL_SUBJECT = os.getenv("DOCUSEAL_CWRTMALLE_EMAIL_SUBJECT", "").strip()
+DOCUSEAL_CWRTMALLE_EMAIL_BODY = os.getenv("DOCUSEAL_CWRTMALLE_EMAIL_BODY", "").strip()
+DOCUSEAL_GREENACRE_EMAIL_SUBJECT = os.getenv("DOCUSEAL_GREENACRE_EMAIL_SUBJECT", "").strip()
+DOCUSEAL_GREENACRE_EMAIL_BODY = os.getenv("DOCUSEAL_GREENACRE_EMAIL_BODY", "").strip()
+
+
+def _hr_business_key(business: str | None) -> str | None:
+    """Map a full business name to its config suffix (CWRTMALLE / GREENACRE)."""
+    b = (business or "").strip().lower()
+    if b.startswith("cwrt malle"):
+        return "CWRTMALLE"
+    if b.startswith("green acre"):
+        return "GREENACRE"
+    return None
+
+
+def hr_team_emails_for(business: str | None) -> str:
+    """HR reviewer emails for a business, falling back to the global list."""
+    key = _hr_business_key(business)
+    if key == "CWRTMALLE" and HR_HR_TEAM_EMAILS_CWRTMALLE:
+        return HR_HR_TEAM_EMAILS_CWRTMALLE
+    if key == "GREENACRE" and HR_HR_TEAM_EMAILS_GREENACRE:
+        return HR_HR_TEAM_EMAILS_GREENACRE
+    return HR_HR_TEAM_EMAILS
+
+
+def docuseal_email_for(business: str | None) -> tuple[str, str]:
+    """(subject, body) for a business' signer email, falling back to global."""
+    key = _hr_business_key(business)
+    if key == "CWRTMALLE":
+        return (
+            DOCUSEAL_CWRTMALLE_EMAIL_SUBJECT or DOCUSEAL_EMAIL_SUBJECT,
+            DOCUSEAL_CWRTMALLE_EMAIL_BODY or DOCUSEAL_EMAIL_BODY,
+        )
+    if key == "GREENACRE":
+        return (
+            DOCUSEAL_GREENACRE_EMAIL_SUBJECT or DOCUSEAL_EMAIL_SUBJECT,
+            DOCUSEAL_GREENACRE_EMAIL_BODY or DOCUSEAL_EMAIL_BODY,
+        )
+    return (DOCUSEAL_EMAIL_SUBJECT, DOCUSEAL_EMAIL_BODY)
 
 COOKIE_SECURE = IS_PRODUCTION or os.getenv("COOKIE_SECURE", "").lower() in ("1", "true", "yes")

@@ -29,6 +29,10 @@ from app.services.hr_service import (
     list_employee_contracts,
     list_staff,
     list_templates,
+    save_draft,
+    send_existing_employee,
+    set_employee_archived,
+    update_employee,
 )
 
 router = APIRouter(prefix="/api/hr")
@@ -60,6 +64,40 @@ class EnrollStaffBody(BaseModel):
     next_of_kin_relationship: str | None = Field(default=None, max_length=64)
     next_of_kin_phone: str | None = Field(default=None, max_length=64)
     template_id: int
+
+
+class DraftStaffBody(BaseModel):
+    """Relaxed body for saving a draft: only identity fields required, no template."""
+
+    business: str = Field(min_length=2, max_length=64)
+    title: str | None = Field(default=None, max_length=16)
+    full_name: str = Field(min_length=2, max_length=255)
+    email: EmailStr
+    phone: str | None = Field(default=None, max_length=64)
+    dob: dt.date | None = None
+    address: str | None = None
+    ni_number: str | None = Field(default=None, max_length=32)
+    pay_type: str = Field(default="hourly")
+    pay_rate: str | None = Field(default=None, max_length=64)
+    role_title: str = Field(default="Farm Worker", min_length=1, max_length=128)
+    start_date: dt.date
+    working_days_per_week: float | None = Field(default=None, ge=0, le=7)
+    working_hours_per_day: float | None = Field(default=None, ge=0, le=24)
+    driving_license_number: str | None = Field(default=None, max_length=64)
+    license_points: str | None = Field(default=None, max_length=255)
+    right_to_work_share_code: str | None = Field(default=None, max_length=64)
+    bank_name: str | None = Field(default=None, max_length=128)
+    account_holder_name: str | None = Field(default=None, max_length=128)
+    sort_code: str | None = Field(default=None, max_length=16)
+    account_number: str | None = Field(default=None, max_length=32)
+    next_of_kin_name: str | None = Field(default=None, max_length=255)
+    next_of_kin_relationship: str | None = Field(default=None, max_length=64)
+    next_of_kin_phone: str | None = Field(default=None, max_length=64)
+    template_id: int | None = None
+
+
+class SendStaffBody(BaseModel):
+    template_id: int | None = None
 
 
 @router.get("/staff")
@@ -130,6 +168,76 @@ def api_enroll_staff(
         raise HTTPException(status_code=400, detail="Invalid business.")
     try:
         return enroll_employee(db, body.model_dump(), user)
+    except HRServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/staff/draft")
+def api_save_draft(
+    body: DraftStaffBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_HR_ENROLL)),
+):
+    if body.pay_type not in PAY_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid pay_type.")
+    if body.business not in HR_BUSINESS_OPTIONS:
+        raise HTTPException(status_code=400, detail="Invalid business.")
+    try:
+        return save_draft(db, body.model_dump(), user)
+    except HRServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/staff/{employee_id}")
+def api_update_staff(
+    employee_id: int,
+    body: DraftStaffBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_HR_ENROLL)),
+):
+    if body.pay_type not in PAY_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid pay_type.")
+    if body.business not in HR_BUSINESS_OPTIONS:
+        raise HTTPException(status_code=400, detail="Invalid business.")
+    try:
+        return update_employee(db, employee_id, body.model_dump(), user)
+    except HRServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/staff/{employee_id}/send")
+def api_send_staff(
+    employee_id: int,
+    body: SendStaffBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_HR_ENROLL)),
+):
+    try:
+        return send_existing_employee(db, employee_id, body.template_id, user)
+    except HRServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/staff/{employee_id}/archive")
+def api_archive_staff(
+    employee_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_HR_ENROLL)),
+):
+    try:
+        return set_employee_archived(db, employee_id, archived=True, user=user)
+    except HRServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/staff/{employee_id}/restore")
+def api_restore_staff(
+    employee_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_HR_ENROLL)),
+):
+    try:
+        return set_employee_archived(db, employee_id, archived=False, user=user)
     except HRServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

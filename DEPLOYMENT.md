@@ -167,11 +167,17 @@ Set on the web service (see `.env.example`):
 | `DOCUSEAL_API_KEY` | API key from DocuSeal console |
 | `DOCUSEAL_BASE_URL` | `https://api.docuseal.com` (default; change for self-host later) |
 | `DOCUSEAL_WEBHOOK_SECRET` | Long random string; verify incoming webhooks |
-| `HR_HR_TEAM_EMAILS` | Comma-separated HR reviewer emails (sign after new staff) |
+| `HR_HR_TEAM_EMAILS` | Comma-separated HR reviewer emails (sign after new staff) — global fallback |
+| `DOCUSEAL_CM_HR_TEAM_EMAILS` | HR reviewers for Cwrt Malle Ltd staff (overrides global) |
+| `DOCUSEAL_GAD_HR_TEAM_EMAILS` | HR reviewers for Green Acre Dairy Ltd staff (overrides global) |
+| `DOCUSEAL_CWRTMALLE_EMAIL_SUBJECT` / `_BODY` | Cwrt Malle signer invite email (overrides global) |
+| `DOCUSEAL_GREENACRE_EMAIL_SUBJECT` / `_BODY` | Green Acre Dairy signer invite email (overrides global) |
 | `HR_ENCRYPTION_KEY` | Optional Fernet key for PII encryption (generate if unset, derived from `SECRET_KEY` in dev) |
 | `CONTRACTS_STORAGE_DIR` | `/var/data/contracts` on Render |
 | `DOCUSEAL_CWRTMALLE_TEMPLATE_ID` | Optional: seeds the Cwrt Malle `contract_templates` row on startup |
 | `DOCUSEAL_CWRTMALLE_TEMPLATE_NAME` | Display name for the seeded Cwrt Malle template |
+| `DOCUSEAL_GREENACRE_TEMPLATE_ID` | Optional: seeds the Green Acre Dairy `contract_templates` row on startup |
+| `DOCUSEAL_GREENACRE_TEMPLATE_NAME` | Display name for the seeded Green Acre Dairy template |
 
 Generate a Fernet key locally:
 

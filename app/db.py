@@ -539,6 +539,8 @@ def _migrate_hr_schema() -> None:
         CONTRACTS_STORAGE_DIR,
         DOCUSEAL_CWRTMALLE_TEMPLATE_ID,
         DOCUSEAL_CWRTMALLE_TEMPLATE_NAME,
+        DOCUSEAL_GREENACRE_TEMPLATE_ID,
+        DOCUSEAL_GREENACRE_TEMPLATE_NAME,
     )
     from app.models import ContractTemplate
 
@@ -582,6 +584,11 @@ def _migrate_hr_schema() -> None:
             DOCUSEAL_CWRTMALLE_TEMPLATE_ID,
             DOCUSEAL_CWRTMALLE_TEMPLATE_NAME,
             "Cwrt Malle employment contract (seeded from env)",
+        ),
+        (
+            DOCUSEAL_GREENACRE_TEMPLATE_ID,
+            DOCUSEAL_GREENACRE_TEMPLATE_NAME,
+            "Green Acre Dairy employment contract (seeded from env)",
         ),
     ]
 

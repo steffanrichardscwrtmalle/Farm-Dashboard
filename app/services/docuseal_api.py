@@ -7,7 +7,12 @@ from typing import Any
 
 import httpx
 
-from app.config import DOCUSEAL_API_KEY, DOCUSEAL_BASE_URL, DOCUSEAL_WEBHOOK_SECRET
+from app.config import (
+    DOCUSEAL_API_KEY,
+    DOCUSEAL_BASE_URL,
+    DOCUSEAL_WEBHOOK_SECRET,
+    docuseal_email_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +23,11 @@ class DocuSealError(Exception):
 
 def _headers() -> dict[str, str]:
     if not DOCUSEAL_API_KEY:
-        raise DocuSealError("DOCUSEAL_API_KEY is not configured.")
+        raise DocuSealError(
+            "DOCUSEAL_API_KEY is not configured. "
+            "Locally: set it in .env and fully restart the server. "
+            "On Render: set DOCUSEAL_API_KEY in the web service Environment tab."
+        )
     return {
         "X-Auth-Token": DOCUSEAL_API_KEY,
         "Content-Type": "application/json",
@@ -58,7 +67,41 @@ def _build_field_values(employee_data: dict[str, Any]) -> dict[str, str]:
         "next_of_kin_name": employee_data.get("next_of_kin_name") or "",
         "next_of_kin_relationship": employee_data.get("next_of_kin_relationship") or "",
         "next_of_kin_phone": employee_data.get("next_of_kin_phone") or "",
+        "employer_name": "Steffan Richards",
+        "employer_position": "Director",
     }
+
+
+def get_template_field_names(template_id: int) -> set[str]:
+    """Return the set of field names defined on a DocuSeal template.
+
+    Used to avoid 422 'Unknown field' errors by only prefilling fields the
+    template actually defines. Returns an empty set if it can't be fetched.
+    """
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(
+                f"{DOCUSEAL_BASE_URL}/templates/{template_id}",
+                headers=_headers(),
+            )
+    except httpx.HTTPError as exc:
+        logger.warning("Could not fetch template %s fields: %s", template_id, exc)
+        return set()
+    if response.status_code >= 400:
+        logger.warning(
+            "Could not fetch template %s fields (%s): %s",
+            template_id,
+            response.status_code,
+            response.text[:200],
+        )
+        return set()
+    data = response.json()
+    names: set[str] = set()
+    for field in data.get("fields") or []:
+        name = field.get("name")
+        if name:
+            names.add(name)
+    return names
 
 
 def create_submission(
@@ -68,10 +111,22 @@ def create_submission(
     reviewer_emails: list[str],
     staff_role: str = "Employee",
     reviewer_role: str = "HR Reviewer",
+    business: str | None = None,
 ) -> int:
     """Create a sequential DocuSeal submission; returns submission id."""
     values = _build_field_values(employee_data)
-    fields = [{"name": key, "default_value": val} for key, val in values.items() if val]
+    known = get_template_field_names(template_id)
+    if known:
+        fields = [
+            {"name": key, "default_value": val}
+            for key, val in values.items()
+            if val and key in known
+        ]
+    else:
+        # Fallback: couldn't read the template; send all non-empty values.
+        fields = [
+            {"name": key, "default_value": val} for key, val in values.items() if val
+        ]
 
     submitters: list[dict[str, Any]] = [
         {
@@ -92,12 +147,21 @@ def create_submission(
             }
         )
 
-    payload = {
+    payload: dict[str, Any] = {
         "template_id": template_id,
         "send_email": True,
         "order": "preserved",
         "submitters": submitters,
     }
+
+    subject, body = docuseal_email_for(business)
+    message: dict[str, str] = {}
+    if subject:
+        message["subject"] = subject
+    if body:
+        message["body"] = body
+    if message:
+        payload["message"] = message
 
     with httpx.Client(timeout=60.0) as client:
         response = client.post(
@@ -112,12 +176,26 @@ def create_submission(
             f"{response.text[:200]}"
         )
     data = response.json()
-    submission_id = data.get("id")
-    if submission_id is None and isinstance(data, list) and data:
-        submission_id = data[0].get("submission_id") or data[0].get("id")
+    submission_id = _extract_submission_id(data)
     if submission_id is None:
         raise DocuSealError("DocuSeal did not return a submission id.")
-    return int(submission_id)
+    return submission_id
+
+
+def _extract_submission_id(data: Any) -> int | None:
+    """DocuSeal may return a submission object or a list of submitter objects."""
+    if isinstance(data, dict):
+        raw = data.get("id") or data.get("submission_id")
+        if raw is not None:
+            return int(raw)
+    if isinstance(data, list):
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get("submission_id") or item.get("id")
+            if raw is not None:
+                return int(raw)
+    return None
 
 
 def download_signed_pdf(submission_id: int) -> bytes:
