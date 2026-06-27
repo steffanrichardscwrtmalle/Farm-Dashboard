@@ -104,10 +104,11 @@ class SendStaffBody(BaseModel):
 def api_list_staff(
     search: str | None = Query(None),
     status: str | None = Query(None),
+    business: str | None = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_HR)),
 ):
-    return {"staff": list_staff(db, search=search, status=status)}
+    return {"staff": list_staff(db, search=search, status=status, business=business)}
 
 
 @router.get("/staff/{employee_id}")

@@ -51,10 +51,13 @@ def list_staff(
     *,
     search: str | None = None,
     status: str | None = None,
+    business: str | None = None,
 ) -> list[dict[str, Any]]:
     query = select(Employee).order_by(Employee.full_name)
     if status:
         query = query.where(Employee.status == status)
+    if business:
+        query = query.where(Employee.business == business)
     if search:
         term = f"%{search.strip()}%"
         query = query.where(

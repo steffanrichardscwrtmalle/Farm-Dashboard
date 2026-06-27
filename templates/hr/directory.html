@@ -40,6 +40,15 @@
           <input type="search" id="search-input" placeholder="Name, email, role…" autocomplete="off">
         </label>
         <label>
+          Business
+          <select id="business-filter">
+            <option value="">All</option>
+            {% for biz in business_options %}
+            <option value="{{ biz }}">{{ biz }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
           Status
           <select id="status-filter">
             <option value="">All</option>
@@ -85,6 +94,7 @@
 (function () {
   const searchInput = document.getElementById('search-input');
   const statusFilter = document.getElementById('status-filter');
+  const businessFilter = document.getElementById('business-filter');
   const refreshBtn = document.getElementById('refresh-btn');
   const staffBody = document.getElementById('staff-body');
   const messageEl = document.getElementById('directory-message');
@@ -105,8 +115,10 @@
     const params = new URLSearchParams();
     const q = searchInput.value.trim();
     const status = statusFilter.value;
+    const business = businessFilter.value;
     if (q) params.set('search', q);
     if (status) params.set('status', status);
+    if (business) params.set('business', business);
     try {
       const res = await fetch('/api/hr/staff?' + params.toString());
       if (!res.ok) {
@@ -149,6 +161,7 @@
     searchTimer = setTimeout(loadStaff, 300);
   });
   statusFilter.addEventListener('change', loadStaff);
+  businessFilter.addEventListener('change', loadStaff);
   refreshBtn.addEventListener('click', loadStaff);
   staffBody.addEventListener('click', function (e) {
     const row = e.target.closest('tr.staff-row');

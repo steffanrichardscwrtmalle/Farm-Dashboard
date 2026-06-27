@@ -295,6 +295,7 @@
       const biz = btn.dataset.business;
       businessInput.value = biz;
       businessPill.textContent = biz;
+      defaultTemplateForBusiness(biz);
       stepBusiness.classList.remove('active');
       stepDetails.classList.add('active');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -326,12 +327,15 @@
       .replace(/"/g, '&quot;');
   }
 
+  let LOADED_TEMPLATES = [];
+
   async function loadTemplates() {
     try {
       const res = await fetch('/api/hr/templates');
       if (!res.ok) throw new Error('Failed to load templates');
       const data = await res.json();
       const templates = data.templates || [];
+      LOADED_TEMPLATES = templates;
       if (!templates.length) {
         templateSelect.innerHTML = '<option value="">No templates configured</option>';
         showMessage('No contract templates in the database. Add one or set DOCUSEAL_CWRTMALLE_TEMPLATE_ID.', true);
@@ -346,6 +350,19 @@
       showMessage(err.message, true);
       submitBtn.disabled = true;
     }
+  }
+
+  // Default the contract template to the one matching the selected business.
+  function defaultTemplateForBusiness(business) {
+    const b = (business || '').toLowerCase();
+    let needle = '';
+    if (b.indexOf('cwrt malle') !== -1) needle = 'cwrt malle';
+    else if (b.indexOf('green acre') !== -1) needle = 'green acre';
+    if (!needle) return;
+    const match = LOADED_TEMPLATES.find(function (t) {
+      return (t.name || '').toLowerCase().indexOf(needle) !== -1;
+    });
+    if (match) templateSelect.value = match.id;
   }
 
   function val(id) {

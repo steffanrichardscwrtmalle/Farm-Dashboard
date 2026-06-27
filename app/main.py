@@ -882,6 +882,8 @@ def office_admin_purchases_page(request: Request):
 def hr_staff_directory_page(request: Request):
     if denied := _page_guard(request, PAGE_HR):
         return denied
+    from app.models import HR_BUSINESS_OPTIONS
+
     return templates.TemplateResponse(
         request,
         "hr/directory.html",
@@ -889,6 +891,7 @@ def hr_staff_directory_page(request: Request):
             request,
             page_heading="Staff Directory",
             can_enroll=has_action(request.state.user, ACTION_HR_ENROLL),
+            business_options=list(HR_BUSINESS_OPTIONS),
             **_hr_context("Staff Directory", "staff-directory", "Directory"),
         ),
     )

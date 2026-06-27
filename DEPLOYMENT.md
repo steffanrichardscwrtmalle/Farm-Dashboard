@@ -206,9 +206,11 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 In DocuSeal, add a webhook pointing at:
 
-`https://dashboard.cwrtmalle.co.uk/api/hr/webhook?token=YOUR_DOCUSEAL_WEBHOOK_SECRET`
+`https://www.dashboard.cwrtmalle.co.uk/api/hr/webhook?token=YOUR_DOCUSEAL_WEBHOOK_SECRET`
 
-Alternatively send header `X-Webhook-Secret: YOUR_DOCUSEAL_WEBHOOK_SECRET`.
+**Important:** Use the `www.` hostname. Cloudflare redirects `dashboard.cwrtmalle.co.uk` → `www.dashboard.cwrtmalle.co.uk` with a **307**, and DocuSeal does not follow that redirect on POST — so webhooks to the non-`www` URL never reach the app.
+
+Alternatively send header `X-Webhook-Secret: YOUR_DOCUSEAL_WEBHOOK_SECRET` (still use the `www.` URL).
 
 The route is allowlisted in auth middleware (no login session); the secret must match.
 
