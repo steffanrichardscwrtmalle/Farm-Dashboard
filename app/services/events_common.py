@@ -51,6 +51,11 @@ SALES_MAPPED_REMARKS: tuple[str, ...] = ("OFS", "CAR11", "CAR16", *SALES_DAIRY_R
 BREEDINGS_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy", "unknown")
 BREEDINGS_CHART_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy")
 
+# Deaths report: for youngstock (lact == 0) exclude very-early deaths and
+# deaths recorded with a generic "OTHER" reason so they don't skew the report.
+DEATHS_YOUNGSTOCK_MIN_AGE_DAYS = 4
+DEATHS_YOUNGSTOCK_EXCLUDED_REMARKS: tuple[str, ...] = ("OTHER",)
+
 
 def normalize_farms(farms: list[str] | None) -> list[str]:
     if not farms:
@@ -723,6 +728,84 @@ def _build_disease_incidence(
     }
 
 
+def _coerce_date(value: Any) -> dt.date | None:
+    if value is None:
+        return None
+    if hasattr(value, "date"):
+        return value.date()
+    return value
+
+
+def _exclude_youngstock_death(
+    remark: str | None,
+    event_date: Any,
+    bdat: Any,
+) -> bool:
+    """Whether a lact==0 (youngstock) death should be excluded from the report.
+
+    Excludes deaths recorded with a generic "OTHER" remark, and deaths that
+    occur under DEATHS_YOUNGSTOCK_MIN_AGE_DAYS days old (age = event date - birth
+    date). Records with no birth date can't be aged, so they're kept unless the
+    remark rule applies.
+    """
+    if remark and remark.strip().upper() in DEATHS_YOUNGSTOCK_EXCLUDED_REMARKS:
+        return True
+    event_day = _coerce_date(event_date)
+    birth_day = _coerce_date(bdat)
+    if event_day is not None and birth_day is not None:
+        age_days = (event_day - birth_day).days
+        if age_days < DEATHS_YOUNGSTOCK_MIN_AGE_DAYS:
+            return True
+    return False
+
+
+def _build_deaths_pivot(
+    db: Session,
+    *,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    selected_parity_groups: list[str] | None,
+    fiscal_year: int | None,
+) -> dict[str, dict[str, int]]:
+    """Month/farm pivot of DIED events with youngstock exclusions applied.
+
+    For lact == 0 animals, drops deaths under DEATHS_YOUNGSTOCK_MIN_AGE_DAYS days
+    old and deaths with a remark of "OTHER". Counts are built in Python to keep
+    age math portable across SQLite and PostgreSQL.
+    """
+    query = (
+        select(
+            CowEvent.month_label,
+            CowEvent.farm,
+            CowEvent.lact,
+            CowEvent.remark,
+            CowEvent.event_date,
+            CowEvent.bdat,
+        )
+        .where(CowEvent.event == "DIED")
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+        .where(CowEvent.event_date >= effective_from)
+        .where(CowEvent.event_date <= effective_to)
+    )
+    query = _apply_parity_groups(query, selected_parity_groups)
+    query = _apply_fiscal_year(query, fiscal_year)
+    rows = db.execute(query).all()
+
+    pivot: dict[str, dict[str, int]] = {}
+    for month_label, farm, lact, remark, event_date, bdat in rows:
+        if not month_label or farm not in selected_farms:
+            continue
+        if lact == 0 and _exclude_youngstock_death(remark, event_date, bdat):
+            continue
+        key = str(month_label)
+        pivot.setdefault(key, {"CM": 0, "GAD": 0})
+        if farm in pivot[key]:
+            pivot[key][farm] += 1
+    return pivot
+
+
 def _build_standard_event_pivot(
     db: Session,
     *,
@@ -967,6 +1050,7 @@ def build_events_report(
     include_breedings_semen_breakdown: bool = False,
     semen_types: list[str] | None = None,
     use_disease_episode_counting: bool = False,
+    apply_death_exclusions: bool = False,
     y_min: int | None = None,
     y_max: int | None = None,
 ) -> dict[str, Any]:
@@ -1065,6 +1149,15 @@ def build_events_report(
                 fiscal_year=fiscal_year,
                 selected_semen_types=selected_semen_types,
             )
+        )
+    elif apply_death_exclusions:
+        pivot = _build_deaths_pivot(
+            db,
+            selected_farms=selected_farms,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            selected_parity_groups=selected_parity_groups,
+            fiscal_year=fiscal_year,
         )
     else:
         pivot = _build_standard_event_pivot(
@@ -1167,6 +1260,7 @@ def build_events_page_report(
         include_breedings_semen_breakdown=page_slug == "breedings",
         semen_types=semen_types if page_slug == "breedings" else None,
         use_disease_episode_counting=page_slug == "disease",
+        apply_death_exclusions=page_slug == "deaths",
         y_min=y_min if page_slug == "disease" else None,
         y_max=y_max if page_slug == "disease" else None,
     )
