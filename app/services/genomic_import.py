@@ -13,9 +13,14 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.models import GenomicResult
-from app.services.graph_onedrive import download_herd_file, graph_is_configured
+from app.services.graph_onedrive import (
+    download_herd_file,
+    find_newest_herd_file,
+    graph_is_configured,
+)
 
-GENOMIC_FILE = "DCEXPORTCM/genomicresults.xlsx"
+# Newest .xlsx in this folder is used (filename varies between exports).
+GENOMIC_FOLDER = "Genomic Results"
 GENOMIC_SHEET = "Herd GBR Females"
 
 # Excel column name -> GenomicResult field
@@ -84,13 +89,14 @@ def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[d
 
 
 def import_genomic_results(db: Session) -> dict[str, Any]:
-    """Download genomicresults.xlsx and replace genomic_results table."""
+    """Download the newest genomic results workbook and replace genomic_results."""
     if not graph_is_configured():
         raise ValueError(
             "Herd import is not configured. Set Graph API variables or LOCAL_HERD_EXPORT_DIR."
         )
 
-    file_bytes = download_herd_file(GENOMIC_FILE)
+    source_file = find_newest_herd_file(GENOMIC_FOLDER, suffix=".xlsx")
+    file_bytes = download_herd_file(source_file)
     df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=GENOMIC_SHEET)
     del file_bytes
 
@@ -98,7 +104,8 @@ def import_genomic_results(db: Session) -> dict[str, Any]:
     db.execute(delete(GenomicResult))
     rows_imported = 0
     for start in range(0, len(df), 2000):
-        batch = df.iloc[start : start + 2000]
+        # reset_index so the helper's fresh 0..n Series align with the slice.
+        batch = df.iloc[start : start + 2000].reset_index(drop=True)
         mappings = _dataframe_to_mappings(batch, import_time)
         if mappings:
             db.bulk_insert_mappings(GenomicResult, mappings)
@@ -111,6 +118,6 @@ def import_genomic_results(db: Session) -> dict[str, Any]:
     return {
         "rows_imported": rows_imported,
         "imported_at": import_time.isoformat(timespec="seconds"),
-        "source_file": GENOMIC_FILE,
+        "source_file": source_file,
         "sheet": GENOMIC_SHEET,
     }

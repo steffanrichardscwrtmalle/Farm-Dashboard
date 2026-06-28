@@ -83,6 +83,70 @@ def herd_file_relative_path(*parts: str) -> str:
     return "/".join(seg.strip("/") for seg in segments if seg)
 
 
+def find_newest_herd_file(folder_relative_path: str, *, suffix: str | None = None) -> str:
+    """
+    Return the relative path of the most recently modified file in a herd folder.
+
+    folder_relative_path is under HERD_EXPORT_BASE_PATH, e.g. 'Genomic Results'.
+    When suffix is given (e.g. '.xlsx'), only files with that extension are considered.
+    The returned value can be passed straight to download_herd_file.
+    """
+    suffix_lower = suffix.lower() if suffix else None
+
+    if LOCAL_HERD_EXPORT_DIR:
+        folder = Path(LOCAL_HERD_EXPORT_DIR).joinpath(*folder_relative_path.split("/"))
+        if not folder.is_dir():
+            raise FileNotFoundError(f"Local herd folder not found: {folder}")
+        candidates = [
+            path
+            for path in folder.iterdir()
+            if path.is_file()
+            and not path.name.startswith("~$")
+            and (suffix_lower is None or path.suffix.lower() == suffix_lower)
+        ]
+        if not candidates:
+            raise FileNotFoundError(
+                f"No matching files in local herd folder: {folder}"
+            )
+        newest = max(candidates, key=lambda path: path.stat().st_mtime)
+        return f"{folder_relative_path}/{newest.name}"
+
+    _require_graph_config()
+    full_path = herd_file_relative_path(folder_relative_path)
+    encoded_path = quote(full_path, safe="/")
+    url = (
+        f"https://graph.microsoft.com/v1.0/users/{GRAPH_DRIVE_USER_EMAIL}"
+        f"/drive/root:/{encoded_path}:/children"
+        "?$select=name,file,lastModifiedDateTime&$top=200"
+    )
+
+    token = get_access_token()
+    items: list[dict] = []
+    with httpx.Client(timeout=120.0, follow_redirects=True) as client:
+        while url:
+            response = client.get(url, headers={"Authorization": f"Bearer {token}"})
+            if response.status_code == 404:
+                raise FileNotFoundError(f"OneDrive folder not found: {full_path}")
+            response.raise_for_status()
+            payload = response.json()
+            items.extend(payload.get("value", []))
+            url = payload.get("@odata.nextLink")
+
+    files = [
+        item
+        for item in items
+        if item.get("file")
+        and not item.get("name", "").startswith("~$")
+        and (suffix_lower is None or item.get("name", "").lower().endswith(suffix_lower))
+    ]
+    if not files:
+        raise FileNotFoundError(
+            f"No matching files in OneDrive folder: {full_path}"
+        )
+    newest = max(files, key=lambda item: item.get("lastModifiedDateTime", ""))
+    return f"{folder_relative_path}/{newest['name']}"
+
+
 def download_herd_file(relative_path: str) -> bytes:
     """
     Load a herd export file from OneDrive (Graph) or a local synced folder.
