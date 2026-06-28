@@ -113,6 +113,26 @@ After deploying schema changes (e.g. new `supplier` column), Render runs migrati
 
 For local testing without Graph API, set `LOCAL_HERD_EXPORT_DIR` to your synced OneDrive folder path.
 
+### Pedigree registrations (Genetics email)
+
+The **Genetics → Pedigree Registrations** page can email a CSV attachment via Microsoft
+Graph from `GRAPH_DRIVE_USER_EMAIL`. In addition to the OneDrive permissions above, grant
+the same Entra application:
+
+- **Mail.Send** (application permission, admin consent)
+
+No extra environment variables are required. Users need the `genetics` page permission to
+view the list and the `genetics.pedigree` action permission to send email and mark animals
+registered.
+
+Outbound mail is sent with an HTML body so Exchange does not wrap the attachment in
+TNEF (`winmail.dat`), which non-Outlook clients cannot open. If external recipients
+still receive `winmail.dat`, an Exchange admin can disable TNEF for remote domains:
+
+```powershell
+Set-RemoteDomain -Identity Default -TNEFEnabled $false
+```
+
 ### Feed rate (Feedlync)
 
 Uses the Feedlync HTTP API (no Chrome/Selenium in production).

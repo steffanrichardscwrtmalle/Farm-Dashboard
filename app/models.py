@@ -543,8 +543,91 @@ class HerdInventory(Base):
     sort_key: Mapped[int | None] = mapped_column(Integer, nullable=True)
     expected_month: Mapped[str | None] = mapped_column(String(16), nullable=True)
     value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ped: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dped: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dreg: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sreg: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    gid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    gtest: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    subd: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     import_timestamp: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), index=True
+    )
+
+
+class PedigreeRegistrationRecord(Base):
+    """Persistent pedigree flags per animal; survives herd_inventory full-replace imports."""
+
+    __tablename__ = "pedigree_registration_records"
+    __table_args__ = (
+        UniqueConstraint("farm", "etag", name="uq_pedigree_registration_farm_etag"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    etag: Mapped[str] = mapped_column(String(64), index=True)
+    cow_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ped: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dped: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dreg: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sreg: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    registered_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    registered_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    emailed_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    emailed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class AppSetting(Base):
+    """Simple key-value application settings."""
+
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class GenomicResult(Base):
+    """Genomic evaluation traits from DCEXPORTCM/genomicresults.xlsx (keyed by HBN)."""
+
+    __tablename__ = "genomic_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    hbn: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    eartag: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sire_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    sire_reg: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    milk_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fat_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    protein_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fat_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    protein_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pli: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cci: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fertility_index: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scc: Mapped[float | None] = mapped_column(Float, nullable=True)
+    life_span: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mastitis: Mapped[float | None] = mapped_column(Float, nullable=True)
+    milking_speed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    type_merit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mammary: Mapped[float | None] = mapped_column(Float, nullable=True)
+    legs_and_feet: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stature: Mapped[float | None] = mapped_column(Float, nullable=True)
+    chest_width: Mapped[float | None] = mapped_column(Float, nullable=True)
+    body_depth: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mature_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
     )
 
 

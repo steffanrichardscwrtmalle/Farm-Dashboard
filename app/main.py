@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.office_admin_routes import router as office_admin_api_router
+from app.api.genetics_routes import router as genetics_api_router
 from app.api.events_routes import router as events_api_router
 from app.api.feed_rate_routes import router as feed_rate_api_router
 from app.api.feedlync_routes import router as feedlync_api_router
@@ -26,10 +27,13 @@ from app.auth.deps import require_admin
 from app.auth.middleware import AuthMiddleware
 from app.auth.passwords import verify_password
 from app.auth.permissions import (
+    ACTION_GENETICS_PEDIGREE,
+    ACTION_GENETICS_PENDING_RESULTS,
     ACTION_HR_ENROLL,
     ACTION_HR_VIEW_SENSITIVE,
     PAGE_EVENTS,
     PAGE_FEED_RATE,
+    PAGE_GENETICS,
     PAGE_HR,
     PAGE_OFFICE_ADMIN,
     PAGE_PROSTOCK,
@@ -75,6 +79,7 @@ app.include_router(events_api_router)
 app.include_router(feed_rate_api_router)
 app.include_router(feedlync_api_router)
 app.include_router(office_admin_api_router)
+app.include_router(genetics_api_router)
 app.include_router(admin_api_router)
 app.include_router(hr_api_router)
 
@@ -99,6 +104,10 @@ _OFFICE_ADMIN_BREADCRUMB = (
 _HR_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/hr/staff">Staff / HR</a>'
+)
+_GENETICS_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/genetics/genomic-progress">Genetics</a>'
 )
 
 _login_attempts: dict[str, list[float]] = defaultdict(list)
@@ -211,6 +220,19 @@ def _office_admin_context(title: str, active_nav: str, page_name: str | None = N
         "title": title,
         "active_nav_group": "office-admin",
         "active_section": "office-admin",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _genetics_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _GENETICS_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "genetics",
+        "active_section": "genetics",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -874,6 +896,96 @@ def office_admin_purchases_page(request: Request):
             page_heading="Purchases",
             farm_options=list(HERD_FARM_OPTIONS),
             **_office_admin_context("Purchases", "purchases", "Purchases"),
+        ),
+    )
+
+
+@app.get("/genetics/pedigree-registrations", response_class=HTMLResponse)
+def genetics_pedigree_registrations_page(request: Request):
+    if denied := _page_guard(request, PAGE_GENETICS):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "genetics/pedigree_registrations.html",
+        _template_ctx(
+            request,
+            page_heading="Pedigree Registrations",
+            farm_options=list(HERD_FARM_OPTIONS),
+            can_register=has_action(request.state.user, ACTION_GENETICS_PEDIGREE),
+            **_genetics_context(
+                "Pedigree Registrations",
+                "pedigree-registrations",
+                "Pedigree Registrations",
+            ),
+        ),
+    )
+
+
+@app.get("/genetics/genomic-progress", response_class=HTMLResponse)
+def genetics_genomic_progress_page(request: Request):
+    if denied := _page_guard(request, PAGE_GENETICS):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "genetics/genomic_progress.html",
+        _template_ctx(
+            request,
+            page_heading="Genomic Progress",
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_genetics_context(
+                "Genomic Progress",
+                "genomic-progress",
+                "Genomic Progress",
+            ),
+        ),
+    )
+
+
+@app.get("/genetics/pending-results", response_class=HTMLResponse)
+def genetics_pending_results_page(request: Request):
+    if denied := _page_guard(request, PAGE_GENETICS):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "genetics/pending_results.html",
+        _template_ctx(
+            request,
+            page_heading="Pending Results",
+            farm_options=list(HERD_FARM_OPTIONS),
+            can_email=has_action(request.state.user, ACTION_GENETICS_PENDING_RESULTS),
+            **_genetics_context(
+                "Pending Results",
+                "pending-results",
+                "Pending Results",
+            ),
+        ),
+    )
+
+
+@app.get("/genetics/sire-conflicts", response_class=HTMLResponse)
+def genetics_sire_conflicts_page(request: Request):
+    if denied := _page_guard(request, PAGE_GENETICS):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "genetics/sire_conflicts.html",
+        _template_ctx(
+            request,
+            page_heading="Sire Conflicts",
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_genetics_context(
+                "Sire Conflicts",
+                "sire-conflicts",
+                "Sire Conflicts",
+            ),
         ),
     )
 

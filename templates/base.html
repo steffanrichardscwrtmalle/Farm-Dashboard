@@ -551,6 +551,26 @@
           </div>
           {% endif %}
 
+          {% if perms.page('genetics') %}
+          <div class="nav-group{% if active_nav_group == 'genetics' %} expanded{% endif %}" data-nav-group="genetics">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'genetics' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'genetics' %}true{% else %}false{% endif %}"
+              aria-controls="genetics-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">Genetics</span>
+            </button>
+            <div class="nav-group-items" id="genetics-nav-items">
+              <a href="/genetics/genomic-progress" class="{% if active_nav == 'genomic-progress' %}active{% endif %}">Genomic Progress</a>
+              <a href="/genetics/pending-results" class="{% if active_nav == 'pending-results' %}active{% endif %}">Pending Results</a>
+              <a href="/genetics/sire-conflicts" class="{% if active_nav == 'sire-conflicts' %}active{% endif %}">Sire Conflicts</a>
+              <a href="/genetics/pedigree-registrations" class="{% if active_nav == 'pedigree-registrations' %}active{% endif %}">Pedigree Registrations</a>
+            </div>
+          </div>
+          {% endif %}
+
           {% if perms.page('hr') %}
           <div class="nav-group{% if active_nav_group == 'hr' %} expanded{% endif %}" data-nav-group="hr">
             <button
@@ -813,6 +833,9 @@
           }
           if (group === "office-admin" && !window.location.pathname.startsWith("/office-admin")) {
             window.location.href = "/office-admin/sales-payments";
+          }
+          if (group === "genetics" && !window.location.pathname.startsWith("/genetics")) {
+            window.location.href = "/genetics/genomic-progress";
           }
           if (group === "hr" && !window.location.pathname.startsWith("/hr")) {
             window.location.href = "/hr/staff";

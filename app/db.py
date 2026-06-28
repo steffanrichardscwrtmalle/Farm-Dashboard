@@ -39,6 +39,8 @@ def init_db() -> None:
     _migrate_invoice_lines_schema()
     _migrate_supplier_schema()
     _migrate_herd_inventory_schema()
+    _migrate_pedigree_registration_schema()
+    _migrate_genomic_results_schema()
     _migrate_cow_events_schema()
     _dedupe_fresh_cow_events()
     _migrate_sales_payments_schema()
@@ -137,11 +139,49 @@ def _migrate_herd_inventory_schema() -> None:
         "sort_key": "INTEGER",
         "expected_month": "VARCHAR(16)",
         "value": "FLOAT",
+        "ped": "INTEGER",
+        "dped": "INTEGER",
+        "dreg": "VARCHAR(64)",
+        "sreg": "VARCHAR(64)",
+        "sid": "VARCHAR(64)",
+        "gid": "VARCHAR(64)",
+        "gtest": "DATE",
+        "subd": "DATE",
     }
     with engine.begin() as conn:
         for name, col_type in new_columns.items():
             if name not in columns:
                 conn.execute(text(f"ALTER TABLE herd_inventory ADD COLUMN {name} {col_type}"))
+
+
+def _migrate_pedigree_registration_schema() -> None:
+    inspector = inspect(engine)
+    if "pedigree_registration_records" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("pedigree_registration_records")}
+    new_columns = {"sid": "VARCHAR(64)"}
+    with engine.begin() as conn:
+        for name, col_type in new_columns.items():
+            if name not in columns:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE pedigree_registration_records ADD COLUMN {name} {col_type}"
+                    )
+                )
+
+
+def _migrate_genomic_results_schema() -> None:
+    inspector = inspect(engine)
+    if "genomic_results" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("genomic_results")}
+    new_columns = {"sire_reg": "VARCHAR(64)"}
+    with engine.begin() as conn:
+        for name, col_type in new_columns.items():
+            if name not in columns:
+                conn.execute(
+                    text(f"ALTER TABLE genomic_results ADD COLUMN {name} {col_type}")
+                )
 
 
 def _migrate_cow_events_schema() -> None:

@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .page-layout { grid-template-columns: 1fr; } }
+    .sidebar-column { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-of-type { margin-bottom: 0; }
+    .filter-section .section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .slicer-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .slicer-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      min-height: 3rem;
+      padding: 0.5rem 0.4rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .slicer-btn[data-value="CM"].selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
+    .action-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    .table-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 16rem);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    #conflicts-table { width: 100%; border-collapse: collapse; }
+    #conflicts-table th, #conflicts-table td {
+      padding: 0.45rem 0.55rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    #conflicts-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .empty-state { padding: 1.5rem; color: var(--muted); }
+    .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
+    .message { margin-bottom: 0.75rem; }
+    .message.err { color: #b91c1c; }
+{% endblock %}
+
+{% block content %}
+  <div class="page-layout">
+    <div class="sidebar-column">
+      <aside class="filter-panel">
+        <h2>Filters</h2>
+        <div class="filter-section">
+          <span class="section-label">Farm</span>
+          <div class="slicer-group farm-slicer">
+            {% for farm in farm_options %}
+            <button type="button" class="slicer-btn selected" data-value="{{ farm }}" aria-pressed="true">{{ farm }}</button>
+            {% endfor %}
+          </div>
+        </div>
+      </aside>
+      <aside class="filter-panel">
+        <h2>About</h2>
+        <p class="help-text">
+          Animals that appear in both the herd inventory and the genomic results, but
+          whose sire registration (SREG) does not match. The comparison uses the
+          <strong>last 12 digits</strong> of each registration, so differing country
+          prefixes still match.
+        </p>
+      </aside>
+    </div>
+
+    <section class="content-panel">
+      <div id="status-message" class="message"></div>
+      <p class="meta-line" id="meta-line">Loading…</p>
+
+      <div class="action-bar">
+        <button type="button" class="secondary small" id="download-csv-btn">Download CSV</button>
+      </div>
+
+      <div class="table-wrap">
+        <table id="conflicts-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>ETAG</th>
+              <th>SREG (Inventory)</th>
+              <th>SREG (Genomic)</th>
+              <th>Farm</th>
+            </tr>
+          </thead>
+          <tbody id="table-body">
+            <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    let rows = [];
+
+    function showMessage(text, isError) {
+      const el = document.getElementById('status-message');
+      el.textContent = text || '';
+      el.className = 'message' + (isError ? ' err' : '');
+    }
+
+    function selectedFarms() {
+      return [...document.querySelectorAll('.farm-slicer .slicer-btn.selected')]
+        .map(btn => btn.dataset.value);
+    }
+
+    function bindFarmSlicers() {
+      document.querySelectorAll('.farm-slicer .slicer-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const selected = btn.classList.contains('selected');
+          const count = document.querySelectorAll('.farm-slicer .slicer-btn.selected').length;
+          if (selected && count <= 1) return;
+          btn.classList.toggle('selected', !selected);
+          btn.setAttribute('aria-pressed', btn.classList.contains('selected'));
+          loadRows();
+        });
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function buildQuery() {
+      const params = new URLSearchParams();
+      selectedFarms().forEach(f => params.append('farm', f));
+      return params.toString();
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('table-body');
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No sire conflicts found.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map(function (row) {
+        return '<tr>' +
+          '<td>' + escapeHtml(row.id) + '</td>' +
+          '<td>' + escapeHtml(row.etag) + '</td>' +
+          '<td>' + escapeHtml(row.sreg) + '</td>' +
+          '<td>' + escapeHtml(row.genomic_sreg) + '</td>' +
+          '<td>' + escapeHtml(row.farm) + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    async function loadRows() {
+      showMessage('');
+      document.getElementById('meta-line').textContent = 'Loading…';
+      try {
+        const res = await fetch('/api/genetics/sire-conflicts?' + buildQuery());
+        if (!res.ok) throw new Error('Failed to load sire conflicts');
+        const data = await res.json();
+        rows = data.rows || [];
+        document.getElementById('meta-line').textContent =
+          rows.length + ' conflict' + (rows.length === 1 ? '' : 's') + ' found';
+        renderTable();
+      } catch (err) {
+        document.getElementById('meta-line').textContent = '';
+        showMessage(err.message, true);
+      }
+    }
+
+    document.getElementById('download-csv-btn').addEventListener('click', function () {
+      window.location.href = '/api/genetics/sire-conflicts/export.csv?' + buildQuery();
+    });
+
+    bindFarmSlicers();
+    loadRows();
+  </script>
+{% endblock %}

@@ -14,6 +14,7 @@ PAGE_STOCK_INVENTORY = "stock_inventory"
 PAGE_EVENTS = "events"
 PAGE_FEED_RATE = "feed_rate"
 PAGE_OFFICE_ADMIN = "office_admin"
+PAGE_GENETICS = "genetics"
 PAGE_HR = "hr"
 
 PAGE_KEYS: tuple[str, ...] = (
@@ -23,6 +24,7 @@ PAGE_KEYS: tuple[str, ...] = (
     PAGE_EVENTS,
     PAGE_FEED_RATE,
     PAGE_OFFICE_ADMIN,
+    PAGE_GENETICS,
     PAGE_HR,
 )
 
@@ -33,6 +35,7 @@ PAGE_LABELS: dict[str, str] = {
     PAGE_EVENTS: "Events",
     PAGE_FEED_RATE: "Feed Rate",
     PAGE_OFFICE_ADMIN: "Office Admin",
+    PAGE_GENETICS: "Genetics",
     PAGE_HR: "Staff / HR",
 }
 
@@ -43,6 +46,8 @@ ACTION_PROSTOCK_MAPPINGS = "prostock.mappings"
 ACTION_HERD_IMPORT = "herd.import"
 ACTION_OFFICE_ADMIN_SALES_PAYMENT = "office_admin.sales_payment"
 ACTION_OFFICE_ADMIN_FALLEN_STOCK = "office_admin.fallen_stock"
+ACTION_GENETICS_PEDIGREE = "genetics.pedigree"
+ACTION_GENETICS_PENDING_RESULTS = "genetics.pending_results"
 ACTION_HR_ENROLL = "hr.enroll"
 ACTION_HR_VIEW_SENSITIVE = "hr.view_sensitive"
 
@@ -54,6 +59,8 @@ ACTION_KEYS: tuple[str, ...] = (
     ACTION_HERD_IMPORT,
     ACTION_OFFICE_ADMIN_SALES_PAYMENT,
     ACTION_OFFICE_ADMIN_FALLEN_STOCK,
+    ACTION_GENETICS_PEDIGREE,
+    ACTION_GENETICS_PENDING_RESULTS,
     ACTION_HR_ENROLL,
     ACTION_HR_VIEW_SENSITIVE,
 )
@@ -66,6 +73,8 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_HERD_IMPORT: "Herd — import CSV data",
     ACTION_OFFICE_ADMIN_SALES_PAYMENT: "Office Admin — confirm sales payments",
     ACTION_OFFICE_ADMIN_FALLEN_STOCK: "Office Admin — confirm fallen stock collection",
+    ACTION_GENETICS_PEDIGREE: "Genetics — pedigree registrations (email & restore)",
+    ACTION_GENETICS_PENDING_RESULTS: "Genetics — pending results (email submissions)",
     ACTION_HR_ENROLL: "HR — enroll new staff",
     ACTION_HR_VIEW_SENSITIVE: "HR — view sensitive PII (NI, pay details)",
 }

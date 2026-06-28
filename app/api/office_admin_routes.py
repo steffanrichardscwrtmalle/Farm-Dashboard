@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime as dt
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth.deps import require_action, require_page
@@ -32,6 +31,7 @@ from app.services.sales_payments import (
 from app.services.stock_accruals import build_stock_accruals_report
 from app.services.stock_purchases import list_stock_purchases
 from app.services.stock_valuations import build_stock_valuations_report
+from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/office-admin")
 

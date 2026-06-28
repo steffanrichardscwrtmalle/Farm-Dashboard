@@ -1,0 +1,447 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .page-layout { grid-template-columns: 1fr; } }
+    .sidebar-column { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-of-type { margin-bottom: 0; }
+    .filter-section .section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .filter-section select {
+      width: 100%;
+      margin: 0;
+      font-size: 0.875rem;
+    }
+    .slicer-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .slicer-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      min-height: 3rem;
+      padding: 0.5rem 0.4rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .slicer-btn[data-value="CM"].selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
+    #fit-stats, #fit-stats-2 { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #be185d; font-weight: 600; margin-top: -0.4rem; }
+    .chart-wrap {
+      position: relative;
+      height: min(70vh, 560px);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      background: #fff;
+    }
+    .empty-state { padding: 1.5rem; color: var(--muted); }
+    .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
+    .message { margin-bottom: 0.75rem; }
+    .message.err { color: #b91c1c; }
+{% endblock %}
+
+{% block content %}
+  <div class="page-layout">
+    <div class="sidebar-column">
+      <aside class="filter-panel">
+        <h2>Filters</h2>
+        <div class="filter-section">
+          <span class="section-label">Trait (Y axis, both graphs)</span>
+          <select id="trait-select" aria-label="Y-axis genomic trait"></select>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">X axis (second graph)</span>
+          <select id="x-trait-select" aria-label="X-axis genomic trait"></select>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Farm</span>
+          <div class="slicer-group farm-slicer">
+            {% for farm in farm_options %}
+            <button type="button" class="slicer-btn selected" data-value="{{ farm }}" aria-pressed="true">{{ farm }}</button>
+            {% endfor %}
+          </div>
+        </div>
+      </aside>
+      <aside class="filter-panel">
+        <h2>About</h2>
+        <p class="help-text">
+          Top graph: the selected trait (Y) vs age in months. Bottom graph: the same
+          trait (Y) vs a second selected trait (X). CM and GAD animals are shown in
+          different colours; the bright pink dashed line is a line of best fit across
+          all selected animals.
+        </p>
+      </aside>
+    </div>
+
+    <section class="content-panel">
+      <div id="status-message" class="message"></div>
+
+      <p class="meta-line" id="meta-line">Loading…</p>
+      <p class="meta-line" id="fit-stats" hidden></p>
+      <div class="chart-wrap">
+        <canvas id="genomic-chart" aria-label="Trait vs age scatter chart"></canvas>
+      </div>
+      <p id="empty-state" class="empty-state" hidden>No animals with genomic data match the current filters.</p>
+
+      <p class="meta-line" id="meta-line-2" style="margin-top:1.5rem;">Loading…</p>
+      <p class="meta-line" id="fit-stats-2" hidden></p>
+      <div class="chart-wrap">
+        <canvas id="genomic-chart-2" aria-label="Trait vs trait scatter chart"></canvas>
+      </div>
+      <p id="empty-state-2" class="empty-state" hidden>No animals with genomic data match the current filters.</p>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script>
+    const FARM_COLORS = { CM: "#1f77b4", GAD: "#ff7f0e" };
+    const BEST_FIT_COLOR = "#ff1493";
+    const DAYS_PER_MONTH = 30.4375;
+    let ageChart = null;
+    let traitChart = null;
+    let currentTrait = "pli";
+    let currentXTrait = "milk_kg";
+    let traitsLoaded = false;
+
+    function showMessage(text, isError) {
+      const el = document.getElementById("status-message");
+      el.textContent = text || "";
+      el.className = "message" + (isError ? " err" : "");
+    }
+
+    function selectedFarms() {
+      return [...document.querySelectorAll(".farm-slicer .slicer-btn.selected")]
+        .map(btn => btn.dataset.value);
+    }
+
+    function bindFarmSlicers() {
+      document.querySelectorAll(".farm-slicer .slicer-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const selected = btn.classList.contains("selected");
+          const count = document.querySelectorAll(".farm-slicer .slicer-btn.selected").length;
+          if (selected && count <= 1) return;
+          btn.classList.toggle("selected", !selected);
+          btn.setAttribute("aria-pressed", btn.classList.contains("selected"));
+          loadAll();
+        });
+      });
+    }
+
+    function linearRegression(points) {
+      if (!points || points.length < 2) return null;
+      let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+      const n = points.length;
+      points.forEach(p => {
+        sumX += p.x;
+        sumY += p.y;
+        sumXY += p.x * p.y;
+        sumXX += p.x * p.x;
+      });
+      const denom = n * sumXX - sumX * sumX;
+      if (denom === 0) return null;
+      const slope = (n * sumXY - sumX * sumY) / denom;
+      const intercept = (sumY - slope * sumX) / n;
+      const meanY = sumY / n;
+      let ssTot = 0, ssRes = 0;
+      points.forEach(p => {
+        const predicted = slope * p.x + intercept;
+        ssRes += (p.y - predicted) ** 2;
+        ssTot += (p.y - meanY) ** 2;
+      });
+      const r2 = ssTot === 0 ? 1 : 1 - ssRes / ssTot;
+      return { slope, intercept, r2 };
+    }
+
+    function formatNumber(value, decimals) {
+      if (!isFinite(value)) return "0";
+      return value.toFixed(decimals);
+    }
+
+    function escapeHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    // Pad an axis range by 5% (or a sensible amount) so edge points are visible.
+    function paddedRange(min, max) {
+      if (min == null || max == null) return { min: undefined, max: undefined };
+      if (min === max) {
+        const pad = Math.abs(min) * 0.05 || 1;
+        return { min: min - pad, max: max + pad };
+      }
+      const pad = (max - min) * 0.05;
+      return { min: min - pad, max: max + pad };
+    }
+
+    /**
+     * Render a scatter chart with a bright-pink line of best fit drawn in front.
+     * config: { canvasId, statsId, metaId, emptyId, chart, xLabel, yLabel,
+     *           points, xMin, xMax, yMin, yMax, count, transformX, statsXLabel }
+     */
+    function renderScatter(config) {
+      const canvas = document.getElementById(config.canvasId);
+      const emptyEl = document.getElementById(config.emptyId);
+      const statsEl = document.getElementById(config.statsId);
+      const metaEl = document.getElementById(config.metaId);
+      if (config.chart) config.chart.destroy();
+
+      const farms = selectedFarms().length ? selectedFarms() : ["CM", "GAD"];
+      const tx = config.transformX || (v => v);
+      const allPoints = [];
+      const datasets = farms.map(farm => {
+        const pts = (config.points && config.points[farm]) ? config.points[farm] : [];
+        const mapped = pts.map(p => ({ x: tx(p.x), y: p.y, etag: p.etag }));
+        mapped.forEach(p => allPoints.push({ x: p.x, y: p.y }));
+        return {
+          type: "scatter",
+          label: farm,
+          data: mapped,
+          backgroundColor: FARM_COLORS[farm] || "#888",
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          order: 2,
+        };
+      });
+
+      if (!allPoints.length) {
+        canvas.hidden = true;
+        emptyEl.hidden = false;
+        statsEl.hidden = true;
+        metaEl.textContent = "0 animals with genomic data";
+        return null;
+      }
+
+      canvas.hidden = false;
+      emptyEl.hidden = true;
+
+      const xs = allPoints.map(p => p.x);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const fit = linearRegression(allPoints);
+      if (fit) {
+        datasets.push({
+          type: "line",
+          label: "Line of best fit",
+          data: [
+            { x: minX, y: fit.slope * minX + fit.intercept },
+            { x: maxX, y: fit.slope * maxX + fit.intercept },
+          ],
+          borderColor: BEST_FIT_COLOR,
+          backgroundColor: "transparent",
+          borderWidth: 2.5,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          fill: false,
+          order: 0,
+        });
+
+        const sign = fit.intercept >= 0 ? "+" : "-";
+        statsEl.hidden = false;
+        statsEl.textContent =
+          "y = " + formatNumber(fit.slope, 3) + "x " + sign + " " +
+          formatNumber(Math.abs(fit.intercept), 2) +
+          "   (x = " + config.statsXLabel + ")   R² = " + formatNumber(fit.r2, 3);
+      } else {
+        statsEl.hidden = true;
+      }
+
+      const yRange = paddedRange(config.yMin, config.yMax);
+      const xScale = {
+        type: "linear",
+        title: { display: true, text: config.xLabel },
+      };
+      if (config.padX) {
+        const xRange = paddedRange(config.xMin, config.xMax);
+        xScale.min = xRange.min;
+        xScale.max = xRange.max;
+      }
+
+      const yLabel = config.yLabel;
+      const chart = new Chart(canvas, {
+        type: "scatter",
+        data: { datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: "top" },
+            tooltip: {
+              callbacks: {
+                label(context) {
+                  if (context.dataset.type === "line") return undefined;
+                  const raw = context.raw || {};
+                  const etag = raw.etag ? " (" + raw.etag + ")" : "";
+                  return context.dataset.label + ": " + config.xLabel + " " +
+                    formatNumber(raw.x, 1) + ", " + yLabel + " " + raw.y + etag;
+                },
+              },
+            },
+          },
+          scales: {
+            x: xScale,
+            y: {
+              min: yRange.min,
+              max: yRange.max,
+              title: { display: true, text: yLabel },
+            },
+          },
+        },
+      });
+
+      metaEl.textContent =
+        config.count + " animal" + (config.count === 1 ? "" : "s") + " — " + yLabel;
+      return chart;
+    }
+
+    async function loadTraits() {
+      const ySelect = document.getElementById("trait-select");
+      const xSelect = document.getElementById("x-trait-select");
+      try {
+        const res = await fetch("/api/genetics/genomic-progress/traits");
+        if (!res.ok) throw new Error("Failed to load traits");
+        const data = await res.json();
+        const traits = data.traits || [];
+        ySelect.innerHTML = traits.map(t =>
+          '<option value="' + t.key + '"' + (t.key === "pli" ? " selected" : "") + ">" +
+          escapeHtml(t.label) + "</option>"
+        ).join("");
+        xSelect.innerHTML = traits.map(t =>
+          '<option value="' + t.key + '"' + (t.key === "milk_kg" ? " selected" : "") + ">" +
+          escapeHtml(t.label) + "</option>"
+        ).join("");
+        currentTrait = ySelect.value || "pli";
+        currentXTrait = xSelect.value || "milk_kg";
+        traitsLoaded = true;
+        ySelect.addEventListener("change", () => {
+          currentTrait = ySelect.value;
+          loadAll();
+        });
+        xSelect.addEventListener("change", () => {
+          currentXTrait = xSelect.value;
+          loadTraitChart();
+        });
+      } catch (err) {
+        showMessage(err.message, true);
+        ySelect.innerHTML = '<option value="pli">PLI</option>';
+        xSelect.innerHTML = '<option value="milk_kg">Milk KG</option>';
+      }
+    }
+
+    async function loadAgeChart() {
+      if (!traitsLoaded) return;
+      document.getElementById("meta-line").textContent = "Loading…";
+      const params = new URLSearchParams();
+      params.set("trait", currentTrait);
+      selectedFarms().forEach(f => params.append("farm", f));
+      try {
+        const res = await fetch("/api/genetics/genomic-progress?" + params.toString());
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || "Failed to load genomic progress");
+        }
+        const data = await res.json();
+        ageChart = renderScatter({
+          canvasId: "genomic-chart",
+          statsId: "fit-stats",
+          metaId: "meta-line",
+          emptyId: "empty-state",
+          chart: ageChart,
+          xLabel: "Age (months)",
+          yLabel: data.trait_label || "Trait",
+          points: data.points,
+          yMin: data.y_min,
+          yMax: data.y_max,
+          count: data.count,
+          transformX: v => v / DAYS_PER_MONTH,
+          statsXLabel: "age in months",
+          padX: false,
+        });
+      } catch (err) {
+        if (ageChart) { ageChart.destroy(); ageChart = null; }
+        document.getElementById("meta-line").textContent = "";
+        showMessage(err.message, true);
+      }
+    }
+
+    async function loadTraitChart() {
+      if (!traitsLoaded) return;
+      document.getElementById("meta-line-2").textContent = "Loading…";
+      const params = new URLSearchParams();
+      params.set("y_trait", currentTrait);
+      params.set("x_trait", currentXTrait);
+      selectedFarms().forEach(f => params.append("farm", f));
+      try {
+        const res = await fetch("/api/genetics/genomic-scatter?" + params.toString());
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || "Failed to load genomic scatter");
+        }
+        const data = await res.json();
+        traitChart = renderScatter({
+          canvasId: "genomic-chart-2",
+          statsId: "fit-stats-2",
+          metaId: "meta-line-2",
+          emptyId: "empty-state-2",
+          chart: traitChart,
+          xLabel: data.x_label || "Trait",
+          yLabel: data.y_label || "Trait",
+          points: data.points,
+          xMin: data.x_min,
+          xMax: data.x_max,
+          yMin: data.y_min,
+          yMax: data.y_max,
+          count: data.count,
+          statsXLabel: data.x_label || "trait",
+          padX: true,
+        });
+      } catch (err) {
+        if (traitChart) { traitChart.destroy(); traitChart = null; }
+        document.getElementById("meta-line-2").textContent = "";
+        showMessage(err.message, true);
+      }
+    }
+
+    function loadAll() {
+      showMessage("");
+      loadAgeChart();
+      loadTraitChart();
+    }
+
+    bindFarmSlicers();
+    loadTraits().then(loadAll);
+  </script>
+{% endblock %}

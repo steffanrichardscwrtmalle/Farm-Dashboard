@@ -10,7 +10,8 @@ from app.auth.deps import get_current_user
 from app.auth.import_key import require_import_or_action
 from app.auth.permissions import ACTION_HERD_IMPORT
 from app.db import get_db
-from app.models import CowEvent, HerdBirth, HerdInventory, User
+from app.models import CowEvent, GenomicResult, HerdBirth, HerdInventory, User
+from app.services.genomic_import import import_genomic_results
 from app.services.herd_birth_import import import_herd_births
 from app.services.herd_events_import import import_cow_events
 from app.services.herd_inventory_import import import_herd_inventory
@@ -99,4 +100,28 @@ def api_herd_births_status(
         "row_count": row_count,
         "latest_import": latest_import.isoformat() if latest_import else None,
         "latest_birth_date": latest_birth_date.isoformat() if latest_birth_date else None,
+    }
+
+
+@router.post("/genomic/import")
+def api_import_genomic_results(
+    db: Session = Depends(get_db),
+    _: None = Depends(require_import_or_action(ACTION_HERD_IMPORT)),
+):
+    try:
+        return import_genomic_results(db)
+    except (FileNotFoundError, ValueError) as exc:
+        raise _import_error_handler(exc) from exc
+
+
+@router.get("/genomic/status")
+def api_genomic_status(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    row_count = db.scalar(select(func.count()).select_from(GenomicResult)) or 0
+    latest_import = db.scalar(select(func.max(GenomicResult.updated_at)))
+    return {
+        "row_count": row_count,
+        "latest_import": latest_import.isoformat() if latest_import else None,
     }

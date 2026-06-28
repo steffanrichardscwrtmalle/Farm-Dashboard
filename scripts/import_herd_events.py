@@ -4,7 +4,7 @@ Import herd data from OneDrive CSV exports into the database.
 For Render cron (weekly):
   python scripts/import_herd_events.py
 
-Imports cow events, inventory, and birth records.
+Imports cow events, inventory, genomic results, and birth records.
 Requires Graph API env vars or LOCAL_HERD_EXPORT_DIR for local synced files.
 """
 
@@ -17,6 +17,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
 from app.db import SessionLocal, init_db
+from app.services.genomic_import import import_genomic_results
 from app.services.herd_birth_import import import_herd_births
 from app.services.herd_events_import import import_cow_events
 from app.services.herd_inventory_import import import_herd_inventory
@@ -56,6 +57,9 @@ def main() -> int:
             f"(CM: {inventory['farm_counts'].get('CM', 0):,}, "
             f"GAD: {inventory['farm_counts'].get('GAD', 0):,})"
         )
+
+        genomic = import_genomic_results(db)
+        print(f"Imported {genomic['rows_imported']:,} genomic result rows")
 
         births = import_herd_births(db)
         print(

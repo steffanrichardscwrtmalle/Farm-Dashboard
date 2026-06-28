@@ -11,7 +11,7 @@ from app.services.herd_import_utils import HERD_DATE_FORMAT
 from app.services.inventory_valuation import category_from_inventory, compute_value
 
 INVENTORY_ENCODING = "windows-1252"
-INVENTORY_DATE_COLUMNS = ("BDAT", "FDAT", "HDAT", "DUE")
+INVENTORY_DATE_COLUMNS = ("BDAT", "FDAT", "HDAT", "DUE", "GTEST", "SUBD")
 
 
 def load_inventory_csv(file_bytes: bytes) -> pd.DataFrame:
@@ -119,7 +119,8 @@ def process_inventory_file(df: pd.DataFrame, farm: str) -> pd.DataFrame:
 
     for col in INVENTORY_DATE_COLUMNS:
         if col in df.columns:
-            df[col] = df[col].replace("", None)
+            df[col] = df[col].astype(str).str.strip()
+            df[col] = df[col].replace({"": None, "-": None, "nan": None, "NaN": None})
             df[col] = pd.to_datetime(df[col], format=HERD_DATE_FORMAT, errors="coerce")
 
     df["Farm"] = farm
@@ -153,6 +154,21 @@ def process_inventory_file(df: pd.DataFrame, farm: str) -> pd.DataFrame:
 
     if "LSBRD" in df.columns:
         df["LSBRD"] = df["LSBRD"].apply(_standardize_lsbrd)
+
+    for col in ("PED", "DPED"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype("Int64")
+
+    for col in ("DREG", "SREG", "SID"):
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+            df[col] = df[col].where(df[col].notna() & (df[col] != "") & (df[col] != "nan"), None)
+
+    if "GID" in df.columns:
+        df["GID"] = df["GID"].astype(str).str.strip()
+        df["GID"] = df["GID"].where(
+            ~df["GID"].isin(["", "nan", "NaN", "-"]), None
+        )
 
     df["Category"] = df.apply(_get_category, axis=1)
 

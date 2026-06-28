@@ -1,0 +1,512 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .page-layout { grid-template-columns: 1fr; } }
+    .sidebar-column { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-of-type { margin-bottom: 0; }
+    .filter-section .section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .slicer-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .slicer-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      min-height: 3rem;
+      padding: 0.5rem 0.4rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .slicer-btn[data-value="CM"].selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
+    .sreg-btn.selected { background: #dcfce7; border-color: #4ade80; color: #166534; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
+    .view-tabs { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .view-tab {
+      padding: 0.4rem 0.9rem;
+      border: 2px solid #94a3b8;
+      border-radius: 6px;
+      background: #e2e8f0;
+      color: #1e293b;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.875rem;
+    }
+    .view-tab:hover { background: #cbd5e1; border-color: #64748b; }
+    .view-tab.active { background: #1e3a5f; color: #fff; border-color: #1e3a5f; }
+    .action-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    .selection-count { font-size: 0.875rem; color: var(--muted); margin-right: auto; }
+    .recipient-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: flex-end;
+      margin-bottom: 0.75rem;
+    }
+    .recipient-row label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      flex: 1;
+      min-width: 200px;
+    }
+    .recipient-row input { margin: 0; }
+    .table-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 18rem);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    #pedigree-table { width: 100%; border-collapse: collapse; }
+    #pedigree-table th, #pedigree-table td {
+      padding: 0.45rem 0.55rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    #pedigree-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .empty-state { padding: 1.5rem; color: var(--muted); }
+    .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
+    .message { margin-bottom: 0.75rem; }
+    .message.ok { color: #047857; }
+    .message.err { color: #b91c1c; }
+    #print-area { background: #fff; padding: 0.5rem; }
+{% endblock %}
+
+{% block content %}
+  <div class="page-layout">
+    <div class="sidebar-column">
+      <aside class="filter-panel">
+        <h2>Filters</h2>
+        <div class="filter-section">
+          <span class="section-label">Farm</span>
+          <div class="slicer-group farm-slicer">
+            {% for farm in farm_options %}
+            <button type="button" class="slicer-btn selected" data-value="{{ farm }}" aria-pressed="true">{{ farm }}</button>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Sire (SREG)</span>
+          <div class="slicer-group sreg-slicer">
+            <button type="button" class="slicer-btn sreg-btn selected" data-value="with" aria-pressed="true">With SREG</button>
+            <button type="button" class="slicer-btn sreg-btn" data-value="without" aria-pressed="false">Without SREG</button>
+          </div>
+        </div>
+      </aside>
+      <aside class="filter-panel">
+        <h2>About</h2>
+        <p class="help-text">
+          Lists female dairy heifers (CBRD &lt; 102) that are <strong>not pedigree</strong>
+          but whose <strong>dam is pedigree</strong>. After you email the CSV to the
+          registrar, those animals are marked registered and move to the Registered tab.
+        </p>
+      </aside>
+    </div>
+
+    <section class="content-panel">
+      <div id="status-message" class="message"></div>
+      <p class="meta-line" id="meta-line">Loading…</p>
+
+      <div class="view-tabs" role="tablist">
+        <button type="button" class="view-tab active" data-status="active">Active</button>
+        <button type="button" class="view-tab" data-status="registered">Registered</button>
+      </div>
+
+      {% if can_register %}
+      <div class="recipient-row">
+        <label>
+          Email recipient
+          <input type="email" id="recipient-input" placeholder="registrar@example.com" autocomplete="email">
+        </label>
+        <button type="button" class="secondary small" id="save-recipient-btn">Save default</button>
+      </div>
+      {% endif %}
+
+      <div class="action-bar">
+        <span class="selection-count" id="selection-count">0 selected</span>
+        <button type="button" class="secondary small" id="download-csv-btn">Download CSV</button>
+        <button type="button" class="secondary small" id="download-pdf-btn">Save as PDF</button>
+        {% if can_register %}
+        <button type="button" class="primary small" id="email-btn" disabled>Email CSV &amp; mark registered</button>
+        <button type="button" class="secondary small" id="restore-btn" disabled hidden>Restore</button>
+        {% endif %}
+      </div>
+
+      <div id="print-area">
+        <div class="table-wrap" id="table-wrap">
+          <table id="pedigree-table">
+            <thead>
+              <tr>
+                {% if can_register %}
+                <th><input type="checkbox" id="select-all" title="Select all"></th>
+                {% endif %}
+                <th>Farm</th>
+                <th>ID</th>
+                <th>ETAG</th>
+                <th>BDAT</th>
+                <th>DREG</th>
+                <th>SREG</th>
+                <th>SID</th>
+                <th class="sent-col" hidden>Sent</th>
+              </tr>
+            </thead>
+            <tbody id="table-body">
+              <tr><td colspan="10" class="empty-state">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
+  <script>
+    const CAN_EDIT = {{ 'true' if can_register else 'false' }};
+    let currentStatus = 'active';
+    let rows = [];
+    let selectedKeys = new Set();
+
+    function rowKey(row) {
+      return row.farm + '|' + row.etag;
+    }
+
+    function showMessage(text, isError) {
+      const el = document.getElementById('status-message');
+      el.textContent = text || '';
+      el.className = 'message' + (isError ? ' err' : text ? ' ok' : '');
+    }
+
+    function selectedFarms() {
+      return [...document.querySelectorAll('.farm-slicer .slicer-btn.selected')]
+        .map(btn => btn.dataset.value);
+    }
+
+    function selectedSreg() {
+      const btn = document.querySelector('.sreg-slicer .slicer-btn.selected');
+      return btn ? btn.dataset.value : 'with';
+    }
+
+    function bindSregSlicers() {
+      document.querySelectorAll('.sreg-slicer .slicer-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (btn.classList.contains('selected')) return;
+          document.querySelectorAll('.sreg-slicer .slicer-btn').forEach(other => {
+            other.classList.toggle('selected', other === btn);
+            other.setAttribute('aria-pressed', other === btn);
+          });
+          loadRows();
+        });
+      });
+    }
+
+    function bindFarmSlicers() {
+      document.querySelectorAll('.farm-slicer .slicer-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const selected = btn.classList.contains('selected');
+          const count = document.querySelectorAll('.farm-slicer .slicer-btn.selected').length;
+          if (selected && count <= 1) return;
+          btn.classList.toggle('selected', !selected);
+          btn.setAttribute('aria-pressed', btn.classList.contains('selected'));
+          loadRows();
+        });
+      });
+    }
+
+    function updateActionBar() {
+      const count = selectedKeys.size;
+      document.getElementById('selection-count').textContent = count + ' selected';
+      const emailBtn = document.getElementById('email-btn');
+      const restoreBtn = document.getElementById('restore-btn');
+      if (emailBtn) {
+        emailBtn.hidden = currentStatus !== 'active';
+        emailBtn.disabled = count === 0;
+      }
+      if (restoreBtn) {
+        restoreBtn.hidden = currentStatus !== 'registered';
+        restoreBtn.disabled = count === 0;
+      }
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('table-body');
+      const showSent = currentStatus === 'registered';
+      const sentHeader = document.querySelector('.sent-col');
+      if (sentHeader) sentHeader.hidden = !showSent;
+      const colSpan = (CAN_EDIT ? 1 : 0) + 7 + (showSent ? 1 : 0);
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="' + colSpan + '" class="empty-state">No animals match the current filters.</td></tr>';
+        updateActionBar();
+        return;
+      }
+      tbody.innerHTML = rows.map(function (row) {
+        const key = rowKey(row);
+        const checked = selectedKeys.has(key) ? ' checked' : '';
+        const selectCell = CAN_EDIT
+          ? '<td><input type="checkbox" class="row-select" data-key="' + key + '"' + checked + '></td>'
+          : '';
+        const sentCell = showSent
+          ? '<td>' + escapeHtml(formatSent(row.sent_at)) + '</td>'
+          : '';
+        return '<tr>' +
+          selectCell +
+          '<td>' + escapeHtml(row.farm) + '</td>' +
+          '<td>' + escapeHtml(row.cow_id) + '</td>' +
+          '<td>' + escapeHtml(row.etag) + '</td>' +
+          '<td>' + escapeHtml(row.bdat) + '</td>' +
+          '<td>' + escapeHtml(row.dreg) + '</td>' +
+          '<td>' + escapeHtml(row.sreg) + '</td>' +
+          '<td>' + escapeHtml(row.sid) + '</td>' +
+          sentCell +
+          '</tr>';
+      }).join('');
+
+      if (CAN_EDIT) {
+        document.querySelectorAll('.row-select').forEach(function (cb) {
+          cb.addEventListener('change', function () {
+            const key = cb.dataset.key;
+            if (cb.checked) selectedKeys.add(key);
+            else selectedKeys.delete(key);
+            updateActionBar();
+            const selectAll = document.getElementById('select-all');
+            if (selectAll) {
+              selectAll.checked = rows.length > 0 && selectedKeys.size === rows.length;
+            }
+          });
+        });
+        const selectAll = document.getElementById('select-all');
+        if (selectAll) {
+          selectAll.checked = rows.length > 0 && selectedKeys.size === rows.length;
+          selectAll.onchange = function () {
+            if (selectAll.checked) {
+              rows.forEach(function (r) { selectedKeys.add(rowKey(r)); });
+            } else {
+              selectedKeys.clear();
+            }
+            renderTable();
+          };
+        }
+      }
+      updateActionBar();
+    }
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function formatSent(value) {
+      if (!value) return '';
+      const d = new Date(value);
+      if (isNaN(d.getTime())) return value;
+      return d.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+    }
+
+    function buildQuery() {
+      const params = new URLSearchParams();
+      params.set('status', currentStatus);
+      params.set('sreg', selectedSreg());
+      selectedFarms().forEach(function (f) { params.append('farm', f); });
+      return params.toString();
+    }
+
+    async function loadRows() {
+      showMessage('');
+      document.getElementById('meta-line').textContent = 'Loading…';
+      try {
+        const res = await fetch('/api/genetics/pedigree-registrations?' + buildQuery());
+        if (!res.ok) throw new Error('Failed to load pedigree registrations');
+        const data = await res.json();
+        rows = data.rows || [];
+        const validKeys = new Set(rows.map(rowKey));
+        selectedKeys = new Set([...selectedKeys].filter(k => validKeys.has(k)));
+        document.getElementById('meta-line').textContent =
+          rows.length + ' animal' + (rows.length === 1 ? '' : 's') +
+          (currentStatus === 'active' ? ' awaiting registration' : ' registered');
+        renderTable();
+      } catch (err) {
+        document.getElementById('meta-line').textContent = '';
+        showMessage(err.message, true);
+      }
+    }
+
+    async function loadRecipient() {
+      if (!CAN_EDIT) return;
+      try {
+        const res = await fetch('/api/genetics/pedigree-registrations/recipient');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.recipient) {
+          document.getElementById('recipient-input').value = data.recipient;
+        }
+      } catch (_) { /* ignore */ }
+    }
+
+    function selectedItems() {
+      return rows
+        .filter(function (r) { return selectedKeys.has(rowKey(r)); })
+        .map(function (r) { return { farm: r.farm, etag: r.etag }; });
+    }
+
+    document.getElementById('download-csv-btn').addEventListener('click', function () {
+      window.location.href = '/api/genetics/pedigree-registrations/export.csv?' + buildQuery();
+    });
+
+    document.getElementById('download-pdf-btn').addEventListener('click', function () {
+      const area = document.getElementById('print-area');
+      const opt = {
+        margin: 10,
+        filename: 'pedigree_registrations_' + currentStatus + '.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+      };
+      html2pdf().set(opt).from(area).save();
+    });
+
+    document.querySelectorAll('.view-tab').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        document.querySelectorAll('.view-tab').forEach(function (t) {
+          t.classList.toggle('active', t === tab);
+        });
+        currentStatus = tab.dataset.status;
+        selectedKeys.clear();
+        loadRows();
+      });
+    });
+
+    if (CAN_EDIT) {
+      document.getElementById('save-recipient-btn').addEventListener('click', async function () {
+        const recipient = document.getElementById('recipient-input').value.trim();
+        if (!recipient) {
+          showMessage('Enter an email address to save.', true);
+          return;
+        }
+        showMessage('');
+        try {
+          const res = await fetch('/api/genetics/pedigree-registrations/recipient', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipient: recipient }),
+          });
+          const data = await res.json().catch(function () { return {}; });
+          if (!res.ok) throw new Error(data.detail || 'Save failed');
+          showMessage('Default recipient saved.', false);
+        } catch (err) {
+          showMessage(err.message, true);
+        }
+      });
+
+      document.getElementById('email-btn').addEventListener('click', async function () {
+        const items = selectedItems();
+        const recipient = document.getElementById('recipient-input').value.trim();
+        if (!items.length) {
+          showMessage('Select at least one animal.', true);
+          return;
+        }
+        if (!recipient) {
+          showMessage('Enter a recipient email address.', true);
+          return;
+        }
+        if (!window.confirm('Email CSV for ' + items.length + ' animal(s) and mark as registered?')) return;
+        showMessage('');
+        const btn = document.getElementById('email-btn');
+        btn.disabled = true;
+        try {
+          const res = await fetch('/api/genetics/pedigree-registrations/email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipient: recipient, items: items }),
+          });
+          const data = await res.json().catch(function () { return {}; });
+          if (!res.ok) throw new Error(data.detail || 'Email failed');
+          showMessage('Email sent and ' + (data.registered || items.length) + ' animal(s) marked registered.', false);
+          selectedKeys.clear();
+          loadRows();
+        } catch (err) {
+          showMessage(err.message, true);
+        } finally {
+          btn.disabled = selectedKeys.size === 0;
+        }
+      });
+
+      document.getElementById('restore-btn').addEventListener('click', async function () {
+        const items = selectedItems();
+        if (!items.length) return;
+        if (!window.confirm('Restore ' + items.length + ' animal(s) to the active list?')) return;
+        showMessage('');
+        try {
+          const res = await fetch('/api/genetics/pedigree-registrations/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: items }),
+          });
+          const data = await res.json().catch(function () { return {}; });
+          if (!res.ok) throw new Error(data.detail || 'Restore failed');
+          showMessage((data.restored || 0) + ' animal(s) restored.', false);
+          selectedKeys.clear();
+          loadRows();
+        } catch (err) {
+          showMessage(err.message, true);
+        }
+      });
+    }
+
+    bindFarmSlicers();
+    bindSregSlicers();
+    loadRecipient();
+    loadRows();
+  </script>
+{% endblock %}
