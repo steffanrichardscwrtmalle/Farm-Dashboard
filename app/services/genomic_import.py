@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import gc
 import io
 import re
 from typing import Any
@@ -95,12 +96,16 @@ def import_genomic_results(db: Session) -> dict[str, Any]:
 
     import_time = dt.datetime.now()
     db.execute(delete(GenomicResult))
-    mappings = _dataframe_to_mappings(df, import_time)
+    rows_imported = 0
+    for start in range(0, len(df), 2000):
+        batch = df.iloc[start : start + 2000]
+        mappings = _dataframe_to_mappings(batch, import_time)
+        if mappings:
+            db.bulk_insert_mappings(GenomicResult, mappings)
+        rows_imported += len(mappings)
+        del mappings, batch
     del df
-    if mappings:
-        for start in range(0, len(mappings), 2000):
-            db.bulk_insert_mappings(GenomicResult, mappings[start : start + 2000])
-    rows_imported = len(mappings)
+    gc.collect()
     db.commit()
 
     return {

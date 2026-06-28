@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import gc
 import math
 from dataclasses import dataclass, field
 from typing import Any
@@ -677,7 +678,8 @@ def _build_profiles(
         .where(CowEvent.event_date.isnot(None))
         .where(CowEvent.event_date <= anchor_date)
         .order_by(CowEvent.event_date.asc(), CowEvent.id.asc())
-    ).all()
+        .execution_options(yield_per=5000)
+    )
     for row_id, farm, etag, cow_id, event_name, event_date, lact, cbrd, gndr, bdat in all_event_rows:
         if event_date is None:
             continue
@@ -708,9 +710,7 @@ def _build_profiles(
     for profile in profiles.values():
         if not profile.etag:
             continue
-        farm_events_by_etag.setdefault(profile.etag, {})[profile.farm] = list(
-            profile.events
-        )
+        farm_events_by_etag.setdefault(profile.etag, {})[profile.farm] = profile.events
 
     for profile in profiles.values():
         profile.transfer_stint_start = _compute_transfer_stint_start(
@@ -724,12 +724,18 @@ def _build_profiles(
             continue
         etag_events.setdefault(profile.etag, []).extend(profile.events)
 
+    for snaps in etag_events.values():
+        snaps.sort(key=lambda snap: (snap.event_date, snap.seq))
+
     for profile in profiles.values():
         if not profile.etag:
             continue
-        merged = list(etag_events.get(profile.etag, profile.events))
-        merged.sort(key=lambda snap: (snap.event_date, snap.seq))
-        profile.events = merged
+        shared = etag_events.get(profile.etag)
+        if shared is not None:
+            profile.events = shared
+
+    del farm_events_by_etag
+    del etag_events
 
     return anchor_date, profiles, inventory_keys, exit_keys, entry_keys, jv_keys
 
@@ -1300,6 +1306,7 @@ def rebuild_stock_valuation_snapshots(db: Session) -> dict[str, Any]:
                 rows_written += 1
 
     db.commit()
+    gc.collect()
     return {
         "anchor_import_timestamp": anchor_ts.isoformat(timespec="seconds"),
         "rows_written": rows_written,

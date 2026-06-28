@@ -10,11 +10,14 @@ Requires Graph API env vars or LOCAL_HERD_EXPORT_DIR for local synced files.
 
 from __future__ import annotations
 
+import gc
 import sys
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
+
+from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, init_db
 from app.services.genomic_import import import_genomic_results
@@ -22,6 +25,12 @@ from app.services.herd_birth_import import import_herd_births
 from app.services.herd_events_import import import_cow_events
 from app.services.herd_inventory_import import import_herd_inventory
 from app.services.stock_valuations import rebuild_stock_valuation_snapshots
+
+
+def _release_memory(db: Session) -> None:
+    """Drop cached ORM rows between heavy import steps (cron memory limit)."""
+    db.expire_all()
+    gc.collect()
 
 
 def main() -> int:
@@ -50,6 +59,7 @@ def main() -> int:
             print(
                 f"Dropped {events['duplicate_exit_dropped']:,} duplicate SOLD/DIED event rows"
             )
+        _release_memory(db)
 
         inventory = import_herd_inventory(db)
         print(
@@ -57,9 +67,11 @@ def main() -> int:
             f"(CM: {inventory['farm_counts'].get('CM', 0):,}, "
             f"GAD: {inventory['farm_counts'].get('GAD', 0):,})"
         )
+        _release_memory(db)
 
         genomic = import_genomic_results(db)
         print(f"Imported {genomic['rows_imported']:,} genomic result rows")
+        _release_memory(db)
 
         births = import_herd_births(db)
         print(
@@ -76,6 +88,11 @@ def main() -> int:
             )
         if births.get("latest_birth_date"):
             print(f"Latest birth date: {births['latest_birth_date']}")
+
+        # Valuation rebuild loads all herd events; use a clean session first.
+        db.close()
+        gc.collect()
+        db = SessionLocal()
 
         valuation_stats = rebuild_stock_valuation_snapshots(db)
         print(
