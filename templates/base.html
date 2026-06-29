@@ -571,6 +571,23 @@
           </div>
           {% endif %}
 
+          {% if perms.page('milk_quality') %}
+          <div class="nav-group{% if active_nav_group == 'milk-quality' %} expanded{% endif %}" data-nav-group="milk-quality">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'milk-quality' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'milk-quality' %}true{% else %}false{% endif %}"
+              aria-controls="milk-quality-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">Milk Quality</span>
+            </button>
+            <div class="nav-group-items" id="milk-quality-nav-items">
+              <a href="/milk-quality/results" class="{% if active_nav == 'nml-results' %}active{% endif %}">NML Results</a>
+            </div>
+          </div>
+          {% endif %}
+
           {% if perms.page('hr') %}
           <div class="nav-group{% if active_nav_group == 'hr' %} expanded{% endif %}" data-nav-group="hr">
             <button

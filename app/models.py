@@ -631,6 +631,43 @@ class GenomicResult(Base):
     )
 
 
+class NmlMilkResult(Base):
+    """Per-collection milk quality results from NML report PDFs (emailed daily).
+
+    Keyed by (producer_ref, sample_date, sample_id). The sample_id is stored as
+    text to preserve leading zeros (e.g. '003'); it links to the milk haulier
+    database (volumes, collection times) on sample_id + sample_date (+/- 1 day).
+    """
+
+    __tablename__ = "nml_milk_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "producer_ref", "sample_date", "sample_id", name="uq_nml_producer_sample"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str | None] = mapped_column(String(8), nullable=True, index=True)
+    producer_ref: Mapped[str] = mapped_column(String(32), index=True)
+    milk_buyer: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    report_month: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    report_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    sample_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    sample_id: Mapped[str] = mapped_column(String(16))
+    butterfat_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    protein_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scc: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bactoscan: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fpd: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    antibiotic_pass: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    urea_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source_message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_file: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    imported_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class HerdBirth(Base):
     """Birth records from DCEXPORT CMBORN / GADBORN files."""
 

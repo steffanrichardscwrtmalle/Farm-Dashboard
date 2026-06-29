@@ -54,6 +54,16 @@
     .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
     #fit-stats, #fit-stats-2 { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #be185d; font-weight: 600; margin-top: -0.4rem; }
+    .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; margin-bottom: 1.25rem; }
+    .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .chart-card h3 { margin: 0; font-size: 0.95rem; }
+    .chart-actions { display: flex; gap: 0.35rem; flex-shrink: 0; }
+    .chart-btn, .chart-expand {
+      border: 1px solid var(--border); background: #f3f4f6; color: var(--muted);
+      border-radius: 6px; width: 1.9rem; height: 1.9rem; line-height: 1;
+      font-size: 1rem; cursor: pointer; flex-shrink: 0; padding: 0;
+    }
+    .chart-btn:hover, .chart-expand:hover { background: #e5e7eb; color: var(--text); }
     .chart-wrap {
       position: relative;
       height: min(70vh, 560px);
@@ -66,6 +76,18 @@
     .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
     .message { margin-bottom: 0.75rem; }
     .message.err { color: #b91c1c; }
+    .chart-modal { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 2vh 2vw; }
+    .chart-modal[hidden] { display: none; }
+    .chart-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
+    .chart-modal-body {
+      position: relative; background: var(--card); border-radius: 10px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.3); width: 96vw; max-width: 1200px;
+      height: 90vh; display: flex; flex-direction: column; padding: 1rem;
+    }
+    .chart-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
+    .chart-modal-head h3 { margin: 0; font-size: 1.1rem; }
+    .chart-modal-actions { display: flex; gap: 0.5rem; }
+    .chart-modal-canvas { position: relative; flex: 1 1 auto; min-height: 0; }
 {% endblock %}
 
 {% block content %}
@@ -104,25 +126,61 @@
     <section class="content-panel">
       <div id="status-message" class="message"></div>
 
-      <p class="meta-line" id="meta-line">Loading…</p>
-      <p class="meta-line" id="fit-stats" hidden></p>
-      <div class="chart-wrap">
-        <canvas id="genomic-chart" aria-label="Trait vs age scatter chart"></canvas>
-      </div>
-      <p id="empty-state" class="empty-state" hidden>No animals with genomic data match the current filters.</p>
+      <p class="help-text" style="margin-bottom:0.75rem;">Tip: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset. Click ⤢ to enlarge.</p>
 
-      <p class="meta-line" id="meta-line-2" style="margin-top:1.5rem;">Loading…</p>
-      <p class="meta-line" id="fit-stats-2" hidden></p>
-      <div class="chart-wrap">
-        <canvas id="genomic-chart-2" aria-label="Trait vs trait scatter chart"></canvas>
+      <div class="chart-card">
+        <div class="chart-head">
+          <h3 id="chart-title-1">Trait vs age</h3>
+          <div class="chart-actions">
+            <button type="button" class="chart-btn chart-reset" data-canvas="genomic-chart" title="Reset zoom">⟲</button>
+            <button type="button" class="chart-expand" data-canvas="genomic-chart" title="View larger">⤢</button>
+          </div>
+        </div>
+        <p class="meta-line" id="meta-line">Loading…</p>
+        <p class="meta-line" id="fit-stats" hidden></p>
+        <div class="chart-wrap">
+          <canvas id="genomic-chart" aria-label="Trait vs age scatter chart"></canvas>
+        </div>
+        <p id="empty-state" class="empty-state" hidden>No animals with genomic data match the current filters.</p>
       </div>
-      <p id="empty-state-2" class="empty-state" hidden>No animals with genomic data match the current filters.</p>
+
+      <div class="chart-card">
+        <div class="chart-head">
+          <h3 id="chart-title-2">Trait vs trait</h3>
+          <div class="chart-actions">
+            <button type="button" class="chart-btn chart-reset" data-canvas="genomic-chart-2" title="Reset zoom">⟲</button>
+            <button type="button" class="chart-expand" data-canvas="genomic-chart-2" title="View larger">⤢</button>
+          </div>
+        </div>
+        <p class="meta-line" id="meta-line-2">Loading…</p>
+        <p class="meta-line" id="fit-stats-2" hidden></p>
+        <div class="chart-wrap">
+          <canvas id="genomic-chart-2" aria-label="Trait vs trait scatter chart"></canvas>
+        </div>
+        <p id="empty-state-2" class="empty-state" hidden>No animals with genomic data match the current filters.</p>
+      </div>
+
+      <div id="chart-modal" class="chart-modal" hidden>
+        <div class="chart-modal-backdrop" data-close="1"></div>
+        <div class="chart-modal-body" role="dialog" aria-modal="true" aria-labelledby="chart-modal-title">
+          <div class="chart-modal-head">
+            <h3 id="chart-modal-title">Chart</h3>
+            <div class="chart-modal-actions">
+              <button type="button" class="secondary small" id="chart-modal-reset">Reset zoom</button>
+              <button type="button" class="secondary small" data-close="1">Close</button>
+            </div>
+          </div>
+          <div class="chart-modal-canvas"><canvas id="chart-modal-canvas"></canvas></div>
+        </div>
+      </div>
     </section>
   </div>
 {% endblock %}
 
 {% block scripts %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js" crossorigin="anonymous"></script>
   <script>
     const FARM_COLORS = { CM: "#1f77b4", GAD: "#ff7f0e" };
     const BEST_FIT_COLOR = "#ff1493";
@@ -132,6 +190,9 @@
     let currentTrait = "pli";
     let currentXTrait = "milk_kg";
     let traitsLoaded = false;
+    const chartSpecs = {};
+    let modalChart = null;
+    let openModalCanvasId = null;
 
     function showMessage(text, isError) {
       const el = document.getElementById("status-message");
@@ -206,9 +267,111 @@
       return { min: min - pad, max: max + pad };
     }
 
+    function zoomPlugin() {
+      return {
+        pan: { enabled: true, mode: "xy", modifierKey: "ctrl" },
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          drag: {
+            enabled: true,
+            backgroundColor: "rgba(31,119,180,0.15)",
+            borderColor: "rgba(31,119,180,0.6)",
+            borderWidth: 1,
+          },
+          mode: "xy",
+        },
+      };
+    }
+
+    // Build a scatter Chart for the given canvas from a stored spec. Used for both
+    // the inline cards and the enlarged modal (cloneData copies points/scale so
+    // the two instances don't interfere when zooming).
+    function createScatterChart(canvas, spec, cloneData) {
+      const datasets = cloneData
+        ? spec.datasets.map(d => Object.assign({}, d, { data: (d.data || []).map(pt => Object.assign({}, pt)) }))
+        : spec.datasets;
+      const xScale = Object.assign({}, spec.xScale, { title: Object.assign({}, spec.xScale.title) });
+      return new Chart(canvas, {
+        type: "scatter",
+        data: { datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: "top" },
+            tooltip: {
+              callbacks: {
+                label(context) {
+                  if (context.dataset.type === "line") return undefined;
+                  const raw = context.raw || {};
+                  const etag = raw.etag ? " (" + raw.etag + ")" : "";
+                  return context.dataset.label + ": " + spec.xLabel + " " +
+                    formatNumber(raw.x, 1) + ", " + spec.yLabel + " " + raw.y + etag;
+                },
+              },
+            },
+            zoom: zoomPlugin(),
+          },
+          scales: {
+            x: xScale,
+            y: { min: spec.yMin, max: spec.yMax, title: { display: true, text: spec.yLabel } },
+          },
+        },
+      });
+    }
+
+    function renderModalChart(canvasId) {
+      const spec = chartSpecs[canvasId];
+      if (!spec || typeof Chart === "undefined") return;
+      if (modalChart) { modalChart.destroy(); modalChart = null; }
+      modalChart = createScatterChart(document.getElementById("chart-modal-canvas"), spec, true);
+    }
+
+    function openChartModal(canvasId) {
+      const spec = chartSpecs[canvasId];
+      if (!spec) return;
+      openModalCanvasId = canvasId;
+      document.getElementById("chart-modal-title").textContent = spec.title || "Chart";
+      document.getElementById("chart-modal").hidden = false;
+      renderModalChart(canvasId);
+    }
+
+    function closeChartModal() {
+      document.getElementById("chart-modal").hidden = true;
+      if (modalChart) { modalChart.destroy(); modalChart = null; }
+      openModalCanvasId = null;
+    }
+
+    function resetInlineZoom(canvasId) {
+      if (canvasId === "genomic-chart" && ageChart) ageChart.resetZoom();
+      if (canvasId === "genomic-chart-2" && traitChart) traitChart.resetZoom();
+    }
+
+    function bindChartUI() {
+      document.querySelectorAll(".chart-expand").forEach(btn => {
+        btn.addEventListener("click", () => openChartModal(btn.dataset.canvas));
+      });
+      document.querySelectorAll(".chart-reset").forEach(btn => {
+        btn.addEventListener("click", () => resetInlineZoom(btn.dataset.canvas));
+      });
+      document.querySelectorAll("#chart-modal [data-close]").forEach(el => {
+        el.addEventListener("click", closeChartModal);
+      });
+      document.getElementById("chart-modal-reset").addEventListener("click", () => {
+        if (modalChart) modalChart.resetZoom();
+      });
+      document.getElementById("chart-modal-canvas").addEventListener("dblclick", () => {
+        if (modalChart) modalChart.resetZoom();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !document.getElementById("chart-modal").hidden) closeChartModal();
+      });
+    }
+
     /**
      * Render a scatter chart with a bright-pink line of best fit drawn in front.
-     * config: { canvasId, statsId, metaId, emptyId, chart, xLabel, yLabel,
+     * config: { canvasId, titleId, statsId, metaId, emptyId, chart, xLabel, yLabel,
      *           points, xMin, xMax, yMin, yMax, count, transformX, statsXLabel }
      */
     function renderScatter(config) {
@@ -241,6 +404,8 @@
         emptyEl.hidden = false;
         statsEl.hidden = true;
         metaEl.textContent = "0 animals with genomic data";
+        chartSpecs[config.canvasId] = null;
+        if (openModalCanvasId === config.canvasId) closeChartModal();
         return null;
       }
 
@@ -291,39 +456,28 @@
       }
 
       const yLabel = config.yLabel;
-      const chart = new Chart(canvas, {
-        type: "scatter",
-        data: { datasets },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { position: "top" },
-            tooltip: {
-              callbacks: {
-                label(context) {
-                  if (context.dataset.type === "line") return undefined;
-                  const raw = context.raw || {};
-                  const etag = raw.etag ? " (" + raw.etag + ")" : "";
-                  return context.dataset.label + ": " + config.xLabel + " " +
-                    formatNumber(raw.x, 1) + ", " + yLabel + " " + raw.y + etag;
-                },
-              },
-            },
-          },
-          scales: {
-            x: xScale,
-            y: {
-              min: yRange.min,
-              max: yRange.max,
-              title: { display: true, text: yLabel },
-            },
-          },
-        },
-      });
+      const spec = {
+        datasets,
+        xScale,
+        yMin: yRange.min,
+        yMax: yRange.max,
+        xLabel: config.xLabel,
+        yLabel: yLabel,
+        title: yLabel + " vs " + config.xLabel,
+      };
+      chartSpecs[config.canvasId] = spec;
+
+      if (config.titleId) {
+        const titleEl = document.getElementById(config.titleId);
+        if (titleEl) titleEl.textContent = spec.title;
+      }
+
+      const chart = createScatterChart(canvas, spec, false);
 
       metaEl.textContent =
         config.count + " animal" + (config.count === 1 ? "" : "s") + " — " + yLabel;
+
+      if (openModalCanvasId === config.canvasId) renderModalChart(config.canvasId);
       return chart;
     }
 
@@ -376,6 +530,7 @@
         const data = await res.json();
         ageChart = renderScatter({
           canvasId: "genomic-chart",
+          titleId: "chart-title-1",
           statsId: "fit-stats",
           metaId: "meta-line",
           emptyId: "empty-state",
@@ -413,6 +568,7 @@
         const data = await res.json();
         traitChart = renderScatter({
           canvasId: "genomic-chart-2",
+          titleId: "chart-title-2",
           statsId: "fit-stats-2",
           metaId: "meta-line-2",
           emptyId: "empty-state-2",
@@ -441,7 +597,16 @@
       loadTraitChart();
     }
 
+    function bindChartReset() {
+      const a = document.getElementById("genomic-chart");
+      if (a) a.addEventListener("dblclick", () => { if (ageChart) ageChart.resetZoom(); });
+      const b = document.getElementById("genomic-chart-2");
+      if (b) b.addEventListener("dblclick", () => { if (traitChart) traitChart.resetZoom(); });
+    }
+
     bindFarmSlicers();
+    bindChartReset();
+    bindChartUI();
     loadTraits().then(loadAll);
   </script>
 {% endblock %}

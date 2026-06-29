@@ -14,6 +14,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.office_admin_routes import router as office_admin_api_router
 from app.api.genetics_routes import router as genetics_api_router
+from app.api.nml_routes import router as nml_api_router
 from app.api.events_routes import router as events_api_router
 from app.api.feed_rate_routes import router as feed_rate_api_router
 from app.api.feedlync_routes import router as feedlync_api_router
@@ -33,8 +34,10 @@ from app.auth.permissions import (
     ACTION_HR_VIEW_SENSITIVE,
     PAGE_EVENTS,
     PAGE_FEED_RATE,
+    ACTION_MILK_QUALITY_IMPORT,
     PAGE_GENETICS,
     PAGE_HR,
+    PAGE_MILK_QUALITY,
     PAGE_OFFICE_ADMIN,
     PAGE_PROSTOCK,
     PAGE_STOCK_INVENTORY,
@@ -71,6 +74,17 @@ app.add_middleware(
     same_site="lax",
 )
 
+
+@app.middleware("http")
+async def _no_cache_html(request: Request, call_next):
+    """Stop browsers serving stale HTML pages (cached markup/inline scripts)."""
+    response = await call_next(request)
+    content_type = response.headers.get("content-type", "")
+    if content_type.startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
 app.include_router(api_router)
 app.include_router(prostock_api_router)
 app.include_router(herd_api_router)
@@ -80,6 +94,7 @@ app.include_router(feed_rate_api_router)
 app.include_router(feedlync_api_router)
 app.include_router(office_admin_api_router)
 app.include_router(genetics_api_router)
+app.include_router(nml_api_router)
 app.include_router(admin_api_router)
 app.include_router(hr_api_router)
 
@@ -108,6 +123,10 @@ _HR_BREADCRUMB = (
 _GENETICS_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/genetics/genomic-progress">Genetics</a>'
+)
+_MILK_QUALITY_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/milk-quality/results">Milk Quality</a>'
 )
 
 _login_attempts: dict[str, list[float]] = defaultdict(list)
@@ -233,6 +252,19 @@ def _genetics_context(title: str, active_nav: str, page_name: str | None = None)
         "title": title,
         "active_nav_group": "genetics",
         "active_section": "genetics",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _milk_quality_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _MILK_QUALITY_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "milk-quality",
+        "active_section": "milk-quality",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -985,6 +1017,31 @@ def genetics_sire_conflicts_page(request: Request):
                 "Sire Conflicts",
                 "sire-conflicts",
                 "Sire Conflicts",
+            ),
+        ),
+    )
+
+
+@app.get("/milk-quality/results", response_class=HTMLResponse)
+def milk_quality_results_page(request: Request):
+    if denied := _page_guard(request, PAGE_MILK_QUALITY):
+        return denied
+    from app.config import NML_LOOKBACK_DAYS
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "milk_quality/results.html",
+        _template_ctx(
+            request,
+            page_heading="Milk Quality Results",
+            farm_options=list(HERD_FARM_OPTIONS),
+            can_import=has_action(request.state.user, ACTION_MILK_QUALITY_IMPORT),
+            lookback_days=NML_LOOKBACK_DAYS,
+            **_milk_quality_context(
+                "Milk Quality Results",
+                "nml-results",
+                "Results",
             ),
         ),
     )

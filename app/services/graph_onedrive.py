@@ -20,7 +20,9 @@ from app.config import (
 _TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
 _GRAPH_SCOPE = "https://graph.microsoft.com/.default"
 
-_token_cache: dict[str, float | str] = {"access_token": "", "expires_at": 0.0}
+# Access tokens cached per client_id so multiple app registrations (e.g. a
+# second tenant for the Cwrt Malle mailbox) can be used side by side.
+_token_cache: dict[str, dict[str, float | str]] = {}
 
 
 class GraphConfigError(ValueError):
@@ -51,17 +53,25 @@ def _require_graph_config() -> None:
         )
 
 
-def get_access_token() -> str:
-    _require_graph_config()
-    now = time.time()
-    cached = _token_cache.get("access_token", "")
-    if cached and now < float(_token_cache.get("expires_at", 0)) - 60:
-        return str(cached)
+def get_access_token_for(tenant_id: str, client_id: str, client_secret: str) -> str:
+    """Client-credentials access token for a specific app registration.
 
-    url = _TOKEN_URL.format(tenant=GRAPH_TENANT_ID)
+    Tokens are cached per client_id so several tenants can be used at once.
+    """
+    if not (tenant_id and client_id and client_secret):
+        raise GraphConfigError(
+            "Missing Graph credentials (tenant_id, client_id, client_secret)."
+        )
+
+    now = time.time()
+    cached = _token_cache.get(client_id)
+    if cached and now < float(cached.get("expires_at", 0)) - 60:
+        return str(cached.get("access_token", ""))
+
+    url = _TOKEN_URL.format(tenant=tenant_id)
     data = {
-        "client_id": GRAPH_CLIENT_ID,
-        "client_secret": GRAPH_CLIENT_SECRET,
+        "client_id": client_id,
+        "client_secret": client_secret,
         "scope": _GRAPH_SCOPE,
         "grant_type": "client_credentials",
     }
@@ -72,9 +82,14 @@ def get_access_token() -> str:
 
     token = payload["access_token"]
     expires_in = int(payload.get("expires_in", 3600))
-    _token_cache["access_token"] = token
-    _token_cache["expires_at"] = now + expires_in
+    _token_cache[client_id] = {"access_token": token, "expires_at": now + expires_in}
     return token
+
+
+def get_access_token() -> str:
+    """Access token for the default (Green Acre) app registration."""
+    _require_graph_config()
+    return get_access_token_for(GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET)
 
 
 def herd_file_relative_path(*parts: str) -> str:

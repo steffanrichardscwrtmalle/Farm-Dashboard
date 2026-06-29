@@ -41,6 +41,7 @@ def init_db() -> None:
     _migrate_herd_inventory_schema()
     _migrate_pedigree_registration_schema()
     _migrate_genomic_results_schema()
+    _migrate_nml_results_schema()
     _migrate_cow_events_schema()
     _dedupe_fresh_cow_events()
     _migrate_sales_payments_schema()
@@ -182,6 +183,22 @@ def _migrate_genomic_results_schema() -> None:
                 conn.execute(
                     text(f"ALTER TABLE genomic_results ADD COLUMN {name} {col_type}")
                 )
+
+
+def _migrate_nml_results_schema() -> None:
+    """nml_milk_results is created via metadata; ensure helpful indexes exist."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    inspector = inspect(engine)
+    if "nml_milk_results" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_nml_farm_sample_date "
+                "ON nml_milk_results (farm, sample_date)"
+            )
+        )
 
 
 def _migrate_cow_events_schema() -> None:

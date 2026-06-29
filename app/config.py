@@ -52,6 +52,27 @@ LOCAL_HERD_EXPORT_DIR = os.getenv("LOCAL_HERD_EXPORT_DIR", "").strip()
 # Secured import endpoint for cron / automation
 IMPORT_API_KEY = os.getenv("IMPORT_API_KEY", "").strip()
 
+# NML milk-quality results (emailed PDF reports from National Milk Laboratories).
+# Each farm's results arrive in a separate mailbox; requires Graph Mail.Read.
+NML_SENDER = os.getenv("NML_SENDER", "milk.autoemail@nationalmilklabs.com").strip().lower()
+NML_MAILBOX_GAD = os.getenv("NML_MAILBOX_GAD", "steff@greenacredairy.co.uk").strip().lower()
+NML_MAILBOX_CM = os.getenv("NML_MAILBOX_CM", "steff@cwrtmalle.co.uk").strip().lower()
+# How many days of mail to scan on each import run.
+NML_LOOKBACK_DAYS = int(os.getenv("NML_LOOKBACK_DAYS", "30"))
+# Optional local folder of PDFs for development (skips Graph mail when set).
+LOCAL_NML_DIR = os.getenv("LOCAL_NML_DIR", "").strip()
+
+# Cwrt Malle mailbox lives in a separate Microsoft 365 tenant, so it needs its
+# own app registration (Mail.Read). When these are set, the CM mailbox is read
+# with these credentials; the GAD mailbox keeps using the GRAPH_* app above.
+GRAPH_TENANT_ID_CM = os.getenv("GRAPH_TENANT_ID_CM", "").strip()
+GRAPH_CLIENT_ID_CM = os.getenv("GRAPH_CLIENT_ID_CM", "").strip()
+GRAPH_CLIENT_SECRET_CM = os.getenv("GRAPH_CLIENT_SECRET_CM", "").strip()
+
+
+def graph_cm_is_configured() -> bool:
+    return bool(GRAPH_TENANT_ID_CM and GRAPH_CLIENT_ID_CM and GRAPH_CLIENT_SECRET_CM)
+
 # Feedlync API (refresh token from browser MSAL storage after logging in once)
 FEEDLYNC_REFRESH_TOKEN = os.getenv("FEEDLYNC_REFRESH_TOKEN", "").strip()
 FEEDLYNC_FARM_ID = os.getenv("FEEDLYNC_FARM_ID", "").strip()
