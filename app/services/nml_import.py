@@ -3,7 +3,7 @@
 Sources, in priority order:
 * LOCAL_NML_DIR - a local folder of PDFs (development; skips Graph mail).
 * Microsoft Graph mail - the configured per-farm mailboxes, reading PDF
-  attachments sent by NML_SENDER within the lookback window.
+  attachments from NML_SENDER_DOMAIN within the lookback window.
 
 Rows are keyed by (producer_ref, sample_date, sample_id) so re-importing the
 same report (or an overlapping lookback window) updates rather than duplicates.
@@ -28,13 +28,13 @@ from app.config import (
     NML_LOOKBACK_DAYS,
     NML_MAILBOX_CM,
     NML_MAILBOX_GAD,
-    NML_SENDER,
+    NML_SENDER_DOMAIN,
     graph_cm_is_configured,
 )
 from app.models import NmlMilkResult
-from app.services.graph_mail import iter_pdf_attachments
+from app.services.graph_mail import iter_nml_pdf_attachments
 from app.services.graph_onedrive import get_access_token_for, graph_is_configured
-from app.services.nml_pdf import farm_for_producer_ref, parse_nml_pdf
+from app.services.nml_pdf import parse_nml_pdf
 
 _SAMPLE_FIELDS = (
     "butterfat_pct",
@@ -65,12 +65,18 @@ def _mailbox_error_message(farm: str, mailbox: str, exc: Exception) -> str:
                 f"{farm} ({mailbox}): authentication failed (401). "
                 "Check GRAPH_CLIENT_SECRET for this tenant."
             )
+        detail = ""
+        try:
+            msg = exc.response.json().get("error", {}).get("message", "")
+            if msg:
+                detail = f" {msg}"
+        except Exception:
+            pass
         if status == 400:
             return (
-                f"{farm} ({mailbox}): Graph rejected the mail query (400). "
-                f"{exc.response.text[:200]}"
+                f"{farm} ({mailbox}): Graph rejected the mail query (400).{detail}"
             )
-        return f"{farm} ({mailbox}): Graph mail request failed ({status})."
+        return f"{farm} ({mailbox}): Graph mail request failed ({status}).{detail}"
     if isinstance(exc, FileNotFoundError):
         return f"{farm} ({mailbox}): {exc}"
     return f"{farm} ({mailbox}): {type(exc).__name__}: {exc}"
@@ -99,13 +105,14 @@ def _iter_sources(
             }
         return
 
-    # The Cwrt Malle mailbox lives in its own tenant; use that app's token when
-    # configured, otherwise fall back to the default app (same-tenant setups).
     cm_token = None
     if graph_cm_is_configured():
-        cm_token = get_access_token_for(
-            GRAPH_TENANT_ID_CM, GRAPH_CLIENT_ID_CM, GRAPH_CLIENT_SECRET_CM
-        )
+        try:
+            cm_token = get_access_token_for(
+                GRAPH_TENANT_ID_CM, GRAPH_CLIENT_ID_CM, GRAPH_CLIENT_SECRET_CM
+            )
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(_mailbox_error_message("CM", NML_MAILBOX_CM, exc))
 
     mailboxes = [
         (NML_MAILBOX_GAD, "GAD", None),
@@ -113,10 +120,16 @@ def _iter_sources(
     ]
     for mailbox, farm, token in mailboxes:
         if not mailbox:
+            warnings.append(f"{farm}: mailbox not configured (set NML_MAILBOX_{farm}).")
+            continue
+        if farm == "CM" and token is None and graph_cm_is_configured():
             continue
         try:
-            for attachment in iter_pdf_attachments(
-                mailbox, sender=NML_SENDER, since=since, token=token
+            for attachment in iter_nml_pdf_attachments(
+                mailbox,
+                sender_domain=NML_SENDER_DOMAIN,
+                since=since,
+                token=token,
             ):
                 yield {
                     "content": attachment["content"],
@@ -156,16 +169,22 @@ def import_nml_results(
     warnings: list[str] = []
 
     for source in _iter_sources(warnings, since):
+        source_file = source.get("source_file") or "unknown"
         try:
             result = parse_nml_pdf(source["content"])
         except Exception:  # noqa: BLE001 - a single bad PDF must not abort the run
             files_skipped += 1
+            warnings.append(f"{source_file}: could not read PDF")
             continue
 
         metadata = result["metadata"]
         producer_ref = (metadata.get("producer_ref") or "").strip()
         if not producer_ref or not result["samples"]:
             files_skipped += 1
+            if not producer_ref:
+                warnings.append(f"{source_file}: no producer reference found")
+            else:
+                warnings.append(f"{source_file}: no sample rows found")
             continue
 
         files_processed += 1
@@ -181,7 +200,7 @@ def import_nml_results(
                 "report_month": metadata.get("report_month"),
                 "report_date": metadata.get("report_date"),
                 "source_message_id": source.get("message_id"),
-                "source_file": source.get("source_file"),
+                "source_file": source_file,
             }
             for field in _SAMPLE_FIELDS:
                 record[field] = sample.get(field)

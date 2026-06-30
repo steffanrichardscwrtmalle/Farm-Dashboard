@@ -55,8 +55,19 @@ IMPORT_API_KEY = os.getenv("IMPORT_API_KEY", "").strip()
 # NML milk-quality results (emailed PDF reports from National Milk Laboratories).
 # Each farm's results arrive in a separate mailbox; requires Graph Mail.Read.
 NML_SENDER = os.getenv("NML_SENDER", "milk.autoemail@nationalmilklabs.com").strip().lower()
-NML_MAILBOX_GAD = os.getenv("NML_MAILBOX_GAD", "steff@greenacredairy.co.uk").strip().lower()
-NML_MAILBOX_CM = os.getenv("NML_MAILBOX_CM", "steff@cwrtmalle.co.uk").strip().lower()
+NML_SENDER_DOMAIN = os.getenv(
+    "NML_SENDER_DOMAIN", "nationalmilklabs.com"
+).strip().lower().lstrip("@")
+
+
+def _env_mailbox(var_name: str, default: str) -> str:
+    """Read a mailbox address; treat blank env overrides as unset."""
+    value = os.getenv(var_name, default).strip().lower()
+    return value or default.strip().lower()
+
+
+NML_MAILBOX_GAD = _env_mailbox("NML_MAILBOX_GAD", "steff@greenacredairy.co.uk")
+NML_MAILBOX_CM = _env_mailbox("NML_MAILBOX_CM", "steff@cwrtmalle.co.uk")
 # How many days of mail to scan on each import run.
 NML_LOOKBACK_DAYS = int(os.getenv("NML_LOOKBACK_DAYS", "30"))
 # Optional local folder of PDFs for development (skips Graph mail when set).

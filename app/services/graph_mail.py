@@ -238,6 +238,92 @@ def iter_statement_attachments(
             )
 
 
+def iter_nml_pdf_attachments(
+    mailbox: str,
+    *,
+    sender_domain: str,
+    since: dt.datetime,
+    token: str | None = None,
+) -> Iterator[dict]:
+    """Yield NML report PDFs from a mailbox.
+
+  Pass 1 matches ``@sender_domain`` in Python (reliable across address casing).
+  Pass 2 matches ``National Milk`` in the subject for forwarded reports.
+    """
+    if token is None:
+        token = get_access_token()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    seen_message_ids: set[str] = set()
+    ext = (".pdf",)
+    ctypes = ("application/pdf",)
+
+    def skip_ids() -> frozenset[str]:
+        return frozenset(seen_message_ids)
+
+    def track(attachment: dict) -> dict:
+        message_id = attachment.get("message_id")
+        if message_id:
+            seen_message_ids.add(message_id)
+        return attachment
+
+    for attachment in iter_attachments(
+        mailbox,
+        sender_domain=sender_domain,
+        skip_message_ids=skip_ids(),
+        since=since,
+        extensions=ext,
+        content_types=ctypes,
+        token=token,
+    ):
+        yield track(attachment)
+
+    clauses = [
+        "contains(subject,'National Milk')",
+        "hasAttachments eq true",
+        f"receivedDateTime ge {_iso_utc(since)}",
+    ]
+    filter_expr = " and ".join(clauses)
+    filter_safe = "()/',: "
+    url = (
+        f"{_GRAPH_BASE}/users/{quote(mailbox)}/messages"
+        f"?$filter={quote(filter_expr, safe=filter_safe)}"
+        f"&$select=id,subject,receivedDateTime,from,hasAttachments"
+        f"&$top={_PAGE_SIZE}"
+        f"&$count=true"
+    )
+    advanced_headers = {**headers, "ConsistencyLevel": "eventual"}
+    with httpx.Client(timeout=120.0, follow_redirects=True) as client:
+        try:
+            while url:
+                response = client.get(url, headers=advanced_headers)
+                if response.status_code == 404:
+                    raise FileNotFoundError(f"Mailbox not found: {mailbox}")
+                if response.status_code == 400:
+                    logger.warning(
+                        "Graph NML subject filter unavailable for %s; domain pass only",
+                        mailbox,
+                    )
+                    break
+                response.raise_for_status()
+                payload = response.json()
+                for message in payload.get("value", []):
+                    message_id = message.get("id")
+                    if not message_id or message_id in skip_ids():
+                        continue
+                    seen_message_ids.add(message_id)
+                    for attachment in _iter_message_attachments(
+                        client, headers, mailbox, message, ext, ctypes
+                    ):
+                        yield track(attachment)
+                url = payload.get("@odata.nextLink")
+        except httpx.HTTPStatusError:
+            logger.warning(
+                "NML subject search failed for %s; domain pass only",
+                mailbox,
+            )
+
+
 def iter_pdf_attachments(
     mailbox: str,
     *,
