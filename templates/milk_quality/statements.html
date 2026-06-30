@@ -106,6 +106,8 @@
       <div class="action-bar">
         {% if can_import %}
         <button type="button" class="small" id="import-btn">Import from email</button>
+        <button type="button" class="secondary small" id="upload-btn">Upload PDF</button>
+        <input type="file" id="upload-input" accept="application/pdf,.pdf" multiple hidden>
         <label class="import-scope">
           <span>Range</span>
           <select id="import-scope" title="How far back to scan the mailbox">
@@ -207,6 +209,37 @@
     `;
   }
 
+  function showImportResult(data) {
+    const warnings = data.warnings || [];
+    let msg = "Imported " + (data.rows_total || 0) + " month(s) (" +
+      (data.rows_inserted || 0) + " new, " + (data.rows_updated || 0) + " updated).";
+    if (warnings.length) {
+      msg += " " + warnings.length + " warning(s):";
+      showMessageWithList(msg, warnings, false);
+    } else {
+      showMessage(msg, false);
+    }
+  }
+
+  async function handleApiResponse(res) {
+    if (res.status === 401) {
+      showMessage("Your session has expired. Redirecting to login…", true);
+      setTimeout(() => {
+        window.location.href = "/login?next=" + encodeURIComponent(window.location.pathname);
+      }, 1200);
+      return null;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 403) {
+      throw new Error(data.detail || "You do not have permission to import statements.");
+    }
+    if (!res.ok) {
+      const detail = data.detail;
+      throw new Error(typeof detail === "string" ? detail : "Request failed");
+    }
+    return data;
+  }
+
   function populateFiscalYears(options, selected) {
     fySelect.innerHTML = "";
     if (!options.length) options = [selected];
@@ -297,37 +330,56 @@
       const label = btn.textContent;
       btn.disabled = true;
       btn.textContent = "Importing…";
-      showMessage(days ? ("Importing last " + days + " days…") : "Importing from email…", false);
+      showMessage(
+        (days ? "Importing last " + days + " days…" : "Importing from email…") +
+          (days && days > 200 ? " Large scans can take a minute or two." : ""),
+        false
+      );
       try {
         const url = "/api/milk-statements/import" + (days ? "?days=" + encodeURIComponent(days) : "");
         const res = await fetch(url, { method: "POST", credentials: "same-origin" });
-        if (res.status === 401) {
-          showMessage("Your session has expired. Redirecting to login…", true);
-          setTimeout(() => {
-            window.location.href = "/login?next=" + encodeURIComponent(window.location.pathname);
-          }, 1200);
-          return;
-        }
-        const data = await res.json().catch(() => ({}));
-        if (res.status === 403) {
-          throw new Error(data.detail || "You do not have permission to import statements.");
-        }
-        if (!res.ok) {
-          const detail = data.detail;
-          throw new Error(typeof detail === "string" ? detail : "Import failed");
-        }
-        const warnings = data.warnings || [];
-        let msg = "Imported " + (data.rows_total || 0) + " month(s) (" +
-          (data.rows_inserted || 0) + " new, " + (data.rows_updated || 0) + " updated).";
-        if (warnings.length) {
-          msg += " " + warnings.length + " warning(s):";
-          showMessageWithList(msg, warnings, false);
-        } else {
-          showMessage(msg, false);
-        }
+        const data = await handleApiResponse(res);
+        if (!data) return;
+        showImportResult(data);
         await refresh();
       } catch (err) {
-        showMessage(err.message || "Import failed", true);
+        const hint = days && days > 200
+          ? " The scan may have timed out — try a smaller range (e.g. 90–180 days) and run it again; already-imported months are skipped, so it's safe to repeat."
+          : "";
+        showMessage((err.message || "Import failed") + hint, true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    });
+
+    const uploadInput = document.getElementById("upload-input");
+    document.getElementById("upload-btn").addEventListener("click", () => uploadInput.click());
+    uploadInput.addEventListener("change", async function () {
+      const files = [...this.files];
+      this.value = "";
+      if (!files.length) return;
+      const btn = document.getElementById("upload-btn");
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Uploading…";
+      showMessage("Uploading " + files.length + " PDF(s)…", false);
+      try {
+        const form = new FormData();
+        for (const file of files) {
+          form.append("files", file);
+        }
+        const res = await fetch("/api/milk-statements/upload", {
+          method: "POST",
+          credentials: "same-origin",
+          body: form,
+        });
+        const data = await handleApiResponse(res);
+        if (!data) return;
+        showImportResult(data);
+        await refresh();
+      } catch (err) {
+        showMessage(err.message || "Upload failed", true);
       } finally {
         btn.disabled = false;
         btn.textContent = label;

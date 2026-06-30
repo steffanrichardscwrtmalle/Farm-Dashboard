@@ -11,10 +11,17 @@ from __future__ import annotations
 
 import datetime as dt
 import io
+import logging
 import re
 from typing import Any
 
 import pdfplumber
+
+# pdfminer (used by pdfplumber) logs a WARNING for every glyph in fonts that lack
+# a FontBBox ("Could not get FontBBox ... None cannot be parsed as 4 floats").
+# These are harmless but flood production logs, so quiet pdfminer to errors only.
+for _noisy in ("pdfminer", "pdfminer.pdffont", "pdfminer.pdfinterp"):
+    logging.getLogger(_noisy).setLevel(logging.ERROR)
 
 SUPPLIER_FRESHWAYS = "freshways"
 SUPPLIER_DAIRY_PARTNERS = "dairy_partners"

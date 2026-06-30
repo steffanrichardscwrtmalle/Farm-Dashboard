@@ -19,4 +19,4 @@ RUN mkdir -p data
 ENV PORT=8000
 EXPOSE 8000
 
-CMD gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${PORT} --workers 1 --timeout 120
+CMD gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${PORT} --workers 1 --timeout 300

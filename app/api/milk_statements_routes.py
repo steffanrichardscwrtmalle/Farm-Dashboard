@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -16,7 +16,7 @@ from app.auth.permissions import (
 from app.db import get_db
 from app.models import MilkStatement, User
 from app.services.milk_statements import list_milk_statements
-from app.services.milk_statements_import import import_milk_statements
+from app.services.milk_statements_import import import_milk_statements, upload_milk_statement_pdfs
 
 router = APIRouter(prefix="/api/milk-statements")
 
@@ -62,5 +62,23 @@ def api_import_milk_statements(
         return import_milk_statements(db, full_history=full_history, days=days)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/upload")
+async def api_upload_milk_statements(
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    _: None = Depends(require_import_or_any_action(*MILK_IMPORT_ACTIONS)),
+):
+    if not files:
+        raise HTTPException(status_code=400, detail="No PDF files provided")
+    payloads: list[tuple[str, bytes]] = []
+    for upload in files:
+        content = await upload.read()
+        payloads.append((upload.filename or "upload.pdf", content))
+    try:
+        return upload_milk_statement_pdfs(db, payloads)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

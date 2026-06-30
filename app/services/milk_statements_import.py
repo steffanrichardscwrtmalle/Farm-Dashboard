@@ -93,7 +93,9 @@ def _mailbox_error_message(farm: str, mailbox: str, exc: Exception) -> str:
 
 
 def _iter_sources(
-    warnings: list[str], since: dt.datetime
+    warnings: list[str],
+    since: dt.datetime,
+    skip_message_ids: frozenset[str] = frozenset(),
 ) -> Iterator[dict[str, Any]]:
     if LOCAL_STATEMENTS_DIR:
         folder = Path(LOCAL_STATEMENTS_DIR)
@@ -129,6 +131,7 @@ def _iter_sources(
                 mailbox,
                 sender_domain=domain,
                 extra_senders=STATEMENTS_EXTRA_SENDERS,
+                skip_message_ids=skip_message_ids,
                 since=since,
                 extensions=(".pdf",),
                 content_types=("application/pdf",),
@@ -162,6 +165,73 @@ def _record_is_complete(fields: dict[str, Any]) -> bool:
     )
 
 
+def _ingest_one_pdf(
+    content: bytes,
+    *,
+    source_file: str,
+    source_message_id: str | None,
+    source_received: dt.datetime | None,
+    mailbox_farm: str | None,
+    parsed_by_key: dict[tuple[str, dt.date], dict[str, Any]],
+    warnings: list[str],
+) -> bool:
+    """Parse one PDF and stage it in ``parsed_by_key``. Returns True on success."""
+    try:
+        result = parse_milk_statement_pdf(
+            content, default_haulage=STATEMENTS_DEFAULT_HAULAGE
+        )
+    except Exception:  # noqa: BLE001
+        warnings.append(f"Failed to parse PDF: {source_file}")
+        return False
+
+    fields = dict(result.get("fields") or {})
+    file_warnings = list(result.get("warnings") or [])
+    if not _record_is_complete(fields):
+        for w in file_warnings:
+            warnings.append(f"{source_file}: {w}")
+        if not file_warnings:
+            warnings.append(f"{source_file}: incomplete statement data")
+        return False
+
+    received = _parse_received(source_received)
+    farm = fields.get("farm") or mailbox_farm
+    month = fields["statement_month"]
+    key = (farm, month)
+    record: dict[str, Any] = {
+        "farm": farm,
+        "statement_month": month,
+        "source_message_id": source_message_id,
+        "source_file": source_file,
+        "source_received": received,
+    }
+    for field in _STATEMENT_FIELDS:
+        record[field] = fields.get(field)
+
+    existing = parsed_by_key.get(key)
+    if existing is None or _is_newer(received, existing.get("source_received")):
+        parsed_by_key[key] = record
+    return True
+
+
+def _import_result(
+    *,
+    files_processed: int,
+    files_skipped: int,
+    inserted: int,
+    updated: int,
+    warnings: list[str],
+) -> dict[str, Any]:
+    return {
+        "files_processed": files_processed,
+        "files_skipped": files_skipped,
+        "rows_inserted": inserted,
+        "rows_updated": updated,
+        "rows_total": inserted + updated,
+        "warnings": warnings,
+        "imported_at": dt.datetime.now().isoformat(timespec="seconds"),
+    }
+
+
 def import_milk_statements(
     db: Session, *, full_history: bool = False, days: int | None = None
 ) -> dict[str, Any]:
@@ -180,63 +250,108 @@ def import_milk_statements(
             days=STATEMENTS_LOOKBACK_DAYS
         )
 
+    # Skip emails we have already imported so re-runs (and large backfills that
+    # span multiple runs) stay cheap and avoid re-parsing PDFs.
+    skip_message_ids = frozenset(
+        mid
+        for mid in db.scalars(
+            select(MilkStatement.source_message_id).where(
+                MilkStatement.source_message_id.isnot(None)
+            )
+        ).all()
+        if mid and mid != "manual-upload"
+    )
+
+    files_processed = 0
+    files_skipped = 0
+    inserted = 0
+    updated = 0
+    warnings: list[str] = []
+    batch: dict[tuple[str, dt.date], dict[str, Any]] = {}
+
+    def flush() -> None:
+        nonlocal inserted, updated, batch
+        if not batch:
+            return
+        ins, upd = _upsert(db, batch)
+        db.commit()  # Commit per batch so a worker timeout/kill keeps progress.
+        inserted += ins
+        updated += upd
+        batch = {}
+
+    for source in _iter_sources(warnings, since, skip_message_ids):
+        if _ingest_one_pdf(
+            source["content"],
+            source_file=source.get("source_file") or "unknown",
+            source_message_id=source.get("message_id"),
+            source_received=source.get("received"),
+            mailbox_farm=source.get("mailbox_farm"),
+            parsed_by_key=batch,
+            warnings=warnings,
+        ):
+            files_processed += 1
+        else:
+            files_skipped += 1
+        if len(batch) >= 20:
+            flush()
+
+    flush()
+
+    return _import_result(
+        files_processed=files_processed,
+        files_skipped=files_skipped,
+        inserted=inserted,
+        updated=updated,
+        warnings=warnings,
+    )
+
+
+def upload_milk_statement_pdfs(
+    db: Session, files: list[tuple[str, bytes]]
+) -> dict[str, Any]:
+    """Import one or more statement PDFs uploaded through the dashboard."""
+    if not files:
+        raise ValueError("No PDF files provided")
+
+    now = dt.datetime.now()
     parsed_by_key: dict[tuple[str, dt.date], dict[str, Any]] = {}
     files_processed = 0
     files_skipped = 0
     warnings: list[str] = []
 
-    for source in _iter_sources(warnings, since):
-        try:
-            result = parse_milk_statement_pdf(
-                source["content"], default_haulage=STATEMENTS_DEFAULT_HAULAGE
-            )
-        except Exception:  # noqa: BLE001
+    for filename, content in files:
+        name = (filename or "upload.pdf").strip() or "upload.pdf"
+        if not name.lower().endswith(".pdf"):
+            warnings.append(f"{name}: not a PDF file")
             files_skipped += 1
-            warnings.append(f"Failed to parse PDF: {source.get('source_file')}")
             continue
-
-        fields = dict(result.get("fields") or {})
-        file_warnings = list(result.get("warnings") or [])
-        if not _record_is_complete(fields):
+        if not content:
+            warnings.append(f"{name}: empty file")
             files_skipped += 1
-            label = source.get("source_file") or "unknown"
-            for w in file_warnings:
-                warnings.append(f"{label}: {w}")
-            if not file_warnings:
-                warnings.append(f"{label}: incomplete statement data")
             continue
-
-        files_processed += 1
-        received = _parse_received(source.get("received"))
-        farm = fields.get("farm") or source.get("mailbox_farm")
-        month = fields["statement_month"]
-        key = (farm, month)
-        record: dict[str, Any] = {
-            "farm": farm,
-            "statement_month": month,
-            "source_message_id": source.get("message_id"),
-            "source_file": source.get("source_file"),
-            "source_received": received,
-        }
-        for field in _STATEMENT_FIELDS:
-            record[field] = fields.get(field)
-
-        existing = parsed_by_key.get(key)
-        if existing is None or _is_newer(received, existing.get("source_received")):
-            parsed_by_key[key] = record
+        if _ingest_one_pdf(
+            content,
+            source_file=name,
+            source_message_id="manual-upload",
+            source_received=now,
+            mailbox_farm=None,
+            parsed_by_key=parsed_by_key,
+            warnings=warnings,
+        ):
+            files_processed += 1
+        else:
+            files_skipped += 1
 
     inserted, updated = _upsert(db, parsed_by_key)
     db.commit()
 
-    return {
-        "files_processed": files_processed,
-        "files_skipped": files_skipped,
-        "rows_inserted": inserted,
-        "rows_updated": updated,
-        "rows_total": inserted + updated,
-        "warnings": warnings,
-        "imported_at": dt.datetime.now().isoformat(timespec="seconds"),
-    }
+    return _import_result(
+        files_processed=files_processed,
+        files_skipped=files_skipped,
+        inserted=inserted,
+        updated=updated,
+        warnings=warnings,
+    )
 
 
 def _upsert(

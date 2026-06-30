@@ -40,6 +40,7 @@ def iter_attachments(
     sender: str | None = None,
     sender_domain: str | None = None,
     extra_senders: tuple[str, ...] = (),
+    skip_message_ids: frozenset[str] = frozenset(),
     since: dt.datetime,
     extensions: tuple[str, ...],
     content_types: tuple[str, ...] = (),
@@ -102,6 +103,8 @@ def iter_attachments(
                 reverse=True,
             )
             for message in messages:
+                if message.get("id") in skip_message_ids:
+                    continue
                 if domain_suffix or allowed_senders:
                     addr = _message_sender(message)
                     domain_ok = bool(domain_suffix) and addr.endswith(domain_suffix)
