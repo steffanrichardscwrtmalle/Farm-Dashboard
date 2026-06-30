@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
+import logging
 from collections.abc import Callable, Iterator
 from urllib.parse import quote
 
@@ -17,6 +18,7 @@ from app.services.graph_onedrive import get_access_token
 
 _GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 _PAGE_SIZE = 50
+logger = logging.getLogger(__name__)
 
 
 def _iso_utc(value: dt.datetime) -> str:
@@ -44,6 +46,7 @@ def iter_attachments(
     extensions: tuple[str, ...],
     content_types: tuple[str, ...] = (),
     token: str | None = None,
+    on_progress: Callable[[str, int, int], None] | None = None,
 ) -> Iterator[dict]:
     """Yield attachments matching ``extensions``/``content_types`` from a mailbox.
 
@@ -83,6 +86,12 @@ def iter_attachments(
     ext = tuple(e.lower() for e in extensions)
     ctypes = tuple(c.lower() for c in content_types)
     domain_suffix = ("@" + sender_domain.lstrip("@").lower()) if sender_domain else None
+    messages_checked = 0
+    pdfs_found = 0
+
+    def report(phase: str) -> None:
+        if on_progress:
+            on_progress(phase, messages_checked, pdfs_found)
 
     with httpx.Client(timeout=120.0, follow_redirects=True) as client:
         while url:
@@ -103,9 +112,14 @@ def iter_attachments(
                     addr = _message_sender(message)
                     if not addr.endswith(domain_suffix):
                         continue
-                yield from _iter_message_attachments(
+                messages_checked += 1
+                if messages_checked % 5 == 0:
+                    report("Scanning mailbox")
+                for attachment in _iter_message_attachments(
                     client, headers, mailbox, message, ext, ctypes
-                )
+                ):
+                    pdfs_found += 1
+                    yield attachment
             url = payload.get("@odata.nextLink")
 
 
@@ -120,18 +134,17 @@ def iter_statement_attachments(
     token: str | None = None,
     on_progress: Callable[[str, int, int], None] | None = None,
 ) -> Iterator[dict]:
-    """Yield statement PDFs filtered by buyer sender domain on the server.
+    """Yield statement PDFs from buyer-domain mail plus forwarded statement emails.
 
-    Uses Graph advanced ``$filter`` with ``endswith(from/emailAddress/address)``
-    so we do not page through every attachment in the mailbox.
+    Pass 1 filters by sender domain in Python (same approach as haulier import).
+    Pass 2 picks up ``Milk Statement`` subjects when the sender is not the buyer
+    (e.g. internal forwards) so monthly statements are not missed.
     """
     if token is None:
         token = get_access_token()
     headers = {"Authorization": f"Bearer {token}"}
 
-    ext = tuple(e.lower() for e in extensions)
-    ctypes = tuple(c.lower() for c in content_types)
-    seen_ids: set[str] = set()
+    seen_message_ids: set[str] = set()
     messages_checked = 0
     pdfs_found = 0
 
@@ -139,37 +152,22 @@ def iter_statement_attachments(
         if on_progress:
             on_progress(phase, messages_checked, pdfs_found)
 
-    def consider_message(
-        client: httpx.Client,
-        message: dict,
-    ) -> Iterator[dict]:
-        nonlocal messages_checked, pdfs_found
-        message_id = message.get("id")
-        if not message_id or message_id in skip_message_ids or message_id in seen_ids:
-            return
-        if message.get("hasAttachments") is False:
-            return
-        received_raw = message.get("receivedDateTime") or ""
-        if received_raw:
-            try:
-                received_dt = dt.datetime.fromisoformat(
-                    received_raw.replace("Z", "+00:00")
-                )
-                if received_dt.tzinfo is None:
-                    received_dt = received_dt.replace(tzinfo=dt.timezone.utc)
-                if received_dt < since.replace(tzinfo=dt.timezone.utc):
-                    return
-            except ValueError:
-                pass
-        seen_ids.add(message_id)
-        messages_checked += 1
-        if messages_checked % 5 == 0:
-            report("Scanning mailbox")
-        for attachment in _iter_message_attachments(
-            client, headers, mailbox, message, ext, ctypes
-        ):
-            pdfs_found += 1
-            yield attachment
+    def skip_ids() -> frozenset[str]:
+        return skip_message_ids | frozenset(seen_message_ids)
+
+    def track(attachment: dict) -> dict:
+        nonlocal pdfs_found
+        message_id = attachment.get("message_id")
+        if message_id:
+            seen_message_ids.add(message_id)
+        pdfs_found += 1
+        return attachment
+
+    def domain_progress(phase: str, _messages: int, _pdfs: int) -> None:
+        nonlocal messages_checked
+        messages_checked = _messages
+        pdfs_found = _pdfs
+        report(phase)
 
     with httpx.Client(timeout=120.0, follow_redirects=True) as client:
         for domain in sender_domains:
@@ -177,83 +175,67 @@ def iter_statement_attachments(
             if not domain:
                 continue
             report(f"Searching {domain}")
-            # Server-side sender filter via advanced query (endswith). Avoids paging
-            # every attachment in the mailbox and is more reliable than $search KQL.
-            clauses = [
-                f"endswith(from/emailAddress/address,'{domain}')",
-                "hasAttachments eq true",
-                f"receivedDateTime ge {_iso_utc(since)}",
-            ]
-            filter_expr = " and ".join(clauses)
-            filter_safe = "()/',: "
-            url = (
-                f"{_GRAPH_BASE}/users/{quote(mailbox)}/messages"
-                f"?$filter={quote(filter_expr, safe=filter_safe)}"
-                f"&$select=id,subject,receivedDateTime,from,hasAttachments"
-                f"&$top={_PAGE_SIZE}"
-                f"&$count=true"
-            )
-            advanced_headers = {**headers, "ConsistencyLevel": "eventual"}
+            for attachment in iter_attachments(
+                mailbox,
+                sender_domain=domain,
+                skip_message_ids=skip_ids(),
+                since=since,
+                extensions=extensions,
+                content_types=content_types,
+                token=token,
+                on_progress=domain_progress,
+            ):
+                yield track(attachment)
+
+        report("Searching forwarded statements")
+        clauses = [
+            "contains(subject,'Milk Statement')",
+            "hasAttachments eq true",
+            f"receivedDateTime ge {_iso_utc(since)}",
+        ]
+        filter_expr = " and ".join(clauses)
+        filter_safe = "()/',: "
+        url = (
+            f"{_GRAPH_BASE}/users/{quote(mailbox)}/messages"
+            f"?$filter={quote(filter_expr, safe=filter_safe)}"
+            f"&$select=id,subject,receivedDateTime,from,hasAttachments"
+            f"&$top={_PAGE_SIZE}"
+            f"&$count=true"
+        )
+        advanced_headers = {**headers, "ConsistencyLevel": "eventual"}
+        ext = tuple(e.lower() for e in extensions)
+        ctypes = tuple(c.lower() for c in content_types)
+        try:
             while url:
                 response = client.get(url, headers=advanced_headers)
                 if response.status_code == 404:
                     raise FileNotFoundError(f"Mailbox not found: {mailbox}")
                 if response.status_code == 400:
-                    # Fallback for tenants/mailboxes that reject advanced queries.
-                    yield from _iter_statement_attachments_fallback(
-                        client,
-                        headers,
+                    logger.warning(
+                        "Graph subject filter unavailable for %s; domain pass only",
                         mailbox,
-                        domain=domain,
-                        consider_message=consider_message,
-                        report=report,
-                        since=since,
                     )
                     break
                 response.raise_for_status()
                 payload = response.json()
                 for message in payload.get("value", []):
-                    yield from consider_message(client, message)
+                    message_id = message.get("id")
+                    if not message_id or message_id in skip_ids():
+                        continue
+                    seen_message_ids.add(message_id)
+                    messages_checked += 1
+                    if messages_checked % 5 == 0:
+                        report("Scanning mailbox")
+                    for attachment in _iter_message_attachments(
+                        client, headers, mailbox, message, ext, ctypes
+                    ):
+                        yield track(attachment)
                 url = payload.get("@odata.nextLink")
-
-
-def _iter_statement_attachments_fallback(
-    client: httpx.Client,
-    headers: dict,
-    mailbox: str,
-    *,
-    domain: str,
-    since: dt.datetime,
-    consider_message,
-    report,
-) -> Iterator[dict]:
-    """Fallback when Graph advanced ``endswith`` filter is unavailable."""
-    report(f"Searching {domain} (fallback)")
-    clauses = [
-        "hasAttachments eq true",
-        f"receivedDateTime ge {_iso_utc(since)}",
-    ]
-    filter_expr = " and ".join(clauses)
-    filter_safe = "()/',: "
-    url = (
-        f"{_GRAPH_BASE}/users/{quote(mailbox)}/messages"
-        f"?$filter={quote(filter_expr, safe=filter_safe)}"
-        f"&$select=id,subject,receivedDateTime,from,hasAttachments"
-        f"&$top={_PAGE_SIZE}"
-    )
-    domain_suffix = f"@{domain}"
-    while url:
-        response = client.get(url, headers=headers)
-        if response.status_code == 404:
-            raise FileNotFoundError(f"Mailbox not found: {mailbox}")
-        response.raise_for_status()
-        payload = response.json()
-        for message in payload.get("value", []):
-            addr = _message_sender(message)
-            if not addr.endswith(domain_suffix):
-                continue
-            yield from consider_message(client, message)
-        url = payload.get("@odata.nextLink")
+        except httpx.HTTPStatusError:
+            logger.warning(
+                "Forwarded statement search failed for %s; domain pass only",
+                mailbox,
+            )
 
 
 def iter_pdf_attachments(

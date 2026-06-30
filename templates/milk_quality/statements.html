@@ -68,6 +68,50 @@
       color: #92400e;
       border: 1px solid #f5d9ad;
     }
+    .import-result-summary {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .import-log-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.75rem;
+      height: 1.75rem;
+      padding: 0;
+      border: 1px solid #d4a574;
+      border-radius: 6px;
+      background: #fff;
+      color: #92400e;
+      font-size: 0.9rem;
+      line-height: 1;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .import-log-toggle:hover { background: #fff8ef; }
+    .import-log-toggle[aria-expanded="true"] { background: #fde8c8; }
+    .import-log {
+      margin-top: 0.5rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid #f5d9ad;
+      max-height: 14rem;
+      overflow: auto;
+      font-size: 0.8125rem;
+      line-height: 1.35;
+    }
+    .import-log-section { margin: 0 0 0.5rem; }
+    .import-log-section:last-child { margin-bottom: 0; }
+    .import-log-section strong {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      margin-bottom: 0.25rem;
+    }
+    .import-log ul { margin: 0; padding-left: 1.1rem; }
+    .import-log li { margin: 0.15rem 0; }
 {% endblock %}
 
 {% block content %}
@@ -157,23 +201,77 @@
     statusMsg.className = "message" + (isError ? " err" : text ? " ok" : "");
   }
 
-  function showMessageWithList(text, items, isError) {
+  function showMessageWithExpandableLog(summaryText, warnings, skippedFiles, isError) {
     statusMsg.innerHTML = "";
-    statusMsg.className = "message" + (isError ? " err" : " warn");
-    const lead = document.createElement("div");
-    lead.textContent = text;
-    statusMsg.appendChild(lead);
-    if (items && items.length) {
-      const ul = document.createElement("ul");
-      ul.style.margin = "0.5rem 0 0 1rem";
-      ul.style.fontSize = "0.85rem";
-      for (const item of items.slice(0, 10)) {
-        const li = document.createElement("li");
-        li.textContent = item;
-        ul.appendChild(li);
+    statusMsg.className = "message" + (isError ? " err" : summaryText ? " warn" : "");
+
+    const warningsList = warnings || [];
+    const skippedList = skippedFiles || [];
+    const logCount = warningsList.length + skippedList.length;
+
+    const summary = document.createElement("div");
+    summary.className = "import-result-summary";
+    const lead = document.createElement("span");
+    lead.textContent = summaryText;
+    summary.appendChild(lead);
+
+    if (logCount > 0) {
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "import-log-toggle";
+      toggle.title = "Show import log (" + logCount + ")";
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.setAttribute("aria-label", "Show import log");
+      toggle.textContent = "▤";
+
+      const log = document.createElement("div");
+      log.className = "import-log";
+      log.hidden = true;
+
+      if (warningsList.length) {
+        const section = document.createElement("div");
+        section.className = "import-log-section";
+        section.innerHTML = "<strong>Warnings</strong>";
+        const ul = document.createElement("ul");
+        for (const item of warningsList) {
+          const li = document.createElement("li");
+          li.textContent = item;
+          ul.appendChild(li);
+        }
+        section.appendChild(ul);
+        log.appendChild(section);
       }
-      statusMsg.appendChild(ul);
+
+      if (skippedList.length) {
+        const section = document.createElement("div");
+        section.className = "import-log-section";
+        section.innerHTML = "<strong>Skipped files (not statements)</strong>";
+        const ul = document.createElement("ul");
+        for (const item of skippedList) {
+          const li = document.createElement("li");
+          li.textContent = item;
+          ul.appendChild(li);
+        }
+        section.appendChild(ul);
+        log.appendChild(section);
+      }
+
+      toggle.addEventListener("click", () => {
+        const open = toggle.getAttribute("aria-expanded") === "true";
+        toggle.setAttribute("aria-expanded", open ? "false" : "true");
+        log.hidden = open;
+      });
+
+      summary.appendChild(toggle);
+      statusMsg.appendChild(summary);
+      statusMsg.appendChild(log);
+    } else {
+      statusMsg.appendChild(summary);
     }
+  }
+
+  function showMessageWithList(text, items, isError) {
+    showMessageWithExpandableLog(text, items, [], isError);
   }
 
   function fmtNum(v, decimals) {
@@ -211,11 +309,18 @@
 
   function showImportResult(data) {
     const warnings = data.warnings || [];
-    let msg = "Imported " + (data.rows_total || 0) + " month(s) (" +
+    const skipped = data.skipped_files || [];
+    let msg =
+      "Imported " + (data.rows_total || 0) + " month(s) (" +
       (data.rows_inserted || 0) + " new, " + (data.rows_updated || 0) + " updated).";
+    if (skipped.length) {
+      msg += " Skipped " + skipped.length + " non-statement file(s).";
+    }
     if (warnings.length) {
-      msg += " " + warnings.length + " warning(s):";
-      showMessageWithList(msg, warnings, false);
+      msg += " " + warnings.length + " warning(s).";
+    }
+    if (warnings.length || skipped.length) {
+      showMessageWithExpandableLog(msg, warnings, skipped, false);
     } else {
       showMessage(msg, false);
     }

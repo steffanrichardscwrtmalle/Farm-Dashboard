@@ -99,9 +99,18 @@ def _parse_freshways(text: str) -> dict[str, Any]:
         re.IGNORECASE,
     )
     if period:
-        start = _parse_short_date(period.group(1))
-        if start:
-            fields["statement_month"] = _month_start(start)
+        # Freshways prints period end then start ("from 31/05/26 To 01/05/26").
+        # Use the earlier date so April statements are not misread as May.
+        dates = [
+            d
+            for d in (
+                _parse_short_date(period.group(1)),
+                _parse_short_date(period.group(2)),
+            )
+            if d
+        ]
+        if dates:
+            fields["statement_month"] = _month_start(min(dates))
     if not fields.get("statement_month"):
         warnings.append("Could not determine statement month from Freshways PDF")
 

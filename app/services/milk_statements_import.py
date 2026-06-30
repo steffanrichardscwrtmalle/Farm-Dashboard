@@ -108,6 +108,14 @@ def _mailbox_error_message(farm: str, mailbox: str, exc: Exception) -> str:
     return f"{farm} ({mailbox}): {type(exc).__name__}: {exc}"
 
 
+def _sender_domains(domain_config: str) -> tuple[str, ...]:
+    return tuple(
+        part.strip().lstrip("@").lower()
+        for part in domain_config.split(",")
+        if part.strip()
+    )
+
+
 def _progress_callback(phase: str, messages: int, pdfs: int) -> None:
     with _lock:
         if _import_status.get("status") != "running":
@@ -150,10 +158,15 @@ def _iter_sources(
             cm_token_error = exc
 
     mailboxes = [
-        (STATEMENTS_MAILBOX_GAD, "GAD", None, STATEMENTS_FRESHWAYS_DOMAIN),
-        (STATEMENTS_MAILBOX_CM, "CM", cm_token, STATEMENTS_DAIRYPARTNERS_DOMAIN),
+        (STATEMENTS_MAILBOX_GAD, "GAD", None, _sender_domains(STATEMENTS_FRESHWAYS_DOMAIN)),
+        (
+            STATEMENTS_MAILBOX_CM,
+            "CM",
+            cm_token,
+            _sender_domains(STATEMENTS_DAIRYPARTNERS_DOMAIN),
+        ),
     ]
-    for mailbox, farm, token, domain in mailboxes:
+    for mailbox, farm, token, domains in mailboxes:
         if not mailbox:
             continue
         if farm == "CM" and cm_token_error is not None:
@@ -162,7 +175,7 @@ def _iter_sources(
         try:
             for attachment in iter_statement_attachments(
                 mailbox,
-                sender_domains=(domain,) if domain else (),
+                sender_domains=domains,
                 skip_message_ids=skip_message_ids,
                 since=since,
                 extensions=(".pdf",),
@@ -207,6 +220,7 @@ def _ingest_one_pdf(
     mailbox_farm: str | None,
     parsed_by_key: dict[tuple[str, dt.date], dict[str, Any]],
     warnings: list[str],
+    skipped_files: list[str],
 ) -> bool:
     """Parse one PDF and stage it in ``parsed_by_key``. Returns True on success."""
     try:
@@ -214,16 +228,20 @@ def _ingest_one_pdf(
             content, default_haulage=STATEMENTS_DEFAULT_HAULAGE
         )
     except Exception:  # noqa: BLE001
-        warnings.append(f"Failed to parse PDF: {source_file}")
+        skipped_files.append(f"Could not read PDF: {source_file}")
         return False
 
     fields = dict(result.get("fields") or {})
     file_warnings = list(result.get("warnings") or [])
+    supplier = result.get("supplier")
     if not _record_is_complete(fields):
-        for w in file_warnings:
-            warnings.append(f"{source_file}: {w}")
-        if not file_warnings:
-            warnings.append(f"{source_file}: incomplete statement data")
+        if supplier is None:
+            skipped_files.append(f"{source_file}: not a milk statement")
+        else:
+            for w in file_warnings:
+                warnings.append(f"{source_file}: {w}")
+            if not file_warnings:
+                warnings.append(f"{source_file}: incomplete statement data")
         return False
 
     received = _parse_received(source_received)
@@ -253,6 +271,7 @@ def _import_result(
     inserted: int,
     updated: int,
     warnings: list[str],
+    skipped_files: list[str],
 ) -> dict[str, Any]:
     return {
         "files_processed": files_processed,
@@ -261,6 +280,7 @@ def _import_result(
         "rows_updated": updated,
         "rows_total": inserted + updated,
         "warnings": warnings,
+        "skipped_files": skipped_files,
         "imported_at": dt.datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -300,6 +320,7 @@ def import_milk_statements(
     inserted = 0
     updated = 0
     warnings: list[str] = []
+    skipped_files: list[str] = []
     batch: dict[tuple[str, dt.date], dict[str, Any]] = {}
 
     def flush() -> None:
@@ -321,6 +342,7 @@ def import_milk_statements(
             mailbox_farm=source.get("mailbox_farm"),
             parsed_by_key=batch,
             warnings=warnings,
+            skipped_files=skipped_files,
         ):
             files_processed += 1
         else:
@@ -336,10 +358,8 @@ def import_milk_statements(
         inserted=inserted,
         updated=updated,
         warnings=warnings,
+        skipped_files=skipped_files,
     )
-
-
-def upload_milk_statement_pdfs(
     db: Session, files: list[tuple[str, bytes]]
 ) -> dict[str, Any]:
     """Import one or more statement PDFs uploaded through the dashboard."""
@@ -351,6 +371,7 @@ def upload_milk_statement_pdfs(
     files_processed = 0
     files_skipped = 0
     warnings: list[str] = []
+    skipped_files: list[str] = []
 
     for filename, content in files:
         name = (filename or "upload.pdf").strip() or "upload.pdf"
@@ -370,6 +391,7 @@ def upload_milk_statement_pdfs(
             mailbox_farm=None,
             parsed_by_key=parsed_by_key,
             warnings=warnings,
+            skipped_files=skipped_files,
         ):
             files_processed += 1
         else:
@@ -384,6 +406,7 @@ def upload_milk_statement_pdfs(
         inserted=inserted,
         updated=updated,
         warnings=warnings,
+        skipped_files=skipped_files,
     )
 
 
