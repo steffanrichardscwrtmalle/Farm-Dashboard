@@ -120,22 +120,20 @@ def iter_statement_attachments(
     token: str | None = None,
     on_progress: Callable[[str, int, int], None] | None = None,
 ) -> Iterator[dict]:
-    """Yield statement PDFs using targeted Graph ``$search`` by buyer domain.
+    """Yield statement PDFs filtered by buyer sender domain on the server.
 
-    Searches ``from:domain.co.uk`` instead of paging through every attachment
-    in the mailbox (haulier spreadsheets, NML results, etc.).
+    Uses Graph advanced ``$filter`` with ``endswith(from/emailAddress/address)``
+    so we do not page through every attachment in the mailbox.
     """
     if token is None:
         token = get_access_token()
     headers = {"Authorization": f"Bearer {token}"}
-    search_headers = {**headers, "ConsistencyLevel": "eventual"}
 
     ext = tuple(e.lower() for e in extensions)
     ctypes = tuple(c.lower() for c in content_types)
     seen_ids: set[str] = set()
     messages_checked = 0
     pdfs_found = 0
-    since_date = since.strftime("%Y-%m-%d")
 
     def report(phase: str) -> None:
         if on_progress:
@@ -179,22 +177,83 @@ def iter_statement_attachments(
             if not domain:
                 continue
             report(f"Searching {domain}")
-            query = f"from:{domain} received>={since_date}"
+            # Server-side sender filter via advanced query (endswith). Avoids paging
+            # every attachment in the mailbox and is more reliable than $search KQL.
+            clauses = [
+                f"endswith(from/emailAddress/address,'{domain}')",
+                "hasAttachments eq true",
+                f"receivedDateTime ge {_iso_utc(since)}",
+            ]
+            filter_expr = " and ".join(clauses)
+            filter_safe = "()/',: "
             url = (
                 f"{_GRAPH_BASE}/users/{quote(mailbox)}/messages"
-                f"?$search={quote(query)}"
+                f"?$filter={quote(filter_expr, safe=filter_safe)}"
                 f"&$select=id,subject,receivedDateTime,from,hasAttachments"
                 f"&$top={_PAGE_SIZE}"
+                f"&$count=true"
             )
+            advanced_headers = {**headers, "ConsistencyLevel": "eventual"}
             while url:
-                response = client.get(url, headers=search_headers)
+                response = client.get(url, headers=advanced_headers)
                 if response.status_code == 404:
                     raise FileNotFoundError(f"Mailbox not found: {mailbox}")
+                if response.status_code == 400:
+                    # Fallback for tenants/mailboxes that reject advanced queries.
+                    yield from _iter_statement_attachments_fallback(
+                        client,
+                        headers,
+                        mailbox,
+                        domain=domain,
+                        consider_message=consider_message,
+                        report=report,
+                        since=since,
+                    )
+                    break
                 response.raise_for_status()
                 payload = response.json()
                 for message in payload.get("value", []):
                     yield from consider_message(client, message)
                 url = payload.get("@odata.nextLink")
+
+
+def _iter_statement_attachments_fallback(
+    client: httpx.Client,
+    headers: dict,
+    mailbox: str,
+    *,
+    domain: str,
+    since: dt.datetime,
+    consider_message,
+    report,
+) -> Iterator[dict]:
+    """Fallback when Graph advanced ``endswith`` filter is unavailable."""
+    report(f"Searching {domain} (fallback)")
+    clauses = [
+        "hasAttachments eq true",
+        f"receivedDateTime ge {_iso_utc(since)}",
+    ]
+    filter_expr = " and ".join(clauses)
+    filter_safe = "()/',: "
+    url = (
+        f"{_GRAPH_BASE}/users/{quote(mailbox)}/messages"
+        f"?$filter={quote(filter_expr, safe=filter_safe)}"
+        f"&$select=id,subject,receivedDateTime,from,hasAttachments"
+        f"&$top={_PAGE_SIZE}"
+    )
+    domain_suffix = f"@{domain}"
+    while url:
+        response = client.get(url, headers=headers)
+        if response.status_code == 404:
+            raise FileNotFoundError(f"Mailbox not found: {mailbox}")
+        response.raise_for_status()
+        payload = response.json()
+        for message in payload.get("value", []):
+            addr = _message_sender(message)
+            if not addr.endswith(domain_suffix):
+                continue
+            yield from consider_message(client, message)
+        url = payload.get("@odata.nextLink")
 
 
 def iter_pdf_attachments(

@@ -95,7 +95,14 @@ def _mailbox_error_message(farm: str, mailbox: str, exc: Exception) -> str:
                 f"{farm} ({mailbox}): authentication failed (401). "
                 "Check GRAPH_CLIENT_SECRET for this tenant."
             )
-        return f"{farm} ({mailbox}): Graph mail request failed ({status})."
+        detail = ""
+        try:
+            msg = exc.response.json().get("error", {}).get("message", "")
+            if msg:
+                detail = f" {msg}"
+        except Exception:
+            pass
+        return f"{farm} ({mailbox}): Graph mail request failed ({status}).{detail}"
     if isinstance(exc, FileNotFoundError):
         return f"{farm} ({mailbox}): {exc}"
     return f"{farm} ({mailbox}): {type(exc).__name__}: {exc}"
