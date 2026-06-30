@@ -114,10 +114,15 @@ def _iter_sources(
         return
 
     cm_token = None
+    cm_token_error: Exception | None = None
     if graph_cm_is_configured():
-        cm_token = get_access_token_for(
-            GRAPH_TENANT_ID_CM, GRAPH_CLIENT_ID_CM, GRAPH_CLIENT_SECRET_CM
-        )
+        try:
+            cm_token = get_access_token_for(
+                GRAPH_TENANT_ID_CM, GRAPH_CLIENT_ID_CM, GRAPH_CLIENT_SECRET_CM
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Don't let a CM auth failure abort the whole import (GAD still works).
+            cm_token_error = exc
 
     mailboxes = [
         (STATEMENTS_MAILBOX_GAD, "GAD", None, STATEMENTS_FRESHWAYS_DOMAIN),
@@ -125,6 +130,9 @@ def _iter_sources(
     ]
     for mailbox, farm, token, domain in mailboxes:
         if not mailbox:
+            continue
+        if farm == "CM" and cm_token_error is not None:
+            warnings.append(_mailbox_error_message(farm, mailbox, cm_token_error))
             continue
         try:
             for attachment in iter_attachments(

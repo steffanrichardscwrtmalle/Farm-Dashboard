@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -17,6 +19,8 @@ from app.db import get_db
 from app.models import MilkStatement, User
 from app.services.milk_statements import list_milk_statements
 from app.services.milk_statements_import import import_milk_statements, upload_milk_statement_pdfs
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/milk-statements")
 
@@ -64,6 +68,12 @@ def api_import_milk_statements(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("Milk statements import failed")
+        raise HTTPException(
+            status_code=500, detail=f"Import failed: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 @router.post("/upload")
@@ -82,3 +92,9 @@ async def api_upload_milk_statements(
         return upload_milk_statement_pdfs(db, payloads)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("Milk statements upload failed")
+        raise HTTPException(
+            status_code=500, detail=f"Upload failed: {type(exc).__name__}: {exc}"
+        ) from exc
