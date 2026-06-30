@@ -99,7 +99,35 @@
     .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
     .message { margin-bottom: 0.75rem; }
     .message.ok { color: #047857; }
+    .message.warn {
+      display: block;
+      background: #fef3e2;
+      color: #92400e;
+      border: 1px solid #f5d9ad;
+    }
     .message.err { color: #b91c1c; }
+    .import-result-summary {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .import-log-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.75rem;
+      height: 1.75rem;
+      padding: 0;
+      border: 1px solid #d4a574;
+      border-radius: 6px;
+      background: #fff;
+      color: #92400e;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .import-log { margin-top: 0.5rem; max-height: 14rem; overflow: auto; font-size: 0.8125rem; }
+    .import-log ul { margin: 0; padding-left: 1.1rem; }
     .pill { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
     .pill.pass { background: #dcfce7; color: #166534; }
     .pill.fail { background: #fee2e2; color: #991b1b; }
@@ -280,6 +308,57 @@
       const el = document.getElementById('status-message');
       el.textContent = text || '';
       el.className = 'message' + (isError ? ' err' : text ? ' ok' : '');
+    }
+
+    function showImportResult(data) {
+      const el = document.getElementById('status-message');
+      el.innerHTML = '';
+      const warnings = data.warnings || [];
+      const stats = data.mailbox_stats || {};
+      let msg = 'Imported ' + (data.rows_inserted || 0) + ' new, updated ' +
+        (data.rows_updated || 0) + ' from ' + (data.files_processed || 0) + ' report(s).';
+      const statParts = [];
+      for (const farm of ['GAD', 'CM']) {
+        if (!stats[farm]) continue;
+        const s = stats[farm];
+        statParts.push(farm + ': ' + (s.pdfs_found || 0) + ' PDF(s) from ' + (s.mailbox || '?'));
+      }
+      if (statParts.length) msg += ' ' + statParts.join('; ') + '.';
+      const hasZeroPdfs = Object.values(stats).some((s) => (s.pdfs_found || 0) === 0);
+      el.className = 'message' + (warnings.length || hasZeroPdfs ? ' warn' : ' ok');
+      const summary = document.createElement('div');
+      summary.className = 'import-result-summary';
+      const lead = document.createElement('span');
+      lead.textContent = msg;
+      summary.appendChild(lead);
+      if (warnings.length) {
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'import-log-toggle';
+        toggle.title = 'Show import log';
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.textContent = '▤';
+        const log = document.createElement('div');
+        log.className = 'import-log';
+        log.hidden = true;
+        const ul = document.createElement('ul');
+        for (const item of warnings) {
+          const li = document.createElement('li');
+          li.textContent = item;
+          ul.appendChild(li);
+        }
+        log.appendChild(ul);
+        toggle.addEventListener('click', () => {
+          const open = toggle.getAttribute('aria-expanded') === 'true';
+          toggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+          log.hidden = open;
+        });
+        summary.appendChild(toggle);
+        el.appendChild(summary);
+        el.appendChild(log);
+      } else {
+        el.appendChild(summary);
+      }
     }
 
     function selectedFarms() {
@@ -778,17 +857,10 @@
         showMessage(days ? ('Importing last ' + days + ' days…') : 'Importing from email…');
         try {
           const url = '/api/nml/import' + (days ? '?days=' + days : '');
-          const res = await fetch(url, { method: 'POST' });
+          const res = await fetch(url, { method: 'POST', credentials: 'same-origin' });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.detail || 'Import failed');
-          let msg = 'Imported ' + (data.rows_inserted || 0) + ' new, updated ' + (data.rows_updated || 0) +
-            ' from ' + (data.files_processed || 0) + ' report(s).';
-          if (data.warnings && data.warnings.length) {
-            msg += ' Warnings: ' + data.warnings.join(' ');
-            showMessage(msg, true);
-          } else {
-            showMessage(msg, false);
-          }
+          showImportResult(data);
           loadResults();
         } catch (err) {
           showMessage(err.message, true);

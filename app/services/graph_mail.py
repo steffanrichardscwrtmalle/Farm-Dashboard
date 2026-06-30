@@ -241,14 +241,16 @@ def iter_statement_attachments(
 def iter_nml_pdf_attachments(
     mailbox: str,
     *,
+    sender: str | None = None,
     sender_domain: str,
     since: dt.datetime,
     token: str | None = None,
 ) -> Iterator[dict]:
     """Yield NML report PDFs from a mailbox.
 
-  Pass 1 matches ``@sender_domain`` in Python (reliable across address casing).
-  Pass 2 matches ``National Milk`` in the subject for forwarded reports.
+    Pass 1 matches the exact ``sender`` address (server-side filter).
+    Pass 2 matches ``@sender_domain`` in Python.
+    Pass 3 matches ``National Milk`` in the subject for forwarded reports.
     """
     if token is None:
         token = get_access_token()
@@ -266,6 +268,18 @@ def iter_nml_pdf_attachments(
         if message_id:
             seen_message_ids.add(message_id)
         return attachment
+
+    if sender:
+        for attachment in iter_attachments(
+            mailbox,
+            sender=sender,
+            skip_message_ids=skip_ids(),
+            since=since,
+            extensions=ext,
+            content_types=ctypes,
+            token=token,
+        ):
+            yield track(attachment)
 
     for attachment in iter_attachments(
         mailbox,
@@ -354,22 +368,46 @@ def _emit_file_attachment(
     received: str,
     extensions: tuple[str, ...],
     content_types: tuple[str, ...],
+    content: bytes | None = None,
 ) -> dict | None:
     name = (attachment.get("name") or "").lower()
     content_type = (attachment.get("contentType") or "").lower()
     matches = name.endswith(extensions) or (
         bool(content_types) and content_type in content_types
     )
-    content_b64 = attachment.get("contentBytes")
-    if not matches or not content_b64:
+    if not matches:
         return None
+    if content is None:
+        content_b64 = attachment.get("contentBytes")
+        if not content_b64:
+            return None
+        content = base64.b64decode(content_b64)
     return {
         "message_id": message_id,
         "subject": subject,
         "received": received,
         "filename": attachment.get("name") or "",
-        "content": base64.b64decode(content_b64),
+        "content": content,
     }
+
+
+def _download_file_attachment(
+    client: httpx.Client,
+    headers: dict,
+    mailbox: str,
+    message_id: str,
+    attachment_id: str,
+) -> bytes | None:
+    url = (
+        f"{_GRAPH_BASE}/users/{quote(mailbox)}/messages/{message_id}"
+        f"/attachments/{attachment_id}"
+    )
+    response = client.get(url, headers=headers)
+    response.raise_for_status()
+    content_b64 = response.json().get("contentBytes")
+    if not content_b64:
+        return None
+    return base64.b64decode(content_b64)
 
 
 def _walk_embedded_attachments(
@@ -478,6 +516,11 @@ def _iter_message_attachments(
                     content_types,
                 )
             continue
+        content = None
+        if not attachment.get("contentBytes") and attachment.get("id"):
+            content = _download_file_attachment(
+                client, headers, mailbox, message_id, attachment["id"]
+            )
         emitted = _emit_file_attachment(
             attachment,
             message_id=message_id,
@@ -485,6 +528,7 @@ def _iter_message_attachments(
             received=received,
             extensions=extensions,
             content_types=content_types,
+            content=content,
         )
         if emitted:
             yield emitted

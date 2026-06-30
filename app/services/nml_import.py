@@ -28,11 +28,12 @@ from app.config import (
     NML_LOOKBACK_DAYS,
     NML_MAILBOX_CM,
     NML_MAILBOX_GAD,
+    NML_SENDER,
     NML_SENDER_DOMAIN,
     graph_cm_is_configured,
 )
 from app.models import NmlMilkResult
-from app.services.graph_mail import iter_nml_pdf_attachments
+from app.services.graph_mail import iter_attachments, iter_nml_pdf_attachments
 from app.services.graph_onedrive import get_access_token_for, graph_is_configured
 from app.services.nml_pdf import parse_nml_pdf
 
@@ -49,7 +50,93 @@ _META_FIELDS = ("farm", "milk_buyer", "report_month", "report_date")
 
 
 def nml_is_configured() -> bool:
-    return bool(LOCAL_NML_DIR) or graph_is_configured()
+    if LOCAL_NML_DIR:
+        return True
+    return graph_is_configured() or graph_cm_is_configured()
+
+
+def _looks_like_nml_pdf(content: bytes) -> bool:
+    try:
+        result = parse_nml_pdf(content)
+    except Exception:  # noqa: BLE001
+        return False
+    metadata = result.get("metadata") or {}
+    return bool(metadata.get("producer_ref") and result.get("samples"))
+
+
+def _attachment_source(attachment: dict, *, mailbox_farm: str) -> dict[str, Any]:
+    return {
+        "content": attachment["content"],
+        "source_file": attachment["filename"],
+        "message_id": attachment["message_id"],
+        "mailbox_farm": mailbox_farm,
+    }
+
+
+def _iter_mailbox_nml_pdfs(
+    mailbox: str,
+    farm: str,
+    token: str | None,
+    since: dt.datetime,
+    warnings: list[str],
+    mailbox_stats: dict[str, dict[str, Any]],
+) -> Iterator[dict[str, Any]]:
+    """Yield NML PDFs from one mailbox, with a content-scan fallback."""
+    seen_message_ids: set[str] = set()
+    pdfs_found = 0
+
+    def yield_unique(attachment: dict) -> Iterator[dict[str, Any]]:
+        nonlocal pdfs_found
+        message_id = attachment.get("message_id")
+        if message_id and message_id in seen_message_ids:
+            return
+        if message_id:
+            seen_message_ids.add(message_id)
+        pdfs_found += 1
+        yield _attachment_source(attachment, mailbox_farm=farm)
+
+    for attachment in iter_nml_pdf_attachments(
+        mailbox,
+        sender=NML_SENDER,
+        sender_domain=NML_SENDER_DOMAIN,
+        since=since,
+        token=token,
+    ):
+        yield from yield_unique(attachment)
+
+    if pdfs_found:
+        mailbox_stats[farm] = {
+            "mailbox": mailbox,
+            "pdfs_found": pdfs_found,
+            "scan_method": "sender",
+        }
+        return
+
+    pdf_candidates = 0
+    for attachment in iter_attachments(
+        mailbox,
+        since=since,
+        extensions=(".pdf",),
+        content_types=("application/pdf",),
+        token=token,
+    ):
+        pdf_candidates += 1
+        if not _looks_like_nml_pdf(attachment["content"]):
+            continue
+        yield from yield_unique(attachment)
+
+    mailbox_stats[farm] = {
+        "mailbox": mailbox,
+        "pdfs_found": pdfs_found,
+        "pdf_candidates": pdf_candidates,
+        "scan_method": "content" if pdfs_found else "none",
+    }
+    if pdfs_found == 0:
+        warnings.append(
+            f"{farm} ({mailbox}): no NML report PDFs found since "
+            f"{since.date().isoformat()} "
+            f"({pdf_candidates} other PDF(s) checked)."
+        )
 
 
 def _mailbox_error_message(farm: str, mailbox: str, exc: Exception) -> str:
@@ -87,7 +174,9 @@ _EPOCH = dt.datetime(2000, 1, 1, tzinfo=dt.timezone.utc)
 
 
 def _iter_sources(
-    warnings: list[str], since: dt.datetime
+    warnings: list[str],
+    since: dt.datetime,
+    mailbox_stats: dict[str, dict[str, Any]],
 ) -> Iterator[dict[str, Any]]:
     """Yield {content, source_file, message_id, mailbox_farm} for each PDF."""
     if LOCAL_NML_DIR:
@@ -125,20 +214,21 @@ def _iter_sources(
         if farm == "CM" and token is None and graph_cm_is_configured():
             continue
         try:
-            for attachment in iter_nml_pdf_attachments(
+            yield from _iter_mailbox_nml_pdfs(
                 mailbox,
-                sender_domain=NML_SENDER_DOMAIN,
-                since=since,
-                token=token,
-            ):
-                yield {
-                    "content": attachment["content"],
-                    "source_file": attachment["filename"],
-                    "message_id": attachment["message_id"],
-                    "mailbox_farm": farm,
-                }
+                farm,
+                token,
+                since,
+                warnings,
+                mailbox_stats,
+            )
         except Exception as exc:  # noqa: BLE001 - one mailbox must not abort the other
             warnings.append(_mailbox_error_message(farm, mailbox, exc))
+            mailbox_stats[farm] = {
+                "mailbox": mailbox,
+                "pdfs_found": 0,
+                "error": str(exc),
+            }
 
 
 def import_nml_results(
@@ -167,8 +257,9 @@ def import_nml_results(
     files_processed = 0
     files_skipped = 0
     warnings: list[str] = []
+    mailbox_stats: dict[str, dict[str, Any]] = {}
 
-    for source in _iter_sources(warnings, since):
+    for source in _iter_sources(warnings, since, mailbox_stats):
         source_file = source.get("source_file") or "unknown"
         try:
             result = parse_nml_pdf(source["content"])
@@ -216,6 +307,7 @@ def import_nml_results(
         "rows_updated": updated,
         "rows_total": inserted + updated,
         "warnings": warnings,
+        "mailbox_stats": mailbox_stats,
         "imported_at": dt.datetime.now().isoformat(timespec="seconds"),
     }
 
