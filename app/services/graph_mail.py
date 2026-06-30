@@ -10,6 +10,7 @@ import base64
 import datetime as dt
 import logging
 from collections.abc import Callable, Iterator
+from typing import Any
 from urllib.parse import quote
 
 import httpx
@@ -236,6 +237,38 @@ def iter_statement_attachments(
                 "Forwarded statement search failed for %s; domain pass only",
                 mailbox,
             )
+
+
+def probe_mailbox(
+    mailbox: str,
+    *,
+    token: str | None = None,
+) -> dict[str, Any]:
+    """Check that Graph can read ``mailbox`` (Mail.Read + access policy)."""
+    if token is None:
+        token = get_access_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    url = f"{_GRAPH_BASE}/users/{quote(mailbox)}/messages?$select=id&$top=1"
+    try:
+        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+            response = client.get(url, headers=headers)
+            if response.status_code == 404:
+                return {
+                    "ok": False,
+                    "status": 404,
+                    "message": f"Mailbox not found: {mailbox}",
+                }
+            response.raise_for_status()
+            return {"ok": True, "status": response.status_code}
+    except httpx.HTTPStatusError as exc:
+        detail = ""
+        try:
+            detail = exc.response.json().get("error", {}).get("message", "")
+        except Exception:
+            detail = exc.response.text[:200]
+        return {"ok": False, "status": exc.response.status_code, "message": detail}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "status": None, "message": str(exc)}
 
 
 def iter_nml_pdf_attachments(

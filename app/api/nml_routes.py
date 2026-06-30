@@ -80,8 +80,16 @@ def api_nml_status(
     row_count = db.scalar(select(func.count()).select_from(NmlMilkResult)) or 0
     latest_import = db.scalar(select(func.max(NmlMilkResult.imported_at)))
     latest_sample = db.scalar(select(func.max(NmlMilkResult.sample_date)))
+    rows_by_farm = {
+        farm: count
+        for farm, count in db.execute(
+            select(NmlMilkResult.farm, func.count())
+            .group_by(NmlMilkResult.farm)
+        ).all()
+    }
     return {
         "row_count": row_count,
+        "rows_by_farm": rows_by_farm,
         "latest_import": latest_import.isoformat() if latest_import else None,
         "latest_sample_date": latest_sample.isoformat() if latest_sample else None,
     }

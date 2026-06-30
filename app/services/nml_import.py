@@ -3,7 +3,7 @@
 Sources, in priority order:
 * LOCAL_NML_DIR - a local folder of PDFs (development; skips Graph mail).
 * Microsoft Graph mail - the configured per-farm mailboxes, reading PDF
-  attachments from NML_SENDER_DOMAIN within the lookback window.
+  attachments sent by NML_SENDER within the lookback window.
 
 Rows are keyed by (producer_ref, sample_date, sample_id) so re-importing the
 same report (or an overlapping lookback window) updates rather than duplicates.
@@ -29,11 +29,10 @@ from app.config import (
     NML_MAILBOX_CM,
     NML_MAILBOX_GAD,
     NML_SENDER,
-    NML_SENDER_DOMAIN,
     graph_cm_is_configured,
 )
 from app.models import NmlMilkResult
-from app.services.graph_mail import iter_attachments, iter_nml_pdf_attachments
+from app.services.graph_mail import iter_attachments, iter_pdf_attachments, probe_mailbox
 from app.services.graph_onedrive import get_access_token_for, graph_is_configured
 from app.services.nml_pdf import parse_nml_pdf
 
@@ -48,11 +47,50 @@ _SAMPLE_FIELDS = (
 )
 _META_FIELDS = ("farm", "milk_buyer", "report_month", "report_date")
 
+_GAD_GRAPH_VARS = (
+    "GRAPH_TENANT_ID",
+    "GRAPH_CLIENT_ID",
+    "GRAPH_CLIENT_SECRET",
+    "GRAPH_DRIVE_USER_EMAIL",
+)
+
 
 def nml_is_configured() -> bool:
-    if LOCAL_NML_DIR:
-        return True
-    return graph_is_configured() or graph_cm_is_configured()
+    return bool(LOCAL_NML_DIR) or graph_is_configured() or graph_cm_is_configured()
+
+
+def _mailbox_error_message(farm: str, mailbox: str, exc: Exception) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status == 403:
+            return (
+                f"{farm} ({mailbox}): access denied (403). Grant Mail.Read application "
+                "permission and admin consent on the Entra app for this tenant, and "
+                "add an Exchange application access policy for this mailbox."
+            )
+        if status == 401:
+            return (
+                f"{farm} ({mailbox}): authentication failed (401). "
+                "Check GRAPH_CLIENT_SECRET for this tenant."
+            )
+        detail = ""
+        try:
+            msg = exc.response.json().get("error", {}).get("message", "")
+            if msg:
+                detail = f" {msg}"
+        except Exception:
+            pass
+        if status == 400:
+            return (
+                f"{farm} ({mailbox}): Graph rejected the mail query (400).{detail}"
+            )
+        return f"{farm} ({mailbox}): Graph mail request failed ({status}).{detail}"
+    if isinstance(exc, FileNotFoundError):
+        return f"{farm} ({mailbox}): {exc}"
+    return f"{farm} ({mailbox}): {type(exc).__name__}: {exc}"
+
+
+_EPOCH = dt.datetime(2000, 1, 1, tzinfo=dt.timezone.utc)
 
 
 def _looks_like_nml_pdf(content: bytes) -> bool:
@@ -64,15 +102,6 @@ def _looks_like_nml_pdf(content: bytes) -> bool:
     return bool(metadata.get("producer_ref") and result.get("samples"))
 
 
-def _attachment_source(attachment: dict, *, mailbox_farm: str) -> dict[str, Any]:
-    return {
-        "content": attachment["content"],
-        "source_file": attachment["filename"],
-        "message_id": attachment["message_id"],
-        "mailbox_farm": mailbox_farm,
-    }
-
-
 def _iter_mailbox_nml_pdfs(
     mailbox: str,
     farm: str,
@@ -81,9 +110,47 @@ def _iter_mailbox_nml_pdfs(
     warnings: list[str],
     mailbox_stats: dict[str, dict[str, Any]],
 ) -> Iterator[dict[str, Any]]:
-    """Yield NML PDFs from one mailbox, with a content-scan fallback."""
-    seen_message_ids: set[str] = set()
+    """Yield NML PDFs from one mailbox using the original sender-filtered import."""
+    if farm == "GAD" and not graph_is_configured():
+        warnings.append(
+            "GAD: Green Acre Graph credentials are not configured on this server "
+            f"({', '.join(_GAD_GRAPH_VARS)}). CM uses GRAPH_*_CM; GAD needs the "
+            "main GRAPH_* app with Mail.Read for "
+            f"{mailbox}."
+        )
+        mailbox_stats[farm] = {
+            "mailbox": mailbox,
+            "pdfs_found": 0,
+            "error": "graph_not_configured",
+        }
+        return
+
+    if farm == "CM" and token is None and graph_cm_is_configured():
+        warnings.append(
+            f"CM ({mailbox}): Cwrt Malle Graph credentials failed; skipping CM mailbox."
+        )
+        mailbox_stats[farm] = {
+            "mailbox": mailbox,
+            "pdfs_found": 0,
+            "error": "cm_graph_auth_failed",
+        }
+        return
+
+    probe = probe_mailbox(mailbox, token=token)
+    if not probe.get("ok"):
+        warnings.append(
+            f"{farm} ({mailbox}): cannot read mailbox via Graph "
+            f"({probe.get('status')}): {probe.get('message', 'unknown error')}"
+        )
+        mailbox_stats[farm] = {
+            "mailbox": mailbox,
+            "pdfs_found": 0,
+            "error": f"probe_{probe.get('status')}",
+        }
+        return
+
     pdfs_found = 0
+    seen_message_ids: set[str] = set()
 
     def yield_unique(attachment: dict) -> Iterator[dict[str, Any]]:
         nonlocal pdfs_found
@@ -93,14 +160,16 @@ def _iter_mailbox_nml_pdfs(
         if message_id:
             seen_message_ids.add(message_id)
         pdfs_found += 1
-        yield _attachment_source(attachment, mailbox_farm=farm)
+        yield {
+            "content": attachment["content"],
+            "source_file": attachment["filename"],
+            "message_id": message_id,
+            "mailbox_farm": farm,
+        }
 
-    for attachment in iter_nml_pdf_attachments(
-        mailbox,
-        sender=NML_SENDER,
-        sender_domain=NML_SENDER_DOMAIN,
-        since=since,
-        token=token,
+    # Original import path (36909e0): exact NML sender, server-side Graph filter.
+    for attachment in iter_pdf_attachments(
+        mailbox, sender=NML_SENDER, since=since, token=token
     ):
         yield from yield_unique(attachment)
 
@@ -112,6 +181,7 @@ def _iter_mailbox_nml_pdfs(
         }
         return
 
+    # Fallback: open every PDF in the date range and keep ones that parse as NML.
     pdf_candidates = 0
     for attachment in iter_attachments(
         mailbox,
@@ -139,46 +209,11 @@ def _iter_mailbox_nml_pdfs(
         )
 
 
-def _mailbox_error_message(farm: str, mailbox: str, exc: Exception) -> str:
-    if isinstance(exc, httpx.HTTPStatusError):
-        status = exc.response.status_code
-        if status == 403:
-            return (
-                f"{farm} ({mailbox}): access denied (403). Grant Mail.Read application "
-                "permission and admin consent on the Entra app for this tenant."
-            )
-        if status == 401:
-            return (
-                f"{farm} ({mailbox}): authentication failed (401). "
-                "Check GRAPH_CLIENT_SECRET for this tenant."
-            )
-        detail = ""
-        try:
-            msg = exc.response.json().get("error", {}).get("message", "")
-            if msg:
-                detail = f" {msg}"
-        except Exception:
-            pass
-        if status == 400:
-            return (
-                f"{farm} ({mailbox}): Graph rejected the mail query (400).{detail}"
-            )
-        return f"{farm} ({mailbox}): Graph mail request failed ({status}).{detail}"
-    if isinstance(exc, FileNotFoundError):
-        return f"{farm} ({mailbox}): {exc}"
-    return f"{farm} ({mailbox}): {type(exc).__name__}: {exc}"
-
-
-# Oldest date used when importing the full mailbox history (effectively "everything").
-_EPOCH = dt.datetime(2000, 1, 1, tzinfo=dt.timezone.utc)
-
-
 def _iter_sources(
     warnings: list[str],
     since: dt.datetime,
     mailbox_stats: dict[str, dict[str, Any]],
 ) -> Iterator[dict[str, Any]]:
-    """Yield {content, source_file, message_id, mailbox_farm} for each PDF."""
     if LOCAL_NML_DIR:
         folder = Path(LOCAL_NML_DIR)
         if not folder.is_dir():
@@ -211,35 +246,22 @@ def _iter_sources(
         if not mailbox:
             warnings.append(f"{farm}: mailbox not configured (set NML_MAILBOX_{farm}).")
             continue
-        if farm == "CM" and token is None and graph_cm_is_configured():
-            continue
         try:
             yield from _iter_mailbox_nml_pdfs(
-                mailbox,
-                farm,
-                token,
-                since,
-                warnings,
-                mailbox_stats,
+                mailbox, farm, token, since, warnings, mailbox_stats
             )
-        except Exception as exc:  # noqa: BLE001 - one mailbox must not abort the other
+        except Exception as exc:  # noqa: BLE001
             warnings.append(_mailbox_error_message(farm, mailbox, exc))
             mailbox_stats[farm] = {
                 "mailbox": mailbox,
                 "pdfs_found": 0,
-                "error": str(exc),
+                "error": type(exc).__name__,
             }
 
 
 def import_nml_results(
     db: Session, *, full_history: bool = False, days: int | None = None
 ) -> dict[str, Any]:
-    """Read NML PDFs from mail/local folder and upsert milk-quality results.
-
-    ``days`` scans the last N days of mail (overrides the default lookback).
-    When ``full_history`` is True, every matching email is scanned regardless of
-    age; otherwise only the last ``NML_LOOKBACK_DAYS`` days are checked.
-    """
     if not nml_is_configured():
         raise ValueError(
             "NML import is not configured. Set Graph API variables or LOCAL_NML_DIR."
@@ -252,7 +274,6 @@ def import_nml_results(
     else:
         since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=NML_LOOKBACK_DAYS)
 
-    # Deduplicate within the run; later reports for the same key win.
     parsed_by_key: dict[tuple[str, dt.date, str], dict[str, Any]] = {}
     files_processed = 0
     files_skipped = 0
@@ -263,7 +284,7 @@ def import_nml_results(
         source_file = source.get("source_file") or "unknown"
         try:
             result = parse_nml_pdf(source["content"])
-        except Exception:  # noqa: BLE001 - a single bad PDF must not abort the run
+        except Exception:  # noqa: BLE001
             files_skipped += 1
             warnings.append(f"{source_file}: could not read PDF")
             continue

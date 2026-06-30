@@ -331,7 +331,7 @@
       const lead = document.createElement('span');
       lead.textContent = msg;
       summary.appendChild(lead);
-      if (warnings.length) {
+      if (warnings.length || hasZeroPdfs) {
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.className = 'import-log-toggle';
