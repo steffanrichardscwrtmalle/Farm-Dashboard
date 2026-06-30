@@ -360,6 +360,9 @@ def import_milk_statements(
         warnings=warnings,
         skipped_files=skipped_files,
     )
+
+
+def upload_milk_statement_pdfs(
     db: Session, files: list[tuple[str, bytes]]
 ) -> dict[str, Any]:
     """Import one or more statement PDFs uploaded through the dashboard."""
