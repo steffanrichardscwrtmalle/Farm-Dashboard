@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from urllib.parse import quote
 
 import httpx
@@ -39,7 +39,6 @@ def iter_attachments(
     *,
     sender: str | None = None,
     sender_domain: str | None = None,
-    extra_senders: tuple[str, ...] = (),
     skip_message_ids: frozenset[str] = frozenset(),
     since: dt.datetime,
     extensions: tuple[str, ...],
@@ -50,13 +49,9 @@ def iter_attachments(
 
     Filter senders with either ``sender`` (an exact address, filtered server-side)
     or ``sender_domain`` (a domain suffix such as 'example.co.uk', filtered in
-    Python so we avoid Graph's $filter limitations on ``endswith``).
-    ``extra_senders`` is a tuple of additional exact addresses (e.g. your own
-    address when forwarding a missing statement) that are accepted alongside
-    ``sender_domain``; matching is done in Python, case-insensitively. ``token``
-    lets the caller supply an access token for a specific tenant/app (e.g. the
-    separate Cwrt Malle app registration); when omitted, the default app's token
-    is used.
+    Python so we avoid Graph's $filter limitations on ``endswith``). ``token`` lets
+    the caller supply an access token for a specific tenant/app (e.g. the separate
+    Cwrt Malle app registration); when omitted, the default app's token is used.
 
     Each yielded dict has: message_id, subject, received (str), filename, content (bytes).
     """
@@ -71,8 +66,8 @@ def iter_attachments(
     select_fields = "id,subject,receivedDateTime"
     if sender:
         clauses.insert(0, f"from/emailAddress/address eq '{sender}'")
-    if sender_domain or extra_senders:
-        # Sender matching happens in Python, so we need the sender address back.
+    if sender_domain:
+        # Domain matching happens in Python, so we need the sender address back.
         select_fields += ",from"
     filter_expr = " and ".join(clauses)
 
@@ -88,7 +83,6 @@ def iter_attachments(
     ext = tuple(e.lower() for e in extensions)
     ctypes = tuple(c.lower() for c in content_types)
     domain_suffix = ("@" + sender_domain.lstrip("@").lower()) if sender_domain else None
-    allowed_senders = frozenset(a.lstrip("@").lower() for a in extra_senders if a)
 
     with httpx.Client(timeout=120.0, follow_redirects=True) as client:
         while url:
@@ -105,16 +99,102 @@ def iter_attachments(
             for message in messages:
                 if message.get("id") in skip_message_ids:
                     continue
-                if domain_suffix or allowed_senders:
+                if domain_suffix:
                     addr = _message_sender(message)
-                    domain_ok = bool(domain_suffix) and addr.endswith(domain_suffix)
-                    exact_ok = addr in allowed_senders
-                    if not (domain_ok or exact_ok):
+                    if not addr.endswith(domain_suffix):
                         continue
                 yield from _iter_message_attachments(
                     client, headers, mailbox, message, ext, ctypes
                 )
             url = payload.get("@odata.nextLink")
+
+
+def iter_statement_attachments(
+    mailbox: str,
+    *,
+    sender_domains: tuple[str, ...] = (),
+    skip_message_ids: frozenset[str] = frozenset(),
+    since: dt.datetime,
+    extensions: tuple[str, ...],
+    content_types: tuple[str, ...] = (),
+    token: str | None = None,
+    on_progress: Callable[[str, int, int], None] | None = None,
+) -> Iterator[dict]:
+    """Yield statement PDFs using targeted Graph ``$search`` by buyer domain.
+
+    Searches ``from:domain.co.uk`` instead of paging through every attachment
+    in the mailbox (haulier spreadsheets, NML results, etc.).
+    """
+    if token is None:
+        token = get_access_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    search_headers = {**headers, "ConsistencyLevel": "eventual"}
+
+    ext = tuple(e.lower() for e in extensions)
+    ctypes = tuple(c.lower() for c in content_types)
+    seen_ids: set[str] = set()
+    messages_checked = 0
+    pdfs_found = 0
+    since_date = since.strftime("%Y-%m-%d")
+
+    def report(phase: str) -> None:
+        if on_progress:
+            on_progress(phase, messages_checked, pdfs_found)
+
+    def consider_message(
+        client: httpx.Client,
+        message: dict,
+    ) -> Iterator[dict]:
+        nonlocal messages_checked, pdfs_found
+        message_id = message.get("id")
+        if not message_id or message_id in skip_message_ids or message_id in seen_ids:
+            return
+        if message.get("hasAttachments") is False:
+            return
+        received_raw = message.get("receivedDateTime") or ""
+        if received_raw:
+            try:
+                received_dt = dt.datetime.fromisoformat(
+                    received_raw.replace("Z", "+00:00")
+                )
+                if received_dt.tzinfo is None:
+                    received_dt = received_dt.replace(tzinfo=dt.timezone.utc)
+                if received_dt < since.replace(tzinfo=dt.timezone.utc):
+                    return
+            except ValueError:
+                pass
+        seen_ids.add(message_id)
+        messages_checked += 1
+        if messages_checked % 5 == 0:
+            report("Scanning mailbox")
+        for attachment in _iter_message_attachments(
+            client, headers, mailbox, message, ext, ctypes
+        ):
+            pdfs_found += 1
+            yield attachment
+
+    with httpx.Client(timeout=120.0, follow_redirects=True) as client:
+        for domain in sender_domains:
+            domain = domain.lstrip("@").lower()
+            if not domain:
+                continue
+            report(f"Searching {domain}")
+            query = f"from:{domain} received>={since_date}"
+            url = (
+                f"{_GRAPH_BASE}/users/{quote(mailbox)}/messages"
+                f"?$search={quote(query)}"
+                f"&$select=id,subject,receivedDateTime,from,hasAttachments"
+                f"&$top={_PAGE_SIZE}"
+            )
+            while url:
+                response = client.get(url, headers=search_headers)
+                if response.status_code == 404:
+                    raise FileNotFoundError(f"Mailbox not found: {mailbox}")
+                response.raise_for_status()
+                payload = response.json()
+                for message in payload.get("value", []):
+                    yield from consider_message(client, message)
+                url = payload.get("@odata.nextLink")
 
 
 def iter_pdf_attachments(

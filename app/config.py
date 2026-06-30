@@ -109,20 +109,6 @@ STATEMENTS_MAILBOX_CM = os.getenv(
 ).strip().lower()
 STATEMENTS_LOOKBACK_DAYS = int(os.getenv("STATEMENTS_LOOKBACK_DAYS", "30"))
 STATEMENTS_DEFAULT_HAULAGE = float(os.getenv("STATEMENTS_DEFAULT_HAULAGE", "1.0"))
-# Extra trusted senders (exact addresses) whose statement PDFs are also imported,
-# in addition to the buyer domains above. Lets you forward a missing statement to
-# either mailbox; the farm is determined from the PDF content, not the sender.
-STATEMENTS_EXTRA_SENDERS: tuple[str, ...] = tuple(
-    addr
-    for addr in (
-        a.strip().lower().lstrip("@")
-        for a in os.getenv(
-            "STATEMENTS_EXTRA_SENDERS",
-            "steffanrichards@me.com,cwrtmallefarm@gmail.com",
-        ).split(",")
-    )
-    if addr
-)
 # Optional local folder of statement PDFs for development (skips Graph mail when set).
 LOCAL_STATEMENTS_DIR = os.getenv("LOCAL_STATEMENTS_DIR", "").strip()
 

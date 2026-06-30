@@ -29,7 +29,6 @@ from app.config import (
     LOCAL_STATEMENTS_DIR,
     STATEMENTS_DAIRYPARTNERS_DOMAIN,
     STATEMENTS_DEFAULT_HAULAGE,
-    STATEMENTS_EXTRA_SENDERS,
     STATEMENTS_FRESHWAYS_DOMAIN,
     STATEMENTS_LOOKBACK_DAYS,
     STATEMENTS_MAILBOX_CM,
@@ -37,7 +36,7 @@ from app.config import (
     graph_cm_is_configured,
 )
 from app.models import MilkStatement
-from app.services.graph_mail import iter_attachments
+from app.services.graph_mail import iter_statement_attachments
 from app.services.graph_onedrive import get_access_token_for, graph_is_configured
 from app.services.milk_statement_pdf import parse_milk_statement_pdf
 
@@ -102,6 +101,15 @@ def _mailbox_error_message(farm: str, mailbox: str, exc: Exception) -> str:
     return f"{farm} ({mailbox}): {type(exc).__name__}: {exc}"
 
 
+def _progress_callback(phase: str, messages: int, pdfs: int) -> None:
+    with _lock:
+        if _import_status.get("status") != "running":
+            return
+        _import_status["message"] = (
+            f"{phase}: checked {messages} email(s), found {pdfs} PDF(s)…"
+        )
+
+
 def _iter_sources(
     warnings: list[str],
     since: dt.datetime,
@@ -145,15 +153,15 @@ def _iter_sources(
             warnings.append(_mailbox_error_message(farm, mailbox, cm_token_error))
             continue
         try:
-            for attachment in iter_attachments(
+            for attachment in iter_statement_attachments(
                 mailbox,
-                sender_domain=domain,
-                extra_senders=STATEMENTS_EXTRA_SENDERS,
+                sender_domains=(domain,) if domain else (),
                 skip_message_ids=skip_message_ids,
                 since=since,
                 extensions=(".pdf",),
                 content_types=("application/pdf",),
                 token=token,
+                on_progress=_progress_callback,
             ):
                 yield {
                     "content": attachment["content"],
@@ -407,57 +415,6 @@ def _upsert(
         updated += 1
 
     return (inserted, updated)
-
-
-def get_import_status() -> dict[str, Any]:
-    with _lock:
-        return dict(_import_status)
-
-
-def is_import_running() -> bool:
-    with _lock:
-        return _import_status.get("status") == "running"
-
-
-def mark_import_started(*, days: int | None) -> None:
-    if days:
-        message = f"Scanning mailbox for statements (last {days} days)…"
-    else:
-        message = "Scanning mailbox for statements…"
-    with _lock:
-        _import_status.update(status="running", message=message, result=None)
-
-
-def _set_import_status(**kwargs: Any) -> None:
-    with _lock:
-        _import_status.update(kwargs)
-
-
-def run_import_in_background(
-    db_factory,
-    *,
-    full_history: bool = False,
-    days: int | None = None,
-) -> None:
-    """Background worker for dashboard imports (avoids Render HTTP timeouts)."""
-    db = db_factory()
-    try:
-        result = import_milk_statements(db, full_history=full_history, days=days)
-        message = (
-            f"Imported {result['rows_total']} month(s) "
-            f"({result['rows_inserted']} new, {result['rows_updated']} updated)."
-        )
-        _set_import_status(status="complete", message=message, result=result)
-    except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        logger.exception("Background milk statements import failed")
-        _set_import_status(
-            status="error",
-            message=f"{type(exc).__name__}: {exc}",
-            result=None,
-        )
-    finally:
-        db.close()
 
 
 def get_import_status() -> dict[str, Any]:
