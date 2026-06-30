@@ -15,6 +15,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.api.office_admin_routes import router as office_admin_api_router
 from app.api.genetics_routes import router as genetics_api_router
 from app.api.nml_routes import router as nml_api_router
+from app.api.haulier_routes import router as haulier_api_router
+from app.api.milk_statements_routes import router as milk_statements_api_router
 from app.api.events_routes import router as events_api_router
 from app.api.feed_rate_routes import router as feed_rate_api_router
 from app.api.feedlync_routes import router as feedlync_api_router
@@ -35,6 +37,7 @@ from app.auth.permissions import (
     PAGE_EVENTS,
     PAGE_FEED_RATE,
     ACTION_MILK_QUALITY_IMPORT,
+    ACTION_MILK_COLLECTIONS_IMPORT,
     PAGE_GENETICS,
     PAGE_HR,
     PAGE_MILK_QUALITY,
@@ -45,6 +48,7 @@ from app.auth.permissions import (
     PermissionContext,
     can_edit_sires,
     can_import_feed,
+    can_import_milk_statements,
     has_action,
     has_page,
 )
@@ -95,6 +99,8 @@ app.include_router(feedlync_api_router)
 app.include_router(office_admin_api_router)
 app.include_router(genetics_api_router)
 app.include_router(nml_api_router)
+app.include_router(haulier_api_router)
+app.include_router(milk_statements_api_router)
 app.include_router(admin_api_router)
 app.include_router(hr_api_router)
 
@@ -126,7 +132,7 @@ _GENETICS_BREADCRUMB = (
 )
 _MILK_QUALITY_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
-    '<a href="/milk-quality/results">Milk Quality</a>'
+    '<a href="/milk-quality/results">Milk Sales</a>'
 )
 
 _login_attempts: dict[str, list[float]] = defaultdict(list)
@@ -1034,14 +1040,64 @@ def milk_quality_results_page(request: Request):
         "milk_quality/results.html",
         _template_ctx(
             request,
-            page_heading="Milk Quality Results",
+            page_heading="NML Results",
             farm_options=list(HERD_FARM_OPTIONS),
             can_import=has_action(request.state.user, ACTION_MILK_QUALITY_IMPORT),
             lookback_days=NML_LOOKBACK_DAYS,
             **_milk_quality_context(
-                "Milk Quality Results",
+                "NML Results",
                 "nml-results",
                 "Results",
+            ),
+        ),
+    )
+
+
+@app.get("/milk-quality/collections", response_class=HTMLResponse)
+def milk_quality_collections_page(request: Request):
+    if denied := _page_guard(request, PAGE_MILK_QUALITY):
+        return denied
+    from app.config import HAULIER_LOOKBACK_DAYS
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "milk_quality/collections.html",
+        _template_ctx(
+            request,
+            page_heading="Milk Collections",
+            farm_options=list(HERD_FARM_OPTIONS),
+            can_import=has_action(request.state.user, ACTION_MILK_COLLECTIONS_IMPORT),
+            lookback_days=HAULIER_LOOKBACK_DAYS,
+            **_milk_quality_context(
+                "Milk Collections",
+                "haulier-collections",
+                "Collections",
+            ),
+        ),
+    )
+
+
+@app.get("/milk-quality/statements", response_class=HTMLResponse)
+def milk_quality_statements_page(request: Request):
+    if denied := _page_guard(request, PAGE_MILK_QUALITY):
+        return denied
+    from app.config import STATEMENTS_LOOKBACK_DAYS
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "milk_quality/statements.html",
+        _template_ctx(
+            request,
+            page_heading="Milk Statements",
+            can_import=can_import_milk_statements(request.state.user),
+            lookback_days=STATEMENTS_LOOKBACK_DAYS,
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_milk_quality_context(
+                "Milk Statements",
+                "milk-statements",
+                "Statements",
             ),
         ),
     )

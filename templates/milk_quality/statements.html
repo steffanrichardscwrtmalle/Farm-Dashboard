@@ -1,0 +1,341 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .page-layout { grid-template-columns: 1fr; } }
+    .sidebar-column { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    .content-panel { min-width: 0; }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-of-type { margin-bottom: 0; }
+    .filter-section .section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .filter-section select { width: 100%; margin: 0; }
+    .farm-slicer { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .slicer-btn {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 2.75rem; padding: 0.5rem 0.4rem;
+      border: 2px solid var(--border); border-radius: 8px;
+      background: #f3f4f6; color: var(--muted);
+      font-size: 0.8125rem; font-weight: 600; cursor: pointer;
+    }
+    .slicer-btn[data-value="CM"].selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
+    .action-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+    .import-scope { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 0.8rem; color: var(--muted); }
+    .import-scope select { margin: 0; padding: 0.25rem 0.4rem; font-size: 0.8rem; width: auto; }
+    .table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+    #stmt-table { width: 100%; border-collapse: collapse; }
+    #stmt-table th, #stmt-table td {
+      padding: 0.5rem 0.65rem; text-align: right;
+      border-bottom: 1px solid var(--border); white-space: nowrap;
+    }
+    #stmt-table th:first-child, #stmt-table td:first-child { text-align: left; }
+    #stmt-table td { font-variant-numeric: tabular-nums; }
+    #stmt-table thead th {
+      background: #1e3a5f; color: #fff; font-weight: 600;
+      position: sticky; top: 0; z-index: 1;
+    }
+    #stmt-table tbody tr.empty-month td { color: var(--muted); }
+    #stmt-table tbody tr.total-row td {
+      background: #f0f4f8; font-weight: 700; border-top: 2px solid #1e3a5f;
+    }
+    .empty-state { padding: 1.5rem; color: var(--muted); text-align: center; }
+    .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
+    .message.warn {
+      display: block;
+      background: #fef3e2;
+      color: #92400e;
+      border: 1px solid #f5d9ad;
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="page-layout">
+    <div class="sidebar-column">
+      <aside class="filter-panel">
+        <h2>Filters</h2>
+        <div class="filter-section">
+          <span class="section-label">Farm</span>
+          <div class="farm-slicer">
+            {% for farm in farm_options %}
+            <button type="button" class="slicer-btn{% if loop.first %} selected{% endif %}" data-value="{{ farm }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ farm }}</button>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Fiscal year</span>
+          <select id="fiscal-year-select"></select>
+        </div>
+      </aside>
+      <aside class="filter-panel">
+        <h2>About</h2>
+        <p class="help-text">
+          Confirmed monthly milk sales from buyer payment statements (Freshways for
+          GAD, Dairy Partners for Cwrt Malle). CM milk price is shown net of haulage.
+          The fiscal year runs April to March; the Total / Avg row sums litres and
+          shows the litres-weighted average of each quality figure.
+        </p>
+      </aside>
+    </div>
+
+    <section class="content-panel">
+      <div id="status-message" class="message"></div>
+      <p class="meta-line" id="meta-line">Loading…</p>
+
+      <div class="action-bar">
+        {% if can_import %}
+        <button type="button" class="small" id="import-btn">Import from email</button>
+        <label class="import-scope">
+          <span>Range</span>
+          <select id="import-scope" title="How far back to scan the mailbox">
+            <option value="recent" selected>Recent (last {{ lookback_days }} days)</option>
+            <option value="custom">Choose days back…</option>
+          </select>
+        </label>
+        {% endif %}
+      </div>
+
+      <div class="table-wrap">
+        <table id="stmt-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Litres Sold</th>
+              <th>Price</th>
+              <th>Fat %</th>
+              <th>Protein %</th>
+              <th>SCC</th>
+              <th>Bacto</th>
+              <th>Thermo</th>
+              <th>FPD</th>
+            </tr>
+          </thead>
+          <tbody id="stmt-body">
+            <tr><td colspan="9" class="empty-state">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const CAN_IMPORT = {{ 'true' if can_import else 'false' }};
+  const fySelect = document.getElementById("fiscal-year-select");
+  const metaLine = document.getElementById("meta-line");
+  const statusMsg = document.getElementById("status-message");
+  const tbody = document.getElementById("stmt-body");
+
+  function showMessage(text, isError) {
+    statusMsg.innerHTML = "";
+    statusMsg.textContent = text || "";
+    statusMsg.className = "message" + (isError ? " err" : text ? " ok" : "");
+  }
+
+  function showMessageWithList(text, items, isError) {
+    statusMsg.innerHTML = "";
+    statusMsg.className = "message" + (isError ? " err" : " warn");
+    const lead = document.createElement("div");
+    lead.textContent = text;
+    statusMsg.appendChild(lead);
+    if (items && items.length) {
+      const ul = document.createElement("ul");
+      ul.style.margin = "0.5rem 0 0 1rem";
+      ul.style.fontSize = "0.85rem";
+      for (const item of items.slice(0, 10)) {
+        const li = document.createElement("li");
+        li.textContent = item;
+        ul.appendChild(li);
+      }
+      statusMsg.appendChild(ul);
+    }
+  }
+
+  function fmtNum(v, decimals) {
+    if (v === null || v === undefined || v === "") return "—";
+    return Number(v).toLocaleString("en-GB", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+  }
+
+  function fmtInt(v) {
+    if (v === null || v === undefined || v === "") return "—";
+    return Number(v).toLocaleString("en-GB");
+  }
+
+  function selectedFarms() {
+    const btns = document.querySelectorAll(".farm-slicer .slicer-btn.selected");
+    const farms = [...btns].map((b) => b.dataset.value);
+    return farms.length ? farms : ["CM"];
+  }
+
+  function rowCells(row) {
+    return `
+      <td>${row.month_label || "—"}</td>
+      <td>${fmtInt(row.litres_sold)}</td>
+      <td>${fmtNum(row.milk_price_ppl, 3)}</td>
+      <td>${fmtNum(row.butterfat_pct, 2)}</td>
+      <td>${fmtNum(row.protein_pct, 2)}</td>
+      <td>${fmtInt(row.scc)}</td>
+      <td>${fmtInt(row.bactoscan)}</td>
+      <td>${fmtInt(row.thermoduric)}</td>
+      <td>${fmtInt(row.fpd)}</td>
+    `;
+  }
+
+  function populateFiscalYears(options, selected) {
+    fySelect.innerHTML = "";
+    if (!options.length) options = [selected];
+    for (const fy of options) {
+      const opt = document.createElement("option");
+      opt.value = String(fy);
+      opt.textContent = String(fy);
+      if (fy === selected) opt.selected = true;
+      fySelect.appendChild(opt);
+    }
+  }
+
+  async function loadData() {
+    const params = new URLSearchParams();
+    params.set("farms", selectedFarms().join(","));
+    if (fySelect.value) params.set("fiscal_year", fySelect.value);
+    const res = await fetch("/api/milk-statements/list?" + params.toString(), {
+      credentials: "same-origin",
+    });
+    if (res.status === 401) {
+      window.location.href = "/login?next=" + encodeURIComponent(window.location.pathname);
+      throw new Error("Session expired");
+    }
+    if (!res.ok) throw new Error("Failed to load statements");
+    return res.json();
+  }
+
+  async function refresh() {
+    try {
+      const data = await loadData();
+      populateFiscalYears(data.fiscal_year_options || [], data.fiscal_year);
+
+      tbody.innerHTML = "";
+      for (const row of data.rows || []) {
+        const tr = document.createElement("tr");
+        if (!row.has_data) tr.classList.add("empty-month");
+        tr.innerHTML = rowCells(row);
+        tbody.appendChild(tr);
+      }
+      if (data.total) {
+        const tr = document.createElement("tr");
+        tr.classList.add("total-row");
+        tr.innerHTML = rowCells(data.total);
+        tbody.appendChild(tr);
+      }
+
+      metaLine.textContent =
+        `${data.farm_label} — ${data.fiscal_year_label} ` +
+        `(${data.months_with_data} month(s) with statements)`;
+    } catch (err) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Failed to load data.</td></tr>';
+      showMessage(err.message || "Load failed", true);
+    }
+  }
+
+  document.querySelectorAll(".farm-slicer .slicer-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const isSelected = btn.classList.contains("selected");
+      const selectedCount = document.querySelectorAll(
+        ".farm-slicer .slicer-btn.selected"
+      ).length;
+      // Keep at least one farm toggled on.
+      if (isSelected && selectedCount <= 1) return;
+      btn.classList.toggle("selected");
+      btn.setAttribute("aria-pressed", btn.classList.contains("selected") ? "true" : "false");
+      refresh();
+    });
+  });
+
+  fySelect.addEventListener("change", () => refresh());
+
+  if (CAN_IMPORT) {
+    document.getElementById("import-btn").addEventListener("click", async function () {
+      const scope = document.getElementById("import-scope").value;
+      let days = null;
+      if (scope === "custom") {
+        const input = window.prompt("How many days back should I scan the mailbox?", "90");
+        if (input === null) return;
+        days = parseInt(input, 10);
+        if (!Number.isFinite(days) || days <= 0) {
+          showMessage("Enter a positive whole number of days.", true);
+          return;
+        }
+      } else if (!window.confirm("Check the mailbox for milk buyer statements and import them now?")) {
+        return;
+      }
+      const btn = this;
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Importing…";
+      showMessage(days ? ("Importing last " + days + " days…") : "Importing from email…", false);
+      try {
+        const url = "/api/milk-statements/import" + (days ? "?days=" + encodeURIComponent(days) : "");
+        const res = await fetch(url, { method: "POST", credentials: "same-origin" });
+        if (res.status === 401) {
+          showMessage("Your session has expired. Redirecting to login…", true);
+          setTimeout(() => {
+            window.location.href = "/login?next=" + encodeURIComponent(window.location.pathname);
+          }, 1200);
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 403) {
+          throw new Error(data.detail || "You do not have permission to import statements.");
+        }
+        if (!res.ok) {
+          const detail = data.detail;
+          throw new Error(typeof detail === "string" ? detail : "Import failed");
+        }
+        const warnings = data.warnings || [];
+        let msg = "Imported " + (data.rows_total || 0) + " month(s) (" +
+          (data.rows_inserted || 0) + " new, " + (data.rows_updated || 0) + " updated).";
+        if (warnings.length) {
+          msg += " " + warnings.length + " warning(s):";
+          showMessageWithList(msg, warnings, false);
+        } else {
+          showMessage(msg, false);
+        }
+        await refresh();
+      } catch (err) {
+        showMessage(err.message || "Import failed", true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    });
+  }
+
+  refresh();
+})();
+</script>
+{% endblock %}

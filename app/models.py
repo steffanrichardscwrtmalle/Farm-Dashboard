@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, Time, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -663,6 +663,86 @@ class NmlMilkResult(Base):
     urea_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     source_message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     source_file: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    imported_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class MilkCollection(Base):
+    """Per-load milk collection records from the haulier's emailed XLSX report.
+
+    Keyed by (farm, collection_date, sample_id). The sample_id matches the NML
+    sample number for the same load, linking collection logistics (volume, times,
+    temperature) to milk quality on sample_id + date (+/- 1 day). Sample IDs are
+    stored as text exactly as the haulier writes them (e.g. '026'); matching to
+    NML normalises leading zeros.
+    """
+
+    __tablename__ = "milk_collections"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm", "collection_date", "sample_id", name="uq_collection_farm_date_sample"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str | None] = mapped_column(String(8), nullable=True, index=True)
+    collection_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    # Blank when the haulier omits a sample number; stored as NULL so several
+    # sample-less loads can share a day (NULLs are distinct in the constraint).
+    sample_id: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    driver: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    vehicle_reg: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    arrival_time: Mapped[datetime.time | None] = mapped_column(Time, nullable=True)
+    depart_time: Mapped[datetime.time | None] = mapped_column(Time, nullable=True)
+    volume_litres: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    temp_c: Mapped[float | None] = mapped_column(Float, nullable=True)
+    temp_raw: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    source_message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_file: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # When the source email was received; used to keep the newest email's data
+    # when the haulier re-dates a load across reports.
+    source_received: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    imported_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class MilkStatement(Base):
+    """Confirmed monthly milk sales from buyer payment statements (emailed PDFs).
+
+    One row per farm per calendar month. Figures are the buyer's final statement
+    values (litres sold, quality averages, milk price). CM price is stored net
+    of haulage.
+    """
+
+    __tablename__ = "milk_statements"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm", "statement_month", name="uq_milk_statement_farm_month"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    statement_month: Mapped[datetime.date] = mapped_column(Date, index=True)
+    supplier: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    litres_sold: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    milk_price_ppl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    haulage_ppl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    butterfat_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    protein_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scc: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bactoscan: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    thermoduric: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fpd: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_file: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_received: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     imported_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )

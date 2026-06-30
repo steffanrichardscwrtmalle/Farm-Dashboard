@@ -90,11 +90,12 @@
     .import-scope { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 0.8rem; color: var(--muted); }
     .import-scope select { margin: 0; padding: 0.25rem 0.4rem; font-size: 0.8rem; }
     .table-wrap { overflow: auto; max-height: calc(100vh - 14rem); border: 1px solid var(--border); border-radius: 8px; }
-    #nml-table { width: 100%; border-collapse: collapse; }
-    #nml-table th, #nml-table td { padding: 0.4rem 0.55rem; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
-    #nml-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-    #nml-table thead th { background: #1e3a5f; color: #fff; font-weight: 600; position: sticky; top: 0; z-index: 1; }
-    #nml-table tbody tr.fail td { background: #fff1f2; }
+    #coll-table { width: 100%; border-collapse: collapse; }
+    #coll-table th, #coll-table td { padding: 0.4rem 0.55rem; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    #coll-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    #coll-table thead th { background: #1e3a5f; color: #fff; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+    #coll-table tbody tr.fail td { background: #fff1f2; }
+    #coll-table tbody tr.unmatched td { color: var(--muted); }
     .empty-state { padding: 1.5rem; color: var(--muted); }
     .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
     .message { margin-bottom: 0.75rem; }
@@ -103,6 +104,8 @@
     .pill { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
     .pill.pass { background: #dcfce7; color: #166534; }
     .pill.fail { background: #fee2e2; color: #991b1b; }
+    .pill.yes { background: #dcfce7; color: #166534; }
+    .pill.no { background: #f3f4f6; color: #6b7280; }
 {% endblock %}
 
 {% block content %}
@@ -119,7 +122,7 @@
           </div>
         </div>
         <div class="filter-section">
-          <span class="section-label">Sample date range</span>
+          <span class="section-label">Collection date range</span>
           <div class="date-row">
             <label>From <select id="date-from"></select></label>
             <label>To <select id="date-to"></select></label>
@@ -129,9 +132,10 @@
       <aside class="filter-panel">
         <h2>About</h2>
         <p class="help-text">
-          Per-collection milk quality results from National Milk Laboratories (NML),
-          imported from the emailed PDF reports. Each row is one sample, identified by
-          Sample ID and date.
+          Per-load milk collections from the haulier's emailed spreadsheet — driver,
+          arrival/depart times, volume and temperature. Each load is matched to its
+          NML milk-quality sample by sample number and date (±1 day). Split-fill
+          temperatures (e.g. 2.8/4.2) are averaged.
         </p>
       </aside>
     </div>
@@ -158,6 +162,26 @@
       <div class="charts-grid">
         <div class="chart-card">
           <div class="chart-head">
+            <h3>Volume (L/day)</h3>
+            <div class="chart-actions">
+              <button type="button" class="chart-btn chart-reset" data-canvas="chart-volume" title="Reset zoom">⟲</button>
+              <button type="button" class="chart-expand" data-canvas="chart-volume" data-title="Volume (L/day)" title="View larger">⤢</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-volume"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head">
+            <h3>Temperature (°C)</h3>
+            <div class="chart-actions">
+              <button type="button" class="chart-btn chart-reset" data-canvas="chart-temp" title="Reset zoom">⟲</button>
+              <button type="button" class="chart-expand" data-canvas="chart-temp" data-title="Temperature (°C)" title="View larger">⤢</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-temp"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head">
             <h3>Butterfat (%)</h3>
             <div class="chart-actions">
               <button type="button" class="chart-btn chart-reset" data-canvas="chart-butterfat" title="Reset zoom">⟲</button>
@@ -178,33 +202,13 @@
         </div>
         <div class="chart-card">
           <div class="chart-head">
-            <h3>Urea (%)</h3>
+            <h3>BactoScan by arrival time</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-urea" title="Reset zoom">⟲</button>
-              <button type="button" class="chart-expand" data-canvas="chart-urea" data-title="Urea (%)" title="View larger">⤢</button>
+              <button type="button" class="chart-btn chart-reset" data-canvas="chart-bacto-arrival" title="Reset zoom">⟲</button>
+              <button type="button" class="chart-expand" data-canvas="chart-bacto-arrival" data-title="BactoScan by arrival time" title="View larger">⤢</button>
             </div>
           </div>
-          <div class="chart-wrap"><canvas id="chart-urea"></canvas></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-head">
-            <h3>SCC (x1000/ml)</h3>
-            <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-scc" title="Reset zoom">⟲</button>
-              <button type="button" class="chart-expand" data-canvas="chart-scc" data-title="SCC (x1000/ml)" title="View larger">⤢</button>
-            </div>
-          </div>
-          <div class="chart-wrap"><canvas id="chart-scc"></canvas></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-head">
-            <h3>BactoScan (x1000/ml)</h3>
-            <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-bactoscan" title="Reset zoom">⟲</button>
-              <button type="button" class="chart-expand" data-canvas="chart-bactoscan" data-title="BactoScan (x1000/ml)" title="View larger">⤢</button>
-            </div>
-          </div>
-          <div class="chart-wrap"><canvas id="chart-bactoscan"></canvas></div>
+          <div class="chart-wrap"><canvas id="chart-bacto-arrival"></canvas></div>
         </div>
       </div>
 
@@ -231,7 +235,7 @@
         <button type="button" class="primary small" id="import-btn">Import from email</button>
         <label class="import-scope">
           <span>Range</span>
-          <select id="import-scope" title="How far back to scan the mailboxes">
+          <select id="import-scope" title="How far back to scan the mailbox">
             <option value="recent" selected>Recent (last {{ lookback_days }} days)</option>
             <option value="custom">Choose days back…</option>
           </select>
@@ -240,24 +244,29 @@
       </div>
 
       <div class="table-wrap">
-        <table id="nml-table">
+        <table id="coll-table">
           <thead>
             <tr>
               <th>Farm</th>
-              <th>Sample Date</th>
-              <th>Sample ID</th>
+              <th>Date</th>
+              <th>Sample</th>
+              <th>Driver</th>
+              <th>Vehicle</th>
+              <th>Arrival</th>
+              <th>Depart</th>
+              <th>Volume (L)</th>
+              <th>Temp °C</th>
               <th>Butterfat %</th>
               <th>Protein %</th>
               <th>SCC</th>
               <th>BactoScan</th>
-              <th>FPD</th>
-              <th>A/B</th>
               <th>Urea %</th>
-              <th>Buyer</th>
+              <th>A/B</th>
+              <th>NML</th>
             </tr>
           </thead>
           <tbody id="table-body">
-            <tr><td colspan="11" class="empty-state">Loading…</td></tr>
+            <tr><td colspan="16" class="empty-state">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -319,13 +328,19 @@
       return isNaN(n) ? '' : (digits === undefined ? n : n.toFixed(digits));
     }
 
-    const NML_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    function intFmt(value) {
+      if (value === null || value === undefined || value === '') return '';
+      const n = Number(value);
+      return isNaN(n) ? '' : Math.round(n).toLocaleString();
+    }
+
+    const COLL_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
     function monthLabel(m) {
       const parts = m.split('-');
       const year = Number(parts[0]);
       const mo = Number(parts[1]);
-      return NML_MONTH_ABBR[mo - 1] + '-' + String(year).slice(-2);
+      return COLL_MONTH_ABBR[mo - 1] + '-' + String(year).slice(-2);
     }
 
     function monthToDateFrom(m) { return m + '-01'; }
@@ -351,13 +366,10 @@
       return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
     }
 
-    // Build the month dropdowns from a generated range so they always have
-    // values immediately (no dependency on a data fetch). Default the range to
-    // the previous month (From) through the current month (To).
     let dateFilterReady = false;
 
     function populateMonths() {
-      const MONTHS_BACK = 35; // ~3 years of options
+      const MONTHS_BACK = 35;
       const now = new Date();
       const current = new Date(now.getFullYear(), now.getMonth(), 1);
       const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -380,12 +392,14 @@
 
     function renderSummary(summary) {
       const cards = [
-        { label: 'Samples', value: summary.count || 0 },
+        { label: 'Loads', value: summary.count || 0 },
+        { label: 'Total volume (L)', value: intFmt(summary.total_volume) || '0' },
+        { label: 'Avg daily volume (L)', value: intFmt(summary.avg_daily_volume) || '—' },
+        { label: 'Avg load (L)', value: intFmt(summary.avg_volume) || '—' },
+        { label: 'Avg temp °C', value: num(summary.avg_temp, 2) || '—' },
+        { label: 'Matched to NML', value: (summary.matched_count || 0) + ' / ' + (summary.count || 0) },
         { label: 'Avg butterfat %', value: num(summary.avg_butterfat_pct, 2) || '—' },
         { label: 'Avg protein %', value: num(summary.avg_protein_pct, 2) || '—' },
-        { label: 'Avg SCC', value: summary.avg_scc !== null ? Math.round(summary.avg_scc) : '—' },
-        { label: 'Avg BactoScan', value: summary.avg_bactoscan !== null ? Math.round(summary.avg_bactoscan) : '—' },
-        { label: 'Antibiotic fails', value: summary.antibiotic_fails || 0, warn: (summary.antibiotic_fails || 0) > 0 },
       ];
       document.getElementById('summary-cards').innerHTML = cards.map(c =>
         '<div class="summary-card"><div class="label">' + escapeHtml(c.label) + '</div>' +
@@ -393,43 +407,66 @@
       ).join('');
     }
 
-    // Winsorize one metric across the given rows using IQR (Tukey) fences, then
-    // return the clamped values. Mirrors the chart's cleanedPoints() so the
-    // summary cards stay consistent with the "Cap (IQR)" toggle.
+    const IQR_FACTOR = 1.5; // Tukey fences
+    let excludeOutliers = false;
+
+    function quantile(sorted, q) {
+      const pos = (sorted.length - 1) * q;
+      const base = Math.floor(pos);
+      const rest = pos - base;
+      return sorted[base + 1] !== undefined
+        ? sorted[base] + rest * (sorted[base + 1] - sorted[base])
+        : sorted[base];
+    }
+
+    // IQR (Tukey) fences for a list of numbers; null when not enough spread.
+    function iqrFences(values) {
+      const sorted = values.slice().sort((a, b) => a - b);
+      if (sorted.length < 4) return null;
+      const q1 = quantile(sorted, 0.25);
+      const q3 = quantile(sorted, 0.75);
+      const iqr = q3 - q1;
+      if (iqr === 0) return null;
+      return { lo: q1 - IQR_FACTOR * iqr, hi: q3 + IQR_FACTOR * iqr };
+    }
+
+    // Winsorize one metric across the given rows (clamp to the IQR fences).
     function cappedValues(sampleRows, metric) {
       const raw = sampleRows
         .map(r => r[metric])
         .filter(v => v !== null && v !== undefined)
-        .map(Number);
+        .map(Number)
+        .filter(v => !isNaN(v));
       if (!excludeOutliers) return raw;
-      const sorted = raw.slice().sort((a, b) => a - b);
-      if (sorted.length < 4) return raw;
-      const q1 = quantile(sorted, 0.25);
-      const q3 = quantile(sorted, 0.75);
-      const iqr = q3 - q1;
-      if (iqr === 0) return raw;
-      const lo = q1 - IQR_FACTOR * iqr;
-      const hi = q3 + IQR_FACTOR * iqr;
-      return raw.map(v => Math.min(hi, Math.max(lo, v)));
+      const f = iqrFences(raw);
+      if (!f) return raw;
+      return raw.map(v => Math.min(f.hi, Math.max(f.lo, v)));
     }
 
     function computeSummary(sampleRows) {
-      const avg = (metric, dp) => {
-        const vals = cappedValues(sampleRows, metric);
-        if (!vals.length) return null;
-        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-        const f = Math.pow(10, dp);
-        return Math.round(mean * f) / f;
+      const mean = (arr, dp) => {
+        if (!arr.length) return null;
+        const m = arr.reduce((a, b) => a + b, 0) / arr.length;
+        const p = Math.pow(10, dp);
+        return Math.round(m * p) / p;
       };
-      const dates = sampleRows.map(r => r.sample_date).filter(Boolean).sort();
+      const vol = cappedValues(sampleRows, 'volume_litres');
+      const totalVol = vol.reduce((a, b) => a + b, 0);
+      const days = new Set(
+        sampleRows.filter(r => r.collection_date && r.volume_litres !== null && r.volume_litres !== undefined)
+          .map(r => r.collection_date)
+      ).size;
+      const dates = sampleRows.map(r => r.collection_date).filter(Boolean).sort();
       return {
         count: sampleRows.length,
-        latest_sample_date: dates.length ? dates[dates.length - 1] : '',
-        avg_butterfat_pct: avg('butterfat_pct', 2),
-        avg_protein_pct: avg('protein_pct', 2),
-        avg_scc: avg('scc', 0),
-        avg_bactoscan: avg('bactoscan', 0),
-        antibiotic_fails: sampleRows.filter(r => r.antibiotic_pass === false).length,
+        latest_collection_date: dates.length ? dates[dates.length - 1] : '',
+        total_volume: Math.round(totalVol),
+        avg_daily_volume: days ? Math.round(totalVol / days) : null,
+        avg_volume: vol.length ? Math.round(totalVol / vol.length) : null,
+        avg_temp: mean(cappedValues(sampleRows, 'temp_c'), 2),
+        matched_count: sampleRows.filter(r => r.matched).length,
+        avg_butterfat_pct: mean(cappedValues(sampleRows, 'butterfat_pct'), 2),
+        avg_protein_pct: mean(cappedValues(sampleRows, 'protein_pct'), 2),
       };
     }
 
@@ -444,48 +481,8 @@
     }
 
     const ROLL_WINDOW_DAYS = 5;
-    const IQR_FACTOR = 1.5; // Tukey fences; raise to ~3 for "extreme only"
-    let smoothing = true; // 5-day rolling average on by default
-    let excludeOutliers = false; // keep all data by default
+    let smoothing = true;
 
-    function quantile(sorted, q) {
-      const pos = (sorted.length - 1) * q;
-      const base = Math.floor(pos);
-      const rest = pos - base;
-      return sorted[base + 1] !== undefined
-        ? sorted[base] + rest * (sorted[base + 1] - sorted[base])
-        : sorted[base];
-    }
-
-    // Tame extremes using IQR (Tukey) fences, per farm+metric. Values outside the
-    // fences are clamped to the fence (winsorized) rather than dropped, so the
-    // series keeps a value on every date — no holes in the lines.
-    function cleanedPoints(farm, metric) {
-      const points = trend[farm] || [];
-      if (!excludeOutliers) return points;
-      const vals = points
-        .map(p => p[metric])
-        .filter(v => v !== null && v !== undefined)
-        .sort((a, b) => a - b);
-      if (vals.length < 4) return points;
-      const q1 = quantile(vals, 0.25);
-      const q3 = quantile(vals, 0.75);
-      const iqr = q3 - q1;
-      if (iqr === 0) return points;
-      const lo = q1 - IQR_FACTOR * iqr;
-      const hi = q3 + IQR_FACTOR * iqr;
-      return points.map(p => {
-        const v = p[metric];
-        if (v === null || v === undefined) return p;
-        if (v < lo || v > hi) {
-          return Object.assign({}, p, { [metric]: Math.min(hi, Math.max(lo, v)) });
-        }
-        return p;
-      });
-    }
-
-    // Trailing rolling average over a calendar-day window for one farm's points
-    // (points are daily averages, oldest first). Returns { date: value }.
     function rollingByDate(points, metric) {
       const result = {};
       const dates = points.map(p => new Date(p.date + 'T00:00:00'));
@@ -502,6 +499,24 @@
         result[points[i].date] = count ? Math.round((sum / count) * 1000) / 1000 : null;
       }
       return result;
+    }
+
+    // Winsorize a farm's daily trend points for one metric (clamp to IQR fences),
+    // keeping a value on every date so the lines have no holes.
+    function cleanedPoints(farm, metric) {
+      const points = trend[farm] || [];
+      if (!excludeOutliers) return points;
+      const vals = points.map(p => p[metric]).filter(v => v !== null && v !== undefined).map(Number);
+      const f = iqrFences(vals);
+      if (!f) return points;
+      return points.map(p => {
+        const v = p[metric];
+        if (v === null || v === undefined) return p;
+        if (v < f.lo || v > f.hi) {
+          return Object.assign({}, p, { [metric]: Math.min(f.hi, Math.max(f.lo, v)) });
+        }
+        return p;
+      });
     }
 
     function seriesFor(farm, metric, labels, smooth) {
@@ -550,19 +565,126 @@
       };
     }
 
-    function lineChart(canvasId, datasets, labels) {
+    // BactoScan colour bands: <=30 green, 30-60 blue, >60 red.
+    const BACTO_BANDS = [
+      { label: 'BactoScan ≤30', color: '#16a34a', test: b => b <= 30 },
+      { label: 'BactoScan 30–60', color: '#2563eb', test: b => b > 30 && b <= 60 },
+      { label: 'BactoScan >60', color: '#dc2626', test: b => b > 60 },
+    ];
+
+    function timeToHours(value) {
+      if (!value) return null;
+      const parts = String(value).split(':');
+      if (parts.length < 2) return null;
+      const h = Number(parts[0]);
+      const m = Number(parts[1]);
+      if (isNaN(h) || isNaN(m)) return null;
+      return h + m / 60;
+    }
+
+    function hoursToLabel(hours) {
+      const h = Math.floor(hours);
+      const m = Math.round((hours - h) * 60);
+      return String((h % 24 + 24) % 24).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+    }
+
+    function bactoArrivalDatasets() {
+      const usable = rows.filter(r => {
+        const v = Number(r.bactoscan);
+        return r.bactoscan !== null && r.bactoscan !== undefined && !isNaN(v)
+          && timeToHours(r.arrival_time) !== null;
+      });
+      const fences = excludeOutliers ? iqrFences(usable.map(r => Number(r.bactoscan))) : null;
+
+      const bands = BACTO_BANDS.map(b => ({ label: b.label, color: b.color, points: [] }));
+      usable.forEach(row => {
+        const raw = Number(row.bactoscan);
+        const value = fences ? Math.min(fences.hi, Math.max(fences.lo, raw)) : raw;
+        const band = BACTO_BANDS.findIndex(def => def.test(value));
+        if (band < 0) return;
+        bands[band].points.push({
+          x: timeToHours(row.arrival_time), y: value, _raw: raw,
+          _sample: row.sample_id, _date: row.collection_date,
+          _arrival: row.arrival_time, _farm: row.farm,
+        });
+      });
+      return bands.map(b => ({
+        label: b.label,
+        data: b.points,
+        backgroundColor: b.color,
+        borderColor: b.color,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+      }));
+    }
+
+    function buildScatterConfig(datasets) {
+      return {
+        type: 'scatter',
+        data: { datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const p = ctx.raw || {};
+                  const capped = (p._raw !== undefined && p._raw !== p.y)
+                    ? ' (capped from ' + p._raw + ')' : '';
+                  return (p._farm || '') + ' #' + (p._sample || '') + ' · ' +
+                    formatDate(p._date) + ' ' + (p._arrival || '') +
+                    ' · BactoScan ' + p.y + capped;
+                },
+              },
+            },
+            zoom: {
+              pan: { enabled: true, mode: 'xy', modifierKey: 'ctrl' },
+              zoom: {
+                wheel: { enabled: true },
+                pinch: { enabled: true },
+                drag: {
+                  enabled: true,
+                  backgroundColor: 'rgba(30,58,95,0.15)',
+                  borderColor: 'rgba(30,58,95,0.6)',
+                  borderWidth: 1,
+                },
+                mode: 'xy',
+              },
+            },
+          },
+          scales: {
+            x: {
+              type: 'linear',
+              min: 0, max: 24,
+              title: { display: true, text: 'Arrival time' },
+              ticks: { stepSize: 2, callback: (v) => hoursToLabel(v) },
+            },
+            y: { title: { display: true, text: 'BactoScan (x1000/ml)' }, beginAtZero: true },
+          },
+        },
+      };
+    }
+
+    function configForSpec(spec) {
+      const datasets = cloneDatasets(spec.datasets);
+      return spec.type === 'scatter'
+        ? buildScatterConfig(datasets)
+        : buildLineConfig(datasets, spec.labels);
+    }
+
+    function renderInlineChart(canvasId) {
       if (typeof Chart === 'undefined') {
         throw new Error('Charts unavailable (Chart.js did not load)');
       }
       destroyChart(canvasId);
       const canvas = document.getElementById(canvasId);
-      charts[canvasId] = new Chart(canvas, buildLineConfig(datasets, labels));
+      charts[canvasId] = new Chart(canvas, configForSpec(chartSpecs[canvasId]));
     }
 
-    function metricDatasets(metric, suffix, labels, opts) {
-      opts = opts || {};
-      const scatter = !!opts.scatter;
-      const smooth = smoothing && !scatter; // scatter shows raw points only
+    function metricDatasets(metric, suffix, labels) {
+      const smooth = smoothing;
       const tag = smooth ? ' (5-day avg)' : '';
       return selectedFarms().map(farm => {
         const color = FARM_COLORS[farm] || '#555';
@@ -572,8 +694,9 @@
           borderColor: color,
           backgroundColor: color,
           tension: smooth ? 0.35 : 0.25,
-          showLine: !scatter,
-          pointRadius: scatter ? 3 : (smooth ? 0 : 2),
+          showLine: true,
+          spanGaps: true,
+          pointRadius: smooth ? 0 : 2,
         };
       });
     }
@@ -585,17 +708,17 @@
     function renderCharts() {
       const labels = allDates();
       const chartDefs = [
-        ['chart-butterfat', 'Butterfat (%)', metricDatasets('butterfat_pct', 'Butterfat', labels)],
-        ['chart-protein', 'Protein (%)', metricDatasets('protein_pct', 'Protein', labels)],
-        ['chart-urea', 'Urea (%)', metricDatasets('urea_pct', 'Urea', labels, { scatter: true })],
-        ['chart-scc', 'SCC (x1000/ml)', metricDatasets('scc', 'SCC', labels)],
-        ['chart-bactoscan', 'BactoScan (x1000/ml)', metricDatasets('bactoscan', 'BactoScan', labels)],
+        ['chart-volume', 'line', { datasets: metricDatasets('volume_litres', 'Volume', labels), labels }],
+        ['chart-temp', 'line', { datasets: metricDatasets('temp_c', 'Temp', labels), labels }],
+        ['chart-butterfat', 'line', { datasets: metricDatasets('butterfat_pct', 'Butterfat', labels), labels }],
+        ['chart-protein', 'line', { datasets: metricDatasets('protein_pct', 'Protein', labels), labels }],
+        ['chart-bacto-arrival', 'scatter', { datasets: bactoArrivalDatasets() }],
       ];
       let chartError = '';
-      chartDefs.forEach(([canvasId, title, datasets]) => {
-        chartSpecs[canvasId] = { datasets, labels, title };
+      chartDefs.forEach(([canvasId, type, spec]) => {
+        chartSpecs[canvasId] = Object.assign({ type }, spec);
         try {
-          lineChart(canvasId, datasets, labels);
+          renderInlineChart(canvasId);
         } catch (err) {
           chartError = err && err.message ? err.message : String(err);
           console.error('Chart render failed for ' + canvasId, err);
@@ -612,7 +735,7 @@
       if (!spec || typeof Chart === 'undefined') return;
       if (modalChart) { modalChart.destroy(); modalChart = null; }
       const canvas = document.getElementById('chart-modal-canvas');
-      modalChart = new Chart(canvas, buildLineConfig(cloneDatasets(spec.datasets), spec.labels));
+      modalChart = new Chart(canvas, configForSpec(spec));
     }
 
     function openChartModal(canvasId, title) {
@@ -627,6 +750,8 @@
       if (modalChart) { modalChart.destroy(); modalChart = null; }
       openModalCanvasId = null;
     }
+
+    const CHART_IDS = ['chart-volume', 'chart-temp', 'chart-butterfat', 'chart-protein', 'chart-bacto-arrival'];
 
     function bindChartUI() {
       document.querySelectorAll('.smoothing-slicer .slicer-btn').forEach(btn => {
@@ -663,7 +788,7 @@
           if (charts[id]) charts[id].resetZoom();
         });
       });
-      ['chart-butterfat', 'chart-protein', 'chart-urea', 'chart-scc', 'chart-bactoscan'].forEach(id => {
+      CHART_IDS.forEach(id => {
         const canvas = document.getElementById(id);
         if (canvas) {
           canvas.addEventListener('dblclick', () => { if (charts[id]) charts[id].resetZoom(); });
@@ -689,64 +814,77 @@
       return '';
     }
 
+    function matchedCell(value) {
+      return value
+        ? '<span class="pill yes">Linked</span>'
+        : '<span class="pill no">—</span>';
+    }
+
     function renderTable() {
       const tbody = document.getElementById('table-body');
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="11" class="empty-state">No results match the current filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="16" class="empty-state">No collections match the current filters.</td></tr>';
         return;
       }
-      tbody.innerHTML = rows.map(row =>
-        '<tr' + (row.antibiotic_pass === false ? ' class="fail"' : '') + '>' +
-        '<td>' + escapeHtml(row.farm) + '</td>' +
-        '<td>' + escapeHtml(formatDate(row.sample_date)) + '</td>' +
-        '<td>' + escapeHtml(row.sample_id) + '</td>' +
-        '<td class="num">' + escapeHtml(num(row.butterfat_pct, 2)) + '</td>' +
-        '<td class="num">' + escapeHtml(num(row.protein_pct, 2)) + '</td>' +
-        '<td class="num">' + escapeHtml(num(row.scc)) + '</td>' +
-        '<td class="num">' + escapeHtml(num(row.bactoscan)) + '</td>' +
-        '<td class="num">' + escapeHtml(num(row.fpd)) + '</td>' +
-        '<td>' + abCell(row.antibiotic_pass) + '</td>' +
-        '<td class="num">' + escapeHtml(num(row.urea_pct, 3)) + '</td>' +
-        '<td>' + escapeHtml(row.milk_buyer) + '</td>' +
-        '</tr>'
-      ).join('');
+      tbody.innerHTML = rows.map(row => {
+        const cls = row.antibiotic_pass === false ? ' class="fail"' : (row.matched ? '' : ' class="unmatched"');
+        return '<tr' + cls + '>' +
+          '<td>' + escapeHtml(row.farm) + '</td>' +
+          '<td>' + escapeHtml(formatDate(row.collection_date)) + '</td>' +
+          '<td>' + escapeHtml(row.sample_id) + '</td>' +
+          '<td>' + escapeHtml(row.driver) + '</td>' +
+          '<td>' + escapeHtml(row.vehicle_reg) + '</td>' +
+          '<td>' + escapeHtml(row.arrival_time) + '</td>' +
+          '<td>' + escapeHtml(row.depart_time) + '</td>' +
+          '<td class="num">' + escapeHtml(intFmt(row.volume_litres)) + '</td>' +
+          '<td class="num">' + escapeHtml(num(row.temp_c, 1)) + '</td>' +
+          '<td class="num">' + escapeHtml(num(row.butterfat_pct, 2)) + '</td>' +
+          '<td class="num">' + escapeHtml(num(row.protein_pct, 2)) + '</td>' +
+          '<td class="num">' + escapeHtml(num(row.scc)) + '</td>' +
+          '<td class="num">' + escapeHtml(num(row.bactoscan)) + '</td>' +
+          '<td class="num">' + escapeHtml(num(row.urea_pct, 3)) + '</td>' +
+          '<td>' + abCell(row.antibiotic_pass) + '</td>' +
+          '<td>' + matchedCell(row.matched) + '</td>' +
+          '</tr>';
+      }).join('');
     }
 
     async function loadResults() {
       showMessage('');
       document.getElementById('meta-line').textContent = 'Loading…';
       document.getElementById('table-body').innerHTML =
-        '<tr><td colspan="11" class="empty-state">Loading…</td></tr>';
+        '<tr><td colspan="16" class="empty-state">Loading…</td></tr>';
       try {
-        const res = await fetch('/api/nml/results?' + buildQuery(), {
+        const res = await fetch('/api/haulier/collections?' + buildQuery(), {
           signal: AbortSignal.timeout(30000),
         });
-        if (!res.ok) throw new Error('Failed to load results (' + res.status + ')');
+        if (!res.ok) throw new Error('Failed to load collections (' + res.status + ')');
         const data = await res.json();
         rows = data.rows || [];
         trend = data.trend || {};
+        const summary = data.summary || {};
         document.getElementById('meta-line').textContent =
-          rows.length + ' sample' + (rows.length === 1 ? '' : 's') +
-          (data.summary && data.summary.latest_sample_date ? ' · latest ' + formatDate(data.summary.latest_sample_date) : '');
+          rows.length + ' load' + (rows.length === 1 ? '' : 's') +
+          (summary.latest_collection_date ? ' · latest ' + formatDate(summary.latest_collection_date) : '');
         refreshSummary();
         renderTable();
         const chartError = renderCharts();
         if (chartError) {
-          showMessage('Results loaded, but charts could not be drawn: ' + chartError, true);
+          showMessage('Collections loaded, but charts could not be drawn: ' + chartError, true);
         }
       } catch (err) {
         document.getElementById('meta-line').textContent = '';
         document.getElementById('table-body').innerHTML =
-          '<tr><td colspan="11" class="empty-state">Could not load results.</td></tr>';
+          '<tr><td colspan="16" class="empty-state">Could not load collections.</td></tr>';
         showMessage(err && err.message ? err.message : String(err), true);
       }
     }
 
     document.getElementById('download-csv-btn').addEventListener('click', () => {
-      window.location.href = '/api/nml/results/export.csv?' + buildQuery();
+      window.location.href = '/api/haulier/collections/export.csv?' + buildQuery();
     });
     document.getElementById('download-xlsx-btn').addEventListener('click', () => {
-      window.location.href = '/api/nml/results/export.xlsx?' + buildQuery();
+      window.location.href = '/api/haulier/collections/export.xlsx?' + buildQuery();
     });
 
     let dateTimer = null;
@@ -763,21 +901,21 @@
         const scope = document.getElementById('import-scope').value;
         let days = null;
         if (scope === 'custom') {
-          const input = window.prompt('How many days back should I scan the mailboxes?', '90');
+          const input = window.prompt('How many days back should I scan the mailbox?', '90');
           if (input === null) return;
           days = parseInt(input, 10);
           if (!Number.isFinite(days) || days <= 0) {
             showMessage('Enter a positive whole number of days.', true);
             return;
           }
-        } else if (!window.confirm('Check the mailboxes for new NML reports and import them now?')) {
+        } else if (!window.confirm('Check the mailbox for new haulier reports and import them now?')) {
           return;
         }
         const btn = this;
         btn.disabled = true;
         showMessage(days ? ('Importing last ' + days + ' days…') : 'Importing from email…');
         try {
-          const url = '/api/nml/import' + (days ? '?days=' + days : '');
+          const url = '/api/haulier/import' + (days ? '?days=' + days : '');
           const res = await fetch(url, { method: 'POST' });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.detail || 'Import failed');
@@ -806,7 +944,7 @@
     } catch (err) {
       document.getElementById('meta-line').textContent = '';
       showMessage('Page error: ' + (err && err.message ? err.message : err), true);
-      console.error('NML page init failed', err);
+      console.error('Collections page init failed', err);
     }
   </script>
 {% endblock %}

@@ -73,6 +73,60 @@ GRAPH_CLIENT_SECRET_CM = os.getenv("GRAPH_CLIENT_SECRET_CM", "").strip()
 def graph_cm_is_configured() -> bool:
     return bool(GRAPH_TENANT_ID_CM and GRAPH_CLIENT_ID_CM and GRAPH_CLIENT_SECRET_CM)
 
+
+# Milk haulier collection reports (emailed XLSX from Richard Thomas Transport).
+# Arrives near-daily as a running monthly spreadsheet; we upsert on each import.
+# The Cwrt Malle report lands in the CM mailbox (separate tenant), so it reuses
+# the GRAPH_*_CM credentials when configured.
+HAULIER_SENDER = os.getenv(
+    "HAULIER_SENDER", "rhodri@richardthomastransport.co.uk"
+).strip().lower()
+# The haulier emails from several people at the same domain, so match the domain
+# rather than a single address. Leading '@' is optional.
+HAULIER_SENDER_DOMAIN = os.getenv(
+    "HAULIER_SENDER_DOMAIN", "richardthomastransport.co.uk"
+).strip().lower().lstrip("@")
+HAULIER_MAILBOX_CM = os.getenv("HAULIER_MAILBOX_CM", "steff@cwrtmalle.co.uk").strip().lower()
+HAULIER_MAILBOX_GAD = os.getenv("HAULIER_MAILBOX_GAD", "").strip().lower()
+# How many days of mail to scan on each import run.
+HAULIER_LOOKBACK_DAYS = int(os.getenv("HAULIER_LOOKBACK_DAYS", "30"))
+# Optional local folder of XLSX reports for development (skips Graph mail when set).
+LOCAL_HAULIER_DIR = os.getenv("LOCAL_HAULIER_DIR", "").strip()
+
+# Milk buyer monthly sales statements (emailed PDFs).
+# Freshways statements arrive at the GAD mailbox; Dairy Partners at the CM mailbox.
+STATEMENTS_FRESHWAYS_DOMAIN = os.getenv(
+    "STATEMENTS_FRESHWAYS_DOMAIN", "freshways.co.uk"
+).strip().lower().lstrip("@")
+STATEMENTS_DAIRYPARTNERS_DOMAIN = os.getenv(
+    "STATEMENTS_DAIRYPARTNERS_DOMAIN", "dairypartners.co.uk"
+).strip().lower().lstrip("@")
+STATEMENTS_MAILBOX_GAD = os.getenv(
+    "STATEMENTS_MAILBOX_GAD", NML_MAILBOX_GAD
+).strip().lower()
+STATEMENTS_MAILBOX_CM = os.getenv(
+    "STATEMENTS_MAILBOX_CM", NML_MAILBOX_CM
+).strip().lower()
+STATEMENTS_LOOKBACK_DAYS = int(os.getenv("STATEMENTS_LOOKBACK_DAYS", "30"))
+STATEMENTS_DEFAULT_HAULAGE = float(os.getenv("STATEMENTS_DEFAULT_HAULAGE", "1.0"))
+# Extra trusted senders (exact addresses) whose statement PDFs are also imported,
+# in addition to the buyer domains above. Lets you forward a missing statement to
+# either mailbox; the farm is determined from the PDF content, not the sender.
+STATEMENTS_EXTRA_SENDERS: tuple[str, ...] = tuple(
+    addr
+    for addr in (
+        a.strip().lower().lstrip("@")
+        for a in os.getenv(
+            "STATEMENTS_EXTRA_SENDERS",
+            "steffanrichards@me.com,cwrtmallefarm@gmail.com,"
+            "steff@greenacredairy.co.uk,steff@cwrtmalle.co.uk",
+        ).split(",")
+    )
+    if addr
+)
+# Optional local folder of statement PDFs for development (skips Graph mail when set).
+LOCAL_STATEMENTS_DIR = os.getenv("LOCAL_STATEMENTS_DIR", "").strip()
+
 # Feedlync API (refresh token from browser MSAL storage after logging in once)
 FEEDLYNC_REFRESH_TOKEN = os.getenv("FEEDLYNC_REFRESH_TOKEN", "").strip()
 FEEDLYNC_FARM_ID = os.getenv("FEEDLYNC_FARM_ID", "").strip()

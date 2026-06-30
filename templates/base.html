@@ -580,10 +580,12 @@
               aria-controls="milk-quality-nav-items"
             >
               <span class="nav-chevron" aria-hidden="true">&#9654;</span>
-              <span class="nav-collapsible-label">Milk Quality</span>
+              <span class="nav-collapsible-label">Milk Sales</span>
             </button>
             <div class="nav-group-items" id="milk-quality-nav-items">
               <a href="/milk-quality/results" class="{% if active_nav == 'nml-results' %}active{% endif %}">NML Results</a>
+              <a href="/milk-quality/collections" class="{% if active_nav == 'haulier-collections' %}active{% endif %}">Collections</a>
+              <a href="/milk-quality/statements" class="{% if active_nav == 'milk-statements' %}active{% endif %}">Statements</a>
             </div>
           </div>
           {% endif %}

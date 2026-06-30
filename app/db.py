@@ -42,6 +42,8 @@ def init_db() -> None:
     _migrate_pedigree_registration_schema()
     _migrate_genomic_results_schema()
     _migrate_nml_results_schema()
+    _migrate_milk_collections_schema()
+    _migrate_milk_statements_schema()
     _migrate_cow_events_schema()
     _dedupe_fresh_cow_events()
     _migrate_sales_payments_schema()
@@ -60,6 +62,10 @@ def _migrate_user_permissions() -> None:
     from app.auth.permissions import (
         DEFAULT_EDITOR_PERMISSIONS,
         DEFAULT_VIEWER_PERMISSIONS,
+        ACTION_MILK_COLLECTIONS_IMPORT,
+        ACTION_MILK_QUALITY_IMPORT,
+        ACTION_MILK_STATEMENTS_IMPORT,
+        parse_permissions,
         serialize_permissions,
     )
     from app.auth.roles import LEGACY_ROLE_EDITOR, LEGACY_ROLE_VIEWER, ROLE_USER
@@ -92,6 +98,17 @@ def _migrate_user_permissions() -> None:
             elif user.role == ROLE_USER and not user.permissions:
                 user.permissions = serialize_permissions(DEFAULT_VIEWER_PERMISSIONS)
                 changed = True
+            elif user.role == ROLE_USER and user.permissions:
+                perms = parse_permissions(user.permissions)
+                actions = list(perms.get("actions", []))
+                if ACTION_MILK_STATEMENTS_IMPORT not in actions and (
+                    ACTION_MILK_QUALITY_IMPORT in actions
+                    or ACTION_MILK_COLLECTIONS_IMPORT in actions
+                ):
+                    actions.append(ACTION_MILK_STATEMENTS_IMPORT)
+                    perms["actions"] = sorted(set(actions))
+                    user.permissions = serialize_permissions(perms)
+                    changed = True
         if changed:
             db.commit()
 
@@ -199,6 +216,119 @@ def _migrate_nml_results_schema() -> None:
                 "ON nml_milk_results (farm, sample_date)"
             )
         )
+
+
+def _migrate_milk_collections_schema() -> None:
+    """milk_collections is created via metadata; add later columns/indexes."""
+    inspector = inspect(engine)
+    if "milk_collections" not in inspector.get_table_names():
+        return
+    columns = {col["name"]: col for col in inspector.get_columns("milk_collections")}
+    with engine.begin() as conn:
+        if "source_received" not in columns:
+            conn.execute(
+                text("ALTER TABLE milk_collections ADD COLUMN source_received TIMESTAMP")
+            )
+
+    # Sample numbers may be blank; make the column nullable so blanks store as
+    # NULL (NULLs are distinct in the unique constraint, so several sample-less
+    # loads can share a day).
+    sample_col = columns.get("sample_id")
+    if sample_col is not None and not sample_col.get("nullable", True):
+        if DATABASE_URL.startswith("sqlite"):
+            _rebuild_milk_collections_sqlite()
+        else:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE milk_collections ALTER COLUMN sample_id DROP NOT NULL")
+                )
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE milk_collections SET sample_id = NULL "
+                "WHERE sample_id IS NOT NULL AND TRIM(sample_id) = ''"
+            )
+        )
+        if DATABASE_URL.startswith("sqlite"):
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_milk_collections_farm_sample "
+                    "ON milk_collections (farm, sample_id)"
+                )
+            )
+    _dedupe_milk_collections()
+
+
+def _rebuild_milk_collections_sqlite() -> None:
+    """Recreate milk_collections so sample_id is nullable (SQLite can't ALTER)."""
+    from app.models import MilkCollection
+
+    copy_cols = (
+        "id",
+        "farm",
+        "collection_date",
+        "driver",
+        "vehicle_reg",
+        "arrival_time",
+        "depart_time",
+        "volume_litres",
+        "temp_c",
+        "temp_raw",
+        "source_message_id",
+        "source_file",
+        "source_received",
+        "imported_at",
+    )
+    col_list = ", ".join(copy_cols)
+    with engine.begin() as conn:
+        conn.execute(
+            text("ALTER TABLE milk_collections RENAME TO milk_collections_old")
+        )
+    MilkCollection.__table__.create(bind=engine)
+    with engine.begin() as conn:
+        # NULLIF turns blank sample numbers into NULL during the copy.
+        conn.execute(
+            text(
+                f"INSERT INTO milk_collections (sample_id, {col_list}) "
+                f"SELECT NULLIF(TRIM(sample_id), ''), {col_list} "
+                "FROM milk_collections_old"
+            )
+        )
+        conn.execute(text("DROP TABLE milk_collections_old"))
+
+
+def _migrate_milk_statements_schema() -> None:
+    """milk_statements is created via metadata; ensure helpful indexes exist."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    inspector = inspect(engine)
+    if "milk_statements" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_milk_statements_farm_month "
+                "ON milk_statements (farm, statement_month)"
+            )
+        )
+
+
+def _dedupe_milk_collections() -> None:
+    """Collapse each (farm, month) to its most recent email's data."""
+    from sqlalchemy import select
+
+    from app.models import MilkCollection
+    from app.services.haulier_import import _dedupe_month_emails
+
+    inspector = inspect(engine)
+    if "milk_collections" not in inspector.get_table_names():
+        return
+    with SessionLocal() as db:
+        farms = set(db.scalars(select(MilkCollection.farm).distinct()).all())
+        removed = _dedupe_month_emails(db, {f for f in farms if f})
+        if removed:
+            db.commit()
 
 
 def _migrate_cow_events_schema() -> None:

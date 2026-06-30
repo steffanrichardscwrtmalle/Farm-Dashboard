@@ -157,10 +157,20 @@
       border-top: 1px solid var(--border);
     }
     .content-panel { min-width: 0; }
+    .content-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.75rem;
+    }
+    .export-bar { display: flex; gap: 0.5rem; flex-shrink: 0; }
+    .export-bar button { margin: 0; }
     .meta-line {
       color: var(--muted);
       font-size: 0.875rem;
-      margin-bottom: 0.75rem;
+      margin-bottom: 0;
     }
     .chart-wrap {
       position: relative;
@@ -251,7 +261,13 @@
     </div>
 
     <section class="content-panel">
-      <p class="meta-line" id="meta-line"></p>
+      <div class="content-header">
+        <p class="meta-line" id="meta-line"></p>
+        <div class="export-bar">
+          <button type="button" class="secondary small" id="export-csv-btn">Export CSV</button>
+          <button type="button" class="secondary small" id="export-pdf-btn">Export PDF</button>
+        </div>
+      </div>
       <div id="graph-view">
         <div class="chart-wrap">
           <canvas id="heifer-chart"></canvas>
@@ -393,6 +409,19 @@
       });
     }
 
+    function buildExportQuery() {
+      const params = appendFarmParams(new URLSearchParams());
+      const { minAge, maxAge } = currentAgeRange();
+      params.set("min_age", String(minAge));
+      params.set("max_age", String(maxAge));
+      return params.toString();
+    }
+
+    function setExportEnabled(enabled) {
+      document.getElementById("export-csv-btn").disabled = !enabled;
+      document.getElementById("export-pdf-btn").disabled = !enabled;
+    }
+
     function viewMode() {
       return document.querySelector('input[name="view-mode"]:checked')?.value || "graph";
     }
@@ -532,6 +561,7 @@
         meta.textContent = "";
         document.getElementById("summary-panel").style.display = "none";
         if (heiferChart) { heiferChart.destroy(); heiferChart = null; }
+        setExportEnabled(false);
         return;
       }
 
@@ -546,6 +576,7 @@
         empty.textContent = "Failed to load heifer inventory data.";
         graphView.style.display = "none";
         tableView.style.display = "none";
+        setExportEnabled(false);
         return;
       }
 
@@ -573,10 +604,12 @@
         tableView.style.display = "none";
         document.getElementById("summary-panel").style.display = "none";
         if (heiferChart) { heiferChart.destroy(); heiferChart = null; }
+        setExportEnabled(false);
         return;
       }
 
       empty.style.display = "none";
+      setExportEnabled(true);
       renderSummary(data);
       updateViewVisibility();
       renderTable(data);
@@ -592,9 +625,17 @@
       });
     });
 
+    document.getElementById("export-csv-btn").addEventListener("click", () => {
+      window.location.href = `/api/stock-inventory/heifer-inventory/export.csv?${buildExportQuery()}`;
+    });
+    document.getElementById("export-pdf-btn").addEventListener("click", () => {
+      window.location.href = `/api/stock-inventory/heifer-inventory/export.pdf?${buildExportQuery()}`;
+    });
+
     bindAgeInputs();
     bindFarmSlicers();
     document.getElementById("clear-filters-btn").addEventListener("click", clearFilters);
+    setExportEnabled(false);
     loadReport();
   </script>
 {% endblock %}

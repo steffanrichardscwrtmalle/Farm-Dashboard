@@ -129,10 +129,11 @@ def _iter_sources(
 
 
 def import_nml_results(
-    db: Session, *, full_history: bool = False
+    db: Session, *, full_history: bool = False, days: int | None = None
 ) -> dict[str, Any]:
     """Read NML PDFs from mail/local folder and upsert milk-quality results.
 
+    ``days`` scans the last N days of mail (overrides the default lookback).
     When ``full_history`` is True, every matching email is scanned regardless of
     age; otherwise only the last ``NML_LOOKBACK_DAYS`` days are checked.
     """
@@ -141,7 +142,9 @@ def import_nml_results(
             "NML import is not configured. Set Graph API variables or LOCAL_NML_DIR."
         )
 
-    if full_history:
+    if days is not None and days > 0:
+        since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)
+    elif full_history:
         since = _EPOCH
     else:
         since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=NML_LOOKBACK_DAYS)

@@ -38,7 +38,7 @@ PAGE_LABELS: dict[str, str] = {
     PAGE_FEED_RATE: "Feed Rate",
     PAGE_OFFICE_ADMIN: "Office Admin",
     PAGE_GENETICS: "Genetics",
-    PAGE_MILK_QUALITY: "Milk Quality",
+    PAGE_MILK_QUALITY: "Milk Sales",
     PAGE_HR: "Staff / HR",
 }
 
@@ -52,6 +52,8 @@ ACTION_OFFICE_ADMIN_FALLEN_STOCK = "office_admin.fallen_stock"
 ACTION_GENETICS_PEDIGREE = "genetics.pedigree"
 ACTION_GENETICS_PENDING_RESULTS = "genetics.pending_results"
 ACTION_MILK_QUALITY_IMPORT = "milk_quality.import"
+ACTION_MILK_COLLECTIONS_IMPORT = "milk_quality.collections_import"
+ACTION_MILK_STATEMENTS_IMPORT = "milk_quality.statements_import"
 ACTION_HR_ENROLL = "hr.enroll"
 ACTION_HR_VIEW_SENSITIVE = "hr.view_sensitive"
 
@@ -66,6 +68,8 @@ ACTION_KEYS: tuple[str, ...] = (
     ACTION_GENETICS_PEDIGREE,
     ACTION_GENETICS_PENDING_RESULTS,
     ACTION_MILK_QUALITY_IMPORT,
+    ACTION_MILK_COLLECTIONS_IMPORT,
+    ACTION_MILK_STATEMENTS_IMPORT,
     ACTION_HR_ENROLL,
     ACTION_HR_VIEW_SENSITIVE,
 )
@@ -80,7 +84,9 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_OFFICE_ADMIN_FALLEN_STOCK: "Office Admin — confirm fallen stock collection",
     ACTION_GENETICS_PEDIGREE: "Genetics — pedigree registrations (email & restore)",
     ACTION_GENETICS_PENDING_RESULTS: "Genetics — pending results (email submissions)",
-    ACTION_MILK_QUALITY_IMPORT: "Milk Quality — import NML results from email",
+    ACTION_MILK_QUALITY_IMPORT: "Milk Sales — import NML results from email",
+    ACTION_MILK_COLLECTIONS_IMPORT: "Milk Sales — import haulier collections from email",
+ACTION_MILK_STATEMENTS_IMPORT: "Milk Sales — import buyer statements from email",
     ACTION_HR_ENROLL: "HR — enroll new staff",
     ACTION_HR_VIEW_SENSITIVE: "HR — view sensitive PII (NI, pay details)",
 }
@@ -189,6 +195,18 @@ def has_action(user: User | None, action_key: str) -> bool:
 def can_import_feed(user: User | None) -> bool:
     """Any authenticated user may refresh Feedlync feed data."""
     return user is not None and user.is_active
+
+
+MILK_IMPORT_ACTIONS: tuple[str, ...] = (
+    ACTION_MILK_STATEMENTS_IMPORT,
+    ACTION_MILK_QUALITY_IMPORT,
+    ACTION_MILK_COLLECTIONS_IMPORT,
+)
+
+
+def can_import_milk_statements(user: User | None) -> bool:
+    """Import buyer statements if the user may import any milk-sales email data."""
+    return any(has_action(user, key) for key in MILK_IMPORT_ACTIONS)
 
 
 def can_edit_sires(user: User | None) -> bool:
