@@ -12,6 +12,8 @@ newer emails for the same month win when deduplicating within a run.
 from __future__ import annotations
 
 import datetime as dt
+import logging
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -53,6 +55,14 @@ _STATEMENT_FIELDS = (
 )
 
 _EPOCH = dt.datetime(2000, 1, 1, tzinfo=dt.timezone.utc)
+
+logger = logging.getLogger(__name__)
+_lock = threading.Lock()
+_import_status: dict[str, Any] = {
+    "status": "idle",
+    "message": "",
+    "result": None,
+}
 
 
 def statements_is_configured() -> bool:
@@ -397,3 +407,105 @@ def _upsert(
         updated += 1
 
     return (inserted, updated)
+
+
+def get_import_status() -> dict[str, Any]:
+    with _lock:
+        return dict(_import_status)
+
+
+def is_import_running() -> bool:
+    with _lock:
+        return _import_status.get("status") == "running"
+
+
+def mark_import_started(*, days: int | None) -> None:
+    if days:
+        message = f"Scanning mailbox for statements (last {days} days)…"
+    else:
+        message = "Scanning mailbox for statements…"
+    with _lock:
+        _import_status.update(status="running", message=message, result=None)
+
+
+def _set_import_status(**kwargs: Any) -> None:
+    with _lock:
+        _import_status.update(kwargs)
+
+
+def run_import_in_background(
+    db_factory,
+    *,
+    full_history: bool = False,
+    days: int | None = None,
+) -> None:
+    """Background worker for dashboard imports (avoids Render HTTP timeouts)."""
+    db = db_factory()
+    try:
+        result = import_milk_statements(db, full_history=full_history, days=days)
+        message = (
+            f"Imported {result['rows_total']} month(s) "
+            f"({result['rows_inserted']} new, {result['rows_updated']} updated)."
+        )
+        _set_import_status(status="complete", message=message, result=result)
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("Background milk statements import failed")
+        _set_import_status(
+            status="error",
+            message=f"{type(exc).__name__}: {exc}",
+            result=None,
+        )
+    finally:
+        db.close()
+
+
+def get_import_status() -> dict[str, Any]:
+    with _lock:
+        return dict(_import_status)
+
+
+def is_import_running() -> bool:
+    with _lock:
+        return _import_status.get("status") == "running"
+
+
+def mark_import_started(*, days: int | None) -> None:
+    if days:
+        message = f"Scanning mailbox for statements (last {days} days)…"
+    else:
+        message = "Scanning mailbox for statements…"
+    with _lock:
+        _import_status.update(status="running", message=message, result=None)
+
+
+def _set_import_status(**kwargs: Any) -> None:
+    with _lock:
+        _import_status.update(kwargs)
+
+
+def run_import_in_background(
+    db_factory,
+    *,
+    full_history: bool = False,
+    days: int | None = None,
+) -> None:
+    """Background worker for dashboard imports (avoids Render HTTP timeouts)."""
+    db = db_factory()
+    try:
+        result = import_milk_statements(db, full_history=full_history, days=days)
+        message = (
+            f"Imported {result['rows_total']} month(s) "
+            f"({result['rows_inserted']} new, {result['rows_updated']} updated)."
+        )
+        _set_import_status(status="complete", message=message, result=result)
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.exception("Background milk statements import failed")
+        _set_import_status(
+            status="error",
+            message=f"{type(exc).__name__}: {exc}",
+            result=None,
+        )
+    finally:
+        db.close()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -13,12 +13,19 @@ from app.auth.import_key import require_import_or_any_action
 from app.auth.permissions import (
     MILK_IMPORT_ACTIONS,
     PAGE_MILK_QUALITY,
-    can_import_milk_statements,
 )
-from app.db import get_db
+from app.db import SessionLocal, get_db
 from app.models import MilkStatement, User
 from app.services.milk_statements import list_milk_statements
-from app.services.milk_statements_import import import_milk_statements, upload_milk_statement_pdfs
+from app.services.milk_statements_import import (
+    get_import_status,
+    import_milk_statements,
+    is_import_running,
+    mark_import_started,
+    run_import_in_background,
+    statements_is_configured,
+    upload_milk_statement_pdfs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,28 +59,44 @@ def api_milk_statements_status(
         "row_count": row_count,
         "latest_import": latest_import.isoformat() if latest_import else None,
         "latest_statement_month": latest_month.isoformat() if latest_month else None,
+        "import_status": get_import_status(),
     }
+
+
+@router.get("/import/status")
+def api_milk_statements_import_status(
+    _: User = Depends(get_current_user),
+):
+    return get_import_status()
 
 
 @router.post("/import")
 def api_import_milk_statements(
+    background_tasks: BackgroundTasks,
     full_history: bool = Query(False),
     days: int | None = Query(None, ge=1),
-    db: Session = Depends(get_db),
     _: None = Depends(require_import_or_any_action(*MILK_IMPORT_ACTIONS)),
 ):
-    try:
-        return import_milk_statements(db, full_history=full_history, days=days)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        logger.exception("Milk statements import failed")
+    """Start a mailbox scan in the background (Render HTTP requests time out ~30s)."""
+    if not statements_is_configured():
         raise HTTPException(
-            status_code=500, detail=f"Import failed: {type(exc).__name__}: {exc}"
-        ) from exc
+            status_code=400,
+            detail=(
+                "Milk statements import is not configured. "
+                "Set Graph API variables or LOCAL_STATEMENTS_DIR."
+            ),
+        )
+    if is_import_running():
+        return {"status": "running", "message": "Import already in progress."}
+
+    mark_import_started(days=days)
+    background_tasks.add_task(
+        run_import_in_background,
+        SessionLocal,
+        full_history=full_history,
+        days=days,
+    )
+    return {"status": "started", "message": "Statement import started."}
 
 
 @router.post("/upload")

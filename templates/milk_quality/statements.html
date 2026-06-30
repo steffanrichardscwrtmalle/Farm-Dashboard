@@ -221,6 +221,15 @@
     }
   }
 
+  function formatApiError(data, fallback) {
+    const detail = data && data.detail;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail) && detail.length) {
+      return detail.map((item) => item.msg || JSON.stringify(item)).join("; ");
+    }
+    return fallback;
+  }
+
   async function handleApiResponse(res) {
     if (res.status === 401) {
       showMessage("Your session has expired. Redirecting to login…", true);
@@ -231,13 +240,55 @@
     }
     const data = await res.json().catch(() => ({}));
     if (res.status === 403) {
-      throw new Error(data.detail || "You do not have permission to import statements.");
+      throw new Error(formatApiError(data, "You do not have permission to import statements."));
     }
     if (!res.ok) {
-      const detail = data.detail;
-      throw new Error(typeof detail === "string" ? detail : "Request failed");
+      throw new Error(formatApiError(data, "Request failed (HTTP " + res.status + ")"));
     }
     return data;
+  }
+
+  let importPollTimer = null;
+
+  function stopImportPoll() {
+    if (importPollTimer) {
+      clearInterval(importPollTimer);
+      importPollTimer = null;
+    }
+  }
+
+  async function pollImportStatus() {
+    try {
+      const res = await fetch("/api/milk-statements/import/status", {
+        credentials: "same-origin",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.status === "running") {
+        showMessage(data.message || "Importing from email…", false);
+        return;
+      }
+      stopImportPoll();
+      const importBtn = document.getElementById("import-btn");
+      if (importBtn) {
+        importBtn.disabled = false;
+        importBtn.textContent = "Import from email";
+      }
+      if (data.status === "complete" && data.result) {
+        showImportResult(data.result);
+        await refresh();
+      } else if (data.status === "error") {
+        showMessage(data.message || "Import failed", true);
+      }
+    } catch (err) {
+      stopImportPoll();
+      const importBtn = document.getElementById("import-btn");
+      if (importBtn) {
+        importBtn.disabled = false;
+        importBtn.textContent = "Import from email";
+      }
+      showMessage(err.message || "Import status check failed", true);
+    }
   }
 
   function populateFiscalYears(options, selected) {
@@ -340,16 +391,28 @@
         const res = await fetch(url, { method: "POST", credentials: "same-origin" });
         const data = await handleApiResponse(res);
         if (!data) return;
-        showImportResult(data);
-        await refresh();
+        if (data.status === "started" || data.status === "running") {
+          showMessage(data.message || "Importing from email…", false);
+          stopImportPoll();
+          importPollTimer = setInterval(pollImportStatus, 2000);
+          pollImportStatus();
+          return;
+        }
+        if (data.rows_total !== undefined) {
+          showImportResult(data);
+          await refresh();
+        }
       } catch (err) {
+        stopImportPoll();
         const hint = days && days > 200
-          ? " The scan may have timed out — try a smaller range (e.g. 90–180 days) and run it again; already-imported months are skipped, so it's safe to repeat."
+          ? " Try a smaller range and run again; already-imported months are skipped."
           : "";
         showMessage((err.message || "Import failed") + hint, true);
       } finally {
-        btn.disabled = false;
-        btn.textContent = label;
+        if (!importPollTimer) {
+          btn.disabled = false;
+          btn.textContent = label;
+        }
       }
     });
 
@@ -388,6 +451,24 @@
   }
 
   refresh();
+
+  if (CAN_IMPORT) {
+    fetch("/api/milk-statements/import/status", { credentials: "same-origin" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.status === "running") {
+          const btn = document.getElementById("import-btn");
+          if (btn) {
+            btn.disabled = true;
+            btn.textContent = "Importing…";
+          }
+          stopImportPoll();
+          importPollTimer = setInterval(pollImportStatus, 2000);
+          pollImportStatus();
+        }
+      })
+      .catch(() => {});
+  }
 })();
 </script>
 {% endblock %}

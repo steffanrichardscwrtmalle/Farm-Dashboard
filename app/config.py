@@ -118,8 +118,7 @@ STATEMENTS_EXTRA_SENDERS: tuple[str, ...] = tuple(
         a.strip().lower().lstrip("@")
         for a in os.getenv(
             "STATEMENTS_EXTRA_SENDERS",
-            "steffanrichards@me.com,cwrtmallefarm@gmail.com,"
-            "steff@greenacredairy.co.uk,steff@cwrtmalle.co.uk",
+            "steffanrichards@me.com,cwrtmallefarm@gmail.com",
         ).split(",")
     )
     if addr
