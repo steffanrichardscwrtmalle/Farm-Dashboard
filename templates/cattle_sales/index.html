@@ -254,7 +254,7 @@
     const FARM_COLORS = { CM: '#1e3a5f', GAD: '#b45309' };
     let allRows = [];
     let sortKey = 'sale_date';
-    let sortDir = 1;
+    let sortDir = -1;
     let loadingCount = 0;
     let dateFilterReady = false;
     const charts = {};
@@ -326,8 +326,10 @@
       dateFilterReady = false;
       fromSel.innerHTML = opts;
       toSel.innerHTML = opts;
-      fromSel.value = months[0];
-      toSel.value = months[months.length - 1];
+      const endIdx = months.length - 1;
+      const startIdx = Math.max(0, endIdx - 11);
+      fromSel.value = months[startIdx];
+      toSel.value = months[endIdx];
       dateFilterReady = true;
     }
 

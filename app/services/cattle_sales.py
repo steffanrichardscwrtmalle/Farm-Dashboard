@@ -166,7 +166,7 @@ def list_cattle_sales(
     if date_to is not None:
         query = query.where(CattleSaleLine.sale_date <= date_to)
     query = query.order_by(
-        CattleSaleLine.sale_date.asc(),
+        CattleSaleLine.sale_date.desc(),
         CattleSaleLine.farm.asc(),
         CattleSaleLine.etag.asc(),
     )
