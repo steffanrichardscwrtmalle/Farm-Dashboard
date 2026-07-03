@@ -104,10 +104,40 @@ def is_plausible_carcass_row(weight: float | None, amount: float | None) -> bool
     return _MIN_PRICE_PER_KG <= price_per_kg <= _MAX_PRICE_PER_KG
 
 
+def _weights_match(a: float, b: float, tolerance: float = 0.05) -> bool:
+    return abs(a - b) <= tolerance
+
+
+def is_rejected_sale(
+    cold_weight_kg: float | None,
+    reject_kg: float | None,
+    amount_gbp: float | None,
+) -> bool:
+    """Animal rejected at abattoir: zero payment and cold weight equals reject kgs."""
+    if cold_weight_kg is None or reject_kg is None or amount_gbp is None:
+        return False
+    if abs(amount_gbp) > 0.005:
+        return False
+    if cold_weight_kg < _MIN_CARCASS_KG or cold_weight_kg > _MAX_CARCASS_KG:
+        return False
+    return _weights_match(cold_weight_kg, reject_kg)
+
+
+def is_acceptable_sale_line(
+    cold_weight_kg: float | None,
+    reject_kg: float | None,
+    amount_gbp: float | None,
+) -> bool:
+    return is_plausible_carcass_row(cold_weight_kg, amount_gbp) or is_rejected_sale(
+        cold_weight_kg, reject_kg, amount_gbp
+    )
+
+
 def _header_indices(header_row: list[str | None]) -> dict[str, int] | None:
     labels = [_cell_text(c).lower() for c in header_row]
     tag_idx = None
     weight_idx = None
+    reject_idx = None
     amount_idx = None
     for idx, label in enumerate(labels):
         if not label:
@@ -122,13 +152,20 @@ def _header_indices(header_row: list[str | None]) -> dict[str, int] | None:
             weight_idx = idx
         elif weight_idx is None and label in {"cold wt", "cold weight", "weight kg", "weight (kg)", "kg"}:
             weight_idx = idx
+        if reject_idx is None and "reject" in label:
+            reject_idx = idx
         if amount_idx is None and label in {"amount", "value", "total", "payment", "£"}:
             amount_idx = idx
         elif amount_idx is None and "amount" in label:
             amount_idx = idx
     if tag_idx is None:
         return None
-    return {"tag": tag_idx, "weight": weight_idx, "amount": amount_idx}
+    return {
+        "tag": tag_idx,
+        "weight": weight_idx,
+        "reject": reject_idx,
+        "amount": amount_idx,
+    }
 
 
 def _find_tag_in_row(row: list[str | None]) -> tuple[int, str] | None:
@@ -154,8 +191,8 @@ def _parse_row_numbers_from_cells(
     header: dict[str, int],
     etag: str,
     warnings: list[str],
-) -> tuple[float | None, float | None]:
-    """Recover weight/amount when header columns are missing or wrong."""
+) -> tuple[float | None, float | None, float | None]:
+    """Recover weight, amount, and reject kgs when header columns are missing or wrong."""
     for idx, cell in enumerate(row):
         if _cell_text(cell).upper() == "YES":
             nums = [
@@ -163,10 +200,15 @@ def _parse_row_numbers_from_cells(
                 for c in row[idx + 1 :]
                 if (v := _to_float(_cell_text(c))) is not None
             ]
+            if len(nums) >= 4:
+                weight, reject_kg, _price_kg, amount = nums[0], nums[1], nums[2], nums[3]
+                if is_acceptable_sale_line(weight, reject_kg, amount):
+                    return weight, amount, reject_kg
             if len(nums) >= 3:
                 weight, amount = nums[0], nums[-1]
-                if is_plausible_carcass_row(weight, amount):
-                    return weight, amount
+                reject_kg = nums[1] if len(nums) == 4 else None
+                if is_acceptable_sale_line(weight, reject_kg, amount):
+                    return weight, amount, reject_kg
 
     floats: list[tuple[int, float]] = []
     for idx, cell in enumerate(row):
@@ -176,7 +218,7 @@ def _parse_row_numbers_from_cells(
         if value is not None:
             floats.append((idx, value))
     if not floats:
-        return None, None
+        return None, None, None
 
     amount = None
     if header.get("amount") is not None and header["amount"] < len(row):
@@ -184,19 +226,39 @@ def _parse_row_numbers_from_cells(
     if amount is None:
         amount = floats[-1][1]
 
+    reject_kg = None
+    if header.get("reject") is not None and header["reject"] < len(row):
+        reject_kg = _to_float(_cell_text(row[header["reject"]]))
+
     weight = None
     if header.get("weight") is not None and header["weight"] < len(row):
         weight = _to_float(_cell_text(row[header["weight"]]))
-    if weight is None or not is_plausible_carcass_row(weight, amount):
+    if weight is None or not is_acceptable_sale_line(weight, reject_kg, amount):
         for _idx, value in reversed(floats):
             if value == amount:
                 continue
-            if is_plausible_carcass_row(value, amount):
+            if is_acceptable_sale_line(value, reject_kg, amount):
                 weight = value
                 break
     if weight is None:
         warnings.append(f"Could not find cold weight for {etag}")
-    return weight, amount
+    return weight, amount, reject_kg
+
+
+def _sale_line_dict(
+    etag: str,
+    weight: float,
+    amount: float,
+    reject_kg: float | None,
+) -> dict[str, Any]:
+    rejected = is_rejected_sale(weight, reject_kg, amount)
+    return {
+        "etag": etag,
+        "cold_weight_kg": round(weight, 2),
+        "amount_gbp": round(amount, 2),
+        "reject_kg": round(reject_kg, 2) if reject_kg is not None else None,
+        "is_rejected": rejected,
+    }
 
 
 def _parse_data_row(
@@ -210,22 +272,24 @@ def _parse_data_row(
     tag_idx, etag = tag_hit
     row_header = {**header, "tag": tag_idx}
 
+    reject_kg = None
+    if header.get("reject") is not None and header["reject"] < len(row):
+        reject_kg = _to_float(_cell_text(row[header["reject"]]))
+
     weight = None
     amount = None
     if header.get("weight") is not None and header["weight"] < len(row):
         weight = _to_float(_cell_text(row[header["weight"]]))
     if header.get("amount") is not None and header["amount"] < len(row):
         amount = _to_float(_cell_text(row[header["amount"]]))
-    if weight is None or amount is None or not is_plausible_carcass_row(weight, amount):
-        weight, amount = _parse_row_numbers_from_cells(row, row_header, etag, warnings)
-    if weight is None or amount is None or not is_plausible_carcass_row(weight, amount):
+    if not is_acceptable_sale_line(weight, reject_kg, amount):
+        weight, amount, reject_kg = _parse_row_numbers_from_cells(
+            row, row_header, etag, warnings
+        )
+    if weight is None or amount is None or not is_acceptable_sale_line(weight, reject_kg, amount):
         warnings.append(f"Skipped implausible row for {etag}")
         return None
-    return {
-        "etag": etag,
-        "cold_weight_kg": round(weight, 2),
-        "amount_gbp": round(amount, 2),
-    }
+    return _sale_line_dict(etag, weight, amount, reject_kg)
 
 
 def _parse_table_rows(
@@ -264,7 +328,7 @@ def _parse_text_lines(text: str, warnings: list[str]) -> list[dict[str, Any]]:
     lines: list[dict[str, Any]] = []
     seen: set[str] = set()
     row_re = re.compile(
-        r"UK\s*\d{10,15}.*?YES\s+([\d,]+\.?\d*)\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+([\d,]+\.?\d*)",
+        r"UK\s*\d{10,15}.*?YES\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+[\d,]+\.?\d*\s+([\d,]+\.?\d*)",
         re.IGNORECASE,
     )
     for raw_line in text.splitlines():
@@ -275,32 +339,31 @@ def _parse_text_lines(text: str, warnings: list[str]) -> list[dict[str, Any]]:
         if etag in seen:
             continue
         weight = None
+        reject_kg = None
         amount = None
         structured = row_re.search(raw_line)
         if structured:
             weight = _to_float(structured.group(1))
-            amount = _to_float(structured.group(2))
+            reject_kg = _to_float(structured.group(2))
+            amount = _to_float(structured.group(3))
         if weight is None or amount is None:
             after_tag = raw_line[tag_match.end() :]
             floats = [f for n in re.findall(r"[\d,]+\.?\d*", after_tag) if (f := _to_float(n)) is not None]
             if len(floats) < 2:
                 continue
             amount = floats[-1]
-            # Cold weight is the largest plausible carcass weight on the line.
-            candidates = [f for f in floats[:-1] if 50 <= f <= 1500]
-            weight = max(candidates) if candidates else floats[-2]
+            if len(floats) >= 4:
+                weight = floats[0]
+                reject_kg = floats[1]
+            else:
+                candidates = [f for f in floats[:-1] if 50 <= f <= 1500]
+                weight = max(candidates) if candidates else floats[-2]
         if weight is None or amount is None:
             continue
-        if not is_plausible_carcass_row(weight, amount):
+        if not is_acceptable_sale_line(weight, reject_kg, amount):
             continue
         seen.add(etag)
-        lines.append(
-            {
-                "etag": etag,
-                "cold_weight_kg": round(weight, 2),
-                "amount_gbp": round(amount, 2),
-            }
-        )
+        lines.append(_sale_line_dict(etag, weight, amount, reject_kg))
     if not lines:
         warnings.append("No animal rows found in PDF text fallback")
     return lines

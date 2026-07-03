@@ -25,7 +25,12 @@ from app.config import (
     graph_cm_is_configured,
 )
 from app.models import CattleSaleLine
-from app.services.cattle_sale_pdf import is_plausible_carcass_row, parse_cattle_sale_pdf
+from app.services.cattle_sale_pdf import (
+    is_acceptable_sale_line,
+    is_plausible_carcass_row,
+    is_rejected_sale,
+    parse_cattle_sale_pdf,
+)
 from app.services.graph_mail import iter_attachments
 from app.services.graph_onedrive import get_access_token_for, graph_is_configured
 
@@ -244,6 +249,7 @@ def _ingest_one_pdf(
             "etag": line["etag"],
             "sale_date": sale_date,
             "cold_weight_kg": line["cold_weight_kg"],
+            "reject_kg": line.get("reject_kg"),
             "amount_gbp": line["amount_gbp"],
             "source_message_id": source_message_id,
             "source_file": source_file,
@@ -304,7 +310,9 @@ def _upsert(
             inserted += 1
             continue
         incoming = record.get("source_received")
-        existing_ok = is_plausible_carcass_row(row.cold_weight_kg, row.amount_gbp)
+        existing_ok = is_acceptable_sale_line(
+            row.cold_weight_kg, row.reject_kg, row.amount_gbp
+        )
         if (
             incoming is not None
             and not _is_newer(incoming, row.source_received)
@@ -313,6 +321,7 @@ def _upsert(
             continue
         for field in (
             "cold_weight_kg",
+            "reject_kg",
             "amount_gbp",
             "source_message_id",
             "source_file",

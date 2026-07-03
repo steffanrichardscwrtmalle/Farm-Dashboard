@@ -50,6 +50,7 @@ def db() -> Session:
             etag="UK740651125211",
             sale_date=dt.date(2026, 6, 5),
             cold_weight_kg=402.0,
+            reject_kg=0.0,
             amount_gbp=1234.56,
         )
     )
@@ -82,3 +83,36 @@ def test_list_sales_payments_has_amount_filter(db: Session) -> None:
     result = list_sales_payments(db, farms=["CM"], has_amount=True)
     assert result["total"] == 1
     assert result["rows"][0]["etag"] == "UK740651125211"
+
+
+def test_list_sales_payments_includes_rejected_sale(db: Session) -> None:
+    db.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="210100",
+            etag="UK752261210100",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 4),
+            dest="EUROFARM",
+            remark="CAR16",
+            gndr="M",
+            bdat=dt.date(2023, 3, 20),
+        )
+    )
+    db.add(
+        CattleSaleLine(
+            farm="GAD",
+            etag="UK752261210100",
+            sale_date=dt.date(2026, 6, 5),
+            cold_weight_kg=287.5,
+            reject_kg=287.5,
+            amount_gbp=0.0,
+        )
+    )
+    db.commit()
+
+    result = list_sales_payments(db, farms=["GAD"], has_amount=True)
+    row = next(r for r in result["rows"] if r["etag"] == "UK752261210100")
+    assert row["sale_rejected"] is True
+    assert row["has_sale_amount"] is True
+    assert row["amount_gbp"] == 0.0

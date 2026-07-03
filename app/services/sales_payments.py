@@ -9,7 +9,7 @@ from sqlalchemy import and_, case, exists, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import CattleSaleLine, CowEvent, SalesPaymentRecord, User
-from app.services.cattle_sale_pdf import normalize_etag
+from app.services.cattle_sale_pdf import is_rejected_sale, normalize_etag
 from app.services.cattle_sales import EVENT_MATCH_WINDOW_DAYS
 from app.services.events_common import (
     SALES_DAIRY_REMARKS,
@@ -141,26 +141,37 @@ def _load_cattle_sale_lines_by_farm_etag(
     return grouped
 
 
-def _amount_for_sold_event(
+def _sale_match_for_sold_event(
     sale_lines_by_key: dict[tuple[str, str], list[CattleSaleLine]],
     farm: str,
     etag: str | None,
     event_date: dt.date,
-) -> float | None:
+) -> dict[str, Any] | None:
     normalized_etag = normalize_etag(etag)
     if not normalized_etag:
         return None
     lines = sale_lines_by_key.get((farm, normalized_etag), [])
-    best_amount: float | None = None
+    best_line: CattleSaleLine | None = None
     best_delta: int | None = None
     for line in lines:
         delta = abs((line.sale_date - event_date).days)
         if delta > EVENT_MATCH_WINDOW_DAYS:
             continue
-        if best_amount is None or best_delta is None or delta < best_delta:
-            best_amount = line.amount_gbp
+        if best_line is None or best_delta is None or delta < best_delta:
+            best_line = line
             best_delta = delta
-    return best_amount
+    if best_line is None:
+        return None
+
+    rejected = is_rejected_sale(
+        best_line.cold_weight_kg, best_line.reject_kg, best_line.amount_gbp
+    )
+    has_sale_amount = rejected or best_line.amount_gbp > 0
+    return {
+        "amount_gbp": best_line.amount_gbp if has_sale_amount else None,
+        "sale_rejected": rejected,
+        "has_sale_amount": has_sale_amount,
+    }
 
 
 def _row_to_dict(
@@ -175,6 +186,8 @@ def _row_to_dict(
     paid_at: dt.datetime | None = None,
     archived_at: dt.datetime | None = None,
     amount_gbp: float | None = None,
+    sale_rejected: bool = False,
+    has_sale_amount: bool = False,
 ) -> dict[str, Any]:
     normalized_cow_id = _normalize_key_part(cow_id)
     normalized_etag = _normalize_key_part(etag)
@@ -190,6 +203,8 @@ def _row_to_dict(
         "event_date": event_date.isoformat(),
         "sales_reason": sales_reason,
         "amount_gbp": amount_gbp,
+        "sale_rejected": sale_rejected,
+        "has_sale_amount": has_sale_amount,
         "paid_at": paid_at.isoformat() if paid_at else None,
         "archived_at": archived_at.isoformat() if archived_at else None,
         "payment_key": {
@@ -352,10 +367,19 @@ def list_sales_payments(
     ) in result_rows:
         if hasattr(event_date, "date"):
             event_date = event_date.date()
-        amount_gbp = _amount_for_sold_event(sale_lines_by_key, farm, etag, event_date)
-        if has_amount is True and amount_gbp is None:
+        amount_gbp = None
+        sale_rejected = False
+        has_sale_amount = False
+        sale_match = _sale_match_for_sold_event(
+            sale_lines_by_key, farm, etag, event_date
+        )
+        if sale_match is not None:
+            amount_gbp = sale_match["amount_gbp"]
+            sale_rejected = sale_match["sale_rejected"]
+            has_sale_amount = sale_match["has_sale_amount"]
+        if has_amount is True and not has_sale_amount:
             continue
-        if has_amount is False and amount_gbp is not None:
+        if has_amount is False and has_sale_amount:
             continue
         rows.append(
             _row_to_dict(
@@ -370,6 +394,8 @@ def list_sales_payments(
                 paid_at,
                 archived_at,
                 amount_gbp=amount_gbp,
+                sale_rejected=sale_rejected,
+                has_sale_amount=has_sale_amount,
             )
         )
 

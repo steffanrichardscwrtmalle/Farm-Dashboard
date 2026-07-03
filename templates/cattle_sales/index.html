@@ -59,6 +59,7 @@
     .summary-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
     .summary-card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
     .summary-card .value { font-size: 1.4rem; font-weight: 700; color: #1e3a5f; }
+    .amount-rejected { color: #dc2626; font-weight: 700; }
     .action-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
     .import-scope { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 0.8rem; color: var(--muted); }
     .import-scope select { margin: 0; padding: 0.25rem 0.4rem; font-size: 0.8rem; }
@@ -145,13 +146,10 @@
       <div class="action-bar">
         <button type="button" id="import-btn">Import from email</button>
         <label class="import-scope">
-          Lookback
-          <select id="import-days">
-            <option value="2">2 days</option>
-            <option value="7">7 days</option>
-            <option value="30" selected>30 days</option>
-            <option value="90">90 days</option>
-            <option value="365">1 year</option>
+          <span>Range</span>
+          <select id="import-scope" title="How far back to scan the mailboxes">
+            <option value="recent" selected>Recent (last {{ lookback_days }} days)</option>
+            <option value="custom">Choose days back…</option>
           </select>
         </label>
         <input type="file" id="upload-input" accept=".pdf,application/pdf" multiple hidden>
@@ -358,6 +356,19 @@
     }
 
     function salesPaymentAmountCell(row) {
+      if (row.is_rejected) {
+        const label = '<span class="amount-rejected">Rejected</span>';
+        if (!row.event_matched) return label;
+        const params = new URLSearchParams();
+        params.set('farm', row.farm);
+        if (row.event_date) {
+          params.set('event_from', row.event_date);
+          params.set('event_to', row.event_date);
+        }
+        params.set('has_amount', '1');
+        if (row.etag) params.set('highlight', row.etag);
+        return `<a href="/office-admin/sales-payments?${params.toString()}" title="Open in Sales Payments">${label}</a>`;
+      }
       const amountText = fmtNum(row.amount_gbp);
       if (row.amount_gbp == null || !row.event_matched) return amountText;
       const params = new URLSearchParams();
@@ -369,6 +380,10 @@
       params.set('has_amount', '1');
       if (row.etag) params.set('highlight', row.etag);
       return `<a href="/office-admin/sales-payments?${params.toString()}" title="Open in Sales Payments">£${amountText}</a>`;
+    }
+
+    function payableRows(rows) {
+      return rows.filter(r => !r.is_rejected);
     }
 
     function escapeHtml(str) {
@@ -388,9 +403,10 @@
     }
 
     function renderSummary(rows) {
+      const payable = payableRows(rows);
       const avgWeight = avgMetric(rows, 'cold_weight_kg', 1);
-      const avgAmount = avgMetric(rows, 'amount_gbp', 2);
-      const avgPriceKg = avgMetric(rows, 'price_per_kg', 2);
+      const avgAmount = avgMetric(payable, 'amount_gbp', 2);
+      const avgPriceKg = avgMetric(payable, 'price_per_kg', 2);
       const avgDim = avgMetric(rows, 'dim', 0);
       const cards = [
         { label: 'Avg weight (kg)', value: avgWeight != null ? fmtNum(avgWeight, 1) : '—' },
@@ -579,7 +595,7 @@
 
     function amountVsDimBinnedLineSpec(rows) {
       const farms = [...new Set(rows.map(r => r.farm))].sort();
-      const filtered = rows.filter(r => r.dim != null && r.amount_gbp != null);
+      const filtered = rows.filter(r => r.dim != null && r.amount_gbp != null && !r.is_rejected);
       if (!filtered.length) {
         return {
           type: 'line',
@@ -675,10 +691,11 @@
     }
 
     function renderCharts(rows) {
+      const payable = payableRows(rows);
       const specs = {
         'chart-weight': weeklyTrailingLineSpec(rows, 'cold_weight_kg', 'Avg cold weight (kg)'),
-        'chart-amount-date': weeklyTrailingLineSpec(rows, 'amount_gbp', 'Avg amount (£)'),
-        'chart-price-kg': weeklyTrailingLineSpec(rows, 'price_per_kg', 'Avg £/kg'),
+        'chart-amount-date': weeklyTrailingLineSpec(payable, 'amount_gbp', 'Avg amount (£)'),
+        'chart-price-kg': weeklyTrailingLineSpec(payable, 'price_per_kg', 'Avg £/kg'),
         'chart-amount-dim': amountVsDimBinnedLineSpec(rows),
       };
       let chartError = '';
@@ -794,9 +811,31 @@
     }
 
     document.getElementById('import-btn').addEventListener('click', async () => {
+      const scope = document.getElementById('import-scope').value;
+      let days = null;
+      if (scope === 'custom') {
+        const input = window.prompt('How many days back should I scan the mailboxes?', '90');
+        if (input === null) return;
+        days = parseInt(input, 10);
+        if (!Number.isFinite(days) || days <= 0) {
+          const el = document.getElementById('import-message');
+          el.hidden = false;
+          el.className = 'message warn';
+          el.textContent = 'Enter a positive whole number of days.';
+          return;
+        }
+      } else if (!window.confirm('Check the mailboxes for new Eurofarm cheque reports and import them now?')) {
+        return;
+      }
+
       const btn = document.getElementById('import-btn');
+      const statusEl = document.getElementById('import-status');
       btn.disabled = true;
-      await fetch(`/api/cattle-sales/import?days=${document.getElementById('import-days').value}`, { method: 'POST' });
+      statusEl.textContent = days
+        ? `Importing last ${days} days…`
+        : 'Importing from email…';
+      const url = '/api/cattle-sales/import' + (days ? `?days=${encodeURIComponent(days)}` : '');
+      await fetch(url, { method: 'POST' });
       importPoll = setInterval(pollImportStatus, 2000);
       pollImportStatus();
     });

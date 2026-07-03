@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import CattleSaleLine, CowEvent, HERD_FARM_OPTIONS
-from app.services.cattle_sale_pdf import normalize_etag
+from app.services.cattle_sale_pdf import is_rejected_sale, normalize_etag
 from app.services.events_common import normalize_farms
 from app.services.stock_group import (
     stock_group_from_event_fields,
@@ -233,7 +233,14 @@ def list_cattle_sales(
         if selected_categories and category is not None and category not in selected_categories:
             continue
 
-        price_per_kg = compute_price_per_kg(line.amount_gbp, line.cold_weight_kg)
+        rejected = is_rejected_sale(
+            line.cold_weight_kg, line.reject_kg, line.amount_gbp
+        )
+        price_per_kg = (
+            None
+            if rejected
+            else compute_price_per_kg(line.amount_gbp, line.cold_weight_kg)
+        )
         rows.append(
             {
                 "farm": line.farm,
@@ -244,7 +251,9 @@ def list_cattle_sales(
                 "lact": lact,
                 "category": category,
                 "cold_weight_kg": line.cold_weight_kg,
+                "reject_kg": line.reject_kg,
                 "amount_gbp": line.amount_gbp,
+                "is_rejected": rejected,
                 "price_per_kg": price_per_kg,
                 "sale_date": line.sale_date.isoformat(),
                 "event_date": event_date.isoformat() if event_date else None,
@@ -261,12 +270,14 @@ def list_cattle_sales(
         "amount_vs_date": [
             {"x": r["sale_date"], "y": r["amount_gbp"], "farm": r["farm"], "etag": r["etag"]}
             for r in rows
-            if r["amount_gbp"] is not None
+            if r["amount_gbp"] is not None and not r.get("is_rejected")
         ],
         "amount_vs_dim": [
             {"x": r["dim"], "y": r["amount_gbp"], "farm": r["farm"], "etag": r["etag"]}
             for r in rows
-            if r["dim"] is not None and r["amount_gbp"] is not None
+            if r["dim"] is not None
+            and r["amount_gbp"] is not None
+            and not r.get("is_rejected")
         ],
     }
 

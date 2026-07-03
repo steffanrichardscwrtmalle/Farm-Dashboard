@@ -238,6 +238,10 @@
       text-align: right;
       font-variant-numeric: tabular-nums;
     }
+    #sales-payments-table .amount-rejected {
+      color: #dc2626;
+      font-weight: 700;
+    }
     .table-wrap {
       overflow: auto;
       max-height: calc(100vh - 16rem);
@@ -381,6 +385,20 @@
         minimumFractionDigits: dp,
         maximumFractionDigits: dp,
       });
+    }
+
+    function rowHasSaleAmount(row) {
+      return Boolean(row.has_sale_amount || row.sale_rejected);
+    }
+
+    function formatAmountCell(row) {
+      if (row.sale_rejected) {
+        return '<span class="amount-rejected">Rejected</span>';
+      }
+      if (row.amount_gbp != null && row.amount_gbp > 0) {
+        return `£${fmtNum(row.amount_gbp)}`;
+      }
+      return "—";
     }
 
     function rowKey(row) {
@@ -751,7 +769,7 @@
       const confirmBtn = document.getElementById("confirm-btn");
       const selectAmountBtn = document.getElementById("select-amount-btn");
       const unarchiveBtn = document.getElementById("unarchive-btn");
-      const rowsWithAmount = rows.filter(row => row.amount_gbp != null).length;
+      const rowsWithAmount = rows.filter(row => rowHasSaleAmount(row)).length;
       if (confirmBtn) {
         confirmBtn.disabled = count === 0;
         confirmBtn.hidden = currentStatus !== "active";
@@ -769,7 +787,7 @@
     function selectAllWithAmount() {
       selectedKeys.clear();
       rows.forEach(row => {
-        if (row.amount_gbp != null) selectedKeys.add(rowKey(row));
+        if (rowHasSaleAmount(row)) selectedKeys.add(rowKey(row));
       });
       renderTableBody();
       updateActionBar();
@@ -787,7 +805,7 @@
         const paidCell = showPaidCol
           ? `<td><input type="checkbox" class="row-paid" data-key="${encodeURIComponent(key)}" ${selected ? "checked" : ""} aria-label="Mark paid"></td>`
           : "";
-        const hasAmount = row.amount_gbp != null;
+        const hasAmount = rowHasSaleAmount(row);
         const rowClasses = [
           selected ? "row-selected" : "",
           hasAmount ? "row-has-amount" : "",
@@ -804,7 +822,7 @@
             <td>${fmtDate(row.event_date)}</td>
             <td>${row.dest || "—"}</td>
             <td><span class="reason-pill reason-pill-${row.sales_reason}">${row.sales_reason}</span></td>
-            <td class="amount-cell">${hasAmount ? `£${fmtNum(row.amount_gbp)}` : "—"}</td>
+            <td class="amount-cell">${formatAmountCell(row)}</td>
             ${paidCell}
           </tr>
         `;

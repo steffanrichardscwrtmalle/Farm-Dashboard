@@ -335,18 +335,20 @@ def _migrate_milk_statements_schema() -> None:
 
 def _migrate_cattle_sales_schema() -> None:
     """cattle_sale_lines is created via metadata; ensure helpful indexes exist."""
-    if not DATABASE_URL.startswith("sqlite"):
-        return
     inspector = inspect(engine)
     if "cattle_sale_lines" not in inspector.get_table_names():
         return
+    columns = {col["name"] for col in inspector.get_columns("cattle_sale_lines")}
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_cattle_sale_farm_date "
-                "ON cattle_sale_lines (farm, sale_date)"
+        if "reject_kg" not in columns:
+            conn.execute(text("ALTER TABLE cattle_sale_lines ADD COLUMN reject_kg FLOAT"))
+        if DATABASE_URL.startswith("sqlite"):
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_cattle_sale_farm_date "
+                    "ON cattle_sale_lines (farm, sale_date)"
+                )
             )
-        )
 
 
 def _dedupe_milk_collections() -> None:

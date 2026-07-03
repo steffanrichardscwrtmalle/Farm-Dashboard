@@ -6,7 +6,9 @@ import datetime as dt
 
 from app.services.cattle_sale_pdf import (
     _parse_table_rows,
+    is_acceptable_sale_line,
     is_plausible_carcass_row,
+    is_rejected_sale,
     normalize_etag,
     parse_cattle_sale_pdf,
 )
@@ -79,6 +81,68 @@ def test_is_plausible_carcass_row_rejects_price_per_kg():
     assert is_plausible_carcass_row(387.7, 2054.75) is True
     assert is_plausible_carcass_row(5.30, 2054.75) is False
     assert is_plausible_carcass_row(4.0, 911.01) is False
+
+
+def test_is_rejected_sale_when_weight_matches_reject_and_amount_zero():
+    assert is_rejected_sale(287.5, 287.5, 0.0) is True
+    assert is_rejected_sale(402.0, 0.0, 2130.58) is False
+    assert is_rejected_sale(287.5, 286.0, 0.0) is False
+    assert is_acceptable_sale_line(287.5, 287.5, 0.0) is True
+    assert is_acceptable_sale_line(402.0, 0.0, 2130.58) is True
+
+
+def test_parse_rejected_sale_row():
+    """Rejected animals have zero amount and reject kgs equal to cold weight."""
+    table_header = [
+        [
+            "Carcass",
+            "Tag Number",
+            "Dress",
+            "Breed",
+            "Cat",
+            "Grade",
+            "Grader",
+            "Kill Date",
+            "Age",
+            "QAS",
+            "Cold Weight KG",
+            "Reject Kgs",
+            "Price",
+            "Amount",
+        ]
+    ]
+    table_body = [
+        [
+            "501",
+            None,
+            "UK752261210100",
+            "UK",
+            None,
+            "HF",
+            "D",
+            "-O4L",
+            None,
+            "",
+            "04/06/2026",
+            "36",
+            "YES",
+            "287.5",
+            "287.5",
+            "4.10",
+            "0.00",
+        ]
+    ]
+    warnings: list[str] = []
+    lines, header = _parse_table_rows(table_header, warnings)
+    assert header is not None
+    more_lines, _ = _parse_table_rows(table_body, warnings, shared_header=header)
+    assert len(more_lines) == 1
+    row = more_lines[0]
+    assert row["etag"] == "UK752261210100"
+    assert row["cold_weight_kg"] == 287.5
+    assert row["reject_kg"] == 287.5
+    assert row["amount_gbp"] == 0.0
+    assert row["is_rejected"] is True
 
 
 def test_parse_cattle_sale_pdf_text_fallback(monkeypatch):
