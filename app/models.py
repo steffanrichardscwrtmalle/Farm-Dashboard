@@ -710,6 +710,35 @@ class MilkCollection(Base):
     )
 
 
+class CattleSaleLine(Base):
+    """Per-animal line from Eurofarm Wales cheque payment report PDFs."""
+
+    __tablename__ = "cattle_sale_lines"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm",
+            "etag",
+            "sale_date",
+            name="uq_cattle_sale_farm_etag_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    etag: Mapped[str] = mapped_column(String(64), index=True)
+    sale_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    cold_weight_kg: Mapped[float] = mapped_column(Float)
+    amount_gbp: Mapped[float] = mapped_column(Float)
+    source_message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_file: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_received: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    imported_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class MilkStatement(Base):
     """Confirmed monthly milk sales from buyer payment statements (emailed PDFs).
 

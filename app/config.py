@@ -127,6 +127,19 @@ LOCAL_STATEMENTS_DIR = os.getenv("LOCAL_STATEMENTS_DIR", "").strip()
 # 2 days covers yesterday and today when the job runs each morning.
 MILK_CRON_LOOKBACK_DAYS = int(os.getenv("MILK_CRON_LOOKBACK_DAYS", "2"))
 
+# Eurofarm Wales cattle sale cheque payment reports (emailed PDFs).
+CATTLE_SALES_SENDER_DOMAIN = os.getenv(
+    "CATTLE_SALES_SENDER_DOMAIN", "eurofarmwales.co.uk"
+).strip().lower().lstrip("@")
+CATTLE_SALES_MAILBOX_GAD = _env_mailbox(
+    "CATTLE_SALES_MAILBOX_GAD", NML_MAILBOX_GAD
+)
+CATTLE_SALES_MAILBOX_CM = _env_mailbox(
+    "CATTLE_SALES_MAILBOX_CM", NML_MAILBOX_CM
+)
+CATTLE_SALES_LOOKBACK_DAYS = int(os.getenv("CATTLE_SALES_LOOKBACK_DAYS", "30"))
+LOCAL_CATTLE_SALES_DIR = os.getenv("LOCAL_CATTLE_SALES_DIR", "").strip()
+
 # Feedlync API (refresh token from browser MSAL storage after logging in once)
 FEEDLYNC_REFRESH_TOKEN = os.getenv("FEEDLYNC_REFRESH_TOKEN", "").strip()
 FEEDLYNC_FARM_ID = os.getenv("FEEDLYNC_FARM_ID", "").strip()

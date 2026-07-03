@@ -8,7 +8,9 @@ from typing import Any
 from sqlalchemy import and_, case, exists, func, literal, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import CowEvent, SalesPaymentRecord, User
+from app.models import CattleSaleLine, CowEvent, SalesPaymentRecord, User
+from app.services.cattle_sale_pdf import normalize_etag
+from app.services.cattle_sales import EVENT_MATCH_WINDOW_DAYS
 from app.services.events_common import (
     SALES_DAIRY_REMARKS,
     SALES_MAPPED_REMARKS,
@@ -112,6 +114,55 @@ def _apply_sold_event_filters(
     return query
 
 
+def _load_cattle_sale_lines_by_farm_etag(
+    db: Session,
+    farms: list[str],
+    min_date: dt.date,
+    max_date: dt.date,
+) -> dict[tuple[str, str], list[CattleSaleLine]]:
+    window_start = min_date - dt.timedelta(days=EVENT_MATCH_WINDOW_DAYS)
+    window_end = max_date + dt.timedelta(days=EVENT_MATCH_WINDOW_DAYS)
+    sale_lines = db.scalars(
+        select(CattleSaleLine).where(
+            CattleSaleLine.farm.in_(farms),
+            CattleSaleLine.sale_date >= window_start,
+            CattleSaleLine.sale_date <= window_end,
+        )
+    ).all()
+    grouped: dict[tuple[str, str], list[CattleSaleLine]] = {}
+    for line in sale_lines:
+        etag = normalize_etag(line.etag)
+        if not etag:
+            continue
+        key = (line.farm, etag)
+        grouped.setdefault(key, []).append(line)
+    for lines in grouped.values():
+        lines.sort(key=lambda row: row.sale_date)
+    return grouped
+
+
+def _amount_for_sold_event(
+    sale_lines_by_key: dict[tuple[str, str], list[CattleSaleLine]],
+    farm: str,
+    etag: str | None,
+    event_date: dt.date,
+) -> float | None:
+    normalized_etag = normalize_etag(etag)
+    if not normalized_etag:
+        return None
+    lines = sale_lines_by_key.get((farm, normalized_etag), [])
+    best_amount: float | None = None
+    best_delta: int | None = None
+    for line in lines:
+        delta = abs((line.sale_date - event_date).days)
+        if delta > EVENT_MATCH_WINDOW_DAYS:
+            continue
+        if best_amount is None or best_delta is None or delta < best_delta:
+            best_amount = line.amount_gbp
+            best_delta = delta
+    return best_amount
+
+
 def _row_to_dict(
     farm: str,
     cow_id: str | None,
@@ -123,6 +174,7 @@ def _row_to_dict(
     bdat: dt.date | None = None,
     paid_at: dt.datetime | None = None,
     archived_at: dt.datetime | None = None,
+    amount_gbp: float | None = None,
 ) -> dict[str, Any]:
     normalized_cow_id = _normalize_key_part(cow_id)
     normalized_etag = _normalize_key_part(etag)
@@ -137,6 +189,7 @@ def _row_to_dict(
         "dest": dest or "",
         "event_date": event_date.isoformat(),
         "sales_reason": sales_reason,
+        "amount_gbp": amount_gbp,
         "paid_at": paid_at.isoformat() if paid_at else None,
         "archived_at": archived_at.isoformat() if archived_at else None,
         "payment_key": {
@@ -199,6 +252,7 @@ def list_sales_payments(
     event_from: dt.date | None = None,
     event_to: dt.date | None = None,
     include_date_bounds: bool = True,
+    has_amount: bool | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     if not selected_farms:
@@ -265,6 +319,24 @@ def list_sales_payments(
             dest=dest,
         )
 
+    result_rows = list(db.execute(query).all())
+    sale_lines_by_key: dict[tuple[str, str], list[CattleSaleLine]] = {}
+    if result_rows:
+        event_dates = [row[4] for row in result_rows if row[4] is not None]
+        if event_dates:
+            min_event = min(event_dates)
+            max_event = max(event_dates)
+            if hasattr(min_event, "date"):
+                min_event = min_event.date()
+            if hasattr(max_event, "date"):
+                max_event = max_event.date()
+            sale_lines_by_key = _load_cattle_sale_lines_by_farm_etag(
+                db,
+                selected_farms,
+                min_event,
+                max_event,
+            )
+
     rows = []
     for (
         farm,
@@ -277,7 +349,14 @@ def list_sales_payments(
         bdat,
         paid_at,
         archived_at,
-    ) in db.execute(query).all():
+    ) in result_rows:
+        if hasattr(event_date, "date"):
+            event_date = event_date.date()
+        amount_gbp = _amount_for_sold_event(sale_lines_by_key, farm, etag, event_date)
+        if has_amount is True and amount_gbp is None:
+            continue
+        if has_amount is False and amount_gbp is not None:
+            continue
         rows.append(
             _row_to_dict(
                 farm,
@@ -290,6 +369,7 @@ def list_sales_payments(
                 bdat,
                 paid_at,
                 archived_at,
+                amount_gbp=amount_gbp,
             )
         )
 

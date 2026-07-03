@@ -590,6 +590,23 @@
           </div>
           {% endif %}
 
+          {% if perms.page('cattle_sales') %}
+          <div class="nav-group{% if active_nav_group == 'cattle-sales' %} expanded{% endif %}" data-nav-group="cattle-sales">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'cattle-sales' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'cattle-sales' %}true{% else %}false{% endif %}"
+              aria-controls="cattle-sales-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">Cattle Sales</span>
+            </button>
+            <div class="nav-group-items" id="cattle-sales-nav-items">
+              <a href="/cattle-sales" class="{% if active_nav == 'cattle-sales' %}active{% endif %}">Cattle Sales</a>
+            </div>
+          </div>
+          {% endif %}
+
           {% if perms.page('hr') %}
           <div class="nav-group{% if active_nav_group == 'hr' %} expanded{% endif %}" data-nav-group="hr">
             <button
@@ -655,8 +672,10 @@
   <script>
     function fmtDate(iso) {
       if (!iso) return "";
-      const [y, m, d] = iso.split("-");
-      return `${d}/${m}/${y}`;
+      const datePart = String(iso).split("T")[0];
+      const [y, m, d] = datePart.split("-");
+      if (!y || !m || !d) return String(iso);
+      return `${d}-${m}-${y.slice(-2)}`;
     }
     const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     function fmtInvoiceMonth(iso) {

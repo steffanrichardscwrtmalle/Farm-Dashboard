@@ -1,0 +1,834 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .page-layout { grid-template-columns: 1fr; } }
+    .sidebar-column { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    .content-panel { min-width: 0; }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-of-type { margin-bottom: 0; }
+    .filter-section .section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .slicer-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .category-slicer { grid-template-columns: 1fr 1fr 1fr; }
+    .slicer-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.5rem;
+      padding: 0.4rem 0.35rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .slicer-btn[data-value="CM"].selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
+    .slicer-btn[data-value="Dairy"].selected { background: #dbeafe; border-color: #3b82f6; color: #1e40af; }
+    .slicer-btn[data-value="Youngstock"].selected { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
+    .slicer-btn[data-value="Beef"].selected { background: #ede9fe; border-color: #a78bfa; color: #5b21b6; }
+    .date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .date-row label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+    .date-row select { margin: 0; width: 100%; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
+    .meta-line.is-loading { font-style: italic; }
+    .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+    .summary-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
+    .summary-card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+    .summary-card .value { font-size: 1.4rem; font-weight: 700; color: #1e3a5f; }
+    .action-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+    .import-scope { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 0.8rem; color: var(--muted); }
+    .import-scope select { margin: 0; padding: 0.25rem 0.4rem; font-size: 0.8rem; }
+    .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 0.75rem; }
+    .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
+    .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .chart-card h3 { margin: 0; font-size: 0.95rem; }
+    .chart-actions { display: flex; gap: 0.35rem; flex-shrink: 0; }
+    .chart-btn, .chart-expand {
+      border: 1px solid var(--border); background: #f3f4f6; color: var(--muted);
+      border-radius: 6px; width: 1.9rem; height: 1.9rem; line-height: 1;
+      font-size: 1rem; cursor: pointer; flex-shrink: 0; padding: 0;
+    }
+    .chart-btn:hover, .chart-expand:hover { background: #e5e7eb; color: var(--text); }
+    .chart-wrap { position: relative; height: 240px; }
+    .chart-hint { font-size: 0.75rem; color: var(--muted); margin: 0 0 1rem; }
+    .chart-modal { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 2vh 2vw; }
+    .chart-modal[hidden] { display: none; }
+    .chart-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
+    .chart-modal-body {
+      position: relative; background: var(--card); border-radius: 10px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.3); width: 96vw; max-width: 1200px;
+      height: 90vh; display: flex; flex-direction: column; padding: 1rem;
+    }
+    .chart-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
+    .chart-modal-head h3 { margin: 0; font-size: 1.1rem; }
+    .chart-modal-actions { display: flex; gap: 0.5rem; }
+    .chart-modal-canvas { position: relative; flex: 1 1 auto; min-height: 0; }
+    .table-wrap { overflow: auto; max-height: calc(100vh - 14rem); border: 1px solid var(--border); border-radius: 8px; }
+    #cattle-sales-table { width: 100%; border-collapse: collapse; }
+    #cattle-sales-table th, #cattle-sales-table td {
+      padding: 0.45rem 0.55rem; text-align: right;
+      border-bottom: 1px solid var(--border); white-space: nowrap;
+    }
+    #cattle-sales-table th:first-child, #cattle-sales-table td:first-child,
+    #cattle-sales-table th:nth-child(2), #cattle-sales-table td:nth-child(2) { text-align: left; }
+    #cattle-sales-table td { font-variant-numeric: tabular-nums; }
+    #cattle-sales-table thead th {
+      background: #1e3a5f; color: #fff; font-weight: 600;
+      position: sticky; top: 0; z-index: 1; cursor: pointer;
+    }
+    #cattle-sales-table tbody tr.unmatched { background: #fff8ef; }
+    .empty-state { padding: 1.5rem; color: var(--muted); text-align: center; }
+    .message.warn {
+      display: block; background: #fef3e2; color: #92400e;
+      border: 1px solid #f5d9ad; margin-bottom: 0.75rem;
+    }
+    .import-log { margin-top: 0.5rem; max-height: 12rem; overflow: auto; font-size: 0.8rem; }
+{% endblock %}
+
+{% block content %}
+  <div class="page-layout">
+    <div class="sidebar-column">
+      <aside class="filter-panel">
+        <h2>Filters</h2>
+        <div class="filter-section">
+          <span class="section-label">Farm</span>
+          <div class="slicer-group farm-slicer" role="group" aria-label="Farm">
+            {% for farm in farm_options %}
+            <button type="button" class="slicer-btn selected" data-value="{{ farm }}" aria-pressed="true">{{ farm }}</button>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Category</span>
+          <div class="slicer-group category-slicer" role="group" aria-label="Category">
+            <button type="button" class="slicer-btn selected" data-value="Dairy" aria-pressed="true">Dairy</button>
+            <button type="button" class="slicer-btn selected" data-value="Youngstock" aria-pressed="true">Youngstock</button>
+            <button type="button" class="slicer-btn selected" data-value="Beef" aria-pressed="true">Beef</button>
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Sale date range</span>
+          <div class="date-row">
+            <label>From <select id="date-from"></select></label>
+            <label>To <select id="date-to"></select></label>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <section class="content-panel">
+      {% if can_import %}
+      <div class="action-bar">
+        <button type="button" id="import-btn">Import from email</button>
+        <label class="import-scope">
+          Lookback
+          <select id="import-days">
+            <option value="2">2 days</option>
+            <option value="7">7 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="90">90 days</option>
+            <option value="365">1 year</option>
+          </select>
+        </label>
+        <input type="file" id="upload-input" accept=".pdf,application/pdf" multiple hidden>
+        <button type="button" id="upload-btn" class="secondary">Upload PDFs</button>
+        <span id="import-status" class="meta-line" style="margin:0;"></span>
+      </div>
+      <div id="import-message" class="message warn" hidden></div>
+      {% endif %}
+
+      <p class="meta-line" id="meta-line">Loading cattle sales…</p>
+
+      <div class="summary-cards" id="summary-cards"></div>
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-head">
+            <h3>Avg cold weight vs date</h3>
+            <div class="chart-actions">
+              <button type="button" class="chart-btn chart-reset" data-canvas="chart-weight" title="Reset zoom">⟲</button>
+              <button type="button" class="chart-expand" data-canvas="chart-weight" data-title="Avg cold weight vs date" title="View larger">⤢</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-weight"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head">
+            <h3>Avg amount vs date</h3>
+            <div class="chart-actions">
+              <button type="button" class="chart-btn chart-reset" data-canvas="chart-amount-date" title="Reset zoom">⟲</button>
+              <button type="button" class="chart-expand" data-canvas="chart-amount-date" data-title="Avg amount vs date" title="View larger">⤢</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-amount-date"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head">
+            <h3>Avg £/kg vs date</h3>
+            <div class="chart-actions">
+              <button type="button" class="chart-btn chart-reset" data-canvas="chart-price-kg" title="Reset zoom">⟲</button>
+              <button type="button" class="chart-expand" data-canvas="chart-price-kg" data-title="Avg £/kg vs date" title="View larger">⤢</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-price-kg"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head">
+            <h3>Avg amount vs DIM</h3>
+            <div class="chart-actions">
+              <button type="button" class="chart-btn chart-reset" data-canvas="chart-amount-dim" title="Reset zoom">⟲</button>
+              <button type="button" class="chart-expand" data-canvas="chart-amount-dim" data-title="Avg amount vs DIM" title="View larger">⤢</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-amount-dim"></canvas></div>
+        </div>
+      </div>
+      <p class="chart-hint">Date charts: weekly average per animal over trailing 21 days. Amount vs DIM: average amount in 30-day DIM groups. Scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset.</p>
+
+      <div id="chart-modal" class="chart-modal" hidden>
+        <div class="chart-modal-backdrop" data-close="1"></div>
+        <div class="chart-modal-body" role="dialog" aria-modal="true" aria-labelledby="chart-modal-title">
+          <div class="chart-modal-head">
+            <h3 id="chart-modal-title">Chart</h3>
+            <div class="chart-modal-actions">
+              <button type="button" class="secondary small" id="chart-modal-reset">Reset zoom</button>
+              <button type="button" class="secondary small" data-close="1">Close</button>
+            </div>
+          </div>
+          <div class="chart-modal-canvas"><canvas id="chart-modal-canvas"></canvas></div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="cattle-sales-table">
+          <thead>
+            <tr>
+              <th data-sort="cow_id">ID</th>
+              <th data-sort="etag">ETAG</th>
+              <th data-sort="lact">Lact</th>
+              <th data-sort="age">Age</th>
+              <th data-sort="dim">DIM</th>
+              <th data-sort="cold_weight_kg">Cold Wt (kg)</th>
+              <th data-sort="amount_gbp">Amount (£)</th>
+              <th data-sort="price_per_kg">£/kg</th>
+              <th data-sort="sale_date">Sale date</th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+      <p class="empty-state" id="empty-state" hidden>No cattle sales match the current filters.</p>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js" crossorigin="anonymous"></script>
+  <script>
+    const CAN_IMPORT = {{ 'true' if can_import else 'false' }};
+    const FARM_COLORS = { CM: '#1e3a5f', GAD: '#b45309' };
+    let allRows = [];
+    let sortKey = 'sale_date';
+    let sortDir = 1;
+    let loadingCount = 0;
+    let dateFilterReady = false;
+    const charts = {};
+    const chartSpecs = {};
+    let modalChart = null;
+    let openModalCanvasId = null;
+    const ROLL_WINDOW_DAYS = 21;
+    const CHART_IDS = ['chart-weight', 'chart-amount-date', 'chart-price-kg', 'chart-amount-dim'];
+
+    function selectedValues(selector) {
+      return [...document.querySelectorAll(`${selector} .slicer-btn.selected`)].map(btn => btn.dataset.value);
+    }
+
+    function bindSlicers(selector, minSelected = 1) {
+      document.querySelectorAll(`${selector} .slicer-btn`).forEach(btn => {
+        btn.addEventListener('click', () => {
+          const selected = btn.classList.contains('selected');
+          const count = document.querySelectorAll(`${selector} .slicer-btn.selected`).length;
+          if (selected && count <= minSelected) return;
+          btn.classList.toggle('selected', !selected);
+          btn.setAttribute('aria-pressed', btn.classList.contains('selected') ? 'true' : 'false');
+          if (selector === '.farm-slicer' || selector === '.category-slicer') fetchData();
+          else refreshView();
+        });
+      });
+    }
+
+    function monthKeyFromIso(iso) {
+      const [y, m] = iso.split('-');
+      return `${y}-${m}`;
+    }
+
+    function monthLabel(key) {
+      const [y, m] = key.split('-').map(Number);
+      const d = new Date(y, m - 1, 1);
+      return d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
+    }
+
+    function monthToDateFrom(key) {
+      const [y, m] = key.split('-').map(Number);
+      return `${y}-${String(m).padStart(2, '0')}-01`;
+    }
+
+    function monthToDateTo(key) {
+      const [y, m] = key.split('-').map(Number);
+      const last = new Date(y, m, 0).getDate();
+      return `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+    }
+
+    function populateMonthSelects(bounds) {
+      const fromSel = document.getElementById('date-from');
+      const toSel = document.getElementById('date-to');
+      if (!bounds?.min || !bounds?.max) {
+        fromSel.innerHTML = '';
+        toSel.innerHTML = '';
+        dateFilterReady = false;
+        return;
+      }
+      const months = [];
+      let d = new Date(bounds.min + 'T00:00:00');
+      d = new Date(d.getFullYear(), d.getMonth(), 1);
+      const end = new Date(bounds.max + 'T00:00:00');
+      const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
+      while (d <= endMonth) {
+        months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+        d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+      }
+      const opts = months.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join('');
+      dateFilterReady = false;
+      fromSel.innerHTML = opts;
+      toSel.innerHTML = opts;
+      fromSel.value = months[0];
+      toSel.value = months[months.length - 1];
+      dateFilterReady = true;
+    }
+
+    function filteredRows() {
+      if (!dateFilterReady) return allRows;
+      let from = document.getElementById('date-from').value;
+      let to = document.getElementById('date-to').value;
+      if (!from || !to) return allRows;
+      if (from > to) { const t = from; from = to; to = t; }
+      const fromDate = monthToDateFrom(from);
+      const toDate = monthToDateTo(to);
+      return allRows.filter(r => r.sale_date >= fromDate && r.sale_date <= toDate);
+    }
+
+    function buildQueryParams() {
+      const params = new URLSearchParams();
+      selectedValues('.farm-slicer').forEach(f => params.append('farm', f));
+      selectedValues('.category-slicer').forEach(c => params.append('category', c));
+      params.set('include_unmatched', 'true');
+      return params;
+    }
+
+    function fmtNum(v, dp = 2) {
+      if (v == null || Number.isNaN(v)) return '—';
+      return Number(v).toLocaleString('en-GB', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+    }
+
+    function salesPaymentAmountCell(row) {
+      const amountText = fmtNum(row.amount_gbp);
+      if (row.amount_gbp == null || !row.event_matched) return amountText;
+      const params = new URLSearchParams();
+      params.set('farm', row.farm);
+      if (row.event_date) {
+        params.set('event_from', row.event_date);
+        params.set('event_to', row.event_date);
+      }
+      params.set('has_amount', '1');
+      if (row.etag) params.set('highlight', row.etag);
+      return `<a href="/office-admin/sales-payments?${params.toString()}" title="Open in Sales Payments">£${amountText}</a>`;
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function avgMetric(rows, key, dp = 2) {
+      const vals = rows.map(r => r[key]).filter(v => v != null && !Number.isNaN(Number(v))).map(Number);
+      if (!vals.length) return null;
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const f = Math.pow(10, dp);
+      return Math.round(mean * f) / f;
+    }
+
+    function renderSummary(rows) {
+      const avgWeight = avgMetric(rows, 'cold_weight_kg', 1);
+      const avgAmount = avgMetric(rows, 'amount_gbp', 2);
+      const avgPriceKg = avgMetric(rows, 'price_per_kg', 2);
+      const avgDim = avgMetric(rows, 'dim', 0);
+      const cards = [
+        { label: 'Avg weight (kg)', value: avgWeight != null ? fmtNum(avgWeight, 1) : '—' },
+        { label: 'Avg amount (£)', value: avgAmount != null ? fmtNum(avgAmount, 2) : '—' },
+        { label: 'Avg £/kg', value: avgPriceKg != null ? fmtNum(avgPriceKg, 2) : '—' },
+        { label: 'Avg DIM', value: avgDim != null ? String(Math.round(avgDim)) : '—' },
+      ];
+      document.getElementById('summary-cards').innerHTML = cards.map(c =>
+        `<div class="summary-card"><div class="label">${escapeHtml(c.label)}</div>` +
+        `<div class="value">${escapeHtml(c.value)}</div></div>`
+      ).join('');
+    }
+
+    function isoAddDays(iso, days) {
+      const d = new Date(`${iso}T00:00:00`);
+      d.setDate(d.getDate() + days);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function sortRows(data) {
+      return [...data].sort((a, b) => {
+        let av = a[sortKey];
+        let bv = b[sortKey];
+        if (sortKey === 'sale_date') { av = av || ''; bv = bv || ''; }
+        else if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toLowerCase(); }
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        if (av < bv) return -1 * sortDir;
+        if (av > bv) return sortDir;
+        return 0;
+      });
+    }
+
+    function renderTable(data) {
+      const body = document.getElementById('table-body');
+      const empty = document.getElementById('empty-state');
+      const sorted = sortRows(data);
+      body.innerHTML = '';
+      if (!sorted.length) {
+        empty.hidden = false;
+        return;
+      }
+      empty.hidden = true;
+      sorted.forEach(row => {
+        const tr = document.createElement('tr');
+        if (!row.event_matched) tr.classList.add('unmatched');
+        tr.innerHTML = `
+          <td>${row.cow_id || '—'}${!row.event_matched ? ' <span title="No matching SOLD event" style="color:#b45309">⚠</span>' : ''}</td>
+          <td>${row.etag || '—'}</td>
+          <td>${row.lact != null ? row.lact : '—'}</td>
+          <td>${row.age || '—'}</td>
+          <td>${row.dim != null ? row.dim : '—'}</td>
+          <td>${fmtNum(row.cold_weight_kg)}</td>
+          <td>${salesPaymentAmountCell(row)}</td>
+          <td>${fmtNum(row.price_per_kg)}</td>
+          <td>${fmtDate(row.sale_date) || '—'}</td>
+        `;
+        body.appendChild(tr);
+      });
+    }
+
+    function mondayOfWeek(iso) {
+      const dow = new Date(`${iso}T00:00:00`).getDay();
+      return isoAddDays(iso, dow === 0 ? -6 : 1 - dow);
+    }
+
+    function strictWeekEndAnchors(minDate, maxDate) {
+      const anchors = [];
+      let cur = mondayOfWeek(minDate);
+      while (cur <= maxDate) {
+        const weekEnd = isoAddDays(cur, 6);
+        if (weekEnd <= maxDate) anchors.push(weekEnd);
+        cur = isoAddDays(cur, 7);
+      }
+      return anchors;
+    }
+
+    function trailingAnimalAverage(rows, farm, endDate, yKey) {
+      const startDate = isoAddDays(endDate, -(ROLL_WINDOW_DAYS - 1));
+      const animals = rows.filter(r =>
+        r.farm === farm &&
+        r[yKey] != null &&
+        r.sale_date >= startDate &&
+        r.sale_date <= endDate
+      );
+      if (!animals.length) return null;
+      const sum = animals.reduce((a, r) => a + Number(r[yKey]), 0);
+      return {
+        y: Math.round((sum / animals.length) * 100) / 100,
+        _n: animals.length,
+      };
+    }
+
+    function weeklyTrailingLineSpec(rows, yKey, yTitle) {
+      const farms = [...new Set(rows.map(r => r.farm))].sort();
+      const saleDates = rows.map(r => r.sale_date).filter(Boolean);
+      if (!saleDates.length) {
+        return {
+          type: 'line',
+          data: { labels: [], datasets: [] },
+          options: { responsive: true, maintainAspectRatio: false },
+        };
+      }
+      const minDate = saleDates.reduce((a, b) => (a < b ? a : b));
+      const maxDate = saleDates.reduce((a, b) => (a > b ? a : b));
+      const anchors = strictWeekEndAnchors(minDate, maxDate).filter(endDate =>
+        farms.some(farm => trailingAnimalAverage(rows, farm, endDate, yKey))
+      );
+      const weekMeta = anchors.map(endDate => {
+        const byFarm = {};
+        farms.forEach(farm => {
+          byFarm[farm] = trailingAnimalAverage(rows, farm, endDate, yKey);
+        });
+        return { endDate, byFarm };
+      });
+      const datasets = farms.map(farm => {
+        const color = FARM_COLORS[farm] || '#64748b';
+        return {
+          label: farm,
+          data: weekMeta.map(w => {
+            const r = w.byFarm[farm];
+            return r ? r.y : null;
+          }),
+          borderColor: color,
+          backgroundColor: color,
+          spanGaps: true,
+          tension: 0.35,
+          pointRadius: 0,
+          pointHoverRadius: 6,
+        };
+      });
+      return {
+        type: 'line',
+        data: { labels: anchors.map(d => fmtDate(d)), datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                title: (items) => {
+                  const w = weekMeta[items[0]?.dataIndex];
+                  return w ? `Week ending ${fmtDate(w.endDate)}` : '';
+                },
+                label: (ctx) => {
+                  const w = weekMeta[ctx.dataIndex];
+                  const r = w?.byFarm[ctx.dataset.label];
+                  if (r == null || ctx.parsed.y == null) return `${ctx.dataset.label}: —`;
+                  const n = r._n > 1
+                    ? ` (${r._n} animals in 21 days)`
+                    : (r._n === 1 ? ' (1 animal in 21 days)' : '');
+                  return `${ctx.dataset.label}: ${fmtNum(ctx.parsed.y)}${n}`;
+                },
+              },
+            },
+            zoom: {
+              pan: { enabled: true, mode: 'xy', modifierKey: 'ctrl' },
+              zoom: {
+                wheel: { enabled: true },
+                pinch: { enabled: true },
+                drag: { enabled: true, backgroundColor: 'rgba(30,58,95,0.15)', borderColor: 'rgba(30,58,95,0.6)', borderWidth: 1 },
+                mode: 'xy',
+              },
+            },
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'Week ending' },
+              ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10 },
+            },
+            y: { title: { display: true, text: yTitle } },
+          },
+        },
+      };
+    }
+
+    const DIM_BUCKET_SIZE = 30;
+
+    function dimBucketMid(dim) {
+      const d = Number(dim);
+      if (!Number.isFinite(d)) return null;
+      return Math.floor(d / DIM_BUCKET_SIZE) * DIM_BUCKET_SIZE + DIM_BUCKET_SIZE / 2;
+    }
+
+    function amountVsDimBinnedLineSpec(rows) {
+      const farms = [...new Set(rows.map(r => r.farm))].sort();
+      const filtered = rows.filter(r => r.dim != null && r.amount_gbp != null);
+      if (!filtered.length) {
+        return {
+          type: 'line',
+          data: { labels: [], datasets: [] },
+          options: { responsive: true, maintainAspectRatio: false },
+        };
+      }
+
+      const mids = [...new Set(filtered.map(r => dimBucketMid(r.dim)).filter(m => m != null))].sort((a, b) => a - b);
+      const bucketMeta = mids.map(mid => {
+        const lo = mid - DIM_BUCKET_SIZE / 2;
+        const hi = lo + DIM_BUCKET_SIZE - 1;
+        const byFarm = {};
+        farms.forEach(farm => {
+          const animals = filtered.filter(r => r.farm === farm && dimBucketMid(r.dim) === mid);
+          if (!animals.length) {
+            byFarm[farm] = null;
+            return;
+          }
+          const avg = animals.reduce((s, r) => s + Number(r.amount_gbp), 0) / animals.length;
+          byFarm[farm] = { y: Math.round(avg * 100) / 100, _n: animals.length };
+        });
+        return { mid, lo, hi, byFarm };
+      });
+
+      const datasets = farms.map(farm => {
+        const color = FARM_COLORS[farm] || '#64748b';
+        return {
+          label: farm,
+          data: bucketMeta.map(b => {
+            const r = b.byFarm[farm];
+            return r ? r.y : null;
+          }),
+          borderColor: color,
+          backgroundColor: color,
+          spanGaps: true,
+          tension: 0.35,
+          pointRadius: 0,
+          pointHoverRadius: 6,
+        };
+      });
+
+      return {
+        type: 'line',
+        data: {
+          labels: bucketMeta.map(b => String(b.mid)),
+          datasets,
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                title: (items) => {
+                  const b = bucketMeta[items[0]?.dataIndex];
+                  return b ? `DIM ${b.lo}–${b.hi}` : '';
+                },
+                label: (ctx) => {
+                  const b = bucketMeta[ctx.dataIndex];
+                  const r = b?.byFarm[ctx.dataset.label];
+                  if (r == null || ctx.parsed.y == null) return `${ctx.dataset.label}: —`;
+                  const n = r._n > 1 ? ` (${r._n} animals)` : (r._n === 1 ? ' (1 animal)' : '');
+                  return `${ctx.dataset.label}: ${fmtNum(ctx.parsed.y)}${n}`;
+                },
+              },
+            },
+            zoom: {
+              pan: { enabled: true, mode: 'xy', modifierKey: 'ctrl' },
+              zoom: {
+                wheel: { enabled: true },
+                pinch: { enabled: true },
+                drag: { enabled: true, backgroundColor: 'rgba(30,58,95,0.15)', borderColor: 'rgba(30,58,95,0.6)', borderWidth: 1 },
+                mode: 'xy',
+              },
+            },
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'DIM (30-day groups)' },
+              ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 },
+            },
+            y: { title: { display: true, text: 'Avg amount (£)' } },
+          },
+        },
+      };
+    }
+
+    function destroyChart(id) {
+      if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+    }
+
+    function renderCharts(rows) {
+      const specs = {
+        'chart-weight': weeklyTrailingLineSpec(rows, 'cold_weight_kg', 'Avg cold weight (kg)'),
+        'chart-amount-date': weeklyTrailingLineSpec(rows, 'amount_gbp', 'Avg amount (£)'),
+        'chart-price-kg': weeklyTrailingLineSpec(rows, 'price_per_kg', 'Avg £/kg'),
+        'chart-amount-dim': amountVsDimBinnedLineSpec(rows),
+      };
+      let chartError = '';
+      CHART_IDS.forEach(id => {
+        chartSpecs[id] = specs[id];
+        try {
+          destroyChart(id);
+          charts[id] = new Chart(document.getElementById(id), specs[id]);
+        } catch (err) {
+          chartError = err?.message || String(err);
+          console.error('Chart render failed', id, err);
+        }
+      });
+      if (openModalCanvasId && chartSpecs[openModalCanvasId]) {
+        renderModalChart(openModalCanvasId);
+      }
+      return chartError;
+    }
+
+    function renderModalChart(canvasId) {
+      const spec = chartSpecs[canvasId];
+      if (!spec || typeof Chart === 'undefined') return;
+      if (modalChart) { modalChart.destroy(); modalChart = null; }
+      modalChart = new Chart(document.getElementById('chart-modal-canvas'), spec);
+    }
+
+    function openChartModal(canvasId, title) {
+      openModalCanvasId = canvasId;
+      document.getElementById('chart-modal-title').textContent = title || '';
+      document.getElementById('chart-modal').hidden = false;
+      renderModalChart(canvasId);
+    }
+
+    function closeChartModal() {
+      document.getElementById('chart-modal').hidden = true;
+      if (modalChart) { modalChart.destroy(); modalChart = null; }
+      openModalCanvasId = null;
+    }
+
+    function bindChartUI() {
+      document.querySelectorAll('.chart-expand').forEach(btn => {
+        btn.addEventListener('click', () => openChartModal(btn.dataset.canvas, btn.dataset.title));
+      });
+      document.querySelectorAll('.chart-reset').forEach(btn => {
+        btn.addEventListener('click', () => { if (charts[btn.dataset.canvas]) charts[btn.dataset.canvas].resetZoom(); });
+      });
+      CHART_IDS.forEach(id => {
+        const canvas = document.getElementById(id);
+        if (canvas) canvas.addEventListener('dblclick', () => { if (charts[id]) charts[id].resetZoom(); });
+      });
+      document.querySelectorAll('#chart-modal [data-close]').forEach(el => el.addEventListener('click', closeChartModal));
+      document.getElementById('chart-modal-reset').addEventListener('click', () => { if (modalChart) modalChart.resetZoom(); });
+      document.getElementById('chart-modal-canvas').addEventListener('dblclick', () => { if (modalChart) modalChart.resetZoom(); });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape' && !document.getElementById('chart-modal').hidden) closeChartModal(); });
+    }
+
+    function setLoading(on) {
+      loadingCount = Math.max(0, loadingCount + (on ? 1 : -1));
+      document.getElementById('meta-line').classList.toggle('is-loading', loadingCount > 0);
+    }
+
+    function refreshView() {
+      const rows = filteredRows();
+      const unmatched = rows.filter(r => !r.event_matched).length;
+      let meta = `${rows.length} sale line(s)`;
+      if (unmatched) meta += ` · ${unmatched} without matching SOLD event`;
+      document.getElementById('meta-line').textContent = meta;
+      renderSummary(rows);
+      renderTable(rows);
+      renderCharts(rows);
+    }
+
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/cattle-sales?${buildQueryParams()}`);
+        if (!res.ok) throw new Error('Failed to load');
+        const payload = await res.json();
+        allRows = payload.rows || [];
+        populateMonthSelects(payload.date_bounds);
+        refreshView();
+      } catch (err) {
+        document.getElementById('meta-line').textContent = 'Failed to load cattle sales.';
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    {% if can_import %}
+    let importPoll = null;
+    function showImportMessage(result) {
+      const el = document.getElementById('import-message');
+      if (!result) { el.hidden = true; return; }
+      const warnings = [...(result.warnings || []), ...(result.skipped_files || [])];
+      el.hidden = false;
+      el.innerHTML = `<div>Imported ${result.rows_total || 0} line(s)</div>` +
+        (warnings.length ? `<div class="import-log">${warnings.map(w => `<div>${w}</div>`).join('')}</div>` : '');
+    }
+
+    async function pollImportStatus() {
+      const res = await fetch('/api/cattle-sales/import/status');
+      const data = await res.json();
+      document.getElementById('import-status').textContent = data.message || data.status || '';
+      if (data.status === 'running') return;
+      clearInterval(importPoll);
+      importPoll = null;
+      document.getElementById('import-btn').disabled = false;
+      if (data.status === 'complete') {
+        showImportMessage(data.result);
+        fetchData();
+      }
+    }
+
+    document.getElementById('import-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('import-btn');
+      btn.disabled = true;
+      await fetch(`/api/cattle-sales/import?days=${document.getElementById('import-days').value}`, { method: 'POST' });
+      importPoll = setInterval(pollImportStatus, 2000);
+      pollImportStatus();
+    });
+
+    document.getElementById('upload-btn').addEventListener('click', () => document.getElementById('upload-input').click());
+    document.getElementById('upload-input').addEventListener('change', async (e) => {
+      const files = e.target.files;
+      if (!files?.length) return;
+      const fd = new FormData();
+      [...files].forEach(f => fd.append('files', f));
+      const res = await fetch('/api/cattle-sales/upload', { method: 'POST', body: fd });
+      showImportMessage(await res.json());
+      fetchData();
+      e.target.value = '';
+    });
+    {% endif %}
+
+    document.querySelectorAll('#cattle-sales-table thead th').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.sort;
+        if (sortKey === key) sortDir *= -1;
+        else { sortKey = key; sortDir = 1; }
+        renderTable(filteredRows());
+      });
+    });
+
+    document.getElementById('date-from').addEventListener('change', refreshView);
+    document.getElementById('date-to').addEventListener('change', refreshView);
+
+    bindSlicers('.farm-slicer');
+    bindSlicers('.category-slicer');
+    bindChartUI();
+    fetchData();
+  </script>
+{% endblock %}

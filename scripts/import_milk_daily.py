@@ -1,4 +1,4 @@
-"""Daily cron: import haulier collections, NML results, and buyer statements from email.
+"""Daily cron: import haulier collections, NML results, buyer statements, and cattle sales from email.
 
 Run on a schedule (Render cron), e.g. every morning:
     python scripts/import_milk_daily.py
@@ -21,6 +21,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from app.config import MILK_CRON_LOOKBACK_DAYS
 from app.db import SessionLocal, init_db
+from app.services.cattle_sales_import import import_cattle_sales
 from app.services.haulier_import import import_haulier_collections
 from app.services.milk_statements_import import import_milk_statements
 from app.services.nml_import import import_nml_results
@@ -73,7 +74,7 @@ def main() -> int:
     _configure_stdio()
 
     parser = argparse.ArgumentParser(
-        description="Import haulier collections, NML results, and milk statements from email."
+        description="Import haulier collections, NML results, milk statements, and cattle sales from email."
     )
     parser.add_argument(
         "--days",
@@ -103,6 +104,11 @@ def main() -> int:
         _run_step(
             "Milk statements",
             lambda: import_milk_statements(db, days=days),
+            failures=failures,
+        )
+        _run_step(
+            "Cattle sales",
+            lambda: import_cattle_sales(db, days=days),
             failures=failures,
         )
     finally:

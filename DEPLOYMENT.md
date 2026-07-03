@@ -115,9 +115,9 @@ For local testing without Graph API, set `LOCAL_HERD_EXPORT_DIR` to your synced 
 
 ### Milk email imports (collections, NML, statements)
 
-A single daily cron imports haulier XLSX, NML PDFs, and buyer statement PDFs from
-the configured mailboxes. Because it runs every day, it only scans **the last 2
-days** of mail (yesterday and today).
+A single daily cron imports haulier XLSX, NML PDFs, buyer statement PDFs, and
+Eurofarm cattle sale cheque reports from the configured mailboxes. Because it runs
+every day, it only scans **the last 2 days** of mail (yesterday and today).
 
 1. Ensure the same Graph / mail env vars as the web service are set (see
    `.env.example` for `GRAPH_*`, `GRAPH_*_CM`, and mailbox settings).

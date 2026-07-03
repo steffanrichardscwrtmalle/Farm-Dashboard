@@ -349,8 +349,10 @@
 
     function fmtDate(iso) {
       if (!iso) return "—";
-      const d = parseIsoDate(iso);
-      return d.toLocaleDateString("en-GB");
+      const datePart = String(iso).split("T")[0];
+      const [y, m, d] = datePart.split("-");
+      if (!y || !m || !d) return String(iso);
+      return `${d}-${m}-${y.slice(-2)}`;
     }
 
     function updateDateLabels() {

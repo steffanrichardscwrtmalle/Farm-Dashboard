@@ -1,5 +1,61 @@
+"""Tests for sales payments Office Admin workflow."""
+
+from __future__ import annotations
+
+import datetime as dt
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.models import Base, CattleSaleLine, CowEvent, User
 from app.services.events_common import SALES_TABLE_REASON_ORDER
-from app.services.sales_payments import normalize_sales_reasons
+from app.services.sales_payments import list_sales_payments, normalize_sales_reasons
+
+
+@pytest.fixture
+def db() -> Session:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="3001",
+            etag="UK740651125211",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 4),
+            dest="EUROFARM",
+            remark=None,
+            gndr="F",
+            bdat=dt.date(2022, 1, 1),
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="3002",
+            etag="UK740651329749",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 10),
+            dest="EUROFARM",
+            remark="CAR16",
+            gndr="M",
+            bdat=dt.date(2021, 6, 1),
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651125211",
+            sale_date=dt.date(2026, 6, 5),
+            cold_weight_kg=402.0,
+            amount_gbp=1234.56,
+        )
+    )
+    session.commit()
+    yield session
+    session.close()
 
 
 def test_normalize_sales_reasons_all_selected_includes_beef() -> None:
@@ -13,3 +69,16 @@ def test_normalize_sales_reasons_beef_only() -> None:
 
 def test_normalize_sales_reasons_empty_defaults_to_all() -> None:
     assert normalize_sales_reasons(None) == list(SALES_TABLE_REASON_ORDER)
+
+
+def test_list_sales_payments_includes_matched_cattle_sale_amount(db: Session) -> None:
+    result = list_sales_payments(db, farms=["CM"])
+    by_etag = {row["etag"]: row for row in result["rows"]}
+    assert by_etag["UK740651125211"]["amount_gbp"] == 1234.56
+    assert by_etag["UK740651329749"]["amount_gbp"] is None
+
+
+def test_list_sales_payments_has_amount_filter(db: Session) -> None:
+    result = list_sales_payments(db, farms=["CM"], has_amount=True)
+    assert result["total"] == 1
+    assert result["rows"][0]["etag"] == "UK740651125211"

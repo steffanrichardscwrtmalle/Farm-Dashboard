@@ -44,6 +44,7 @@ def init_db() -> None:
     _migrate_nml_results_schema()
     _migrate_milk_collections_schema()
     _migrate_milk_statements_schema()
+    _migrate_cattle_sales_schema()
     _migrate_cow_events_schema()
     _dedupe_fresh_cow_events()
     _migrate_sales_payments_schema()
@@ -62,9 +63,12 @@ def _migrate_user_permissions() -> None:
     from app.auth.permissions import (
         DEFAULT_EDITOR_PERMISSIONS,
         DEFAULT_VIEWER_PERMISSIONS,
+        ACTION_CATTLE_SALES_IMPORT,
         ACTION_MILK_COLLECTIONS_IMPORT,
         ACTION_MILK_QUALITY_IMPORT,
         ACTION_MILK_STATEMENTS_IMPORT,
+        PAGE_CATTLE_SALES,
+        PAGE_MILK_QUALITY,
         parse_permissions,
         serialize_permissions,
     )
@@ -106,6 +110,21 @@ def _migrate_user_permissions() -> None:
                     or ACTION_MILK_COLLECTIONS_IMPORT in actions
                 ):
                     actions.append(ACTION_MILK_STATEMENTS_IMPORT)
+                    perms["actions"] = sorted(set(actions))
+                    user.permissions = serialize_permissions(perms)
+                    changed = True
+                pages = list(perms.get("pages", []))
+                if PAGE_CATTLE_SALES not in pages and PAGE_MILK_QUALITY in pages:
+                    pages.append(PAGE_CATTLE_SALES)
+                    perms["pages"] = sorted(set(pages))
+                    user.permissions = serialize_permissions(perms)
+                    changed = True
+                if ACTION_CATTLE_SALES_IMPORT not in actions and (
+                    ACTION_MILK_QUALITY_IMPORT in actions
+                    or ACTION_MILK_COLLECTIONS_IMPORT in actions
+                    or ACTION_MILK_STATEMENTS_IMPORT in actions
+                ):
+                    actions.append(ACTION_CATTLE_SALES_IMPORT)
                     perms["actions"] = sorted(set(actions))
                     user.permissions = serialize_permissions(perms)
                     changed = True
@@ -310,6 +329,22 @@ def _migrate_milk_statements_schema() -> None:
             text(
                 "CREATE INDEX IF NOT EXISTS ix_milk_statements_farm_month "
                 "ON milk_statements (farm, statement_month)"
+            )
+        )
+
+
+def _migrate_cattle_sales_schema() -> None:
+    """cattle_sale_lines is created via metadata; ensure helpful indexes exist."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    inspector = inspect(engine)
+    if "cattle_sale_lines" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_cattle_sale_farm_date "
+                "ON cattle_sale_lines (farm, sale_date)"
             )
         )
 

@@ -56,6 +56,7 @@ def api_sales_payments(
     event_from: dt.date | None = Query(None),
     event_to: dt.date | None = Query(None),
     include_date_bounds: bool = Query(True),
+    has_amount: bool | None = Query(None),
     db: Session = Depends(get_db),
     _user: User = Depends(require_page(PAGE_OFFICE_ADMIN)),
 ):
@@ -68,6 +69,7 @@ def api_sales_payments(
         event_from=event_from,
         event_to=event_to,
         include_date_bounds=include_date_bounds,
+        has_amount=has_amount,
     )
 
 

@@ -16,6 +16,7 @@ from app.api.office_admin_routes import router as office_admin_api_router
 from app.api.genetics_routes import router as genetics_api_router
 from app.api.nml_routes import router as nml_api_router
 from app.api.haulier_routes import router as haulier_api_router
+from app.api.cattle_sales_routes import router as cattle_sales_api_router
 from app.api.milk_statements_routes import router as milk_statements_api_router
 from app.api.events_routes import router as events_api_router
 from app.api.feed_rate_routes import router as feed_rate_api_router
@@ -36,8 +37,10 @@ from app.auth.permissions import (
     ACTION_HR_VIEW_SENSITIVE,
     PAGE_EVENTS,
     PAGE_FEED_RATE,
+    ACTION_CATTLE_SALES_IMPORT,
     ACTION_MILK_QUALITY_IMPORT,
     ACTION_MILK_COLLECTIONS_IMPORT,
+    PAGE_CATTLE_SALES,
     PAGE_GENETICS,
     PAGE_HR,
     PAGE_MILK_QUALITY,
@@ -101,6 +104,7 @@ app.include_router(genetics_api_router)
 app.include_router(nml_api_router)
 app.include_router(haulier_api_router)
 app.include_router(milk_statements_api_router)
+app.include_router(cattle_sales_api_router)
 app.include_router(admin_api_router)
 app.include_router(hr_api_router)
 
@@ -133,6 +137,10 @@ _GENETICS_BREADCRUMB = (
 _MILK_QUALITY_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/milk-quality/results">Milk Sales</a>'
+)
+_CATTLE_SALES_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/cattle-sales">Cattle Sales</a>'
 )
 
 _login_attempts: dict[str, list[float]] = defaultdict(list)
@@ -271,6 +279,19 @@ def _milk_quality_context(title: str, active_nav: str, page_name: str | None = N
         "title": title,
         "active_nav_group": "milk-quality",
         "active_section": "milk-quality",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _cattle_sales_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _CATTLE_SALES_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "cattle-sales",
+        "active_section": "cattle-sales",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -1099,6 +1120,27 @@ def milk_quality_statements_page(request: Request):
                 "milk-statements",
                 "Statements",
             ),
+        ),
+    )
+
+
+@app.get("/cattle-sales", response_class=HTMLResponse)
+def cattle_sales_page(request: Request):
+    if denied := _page_guard(request, PAGE_CATTLE_SALES):
+        return denied
+    from app.config import CATTLE_SALES_LOOKBACK_DAYS
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "cattle_sales/index.html",
+        _template_ctx(
+            request,
+            page_heading="Cattle Sales",
+            can_import=has_action(request.state.user, ACTION_CATTLE_SALES_IMPORT),
+            lookback_days=CATTLE_SALES_LOOKBACK_DAYS,
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_cattle_sales_context("Cattle Sales", "cattle-sales", None),
         ),
     )
 

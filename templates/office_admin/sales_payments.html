@@ -124,6 +124,22 @@
       border-color: #3b82f6;
       color: #1e40af;
     }
+    .amount-slicer .slicer-btn:not(.selected) {
+      background: #f3f4f6;
+      border-color: #e5e7eb;
+      color: #9ca3af;
+      opacity: 0.85;
+    }
+    .slicer-btn[data-value="all"].selected {
+      background: #eef2f6;
+      border-color: #64748b;
+      color: #334155;
+    }
+    .slicer-btn[data-value="has_amount"].selected {
+      background: #ecfdf5;
+      border-color: #10b981;
+      color: #065f46;
+    }
     .date-inputs {
       display: grid;
       gap: 0.5rem;
@@ -202,11 +218,25 @@
     #sales-payments-table tbody tr.row-selected {
       background: #dcfce7;
     }
+    #sales-payments-table tbody tr.row-has-amount {
+      background: #ecfdf5;
+    }
+    #sales-payments-table tbody tr.row-has-amount.row-highlight {
+      outline: 2px solid #10b981;
+      outline-offset: -2px;
+    }
     #sales-payments-table tbody tr:hover {
       background: #f8fafc;
     }
+    #sales-payments-table tbody tr.row-has-amount:hover {
+      background: #d1fae5;
+    }
     #sales-payments-table tbody tr.row-selected:hover {
       background: #bbf7d0;
+    }
+    #sales-payments-table td.amount-cell {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
     }
     .table-wrap {
       overflow: auto;
@@ -273,6 +303,13 @@
           </select>
         </div>
         <div class="filter-section">
+          <span class="section-label">Sale amount</span>
+          <div class="slicer-group amount-slicer" role="group" aria-label="Sale amount filter">
+            <button type="button" class="slicer-btn selected" data-value="all" aria-pressed="true">All</button>
+            <button type="button" class="slicer-btn" data-value="has_amount" aria-pressed="false">With amount</button>
+          </div>
+        </div>
+        <div class="filter-section">
           <span class="section-label">Date sold</span>
           <div class="date-inputs">
             <label>
@@ -305,6 +342,7 @@
         <span class="selection-count" id="selection-count">0 selected</span>
         {% if perms.action('office_admin.sales_payment') %}
         <button type="button" class="primary small" id="confirm-btn" disabled>Confirm payment</button>
+        <button type="button" class="secondary small" id="select-amount-btn" disabled hidden>Select all with amount</button>
         <button type="button" class="secondary small" id="unarchive-btn" disabled hidden>Unarchive</button>
         {% endif %}
       </div>
@@ -333,6 +371,17 @@
     let loadController = null;
     let dateLoadTimer = null;
     let loadingCount = 0;
+    let highlightEtag = null;
+
+    function fmtNum(v, dp = 2) {
+      if (v == null || v === "") return "—";
+      const n = Number(v);
+      if (Number.isNaN(n)) return "—";
+      return n.toLocaleString("en-GB", {
+        minimumFractionDigits: dp,
+        maximumFractionDigits: dp,
+      });
+    }
 
     function rowKey(row) {
       return JSON.stringify(row.payment_key);
@@ -346,6 +395,44 @@
     function selectedReasons() {
       return [...document.querySelectorAll(".reason-slicer .slicer-btn.selected")]
         .map(btn => btn.dataset.value);
+    }
+
+    function amountFilterValue() {
+      const selected = document.querySelector(".amount-slicer .slicer-btn.selected");
+      return selected?.dataset.value === "has_amount" ? "has_amount" : "all";
+    }
+
+    function bindAmountSlicer() {
+      document.querySelectorAll(".amount-slicer .slicer-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          if (btn.classList.contains("selected")) return;
+          document.querySelectorAll(".amount-slicer .slicer-btn").forEach(other => {
+            const active = other === btn;
+            other.classList.toggle("selected", active);
+            other.setAttribute("aria-pressed", active ? "true" : "false");
+          });
+          refreshFilters(false);
+        });
+      });
+    }
+
+    function resetAmountSlicer() {
+      document.querySelectorAll(".amount-slicer .slicer-btn").forEach(btn => {
+        const active = btn.dataset.value === "all";
+        btn.classList.toggle("selected", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
+
+    function applySlicerSelection(selector, values) {
+      if (!values.length) return;
+      const buttons = [...document.querySelectorAll(`${selector} .slicer-btn`)];
+      const valueSet = new Set(values);
+      buttons.forEach(btn => {
+        const active = valueSet.has(btn.dataset.value);
+        btn.classList.toggle("selected", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+      });
     }
 
     function bindSlicers(selector, minSelected = 1) {
@@ -535,6 +622,9 @@
         params.set("event_from", toIsoDate(monthList[minIdx]));
         params.set("event_to", toIsoDate(lastDayOfMonth(monthList[maxIdx])));
       }
+      if (amountFilterValue() === "has_amount") {
+        params.set("has_amount", "true");
+      }
       return params;
     }
 
@@ -628,6 +718,7 @@
           <th>Date sold</th>
           <th>DEST</th>
           <th>Reason</th>
+          <th class="amount-cell">Amount (£)</th>
           ${paidCol}
         </tr>
       `;
@@ -658,15 +749,30 @@
       document.getElementById("selection-count").textContent =
         `${count.toLocaleString("en-GB")} selected`;
       const confirmBtn = document.getElementById("confirm-btn");
+      const selectAmountBtn = document.getElementById("select-amount-btn");
       const unarchiveBtn = document.getElementById("unarchive-btn");
+      const rowsWithAmount = rows.filter(row => row.amount_gbp != null).length;
       if (confirmBtn) {
         confirmBtn.disabled = count === 0;
         confirmBtn.hidden = currentStatus !== "active";
+      }
+      if (selectAmountBtn) {
+        selectAmountBtn.disabled = rowsWithAmount === 0;
+        selectAmountBtn.hidden = currentStatus !== "active";
       }
       if (unarchiveBtn) {
         unarchiveBtn.disabled = count === 0;
         unarchiveBtn.hidden = currentStatus !== "archived";
       }
+    }
+
+    function selectAllWithAmount() {
+      selectedKeys.clear();
+      rows.forEach(row => {
+        if (row.amount_gbp != null) selectedKeys.add(rowKey(row));
+      });
+      renderTableBody();
+      updateActionBar();
     }
 
     function renderTableBody() {
@@ -681,8 +787,14 @@
         const paidCell = showPaidCol
           ? `<td><input type="checkbox" class="row-paid" data-key="${encodeURIComponent(key)}" ${selected ? "checked" : ""} aria-label="Mark paid"></td>`
           : "";
+        const hasAmount = row.amount_gbp != null;
+        const rowClasses = [
+          selected ? "row-selected" : "",
+          hasAmount ? "row-has-amount" : "",
+          highlightEtag && row.etag === highlightEtag ? "row-highlight" : "",
+        ].filter(Boolean).join(" ");
         return `
-          <tr class="${selected ? "row-selected" : ""}" data-key="${encodeURIComponent(key)}">
+          <tr class="${rowClasses}" data-key="${encodeURIComponent(key)}">
             ${selectCell}
             <td>${row.cow_id || "—"}</td>
             <td>${row.farm || "—"}</td>
@@ -692,6 +804,7 @@
             <td>${fmtDate(row.event_date)}</td>
             <td>${row.dest || "—"}</td>
             <td><span class="reason-pill reason-pill-${row.sales_reason}">${row.sales_reason}</span></td>
+            <td class="amount-cell">${hasAmount ? `£${fmtNum(row.amount_gbp)}` : "—"}</td>
             ${paidCell}
           </tr>
         `;
@@ -702,6 +815,10 @@
       renderTableHead();
       renderTableBody();
       updateActionBar();
+      if (highlightEtag) {
+        const highlighted = document.querySelector("#table-body tr.row-highlight");
+        highlighted?.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
     }
 
     function applyRowsResponse(data) {
@@ -949,8 +1066,38 @@
     function clearFilters() {
       resetSlicers(".farm-slicer");
       resetSlicers(".reason-slicer");
+      resetAmountSlicer();
       document.getElementById("dest-select").value = "";
+      highlightEtag = null;
       refreshFilters(true);
+    }
+
+    function readUrlParams() {
+      const params = new URLSearchParams(window.location.search);
+      const hasAmount = params.get("has_amount");
+      return {
+        farms: params.getAll("farm"),
+        hasAmount: hasAmount === "1" || hasAmount === "true",
+        eventFrom: params.get("event_from"),
+        eventTo: params.get("event_to"),
+        highlight: params.get("highlight"),
+      };
+    }
+
+    function applyUrlParams() {
+      const url = readUrlParams();
+      if (url.farms.length) {
+        applySlicerSelection(".farm-slicer", url.farms);
+      }
+      if (url.hasAmount) {
+        applySlicerSelection(".amount-slicer", ["has_amount"]);
+      }
+      if (url.highlight) {
+        highlightEtag = url.highlight;
+      }
+      return url.eventFrom && url.eventTo
+        ? { from: url.eventFrom, to: url.eventTo }
+        : null;
     }
 
     function bindDateInputs() {
@@ -992,13 +1139,34 @@
     document.getElementById("dest-select").addEventListener("change", () => refreshFilters(true));
     document.getElementById("clear-filters-btn").addEventListener("click", clearFilters);
     document.getElementById("confirm-btn")?.addEventListener("click", confirmSelected);
+    document.getElementById("select-amount-btn")?.addEventListener("click", selectAllWithAmount);
     document.getElementById("unarchive-btn")?.addEventListener("click", unarchiveSelected);
 
     bindSlicers(".farm-slicer");
     bindSlicers(".reason-slicer");
+    bindAmountSlicer();
     bindDateInputs();
     bindTableBodyEvents();
     (async function initPage() {
+      const dateOverride = applyUrlParams();
+      if (dateOverride) {
+        const farms = selectedFarms();
+        const reasons = selectedReasons();
+        if (!farms.length || !reasons.length) return;
+        setLoading(true);
+        try {
+          const [, bounds] = await Promise.all([
+            fetchRows(dateOverride, { manageLoading: false }),
+            loadFilterOptions(),
+          ]);
+          if (bounds) {
+            syncDateBounds(bounds, false, false);
+          }
+        } finally {
+          setLoading(false);
+        }
+        return;
+      }
       await refreshFilters(true);
     })();
   </script>

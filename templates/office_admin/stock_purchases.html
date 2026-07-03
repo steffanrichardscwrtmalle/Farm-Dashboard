@@ -181,8 +181,8 @@
 
     function formatDate(iso) {
       if (!iso) return "—";
-      const d = new Date(iso + "T00:00:00");
-      return d.toLocaleDateString("en-GB");
+      const formatted = fmtDate(String(iso).split("T")[0]);
+      return formatted || "—";
     }
 
     function monthEndIso(monthValue) {
