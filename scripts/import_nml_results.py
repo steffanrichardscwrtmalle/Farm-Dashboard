@@ -3,12 +3,13 @@
 Run on a schedule (Render cron), e.g. daily:
     python scripts/import_nml_results.py
 
-Reads PDF attachments sent by NML_SENDER from the per-farm mailboxes (or from
-LOCAL_NML_DIR in development) and upserts them into nml_milk_results.
+Or use the combined daily job:
+    python scripts/import_milk_daily.py
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 import traceback
 from pathlib import Path
@@ -22,6 +23,15 @@ from app.services.nml_import import import_nml_results
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Import NML milk-quality PDFs from email.")
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="Scan this many days of mail (default: NML_LOOKBACK_DAYS from config).",
+    )
+    args = parser.parse_args()
+
     try:
         sys.stdout.reconfigure(line_buffering=True)
         sys.stderr.reconfigure(line_buffering=True)
@@ -32,7 +42,7 @@ def main() -> int:
     db = SessionLocal()
     try:
         print("Step: importing NML milk-quality results...", flush=True)
-        stats = import_nml_results(db)
+        stats = import_nml_results(db, days=args.days)
         print(
             f"Processed {stats['files_processed']} report(s), "
             f"skipped {stats['files_skipped']}; "

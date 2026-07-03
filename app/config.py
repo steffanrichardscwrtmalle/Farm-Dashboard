@@ -123,6 +123,10 @@ STATEMENTS_DEFAULT_HAULAGE = float(os.getenv("STATEMENTS_DEFAULT_HAULAGE", "1.0"
 # Optional local folder of statement PDFs for development (skips Graph mail when set).
 LOCAL_STATEMENTS_DIR = os.getenv("LOCAL_STATEMENTS_DIR", "").strip()
 
+# Daily cron for haulier + NML + statements (scripts/import_milk_daily.py).
+# 2 days covers yesterday and today when the job runs each morning.
+MILK_CRON_LOOKBACK_DAYS = int(os.getenv("MILK_CRON_LOOKBACK_DAYS", "2"))
+
 # Feedlync API (refresh token from browser MSAL storage after logging in once)
 FEEDLYNC_REFRESH_TOKEN = os.getenv("FEEDLYNC_REFRESH_TOKEN", "").strip()
 FEEDLYNC_FARM_ID = os.getenv("FEEDLYNC_FARM_ID", "").strip()

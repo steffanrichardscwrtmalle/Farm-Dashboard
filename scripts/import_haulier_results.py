@@ -3,12 +3,13 @@
 Run on a schedule (Render cron), e.g. daily:
     python scripts/import_haulier_results.py
 
-Reads XLSX attachments sent by HAULIER_SENDER from the configured mailbox(es)
-(or from LOCAL_HAULIER_DIR in development) and upserts them into milk_collections.
+Or use the combined daily job:
+    python scripts/import_milk_daily.py
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 import traceback
 from pathlib import Path
@@ -22,6 +23,15 @@ from app.services.haulier_import import import_haulier_collections
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Import haulier collection XLSX from email.")
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="Scan this many days of mail (default: HAULIER_LOOKBACK_DAYS from config).",
+    )
+    args = parser.parse_args()
+
     try:
         sys.stdout.reconfigure(line_buffering=True)
         sys.stderr.reconfigure(line_buffering=True)
@@ -32,7 +42,7 @@ def main() -> int:
     db = SessionLocal()
     try:
         print("Step: importing milk haulier collections...", flush=True)
-        stats = import_haulier_collections(db)
+        stats = import_haulier_collections(db, days=args.days)
         print(
             f"Processed {stats['files_processed']} report(s), "
             f"skipped {stats['files_skipped']}; "

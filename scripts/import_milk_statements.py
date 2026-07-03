@@ -2,10 +2,14 @@
 
 Run on a schedule (Render cron), e.g. monthly after statements arrive:
     python scripts/import_milk_statements.py
+
+Daily cron (2-day lookback) also picks up new statements:
+    python scripts/import_milk_daily.py
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 import traceback
 from pathlib import Path
@@ -19,6 +23,15 @@ from app.services.milk_statements_import import import_milk_statements
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Import milk buyer statement PDFs from email.")
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="Scan this many days of mail (default: STATEMENTS_LOOKBACK_DAYS from config).",
+    )
+    args = parser.parse_args()
+
     try:
         sys.stdout.reconfigure(line_buffering=True)
         sys.stderr.reconfigure(line_buffering=True)
@@ -29,7 +42,7 @@ def main() -> int:
     db = SessionLocal()
     try:
         print("Step: importing milk buyer statements...", flush=True)
-        stats = import_milk_statements(db)
+        stats = import_milk_statements(db, days=args.days)
         print(
             f"Processed {stats['files_processed']} statement(s), "
             f"skipped {stats['files_skipped']}; "

@@ -113,6 +113,36 @@ After deploying schema changes (e.g. new `supplier` column), Render runs migrati
 
 For local testing without Graph API, set `LOCAL_HERD_EXPORT_DIR` to your synced OneDrive folder path.
 
+### Milk email imports (collections, NML, statements)
+
+A single daily cron imports haulier XLSX, NML PDFs, and buyer statement PDFs from
+the configured mailboxes. Because it runs every day, it only scans **the last 2
+days** of mail (yesterday and today).
+
+1. Ensure the same Graph / mail env vars as the web service are set (see
+   `.env.example` for `GRAPH_*`, `GRAPH_*_CM`, and mailbox settings).
+2. Add a **Cron Job** on Render (or sync the blueprint — `farm-dashboard-milk-daily`
+   is defined in [`render.yaml`](render.yaml)):
+   - **Schedule:** `0 6 * * *` (06:00 UTC daily; adjust for your timezone)
+   - **Command:** `python scripts/import_milk_daily.py`
+   - Same `DATABASE_URL` and `GRAPH_*` env vars as the web service
+3. Optional: `MILK_CRON_LOOKBACK_DAYS=2` (default is 2)
+
+Manual run:
+
+```powershell
+python scripts/import_milk_daily.py
+python scripts/import_milk_daily.py --days 3
+```
+
+Individual imports (use `--days` for a custom lookback):
+
+```powershell
+python scripts/import_haulier_results.py --days 2
+python scripts/import_nml_results.py --days 2
+python scripts/import_milk_statements.py --days 2
+```
+
 ### Pedigree registrations (Genetics email)
 
 The **Genetics → Pedigree Registrations** page can email a CSV attachment via Microsoft
