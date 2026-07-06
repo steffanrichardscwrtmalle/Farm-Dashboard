@@ -1,8 +1,8 @@
 """
-One-off: copy Benchmarking ration data from production PostgreSQL to local SQLite.
+One-off: copy Benchmarking data from production PostgreSQL to local SQLite.
 
 Copies: ration_ingredients, ration_ingredient_costs, farm_rations,
-farm_ration_ingredients, farm_ration_inclusions.
+farm_ration_ingredients, farm_ration_inclusions, benchmark_forecast_lines.
 
 Does not copy users or other app data.
 
@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -34,6 +35,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import DATABASE_URL, _normalize_database_url
 from app.db import init_db
 from app.models import (
+    BenchmarkForecastLine,
     FarmRation,
     FarmRationInclusion,
     FarmRationIngredient,
@@ -50,6 +52,7 @@ _COPY_MODELS: tuple[type, ...] = (
     FarmRation,
     FarmRationIngredient,
     FarmRationInclusion,
+    BenchmarkForecastLine,
 )
 
 # Delete order (children before parents).
@@ -93,15 +96,35 @@ def _clear_target(session: Session) -> None:
     session.commit()
 
 
-def _copy_rows(src: Session, tgt: Session, model: type) -> int:
+def _copy_rows(
+    src: Session,
+    tgt: Session,
+    model: type,
+    *,
+    row_mapper: Callable[[dict], dict] | None = None,
+) -> int:
     rows = list(src.scalars(select(model).order_by(model.id)).all())
     if not rows:
         return 0
     columns = [col.name for col in model.__table__.columns]
-    payload = [{name: getattr(row, name) for name in columns} for row in rows]
+    payload = []
+    for row in rows:
+        data = {name: getattr(row, name) for name in columns}
+        if row_mapper:
+            data = row_mapper(data)
+        payload.append(data)
     tgt.bulk_insert_mappings(model, payload)
     tgt.commit()
     return len(rows)
+
+
+def _strip_user_fk(row: dict) -> dict:
+    """Avoid FK errors when production user ids differ from local."""
+    cleaned = dict(row)
+    for key in ("updated_by_user_id", "created_by_user_id"):
+        if key in cleaned:
+            cleaned[key] = None
+    return cleaned
 
 
 def _reset_sqlite_sequences(engine, models: tuple[type, ...]) -> None:
@@ -135,7 +158,7 @@ def _reset_sqlite_sequences(engine, models: tuple[type, ...]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Copy Benchmarking ration tables from production into local SQLite."
+        description="Copy Benchmarking tables from production into local SQLite."
     )
     parser.add_argument(
         "--source-url",
@@ -155,7 +178,7 @@ def main() -> None:
     parser.add_argument(
         "--replace",
         action="store_true",
-        help="Delete existing ration data in the target before copying",
+        help="Delete existing benchmarking data in the target before copying",
     )
     parser.add_argument(
         "--yes",
@@ -181,7 +204,7 @@ def main() -> None:
         sys.exit(1)
 
     if args.replace and not args.yes and not args.dry_run:
-        print("ERROR: Pass --yes with --replace to confirm overwriting local ration data.")
+        print("ERROR: Pass --yes with --replace to confirm overwriting local benchmarking data.")
         sys.exit(1)
 
     print(f"Source: {source_url.split('@')[-1] if '@' in source_url else source_url}")
@@ -204,12 +227,14 @@ def main() -> None:
         tgt_session, tgt_engine = _open_session(target_url)
         try:
             if args.replace:
-                print("Clearing local ration tables…")
+                print("Clearing local benchmarking tables…")
                 _clear_target(tgt_session)
             print("Copying rows…")
             copied: dict[str, int] = {}
             for model in _COPY_MODELS:
-                n = _copy_rows(src_session, tgt_session, model)
+                n = _copy_rows(
+                    src_session, tgt_session, model, row_mapper=_strip_user_fk
+                )
                 copied[model.__tablename__] = n
                 print(f"  {model.__tablename__}: {n}")
             _reset_sqlite_sequences(tgt_engine, _COPY_MODELS)

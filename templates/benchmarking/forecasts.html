@@ -3,38 +3,57 @@
 {% block page_heading %}Manual Forecasts{% endblock %}
 
 {% block extra_styles %}
+    main { max-width: none; }
+    .forecasts-page {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      min-height: calc(100vh - 7.5rem);
+    }
+    .forecasts-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 1rem;
+      font-size: 0.82rem;
+    }
+    .forecasts-top .muted { margin: 0; }
     .benchmark-toolbar {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 1rem;
-      margin-bottom: 1rem;
+      gap: 0.5rem 0.75rem;
+      margin-bottom: 0;
+      font-size: 0.82rem;
     }
     .benchmark-toolbar label {
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 0.5rem;
-      font-size: 0.9rem;
+      gap: 0.35rem;
+      margin: 0;
     }
     .benchmark-toolbar select {
-      min-width: 6rem;
+      min-width: 0;
+      width: 5.5rem;
       margin: 0;
+      padding: 0.2rem 0.35rem;
+      font-size: 0.82rem;
     }
     .metric-tabs {
       display: flex;
       flex-wrap: wrap;
       align-items: flex-start;
-      gap: 0.75rem;
-      margin-bottom: 1rem;
+      gap: 0.5rem;
+      margin-bottom: 0;
       border-bottom: 1px solid var(--border);
-      padding-bottom: 0.5rem;
+      padding-bottom: 0.4rem;
     }
     .metric-tab-group {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 0.35rem;
-      padding: 0.4rem 0.55rem;
+      gap: 0.3rem;
+      padding: 0.3rem 0.45rem;
       border-radius: 6px;
       border: 1px solid var(--border);
     }
@@ -67,8 +86,8 @@
       gap: 0.35rem;
     }
     .metric-tab {
-      padding: 0.35rem 0.65rem;
-      font-size: 0.82rem;
+      padding: 0.28rem 0.5rem;
+      font-size: 0.78rem;
       border: 1px solid var(--border);
       border-radius: 4px;
       background: var(--card-bg);
@@ -112,41 +131,67 @@
       color: #fecaca !important;
     }
     .forecast-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 1rem;
+      padding: 0.5rem 0.65rem;
     }
     .forecast-panel h2 {
-      margin: 0 0 0.75rem;
-      font-size: 1.05rem;
+      margin: 0 0 0.35rem;
+      font-size: 0.95rem;
+    }
+    .table-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow-x: auto;
+      overflow-y: visible;
     }
     .forecast-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.88rem;
+      font-size: 0.8rem;
     }
     .forecast-table th,
     .forecast-table td {
       border: 1px solid var(--border);
-      padding: 0.35rem 0.5rem;
+      padding: 0.12rem 0.3rem;
       text-align: center;
+      vertical-align: middle;
+      line-height: 1.2;
     }
     .forecast-table th {
       background: #f1f5f9;
       font-weight: 600;
+      font-size: 0.75rem;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .forecast-table thead tr:nth-child(2) th {
+      top: 1.35rem;
     }
     .forecast-table td:first-child,
     .forecast-table th:first-child {
       text-align: left;
       white-space: nowrap;
+      position: sticky;
+      left: 0;
+      background: #f8fafc;
+      z-index: 3;
+    }
+    .forecast-table thead tr:first-child th:first-child {
+      z-index: 4;
     }
     .forecast-table input {
-      width: 5.5rem;
+      width: 4.5rem;
       max-width: 100%;
       margin: 0;
-      padding: 0.25rem 0.35rem;
-      font-size: 0.85rem;
+      padding: 0.12rem 0.2rem;
+      font-size: 0.8rem;
       text-align: right;
     }
     .forecast-table input:disabled {
@@ -154,13 +199,14 @@
       color: var(--muted);
     }
     .panel-actions {
-      margin-top: 0.75rem;
+      margin-top: 0.4rem;
       display: flex;
       align-items: center;
       gap: 0.75rem;
+      flex-shrink: 0;
     }
     .save-status {
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       color: var(--muted);
     }
     .save-status.ok { color: #15803d; }
@@ -173,38 +219,40 @@
 {% endblock %}
 
 {% block content %}
-  <p class="muted" style="margin-top:0;">
-    Enter monthly budget figures by farm (CM / GAD). UK fiscal year Apr–Mar.
-    {% if not can_edit %}<strong>View only</strong> — you do not have permission to edit.{% endif %}
-  </p>
-
-  <div class="benchmark-toolbar">
-    <label>
-      Fiscal year
-      <select id="fiscal-year-select">
-        {% for fy in fiscal_year_options %}
-        <option value="{{ fy }}">FY {{ fy }}</option>
-        {% endfor %}
-      </select>
-    </label>
-  </div>
-
-  <div class="metric-tabs" id="metric-tabs" role="tablist"></div>
-
-  <div class="forecast-panel" id="forecast-panel">
-    <h2 id="metric-title">Loading…</h2>
-    <div class="table-wrap">
-      <table class="forecast-table" id="forecast-table">
-        <thead id="forecast-thead"></thead>
-        <tbody id="forecast-tbody"></tbody>
-      </table>
+  <div class="forecasts-page">
+    <div class="forecasts-top">
+      <span class="muted">Monthly budget by farm (CM / GAD), UK fiscal year Apr–Mar.</span>
+      {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
     </div>
-    {% if can_edit %}
-    <div class="panel-actions">
-      <button type="button" id="save-btn">Save this table</button>
-      <span class="save-status" id="save-status"></span>
+
+    <div class="benchmark-toolbar">
+      <label>
+        FY
+        <select id="fiscal-year-select">
+          {% for fy in fiscal_year_options %}
+          <option value="{{ fy }}">FY {{ fy }}</option>
+          {% endfor %}
+        </select>
+      </label>
     </div>
-    {% endif %}
+
+    <div class="metric-tabs" id="metric-tabs" role="tablist"></div>
+
+    <div class="forecast-panel" id="forecast-panel">
+      <h2 id="metric-title">Loading…</h2>
+      <div class="table-wrap">
+        <table class="forecast-table" id="forecast-table">
+          <thead id="forecast-thead"></thead>
+          <tbody id="forecast-tbody"></tbody>
+        </table>
+      </div>
+      {% if can_edit %}
+      <div class="panel-actions">
+        <button type="button" id="save-btn">Save this table</button>
+        <span class="save-status" id="save-status"></span>
+      </div>
+      {% endif %}
+    </div>
   </div>
 
   <p class="empty-state" id="load-error" hidden>Failed to load forecast data.</p>
