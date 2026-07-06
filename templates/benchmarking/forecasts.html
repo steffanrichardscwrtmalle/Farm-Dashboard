@@ -96,6 +96,11 @@
     }
     .save-status.ok { color: #15803d; }
     .save-status.err { color: #b91c1c; }
+    .save-status.unsaved { color: #b45309; }
+    .metric-tab.unsaved::after {
+      content: " •";
+      font-weight: 700;
+    }
 {% endblock %}
 
 {% block content %}
@@ -142,9 +147,62 @@
     let metricDefs = [];
     let forecastData = null;
     let activeMetric = null;
+    let savedSnapshots = new Map();
 
     function metricById(id) {
       return metricDefs.find(m => m.id === id);
+    }
+
+    function snapshotKey(metric = activeMetric) {
+      const fy = document.getElementById('fiscal-year-select').value;
+      return `${fy}|${metric}`;
+    }
+
+    function normalizeRows(rows) {
+      const sorted = [...rows].sort((a, b) => {
+        const keyA = `${a.forecast_month}|${a.farm}`;
+        const keyB = `${b.forecast_month}|${b.farm}`;
+        return keyA.localeCompare(keyB);
+      });
+      return JSON.stringify(sorted);
+    }
+
+    function captureSnapshot() {
+      if (!CAN_EDIT || !activeMetric) return;
+      savedSnapshots.set(snapshotKey(), normalizeRows(collectRows()));
+      updateUnsavedIndicators();
+    }
+
+    function isCurrentTableDirty() {
+      if (!CAN_EDIT || !activeMetric) return false;
+      const key = snapshotKey();
+      if (!savedSnapshots.has(key)) return false;
+      return savedSnapshots.get(key) !== normalizeRows(collectRows());
+    }
+
+    function updateUnsavedIndicators() {
+      if (!CAN_EDIT) return;
+      const statusEl = document.getElementById('save-status');
+      if (statusEl && isCurrentTableDirty()) {
+        statusEl.textContent = 'Unsaved changes';
+        statusEl.className = 'save-status unsaved';
+      }
+      document.querySelectorAll('.metric-tab').forEach(btn => {
+        const dirty = btn.dataset.metric === activeMetric
+          ? isCurrentTableDirty()
+          : false;
+        btn.classList.toggle('unsaved', dirty);
+      });
+    }
+
+    async function confirmLeaveCurrentTable() {
+      if (!isCurrentTableDirty()) return true;
+      if (window.confirm('You have unsaved changes. Save before leaving this table?')) {
+        await saveCurrentMetric({ reloadAfterSave: false });
+        if (!isCurrentTableDirty()) return true;
+        return false;
+      }
+      return window.confirm('Leave without saving your changes?');
     }
 
     function renderTabs() {
@@ -156,12 +214,16 @@
         </button>
       `).join('');
       container.querySelectorAll('.metric-tab').forEach(btn => {
-        btn.addEventListener('click', () => {
-          activeMetric = btn.dataset.metric;
+        btn.addEventListener('click', async () => {
+          const nextMetric = btn.dataset.metric;
+          if (nextMetric === activeMetric) return;
+          if (!(await confirmLeaveCurrentTable())) return;
+          activeMetric = nextMetric;
           renderTabs();
           renderTable();
         });
       });
+      updateUnsavedIndicators();
     }
 
     function buildHeader(meta) {
@@ -236,8 +298,16 @@
         return `<tr>${cells}</tr>`;
       }).join('');
 
-      document.getElementById('save-status').textContent = '';
-      document.getElementById('save-status').className = 'save-status';
+      captureSnapshot();
+    }
+
+    function bindTableInputs() {
+      const tbody = document.getElementById('forecast-tbody');
+      if (tbody.dataset.inputsBound === '1') return;
+      tbody.dataset.inputsBound = '1';
+      tbody.addEventListener('input', (e) => {
+        if (e.target.matches('input')) updateUnsavedIndicators();
+      });
     }
 
     function collectRows() {
@@ -294,13 +364,21 @@
       });
     }
 
-    async function loadForecasts() {
-      const fy = document.getElementById('fiscal-year-select').value;
+    async function loadForecasts(options = {}) {
+      const { skipLeaveCheck = false } = options;
+      const fySelect = document.getElementById('fiscal-year-select');
+      const fy = fySelect.value;
+      const previousFy = fySelect.dataset.loadedFy || fy;
+      if (!skipLeaveCheck && fy !== previousFy && !(await confirmLeaveCurrentTable())) {
+        fySelect.value = previousFy;
+        return;
+      }
       document.getElementById('load-error').hidden = true;
       try {
         const res = await fetch(`/api/benchmarking/forecasts?fiscal_year=${encodeURIComponent(fy)}`);
         if (!res.ok) throw new Error('load failed');
         forecastData = await res.json();
+        fySelect.dataset.loadedFy = fy;
         if (!activeMetric && metricDefs.length) {
           activeMetric = metricDefs[0].id;
         }
@@ -311,14 +389,16 @@
       }
     }
 
-    async function saveCurrentMetric() {
-      if (!CAN_EDIT || !activeMetric) return;
+    async function saveCurrentMetric(options = {}) {
+      const { reloadAfterSave = true } = options;
+      if (!CAN_EDIT || !activeMetric) return false;
       const statusEl = document.getElementById('save-status');
       const fy = Number(document.getElementById('fiscal-year-select').value);
       const btn = document.getElementById('save-btn');
       btn.disabled = true;
       statusEl.textContent = 'Saving…';
       statusEl.className = 'save-status';
+      let ok = false;
       try {
         const res = await fetch('/api/benchmarking/forecasts', {
           method: 'PUT',
@@ -331,17 +411,27 @@
         });
         const payload = await res.json().catch(() => ({}));
         if (!res.ok) {
-          throw new Error(payload.detail || 'Save failed');
+          const detail = payload.detail;
+          const message = Array.isArray(detail)
+            ? detail.map(item => item.msg || String(item)).join(', ')
+            : (detail || 'Save failed');
+          throw new Error(message);
         }
         statusEl.textContent = 'Saved.';
         statusEl.className = 'save-status ok';
-        await loadForecasts();
+        ok = true;
+        if (reloadAfterSave) {
+          await loadForecasts({ skipLeaveCheck: true });
+        } else {
+          captureSnapshot();
+        }
       } catch (err) {
         statusEl.textContent = err.message || 'Save failed.';
         statusEl.className = 'save-status err';
       } finally {
         btn.disabled = false;
       }
+      return ok;
     }
 
     async function init() {
@@ -358,12 +448,19 @@
         return;
       }
 
-      document.getElementById('fiscal-year-select').addEventListener('change', loadForecasts);
+      document.getElementById('fiscal-year-select').addEventListener('change', () => loadForecasts());
       if (CAN_EDIT) {
-        document.getElementById('save-btn').addEventListener('click', saveCurrentMetric);
+        document.getElementById('save-btn').addEventListener('click', () => saveCurrentMetric());
+        window.addEventListener('beforeunload', (e) => {
+          if (isCurrentTableDirty()) {
+            e.preventDefault();
+            e.returnValue = '';
+          }
+        });
       }
       bindTableKeyboard();
-      await loadForecasts();
+      bindTableInputs();
+      await loadForecasts({ skipLeaveCheck: true });
     }
 
     init();

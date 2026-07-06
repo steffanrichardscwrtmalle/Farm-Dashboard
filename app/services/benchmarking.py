@@ -93,6 +93,13 @@ BENCHMARK_METRICS: dict[str, dict[str, Any]] = {
         "quantity_label": "litres/cow",
         "price_label": None,
     },
+    "dry_cows_pct": {
+        "label": "Dry cows (%)",
+        "has_quantity": True,
+        "has_price": False,
+        "quantity_label": "% dry",
+        "price_label": None,
+    },
 }
 
 BENCHMARK_METRIC_KEYS: tuple[str, ...] = tuple(BENCHMARK_METRICS.keys())
