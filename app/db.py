@@ -342,6 +342,8 @@ def _migrate_cattle_sales_schema() -> None:
     with engine.begin() as conn:
         if "reject_kg" not in columns:
             conn.execute(text("ALTER TABLE cattle_sale_lines ADD COLUMN reject_kg FLOAT"))
+        if "kill_date" not in columns:
+            conn.execute(text("ALTER TABLE cattle_sale_lines ADD COLUMN kill_date DATE"))
         if DATABASE_URL.startswith("sqlite"):
             conn.execute(
                 text(

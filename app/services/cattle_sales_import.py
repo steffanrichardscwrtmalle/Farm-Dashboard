@@ -110,12 +110,12 @@ def _iter_sources(
         for path in sorted(folder.rglob("*.pdf")):
             if path.name.startswith("~$"):
                 continue
-        farm = None
-        name_low = path.name.lower()
-        if "gad" in name_low or "green acre" in name_low:
-            farm = "GAD"
-        elif "cm" in name_low or "cwrt" in name_low or "malle" in name_low:
-            farm = "CM"
+            farm = None
+            name_low = path.name.lower()
+            if "gad" in name_low or "green acre" in name_low:
+                farm = "GAD"
+            elif "cm" in name_low or "cwrt" in name_low or "malle" in name_low:
+                farm = "CM"
             yield {
                 "content": path.read_bytes(),
                 "source_file": path.name,
@@ -176,8 +176,10 @@ def _is_newer(candidate: dt.datetime | None, current: dt.datetime | None) -> boo
     return candidate >= current
 
 
-def _skip_message_ids(db: Session) -> frozenset[str]:
+def _skip_message_ids(db: Session, *, force_reimport: bool = False) -> frozenset[str]:
     """Skip already-imported emails unless stored weights look corrupt."""
+    if force_reimport:
+        return frozenset()
     imported = {
         mid
         for mid in db.scalars(
@@ -250,6 +252,7 @@ def _ingest_one_pdf(
             "sale_date": sale_date,
             "cold_weight_kg": line["cold_weight_kg"],
             "reject_kg": line.get("reject_kg"),
+            "kill_date": line.get("kill_date"),
             "amount_gbp": line["amount_gbp"],
             "source_message_id": source_message_id,
             "source_file": source_file,
@@ -322,6 +325,7 @@ def _upsert(
         for field in (
             "cold_weight_kg",
             "reject_kg",
+            "kill_date",
             "amount_gbp",
             "source_message_id",
             "source_file",
@@ -334,7 +338,11 @@ def _upsert(
 
 
 def import_cattle_sales(
-    db: Session, *, full_history: bool = False, days: int | None = None
+    db: Session,
+    *,
+    full_history: bool = False,
+    days: int | None = None,
+    force_reimport: bool = False,
 ) -> dict[str, Any]:
     if not cattle_sales_is_configured():
         raise ValueError(
@@ -351,7 +359,7 @@ def import_cattle_sales(
             days=CATTLE_SALES_LOOKBACK_DAYS
         )
 
-    skip_message_ids = _skip_message_ids(db)
+    skip_message_ids = _skip_message_ids(db, force_reimport=force_reimport)
 
     files_processed = 0
     files_skipped = 0
@@ -485,10 +493,16 @@ def run_import_in_background(
     *,
     full_history: bool = False,
     days: int | None = None,
+    force_reimport: bool = False,
 ) -> None:
     db = db_factory()
     try:
-        result = import_cattle_sales(db, full_history=full_history, days=days)
+        result = import_cattle_sales(
+            db,
+            full_history=full_history,
+            days=days,
+            force_reimport=force_reimport,
+        )
         message = (
             f"Imported {result['rows_total']} line(s) "
             f"({result['rows_inserted']} new, {result['rows_updated']} updated)."

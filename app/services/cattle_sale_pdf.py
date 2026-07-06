@@ -138,6 +138,7 @@ def _header_indices(header_row: list[str | None]) -> dict[str, int] | None:
     tag_idx = None
     weight_idx = None
     reject_idx = None
+    kill_idx = None
     amount_idx = None
     for idx, label in enumerate(labels):
         if not label:
@@ -154,6 +155,8 @@ def _header_indices(header_row: list[str | None]) -> dict[str, int] | None:
             weight_idx = idx
         if reject_idx is None and "reject" in label:
             reject_idx = idx
+        if kill_idx is None and "kill" in label and "date" in label:
+            kill_idx = idx
         if amount_idx is None and label in {"amount", "value", "total", "payment", "£"}:
             amount_idx = idx
         elif amount_idx is None and "amount" in label:
@@ -164,6 +167,7 @@ def _header_indices(header_row: list[str | None]) -> dict[str, int] | None:
         "tag": tag_idx,
         "weight": weight_idx,
         "reject": reject_idx,
+        "kill": kill_idx,
         "amount": amount_idx,
     }
 
@@ -245,11 +249,22 @@ def _parse_row_numbers_from_cells(
     return weight, amount, reject_kg
 
 
+def _parse_kill_date_from_row(
+    row: list[str | None],
+    header: dict[str, int],
+) -> dt.date | None:
+    kill_idx = header.get("kill")
+    if kill_idx is None or kill_idx >= len(row):
+        return None
+    return _parse_short_date(_cell_text(row[kill_idx]))
+
+
 def _sale_line_dict(
     etag: str,
     weight: float,
     amount: float,
     reject_kg: float | None,
+    kill_date: dt.date | None = None,
 ) -> dict[str, Any]:
     rejected = is_rejected_sale(weight, reject_kg, amount)
     return {
@@ -257,6 +272,7 @@ def _sale_line_dict(
         "cold_weight_kg": round(weight, 2),
         "amount_gbp": round(amount, 2),
         "reject_kg": round(reject_kg, 2) if reject_kg is not None else None,
+        "kill_date": kill_date,
         "is_rejected": rejected,
     }
 
@@ -289,7 +305,8 @@ def _parse_data_row(
     if weight is None or amount is None or not is_acceptable_sale_line(weight, reject_kg, amount):
         warnings.append(f"Skipped implausible row for {etag}")
         return None
-    return _sale_line_dict(etag, weight, amount, reject_kg)
+    kill_date = _parse_kill_date_from_row(row, header)
+    return _sale_line_dict(etag, weight, amount, reject_kg, kill_date)
 
 
 def _parse_table_rows(

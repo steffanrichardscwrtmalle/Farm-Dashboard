@@ -270,3 +270,43 @@ def test_list_cattle_sales_matches_sold_event_when_herd_etag_lacks_uk_prefix() -
     assert row["event_date"] == "2026-06-18"
 
     session.close()
+
+
+def test_list_cattle_sales_matches_using_kill_date_when_cheque_date_is_later() -> None:
+    """SOLD events align to abattoir kill date, not always the cheque payment date."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="724069",
+            etag="UK740651724069",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 16),
+            dest="EUROFARM",
+            remark="CAR16",
+            gndr="M",
+            bdat=dt.date(2022, 1, 1),
+            lact=0,
+            cbrd=1,
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651724069",
+            sale_date=dt.date(2026, 6, 30),
+            kill_date=dt.date(2026, 6, 16),
+            cold_weight_kg=263.6,
+            amount_gbp=1159.93,
+        )
+    )
+    session.commit()
+
+    result = list_cattle_sales(session, farms=["CM"])
+    assert result["total"] == 1
+    assert result["rows"][0]["event_matched"] is True
+    assert result["rows"][0]["event_date"] == "2026-06-16"
+
+    session.close()

@@ -141,6 +141,13 @@ def _load_cattle_sale_lines_by_farm_etag(
     return grouped
 
 
+def _sale_line_match_delta(line: CattleSaleLine, event_date: dt.date) -> int:
+    deltas = [abs((line.sale_date - event_date).days)]
+    if line.kill_date is not None:
+        deltas.append(abs((line.kill_date - event_date).days))
+    return min(deltas)
+
+
 def _sale_match_for_sold_event(
     sale_lines_by_key: dict[tuple[str, str], list[CattleSaleLine]],
     farm: str,
@@ -154,7 +161,7 @@ def _sale_match_for_sold_event(
     best_line: CattleSaleLine | None = None
     best_delta: int | None = None
     for line in lines:
-        delta = abs((line.sale_date - event_date).days)
+        delta = _sale_line_match_delta(line, event_date)
         if delta > EVENT_MATCH_WINDOW_DAYS:
             continue
         if best_line is None or best_delta is None or delta < best_delta:

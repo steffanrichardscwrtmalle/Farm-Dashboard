@@ -120,20 +120,25 @@ def _load_sold_events(
 def _best_sold_match(
     events: list[CowEvent],
     sale_date: dt.date,
+    kill_date: dt.date | None = None,
 ) -> CowEvent | None:
     if not events:
         return None
+    reference_dates = [sale_date]
+    if kill_date is not None and kill_date != sale_date:
+        reference_dates.append(kill_date)
     best: CowEvent | None = None
     best_delta: int | None = None
     for event in events:
         if event.event_date is None:
             continue
-        delta = abs((event.event_date - sale_date).days)
-        if delta > EVENT_MATCH_WINDOW_DAYS:
-            continue
-        if best is None or delta < best_delta:
-            best = event
-            best_delta = delta
+        for reference_date in reference_dates:
+            delta = abs((event.event_date - reference_date).days)
+            if delta > EVENT_MATCH_WINDOW_DAYS:
+                continue
+            if best is None or delta < best_delta:
+                best = event
+                best_delta = delta
     return best
 
 
@@ -197,8 +202,13 @@ def list_cattle_sales(
         }
 
     etags = {line.etag for line in sale_lines}
-    min_sale = min(line.sale_date for line in sale_lines)
-    max_sale = max(line.sale_date for line in sale_lines)
+    reference_dates: list[dt.date] = []
+    for line in sale_lines:
+        reference_dates.append(line.sale_date)
+        if line.kill_date is not None:
+            reference_dates.append(line.kill_date)
+    min_sale = min(reference_dates)
+    max_sale = max(reference_dates)
     sold_by_key = _load_sold_events(db, selected_farms, etags, min_sale, max_sale)
 
     rows: list[dict[str, Any]] = []
@@ -207,6 +217,7 @@ def list_cattle_sales(
         match = _best_sold_match(
             sold_by_key.get((line.farm, norm_etag), []),
             line.sale_date,
+            line.kill_date,
         )
         event_matched = match is not None
         if not event_matched and not include_unmatched:
@@ -257,6 +268,7 @@ def list_cattle_sales(
                 "category": category,
                 "cold_weight_kg": line.cold_weight_kg,
                 "reject_kg": line.reject_kg,
+                "kill_date": line.kill_date.isoformat() if line.kill_date else None,
                 "amount_gbp": line.amount_gbp,
                 "is_rejected": rejected,
                 "price_per_kg": price_per_kg,

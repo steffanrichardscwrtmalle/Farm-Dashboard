@@ -152,6 +152,10 @@
             <option value="custom">Choose days back…</option>
           </select>
         </label>
+        <label class="import-scope" title="Re-download Eurofarm PDFs even if they were imported before">
+          <input type="checkbox" id="force-reimport">
+          <span>Re-fetch PDFs</span>
+        </label>
         <input type="file" id="upload-input" accept=".pdf,application/pdf" multiple hidden>
         <button type="button" id="upload-btn" class="secondary">Upload PDFs</button>
         <span id="import-status" class="meta-line" style="margin:0;"></span>
@@ -257,6 +261,7 @@
     let sortDir = -1;
     let loadingCount = 0;
     let dateFilterReady = false;
+    let isInitialCattleSalesLoad = true;
     const charts = {};
     const chartSpecs = {};
     let modalChart = null;
@@ -304,7 +309,7 @@
       return `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
     }
 
-    function populateMonthSelects(bounds) {
+    function populateMonthSelects(bounds, { resetRange = false } = {}) {
       const fromSel = document.getElementById('date-from');
       const toSel = document.getElementById('date-to');
       if (!bounds?.min || !bounds?.max) {
@@ -313,6 +318,8 @@
         dateFilterReady = false;
         return;
       }
+      const previousFrom = fromSel.value;
+      const previousTo = toSel.value;
       const months = [];
       let d = new Date(bounds.min + 'T00:00:00');
       d = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -326,10 +333,20 @@
       dateFilterReady = false;
       fromSel.innerHTML = opts;
       toSel.innerHTML = opts;
-      const endIdx = months.length - 1;
-      const startIdx = Math.max(0, endIdx - 11);
-      fromSel.value = months[startIdx];
-      toSel.value = months[endIdx];
+      const canPreserve = !resetRange
+        && previousFrom
+        && previousTo
+        && months.includes(previousFrom)
+        && months.includes(previousTo);
+      if (canPreserve) {
+        fromSel.value = previousFrom;
+        toSel.value = previousTo;
+      } else {
+        const endIdx = months.length - 1;
+        const startIdx = Math.max(0, endIdx - 11);
+        fromSel.value = months[startIdx];
+        toSel.value = months[endIdx];
+      }
       dateFilterReady = true;
     }
 
@@ -777,7 +794,8 @@
         if (!res.ok) throw new Error('Failed to load');
         const payload = await res.json();
         allRows = payload.rows || [];
-        populateMonthSelects(payload.date_bounds);
+        populateMonthSelects(payload.date_bounds, { resetRange: isInitialCattleSalesLoad });
+        isInitialCattleSalesLoad = false;
         refreshView();
       } catch (err) {
         document.getElementById('meta-line').textContent = 'Failed to load cattle sales.';
@@ -836,7 +854,11 @@
       statusEl.textContent = days
         ? `Importing last ${days} days…`
         : 'Importing from email…';
-      const url = '/api/cattle-sales/import' + (days ? `?days=${encodeURIComponent(days)}` : '');
+      const forceReimport = document.getElementById('force-reimport')?.checked;
+      const params = new URLSearchParams();
+      if (days) params.set('days', String(days));
+      if (forceReimport) params.set('force_reimport', 'true');
+      const url = '/api/cattle-sales/import' + (params.toString() ? `?${params.toString()}` : '');
       await fetch(url, { method: 'POST' });
       importPoll = setInterval(pollImportStatus, 2000);
       pollImportStatus();
