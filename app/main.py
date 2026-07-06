@@ -1222,11 +1222,13 @@ def benchmarking_rations_cm_page(request: Request):
         return denied
     return templates.TemplateResponse(
         request,
-        "benchmarking/rations/farm.html",
+        "benchmarking/rations/farm_rations.html",
         _template_ctx(
             request,
             page_heading="CM Rations",
             farm_label="CM",
+            farm_slug="cm",
+            can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
             **_benchmarking_context("Rations", "rations-cm", "CM Rations"),
         ),
     )
@@ -1238,11 +1240,13 @@ def benchmarking_rations_gad_page(request: Request):
         return denied
     return templates.TemplateResponse(
         request,
-        "benchmarking/rations/farm.html",
+        "benchmarking/rations/farm_rations.html",
         _template_ctx(
             request,
             page_heading="GAD Rations",
             farm_label="GAD",
+            farm_slug="gad",
+            can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
             **_benchmarking_context("Rations", "rations-gad", "GAD Rations"),
         ),
     )

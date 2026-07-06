@@ -18,6 +18,14 @@ from app.services.benchmarking import (
     list_metric_definitions,
     save_forecasts,
 )
+from app.services.benchmarking_farm_rations import (
+    create_farm_ration,
+    deactivate_farm_ration,
+    get_farm_ration_workbook,
+    normalize_farm_code,
+    save_farm_ration_inclusions,
+    update_farm_ration,
+)
 from app.services.benchmarking_rations import (
     create_ingredient,
     deactivate_ingredient,
@@ -211,3 +219,133 @@ def api_save_ingredient_costs(
         rows=[row.model_dump() for row in body.rows],
         user_id=user.id,
     )
+
+
+class FarmRationBody(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    ingredient_ids: list[int] = Field(min_length=1)
+
+
+class FarmRationInclusionRowBody(BaseModel):
+    inclusion_month: dt.date
+    ingredient_id: int
+    kg_per_head: float | None = None
+
+
+class SaveFarmRationInclusionsBody(BaseModel):
+    fiscal_year: int
+    rows: list[FarmRationInclusionRowBody] = Field(default_factory=list)
+
+
+def _validate_farm_slug(farm: str) -> str:
+    try:
+        return normalize_farm_code(farm)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/rations/farms/{farm}")
+def api_get_farm_rations(
+    farm: str,
+    fiscal_year: int | None = Query(None),
+    ration_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    _validate_farm_slug(farm)
+    years = available_fiscal_years()
+    year = fiscal_year if fiscal_year is not None else years[0]
+    if year not in years:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fiscal_year must be one of {years}",
+        )
+    return get_farm_ration_workbook(
+        db, farm=farm, fiscal_year=year, ration_id=ration_id
+    )
+
+
+@router.post("/rations/farms/{farm}")
+def api_create_farm_ration(
+    farm: str,
+    body: FarmRationBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    _validate_farm_slug(farm)
+    try:
+        ration = create_farm_ration(
+            db,
+            farm=farm,
+            name=body.name,
+            ingredient_ids=body.ingredient_ids,
+            user_id=user.id,
+        )
+        return {"ration": ration}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/rations/farms/{farm}/{ration_id}")
+def api_update_farm_ration(
+    farm: str,
+    ration_id: int,
+    body: FarmRationBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    _validate_farm_slug(farm)
+    try:
+        ration = update_farm_ration(
+            db,
+            ration_id=ration_id,
+            farm=farm,
+            name=body.name,
+            ingredient_ids=body.ingredient_ids,
+        )
+        return {"ration": ration}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/rations/farms/{farm}/{ration_id}")
+def api_deactivate_farm_ration(
+    farm: str,
+    ration_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    _validate_farm_slug(farm)
+    try:
+        deactivate_farm_ration(db, ration_id=ration_id, farm=farm)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/rations/farms/{farm}/{ration_id}/inclusions")
+def api_save_farm_ration_inclusions(
+    farm: str,
+    ration_id: int,
+    body: SaveFarmRationInclusionsBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    _validate_farm_slug(farm)
+    years = available_fiscal_years()
+    if body.fiscal_year not in years:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fiscal_year must be one of {years}",
+        )
+    try:
+        return save_farm_ration_inclusions(
+            db,
+            farm=farm,
+            ration_id=ration_id,
+            fiscal_year=body.fiscal_year,
+            rows=[row.model_dump() for row in body.rows],
+            user_id=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -1,0 +1,629 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ farm_label }} Rations{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .farm-rations-page {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      min-height: calc(100vh - 7.5rem);
+    }
+    .farm-rations-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 1rem;
+      font-size: 0.82rem;
+    }
+    .farm-rations-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 0.75rem;
+      font-size: 0.82rem;
+    }
+    .farm-rations-toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin: 0;
+    }
+    .farm-rations-toolbar select {
+      margin: 0;
+      padding: 0.2rem 0.35rem;
+      font-size: 0.82rem;
+    }
+    .farm-rations-toolbar button {
+      padding: 0.25rem 0.55rem;
+      font-size: 0.82rem;
+    }
+    .ration-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .ration-tab {
+      padding: 0.3rem 0.6rem;
+      font-size: 0.82rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--card-bg);
+      cursor: pointer;
+      color: inherit;
+    }
+    .ration-tab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .ration-setup {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card-bg);
+      padding: 0.35rem 0.6rem;
+      font-size: 0.82rem;
+    }
+    .ration-setup summary {
+      cursor: pointer;
+      font-weight: 600;
+      user-select: none;
+    }
+    .setup-grid {
+      display: grid;
+      grid-template-columns: minmax(10rem, 14rem) 1fr auto;
+      gap: 0.75rem;
+      align-items: start;
+      margin-top: 0.5rem;
+    }
+    @media (max-width: 900px) {
+      .setup-grid { grid-template-columns: 1fr; }
+    }
+    .setup-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      font-size: 0.8rem;
+    }
+    .setup-grid input[type="text"] {
+      margin: 0;
+      padding: 0.2rem 0.35rem;
+      font-size: 0.82rem;
+    }
+    .ingredient-picks {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 0.75rem;
+    }
+    .ingredient-pick {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.8rem;
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    .ingredient-pick.cat-concentrate { background: #fff7ed; border-color: #fdba74; }
+    .ingredient-pick.cat-forage { background: #f0fdf4; border-color: #86efac; }
+    .ingredient-pick.cat-straw { background: #fefce8; border-color: #fde047; }
+    .setup-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .setup-actions button { font-size: 0.8rem; padding: 0.25rem 0.5rem; }
+    .btn-remove {
+      color: #b91c1c;
+      border-color: #fecaca;
+      background: #fef2f2;
+    }
+    .inclusion-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.65rem;
+    }
+    .table-wrap { flex: 1; min-height: 0; overflow: auto; }
+    .inclusion-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    .inclusion-table th,
+    .inclusion-table td {
+      border: 1px solid var(--border);
+      padding: 0.12rem 0.3rem;
+      text-align: center;
+      vertical-align: middle;
+      line-height: 1.2;
+    }
+    .inclusion-table th {
+      font-weight: 600;
+      font-size: 0.75rem;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f8fafc;
+    }
+    .inclusion-table td:first-child,
+    .inclusion-table th.sticky-month {
+      text-align: left;
+      white-space: nowrap;
+      position: sticky;
+      left: 0;
+      background: #f8fafc;
+      z-index: 3;
+    }
+    .inclusion-table th.cat-concentrate { background: #fff7ed; color: #c2410c; }
+    .inclusion-table th.cat-forage { background: #f0fdf4; color: #15803d; }
+    .inclusion-table th.cat-straw { background: #fefce8; color: #a16207; }
+    .inclusion-table th.total-col {
+      background: #eef2ff;
+      color: #3730a3;
+      font-weight: 700;
+    }
+    .inclusion-table td.total-col {
+      background: #f5f7ff;
+      font-weight: 600;
+      color: #3730a3;
+    }
+    .inclusion-table input {
+      width: 4.5rem;
+      max-width: 100%;
+      margin: 0;
+      padding: 0.12rem 0.2rem;
+      font-size: 0.8rem;
+      text-align: right;
+    }
+    .inclusion-table input:disabled {
+      background: #f8fafc;
+      color: var(--muted);
+    }
+    .cost-hint {
+      display: block;
+      font-size: 0.65rem;
+      font-weight: normal;
+      color: var(--muted);
+    }
+    .panel-actions {
+      margin-top: 0.4rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+    .status-msg { font-size: 0.8rem; color: var(--muted); }
+    .status-msg.ok { color: #15803d; }
+    .status-msg.err { color: #b91c1c; }
+    .empty-state-box {
+      padding: 1rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="farm-rations-page">
+    <div class="farm-rations-top">
+      <a href="/benchmarking/rations">&larr; Rations</a>
+      <span class="muted">Monthly kg/head inclusions with cost/head from ingredient prices.</span>
+      {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
+    </div>
+
+    <div class="farm-rations-toolbar">
+      <label>
+        FY
+        <select id="fiscal-year-select"></select>
+      </label>
+      {% if can_edit %}
+      <button type="button" id="new-ration-btn">New ration</button>
+      {% endif %}
+      <span class="status-msg" id="toolbar-status"></span>
+    </div>
+
+    <div class="ration-tabs" id="ration-tabs" role="tablist"></div>
+
+    {% if can_edit %}
+    <details class="ration-setup" id="ration-setup" open>
+      <summary>Ration setup</summary>
+      <div class="setup-grid">
+        <label>
+          Name
+          <input type="text" id="ration-name" maxlength="128" placeholder="e.g. Milking cows">
+        </label>
+        <div>
+          <div class="muted" style="font-size:0.75rem;margin-bottom:0.25rem;">Ingredients in this ration</div>
+          <div class="ingredient-picks" id="ingredient-picks"></div>
+        </div>
+        <div class="setup-actions">
+          <button type="button" id="save-ration-btn">Save ration</button>
+          <button type="button" id="delete-ration-btn" class="btn-remove">Delete ration</button>
+        </div>
+      </div>
+    </details>
+    {% endif %}
+
+    <div class="inclusion-panel" id="inclusion-panel">
+      <div class="table-wrap">
+        <table class="inclusion-table" id="inclusion-table">
+          <thead id="inclusion-thead"></thead>
+          <tbody id="inclusion-tbody"></tbody>
+        </table>
+      </div>
+      <p class="empty-state-box" id="no-ration" hidden>Select or create a ration to enter monthly inclusions.</p>
+      {% if can_edit %}
+      <div class="panel-actions">
+        <button type="button" id="save-inclusions-btn">Save inclusions</button>
+        <span class="status-msg" id="save-status"></span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <p class="empty-state" id="load-error" hidden>Failed to load ration data.</p>
+
+  <script>
+    const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+    const FARM_SLUG = {{ farm_slug|tojson }};
+    const CATEGORY_ORDER = ['concentrate', 'forage', 'straw'];
+
+    let workbook = null;
+    let activeRationId = null;
+    let isNewRation = false;
+
+    function activeRation() {
+      return (workbook?.rations || []).find(r => r.id === activeRationId) || null;
+    }
+
+    function setStatus(elId, message, kind) {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      el.textContent = message || '';
+      el.className = 'status-msg' + (kind ? ` ${kind}` : '');
+    }
+
+    function renderTabs() {
+      const container = document.getElementById('ration-tabs');
+      const rations = workbook?.rations || [];
+      if (!rations.length) {
+        container.innerHTML = '<span class="muted" style="font-size:0.82rem;">No rations yet.</span>';
+        return;
+      }
+      container.innerHTML = rations.map(r => `
+        <button type="button" class="ration-tab${r.id === activeRationId ? ' active' : ''}"
+          data-ration-id="${r.id}" role="tab">${escapeHtml(r.name)}</button>
+      `).join('');
+      container.querySelectorAll('.ration-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          activeRationId = Number(btn.dataset.rationId);
+          isNewRation = false;
+          renderAll();
+        });
+      });
+    }
+
+    function renderSetup() {
+      if (!CAN_EDIT) return;
+      const ration = activeRation();
+      const nameInput = document.getElementById('ration-name');
+      const picks = document.getElementById('ingredient-picks');
+      const setup = document.getElementById('ration-setup');
+      if (!ration && !isNewRation) {
+        setup.hidden = true;
+        return;
+      }
+      setup.hidden = false;
+      nameInput.value = ration?.name || '';
+      const selected = new Set(ration?.ingredient_ids || []);
+      const ingredients = workbook?.available_ingredients || [];
+      picks.innerHTML = ingredients.map(ing => `
+        <label class="ingredient-pick cat-${ing.category}">
+          <input type="checkbox" value="${ing.id}"${selected.has(ing.id) ? ' checked' : ''}>
+          ${escapeHtml(ing.name)}
+        </label>
+      `).join('');
+    }
+
+    function buildHeader(ration) {
+      const head = document.getElementById('inclusion-thead');
+      const ingredients = ration?.ingredients || [];
+      if (!ingredients.length) {
+        head.innerHTML = '<tr><th class="sticky-month">Month</th><th class="total-col">£/head</th></tr>';
+        return;
+      }
+      let cols = '';
+      ingredients.forEach(ing => {
+        cols += `<th class="cat-${ing.category}">${escapeHtml(ing.name)}<span class="cost-hint">kg/head</span></th>`;
+      });
+      head.innerHTML = `<tr>
+        <th class="sticky-month">Month</th>
+        ${cols}
+        <th class="total-col">£/head</th>
+      </tr>`;
+    }
+
+    function calcCostPerHead(rowData, ration) {
+      let total = 0;
+      let hasValue = false;
+      for (const ing of ration.ingredients) {
+        const key = String(ing.id);
+        const kgRaw = rowData.inclusions?.[key];
+        const kg = kgRaw === '' || kgRaw == null ? null : Number(kgRaw);
+        if (kg == null || Number.isNaN(kg)) continue;
+        const cost = rowData.ingredient_costs?.[key];
+        if (cost == null) return null;
+        total += (kg / 1000) * cost;
+        hasValue = true;
+      }
+      return hasValue ? Math.round(total * 10000) / 10000 : null;
+    }
+
+    function formatMoney(value) {
+      if (value == null) return '—';
+      return value.toFixed(2);
+    }
+
+    function cellInput(month, ingredientId, value, rowIdx) {
+      const val = value == null ? '' : value;
+      const disabled = CAN_EDIT ? '' : ' disabled';
+      return `<input type="number" step="any" min="0"
+        data-month="${month}" data-ingredient-id="${ingredientId}" data-row-idx="${rowIdx}"
+        value="${val}"${disabled}>`;
+    }
+
+    function renderInclusionTable() {
+      const ration = activeRation();
+      const tbody = document.getElementById('inclusion-tbody');
+      const noRation = document.getElementById('no-ration');
+      const panel = document.getElementById('inclusion-panel');
+      if (!ration) {
+        tbody.innerHTML = '';
+        buildHeader(null);
+        noRation.hidden = false;
+        panel.querySelector('.table-wrap').hidden = true;
+        if (CAN_EDIT) panel.querySelector('.panel-actions').hidden = true;
+        return;
+      }
+      noRation.hidden = true;
+      panel.querySelector('.table-wrap').hidden = false;
+      if (CAN_EDIT) panel.querySelector('.panel-actions').hidden = false;
+      buildHeader(ration);
+      tbody.innerHTML = (ration.rows || []).map((row, rowIdx) => {
+        let cells = `<td>${row.month_label}</td>`;
+        ration.ingredients.forEach(ing => {
+          const val = row.inclusions[String(ing.id)];
+          cells += `<td>${cellInput(row.inclusion_month, ing.id, val, rowIdx)}</td>`;
+        });
+        const total = calcCostPerHead(row, ration);
+        cells += `<td class="total-col" data-total-row="${rowIdx}">${formatMoney(total)}</td>`;
+        return `<tr>${cells}</tr>`;
+      }).join('');
+    }
+
+    function updateTotalsFromInputs() {
+      const ration = activeRation();
+      if (!ration) return;
+      document.querySelectorAll('#inclusion-tbody tr').forEach((tr, rowIdx) => {
+        const rowData = { inclusions: {}, ingredient_costs: {} };
+        ration.ingredients.forEach(ing => {
+          const key = String(ing.id);
+          const input = tr.querySelector(`input[data-ingredient-id="${ing.id}"]`);
+          rowData.inclusions[key] = input?.value ?? '';
+          const serverRow = ration.rows[rowIdx];
+          rowData.ingredient_costs[key] = serverRow?.ingredient_costs?.[key] ?? null;
+        });
+        const totalCell = tr.querySelector('.total-col');
+        if (totalCell) totalCell.textContent = formatMoney(calcCostPerHead(rowData, ration));
+      });
+    }
+
+    function collectInclusions() {
+      const rows = [];
+      document.querySelectorAll('#inclusion-tbody input').forEach(input => {
+        const raw = input.value.trim();
+        const value = raw === '' ? null : Number(raw);
+        rows.push({
+          inclusion_month: input.dataset.month,
+          ingredient_id: Number(input.dataset.ingredientId),
+          kg_per_head: Number.isFinite(value) ? value : null,
+        });
+      });
+      return rows;
+    }
+
+    function selectedIngredientIds() {
+      return [...document.querySelectorAll('#ingredient-picks input:checked')]
+        .map(el => Number(el.value));
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function renderAll() {
+      renderTabs();
+      renderSetup();
+      renderInclusionTable();
+    }
+
+    async function loadWorkbook() {
+      const fy = document.getElementById('fiscal-year-select').value;
+      const params = new URLSearchParams({ fiscal_year: fy });
+      if (activeRationId) params.set('ration_id', String(activeRationId));
+      document.getElementById('load-error').hidden = true;
+      try {
+        const res = await fetch(`/api/benchmarking/rations/farms/${FARM_SLUG}?${params}`);
+        if (!res.ok) throw new Error('load failed');
+        workbook = await res.json();
+        activeRationId = workbook.active_ration_id;
+        isNewRation = false;
+        renderAll();
+      } catch (_) {
+        document.getElementById('load-error').hidden = false;
+      }
+    }
+
+    function populateFiscalYears(options, selected) {
+      const select = document.getElementById('fiscal-year-select');
+      select.innerHTML = options.map(fy => `
+        <option value="${fy}"${fy === selected ? ' selected' : ''}>${fy}</option>
+      `).join('');
+    }
+
+    async function saveInclusions() {
+      if (!CAN_EDIT || !activeRationId) return;
+      const statusEl = document.getElementById('save-status');
+      const btn = document.getElementById('save-inclusions-btn');
+      const fy = Number(document.getElementById('fiscal-year-select').value);
+      btn.disabled = true;
+      setStatus('save-status', 'Saving…');
+      try {
+        const res = await fetch(
+          `/api/benchmarking/rations/farms/${FARM_SLUG}/${activeRationId}/inclusions`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fiscal_year: fy, rows: collectInclusions() }),
+          }
+        );
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.detail || 'Save failed');
+        workbook = payload;
+        activeRationId = workbook.active_ration_id;
+        renderAll();
+        setStatus('save-status', 'Saved.', 'ok');
+      } catch (err) {
+        setStatus('save-status', err.message || 'Save failed', 'err');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function saveRation() {
+      const name = document.getElementById('ration-name').value.trim();
+      const ingredientIds = selectedIngredientIds();
+      if (!name) {
+        setStatus('toolbar-status', 'Enter a ration name.', 'err');
+        return;
+      }
+      if (!ingredientIds.length) {
+        setStatus('toolbar-status', 'Select at least one ingredient.', 'err');
+        return;
+      }
+      setStatus('toolbar-status', 'Saving…');
+      const isCreate = isNewRation || !activeRationId;
+      const url = isCreate
+        ? `/api/benchmarking/rations/farms/${FARM_SLUG}`
+        : `/api/benchmarking/rations/farms/${FARM_SLUG}/${activeRationId}`;
+      const method = isCreate ? 'POST' : 'PUT';
+      try {
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, ingredient_ids: ingredientIds }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.detail || 'Could not save ration');
+        isNewRation = false;
+        activeRationId = payload.ration.id;
+        setStatus('toolbar-status', 'Ration saved.', 'ok');
+        await loadWorkbook();
+      } catch (err) {
+        setStatus('toolbar-status', err.message || 'Could not save ration', 'err');
+      }
+    }
+
+    async function deleteRation() {
+      if (!activeRationId || isNewRation) return;
+      if (!window.confirm('Delete this ration? Monthly inclusions will be kept in the database but hidden.')) {
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/benchmarking/rations/farms/${FARM_SLUG}/${activeRationId}`,
+          { method: 'DELETE' }
+        );
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.detail || 'Could not delete ration');
+        activeRationId = null;
+        isNewRation = false;
+        setStatus('toolbar-status', 'Ration deleted.', 'ok');
+        await loadWorkbook();
+      } catch (err) {
+        setStatus('toolbar-status', err.message || 'Could not delete ration', 'err');
+      }
+    }
+
+    function startNewRation() {
+      isNewRation = true;
+      activeRationId = null;
+      renderAll();
+      document.getElementById('ration-name').focus();
+    }
+
+    function bindTableKeyboard() {
+      const tbody = document.getElementById('inclusion-tbody');
+      if (tbody.dataset.keyboardBound === '1') return;
+      tbody.dataset.keyboardBound = '1';
+      tbody.addEventListener('keydown', (e) => {
+        const input = e.target;
+        if (!input.matches('input') || input.disabled) return;
+        const ingredientId = input.dataset.ingredientId;
+        const rowIdx = Number(input.dataset.rowIdx);
+        if (!ingredientId || Number.isNaN(rowIdx)) return;
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const delta = e.shiftKey ? -1 : 1;
+          const next = tbody.querySelector(
+            `input[data-row-idx="${rowIdx + delta}"][data-ingredient-id="${CSS.escape(ingredientId)}"]`
+          );
+          if (next) {
+            next.focus();
+            next.select();
+          }
+        }
+      });
+      tbody.addEventListener('input', (e) => {
+        if (e.target.matches('input')) updateTotalsFromInputs();
+      });
+    }
+
+    async function init() {
+      try {
+        const res = await fetch(`/api/benchmarking/rations/farms/${FARM_SLUG}`);
+        if (!res.ok) throw new Error('init');
+        workbook = await res.json();
+        populateFiscalYears(
+          workbook.fiscal_year_options || [workbook.fiscal_year],
+          workbook.fiscal_year
+        );
+        activeRationId = workbook.active_ration_id;
+        renderAll();
+      } catch (_) {
+        document.getElementById('load-error').hidden = false;
+        return;
+      }
+
+      bindTableKeyboard();
+      document.getElementById('fiscal-year-select').addEventListener('change', loadWorkbook);
+      if (CAN_EDIT) {
+        document.getElementById('new-ration-btn').addEventListener('click', startNewRation);
+        document.getElementById('save-ration-btn').addEventListener('click', saveRation);
+        document.getElementById('delete-ration-btn').addEventListener('click', deleteRation);
+        document.getElementById('save-inclusions-btn').addEventListener('click', saveInclusions);
+      }
+    }
+
+    init();
+  </script>
+{% endblock %}

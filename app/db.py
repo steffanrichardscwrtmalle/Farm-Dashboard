@@ -76,15 +76,22 @@ def _migrate_benchmarking_schema() -> None:
 def _migrate_rations_schema() -> None:
     """ration_* tables are created via metadata; ensure helpful indexes exist."""
     inspector = inspect(engine)
-    if "ration_ingredient_costs" not in inspector.get_table_names():
-        return
+    tables = set(inspector.get_table_names())
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_ration_ingredient_cost_fy "
-                "ON ration_ingredient_costs (fiscal_year)"
+        if "ration_ingredient_costs" in tables:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_ration_ingredient_cost_fy "
+                    "ON ration_ingredient_costs (fiscal_year)"
+                )
             )
-        )
+        if "farm_ration_inclusions" in tables:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_farm_ration_inclusion_fy_ration "
+                    "ON farm_ration_inclusions (fiscal_year, ration_id)"
+                )
+            )
 
 
 def _migrate_user_permissions() -> None:
