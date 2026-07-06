@@ -23,10 +23,48 @@
     .metric-tabs {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.35rem;
+      align-items: flex-start;
+      gap: 0.75rem;
       margin-bottom: 1rem;
       border-bottom: 1px solid var(--border);
       padding-bottom: 0.5rem;
+    }
+    .metric-tab-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.4rem 0.55rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .metric-tab-group.category-cow {
+      background: #f8fbff;
+      border-color: #bfdbfe;
+    }
+    .metric-tab-group.category-youngstock {
+      background: #f7fdf9;
+      border-color: #bbf7d0;
+    }
+    .metric-tab-group.category-beef {
+      background: #faf8ff;
+      border-color: #ddd6fe;
+    }
+    .metric-tab-group-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      padding-right: 0.15rem;
+      white-space: nowrap;
+    }
+    .metric-tab-group.category-cow .metric-tab-group-label { color: #1d4ed8; }
+    .metric-tab-group.category-youngstock .metric-tab-group-label { color: #15803d; }
+    .metric-tab-group.category-beef .metric-tab-group-label { color: #6d28d9; }
+    .metric-tab-group-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
     }
     .metric-tab {
       padding: 0.35rem 0.65rem;
@@ -66,6 +104,12 @@
       background: #16a34a;
       border-color: #16a34a;
       color: #fff;
+    }
+    .metric-tab.incomplete:not(.active) {
+      color: #dc2626 !important;
+    }
+    .metric-tab.incomplete.active {
+      color: #fecaca !important;
     }
     .forecast-panel {
       background: var(--card-bg);
@@ -168,6 +212,12 @@
   <script>
     const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
     const FARMS = ['CM', 'GAD'];
+    const CATEGORY_ORDER = ['cow', 'youngstock', 'beef'];
+    const CATEGORY_LABELS = {
+      cow: 'Cows',
+      youngstock: 'Youngstock',
+      beef: 'Beef',
+    };
 
     let metricDefs = [];
     let forecastData = null;
@@ -206,17 +256,60 @@
     }
 
     function updateUnsavedIndicators() {
-      if (!CAN_EDIT) return;
-      const statusEl = document.getElementById('save-status');
-      if (statusEl && isCurrentTableDirty()) {
-        statusEl.textContent = 'Unsaved changes';
-        statusEl.className = 'save-status unsaved';
+      if (CAN_EDIT) {
+        const statusEl = document.getElementById('save-status');
+        if (statusEl && isCurrentTableDirty()) {
+          statusEl.textContent = 'Unsaved changes';
+          statusEl.className = 'save-status unsaved';
+        }
+        document.querySelectorAll('.metric-tab').forEach(btn => {
+          const dirty = btn.dataset.metric === activeMetric
+            ? isCurrentTableDirty()
+            : false;
+          btn.classList.toggle('unsaved', dirty);
+        });
       }
+      updateTabCompletionIndicators();
+    }
+
+    function rowsForMetric(metricId) {
+      if (metricId === activeMetric && document.querySelectorAll('#forecast-tbody input').length) {
+        return collectRows();
+      }
+      const dataRows = forecastData?.metrics[metricId]?.rows || [];
+      const flat = [];
+      dataRows.forEach(row => {
+        FARMS.forEach(farm => {
+          const f = row[farm] || {};
+          flat.push({
+            forecast_month: row.forecast_month,
+            farm,
+            quantity: f.quantity,
+            unit_price: f.unit_price,
+          });
+        });
+      });
+      return flat;
+    }
+
+    function isBlank(value) {
+      return value == null || value === '';
+    }
+
+    function isMetricIncomplete(metricId) {
+      const meta = metricById(metricId);
+      if (!meta || !forecastData) return false;
+      const rows = rowsForMetric(metricId);
+      return rows.some(row => {
+        if (meta.has_quantity && isBlank(row.quantity)) return true;
+        if (meta.has_price && isBlank(row.unit_price)) return true;
+        return false;
+      });
+    }
+
+    function updateTabCompletionIndicators() {
       document.querySelectorAll('.metric-tab').forEach(btn => {
-        const dirty = btn.dataset.metric === activeMetric
-          ? isCurrentTableDirty()
-          : false;
-        btn.classList.toggle('unsaved', dirty);
+        btn.classList.toggle('incomplete', isMetricIncomplete(btn.dataset.metric));
       });
     }
 
@@ -232,12 +325,23 @@
 
     function renderTabs() {
       const container = document.getElementById('metric-tabs');
-      container.innerHTML = metricDefs.map(m => `
-        <button type="button" class="metric-tab category-${m.category}${m.id === activeMetric ? ' active' : ''}"
-          data-metric="${m.id}" role="tab" aria-selected="${m.id === activeMetric}">
-          ${m.label}
-        </button>
-      `).join('');
+      container.innerHTML = CATEGORY_ORDER.map(cat => {
+        const tabs = metricDefs.filter(m => m.category === cat);
+        if (!tabs.length) return '';
+        return `
+          <div class="metric-tab-group category-${cat}" role="presentation">
+            <span class="metric-tab-group-label">${CATEGORY_LABELS[cat]}</span>
+            <div class="metric-tab-group-tabs">
+              ${tabs.map(m => `
+                <button type="button" class="metric-tab category-${m.category}${m.id === activeMetric ? ' active' : ''}"
+                  data-metric="${m.id}" role="tab" aria-selected="${m.id === activeMetric}">
+                  ${m.label}
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }).join('');
       container.querySelectorAll('.metric-tab').forEach(btn => {
         btn.addEventListener('click', async () => {
           const nextMetric = btn.dataset.metric;

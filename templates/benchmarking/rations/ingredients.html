@@ -1,0 +1,393 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Ingredients{% endblock %}
+
+{% block extra_styles %}
+    .rations-back {
+      margin: 0 0 1rem;
+      display: inline-block;
+    }
+    .ingredients-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .ingredients-toolbar label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.875rem;
+    }
+    .ingredients-toolbar select,
+    .ingredients-toolbar input[type="text"] {
+      min-width: 10rem;
+      margin: 0;
+    }
+    .add-ingredient-form {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 0.75rem;
+      padding: 0.85rem 1rem;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 1rem;
+    }
+    .add-ingredient-form h3 {
+      margin: 0;
+      font-size: 0.95rem;
+      width: 100%;
+    }
+    .add-ingredient-form label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+    }
+    .cost-panel {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+    }
+    .cost-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    .cost-table th,
+    .cost-table td {
+      border: 1px solid var(--border);
+      padding: 0.35rem 0.45rem;
+      text-align: center;
+      vertical-align: bottom;
+    }
+    .cost-table th {
+      font-weight: 600;
+      font-size: 0.8rem;
+    }
+    .cost-table td:first-child,
+    .cost-table th.sticky-month {
+      text-align: left;
+      white-space: nowrap;
+      position: sticky;
+      left: 0;
+      background: #f8fafc;
+      z-index: 1;
+    }
+    .cost-table th.cat-concentrate {
+      background: #ffedd5;
+      color: #9a3412;
+      border-color: #fdba74;
+    }
+    .cost-table th.cat-forage {
+      background: #dcfce7;
+      color: #166534;
+      border-color: #86efac;
+    }
+    .cost-table th.cat-straw {
+      background: #fef9c3;
+      color: #854d0e;
+      border-color: #fde047;
+    }
+    .cost-table th.ingredient-col.cat-concentrate { background: #fff7ed; color: #c2410c; }
+    .cost-table th.ingredient-col.cat-forage { background: #f0fdf4; color: #15803d; }
+    .cost-table th.ingredient-col.cat-straw { background: #fefce8; color: #a16207; }
+    .cost-table input {
+      width: 4.75rem;
+      max-width: 100%;
+      margin: 0;
+      padding: 0.25rem 0.3rem;
+      font-size: 0.82rem;
+      text-align: right;
+    }
+    .cost-table input:disabled {
+      background: #f8fafc;
+      color: var(--muted);
+    }
+    .table-wrap {
+      overflow-x: auto;
+    }
+    .panel-actions {
+      margin-top: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .save-status {
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .save-status.ok { color: #15803d; }
+    .save-status.err { color: #b91c1c; }
+    .form-status {
+      font-size: 0.85rem;
+      align-self: center;
+    }
+    .form-status.err { color: #b91c1c; }
+    .form-status.ok { color: #15803d; }
+    .empty-ingredients {
+      padding: 1rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+{% endblock %}
+
+{% block content %}
+  <a href="/benchmarking/rations" class="rations-back">&larr; Back to Rations</a>
+
+  <p class="muted" style="margin-top:0;">
+    Enter monthly ingredient cost (£/t) by UK fiscal year Apr–Mar.
+    {% if not can_edit %}<strong>View only</strong> — you do not have permission to edit.{% endif %}
+  </p>
+
+  {% if can_edit %}
+  <form class="add-ingredient-form" id="add-ingredient-form">
+    <h3>Add ingredient</h3>
+    <label>
+      Name
+      <input type="text" id="ingredient-name" maxlength="128" required placeholder="e.g. Wheat blend">
+    </label>
+    <label>
+      Category
+      <select id="ingredient-category" required></select>
+    </label>
+    <button type="submit">Add ingredient</button>
+    <span class="form-status" id="add-status"></span>
+  </form>
+  {% endif %}
+
+  <div class="ingredients-toolbar">
+    <label>
+      Fiscal year
+      <select id="fiscal-year-select"></select>
+    </label>
+  </div>
+
+  <div class="cost-panel">
+    <div class="table-wrap">
+      <table class="cost-table" id="cost-table">
+        <thead id="cost-thead"></thead>
+        <tbody id="cost-tbody"></tbody>
+      </table>
+    </div>
+    <p class="empty-ingredients" id="no-ingredients" hidden>
+      No ingredients yet.{% if can_edit %} Add one above to start entering monthly costs.{% endif %}
+    </p>
+    {% if can_edit %}
+    <div class="panel-actions">
+      <button type="button" id="save-btn">Save costs</button>
+      <span class="save-status" id="save-status"></span>
+    </div>
+    {% endif %}
+  </div>
+
+  <p class="empty-state" id="load-error" hidden>Failed to load ingredient data.</p>
+
+  <script>
+    const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+    const CATEGORY_ORDER = ['concentrate', 'forage', 'straw'];
+
+    let costData = null;
+    let categories = [];
+
+    function ingredientsByCategory() {
+      const ingredients = costData?.ingredients || [];
+      return CATEGORY_ORDER.map(cat => ({
+        id: cat,
+        items: ingredients.filter(i => i.category === cat),
+      })).filter(g => g.items.length);
+    }
+
+    function buildHeader() {
+      const head = document.getElementById('cost-thead');
+      const groups = ingredientsByCategory();
+      if (!groups.length) {
+        head.innerHTML = '<tr><th class="sticky-month">Month</th></tr>';
+        return;
+      }
+      let groupCells = '';
+      let nameCells = '';
+      groups.forEach(group => {
+        const catMeta = categories.find(c => c.id === group.id) || { label: group.id, css: group.id };
+        groupCells += `<th class="cat-${catMeta.css}" colspan="${group.items.length}">${catMeta.label}</th>`;
+        group.items.forEach(ing => {
+          nameCells += `<th class="ingredient-col cat-${catMeta.css}" title="${catMeta.label}">${ing.name}<br><span class="muted" style="font-weight:normal">£/t</span></th>`;
+        });
+      });
+      head.innerHTML = `<tr><th class="sticky-month" rowspan="2">Month</th>${groupCells}</tr><tr>${nameCells}</tr>`;
+    }
+
+    function cellInput(month, ingredientId, value, rowIdx) {
+      const val = value == null ? '' : value;
+      const disabled = CAN_EDIT ? '' : ' disabled';
+      return `<input type="number" step="any" min="0"
+        data-month="${month}" data-ingredient-id="${ingredientId}" data-row-idx="${rowIdx}"
+        value="${val}"${disabled}>`;
+    }
+
+    function renderTable() {
+      const ingredients = costData?.ingredients || [];
+      const noIngredientsEl = document.getElementById('no-ingredients');
+      const tbody = document.getElementById('cost-tbody');
+      if (!ingredients.length) {
+        tbody.innerHTML = '';
+        buildHeader();
+        noIngredientsEl.hidden = false;
+        return;
+      }
+      noIngredientsEl.hidden = true;
+      buildHeader();
+      const rows = costData.rows || [];
+      tbody.innerHTML = rows.map((row, rowIdx) => {
+        let cells = `<td>${row.month_label}</td>`;
+        CATEGORY_ORDER.forEach(cat => {
+          ingredients.filter(i => i.category === cat).forEach(ing => {
+            const cost = row.costs[String(ing.id)];
+            cells += `<td>${cellInput(row.cost_month, ing.id, cost, rowIdx)}</td>`;
+          });
+        });
+        return `<tr>${cells}</tr>`;
+      }).join('');
+    }
+
+    function collectRows() {
+      const rows = [];
+      document.querySelectorAll('#cost-tbody input').forEach(input => {
+        const raw = input.value.trim();
+        const value = raw === '' ? null : Number(raw);
+        rows.push({
+          cost_month: input.dataset.month,
+          ingredient_id: Number(input.dataset.ingredientId),
+          cost: Number.isFinite(value) ? value : null,
+        });
+      });
+      return rows;
+    }
+
+    async function loadCategories() {
+      const res = await fetch('/api/benchmarking/rations/categories');
+      if (!res.ok) throw new Error('categories');
+      const payload = await res.json();
+      categories = payload.categories || [];
+      const select = document.getElementById('ingredient-category');
+      if (select) {
+        select.innerHTML = categories.map(c => `
+          <option value="${c.id}">${c.label}</option>
+        `).join('');
+      }
+    }
+
+    async function loadCosts() {
+      const fy = document.getElementById('fiscal-year-select').value;
+      document.getElementById('load-error').hidden = true;
+      try {
+        const res = await fetch(`/api/benchmarking/rations/ingredient-costs?fiscal_year=${encodeURIComponent(fy)}`);
+        if (!res.ok) throw new Error('load failed');
+        costData = await res.json();
+        renderTable();
+      } catch (_) {
+        document.getElementById('load-error').hidden = false;
+      }
+    }
+
+    function populateFiscalYears(options, selected) {
+      const select = document.getElementById('fiscal-year-select');
+      select.innerHTML = options.map(fy => `
+        <option value="${fy}"${fy === selected ? ' selected' : ''}>FY ${fy}</option>
+      `).join('');
+    }
+
+    async function saveCosts() {
+      if (!CAN_EDIT) return;
+      const statusEl = document.getElementById('save-status');
+      const btn = document.getElementById('save-btn');
+      const fy = Number(document.getElementById('fiscal-year-select').value);
+      btn.disabled = true;
+      statusEl.textContent = 'Saving…';
+      statusEl.className = 'save-status';
+      try {
+        const res = await fetch('/api/benchmarking/rations/ingredient-costs', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fiscal_year: fy, rows: collectRows() }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const detail = payload.detail;
+          const message = Array.isArray(detail)
+            ? detail.map(item => item.msg || String(item)).join(', ')
+            : (detail || 'Save failed');
+          throw new Error(message);
+        }
+        costData = payload;
+        renderTable();
+        statusEl.textContent = 'Saved.';
+        statusEl.className = 'save-status ok';
+      } catch (err) {
+        statusEl.textContent = err.message || 'Save failed.';
+        statusEl.className = 'save-status err';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function addIngredient(e) {
+      e.preventDefault();
+      const statusEl = document.getElementById('add-status');
+      const nameInput = document.getElementById('ingredient-name');
+      const categorySelect = document.getElementById('ingredient-category');
+      statusEl.textContent = '';
+      statusEl.className = 'form-status';
+      try {
+        const res = await fetch('/api/benchmarking/rations/ingredients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: nameInput.value.trim(),
+            category: categorySelect.value,
+          }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(payload.detail || 'Could not add ingredient');
+        }
+        nameInput.value = '';
+        statusEl.textContent = 'Added.';
+        statusEl.className = 'form-status ok';
+        await loadCosts();
+      } catch (err) {
+        statusEl.textContent = err.message || 'Could not add ingredient';
+        statusEl.className = 'form-status err';
+      }
+    }
+
+    async function init() {
+      try {
+        await loadCategories();
+        const res = await fetch('/api/benchmarking/rations/ingredient-costs');
+        if (!res.ok) throw new Error('init');
+        costData = await res.json();
+        populateFiscalYears(
+          costData.fiscal_year_options || [costData.fiscal_year],
+          costData.fiscal_year
+        );
+        renderTable();
+      } catch (_) {
+        document.getElementById('load-error').hidden = false;
+        return;
+      }
+
+      document.getElementById('fiscal-year-select').addEventListener('change', loadCosts);
+      if (CAN_EDIT) {
+        document.getElementById('save-btn').addEventListener('click', saveCosts);
+        document.getElementById('add-ingredient-form').addEventListener('submit', addIngredient);
+      }
+    }
+
+    init();
+  </script>
+{% endblock %}

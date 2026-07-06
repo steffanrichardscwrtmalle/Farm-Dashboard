@@ -1185,6 +1185,69 @@ def benchmarking_forecasts_page(request: Request):
     )
 
 
+@app.get("/benchmarking/rations", response_class=HTMLResponse)
+def benchmarking_rations_hub_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/rations/index.html",
+        _template_ctx(
+            request,
+            page_heading="Rations",
+            **_benchmarking_context("Rations", "rations", None),
+        ),
+    )
+
+
+@app.get("/benchmarking/rations/ingredients", response_class=HTMLResponse)
+def benchmarking_rations_ingredients_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/rations/ingredients.html",
+        _template_ctx(
+            request,
+            page_heading="Ingredients",
+            can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
+            **_benchmarking_context("Rations", "rations-ingredients", "Ingredients"),
+        ),
+    )
+
+
+@app.get("/benchmarking/rations/cm", response_class=HTMLResponse)
+def benchmarking_rations_cm_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/rations/farm.html",
+        _template_ctx(
+            request,
+            page_heading="CM Rations",
+            farm_label="CM",
+            **_benchmarking_context("Rations", "rations-cm", "CM Rations"),
+        ),
+    )
+
+
+@app.get("/benchmarking/rations/gad", response_class=HTMLResponse)
+def benchmarking_rations_gad_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/rations/farm.html",
+        _template_ctx(
+            request,
+            page_heading="GAD Rations",
+            farm_label="GAD",
+            **_benchmarking_context("Rations", "rations-gad", "GAD Rations"),
+        ),
+    )
+
+
 @app.get("/hr/staff", response_class=HTMLResponse)
 def hr_staff_directory_page(request: Request):
     if denied := _page_guard(request, PAGE_HR):

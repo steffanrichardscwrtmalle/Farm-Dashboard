@@ -40,6 +40,15 @@ def test_list_metric_definitions_has_thirteen_metrics() -> None:
     assert {d["id"] for d in defs} == set(BENCHMARK_METRIC_KEYS)
 
 
+def test_list_metric_definitions_grouped_by_category() -> None:
+    defs = list_metric_definitions()
+    categories = [d["category"] for d in defs]
+    assert categories == sorted(categories, key=lambda c: ("cow", "youngstock", "beef").index(c))
+    assert categories.count("cow") == 8
+    assert categories.count("youngstock") == 3
+    assert categories.count("beef") == 2
+
+
 def test_list_forecasts_zero_fills_all_metrics(db: Session) -> None:
     result = list_forecasts(db, fiscal_year=2026)
     assert result["fiscal_year"] == 2026

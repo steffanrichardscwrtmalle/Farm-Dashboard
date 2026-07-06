@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ farm_label }} Rations{% endblock %}
+
+{% block content %}
+  <p style="margin-top:0;">
+    <a href="/benchmarking/rations">&larr; Back to Rations</a>
+  </p>
+
+  <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:1.25rem;">
+    <p class="muted" style="margin:0;">
+      {{ farm_label }} ration recipes will be built here using the ingredient costs from the
+      <a href="/benchmarking/rations/ingredients">Ingredients</a> page.
+    </p>
+  </div>
+{% endblock %}

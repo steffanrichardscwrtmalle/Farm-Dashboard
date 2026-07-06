@@ -124,6 +124,8 @@ BENCHMARK_METRICS: dict[str, dict[str, Any]] = {
 
 BENCHMARK_METRIC_KEYS: tuple[str, ...] = tuple(BENCHMARK_METRICS.keys())
 
+BENCHMARK_CATEGORY_ORDER: tuple[str, ...] = ("cow", "youngstock", "beef")
+
 
 def available_fiscal_years() -> list[int]:
     """Current UK fiscal year and the next."""
@@ -137,10 +139,15 @@ def fiscal_year_months(fiscal_year: int) -> list[dt.date]:
 
 
 def list_metric_definitions() -> list[dict[str, Any]]:
-    return [
-        {"id": key, **meta}
-        for key, meta in BENCHMARK_METRICS.items()
-    ]
+    by_category: dict[str, list[dict[str, Any]]] = {
+        cat: [] for cat in BENCHMARK_CATEGORY_ORDER
+    }
+    for key, meta in BENCHMARK_METRICS.items():
+        by_category[meta["category"]].append({"id": key, **meta})
+    result: list[dict[str, Any]] = []
+    for cat in BENCHMARK_CATEGORY_ORDER:
+        result.extend(by_category[cat])
+    return result
 
 
 def _empty_farm_cells() -> dict[str, dict[str, float | None]]:

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Rations{% endblock %}
+
+{% block extra_styles %}
+    .rations-hub {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }
+    .rations-card {
+      display: block;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .rations-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+    .rations-card h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.05rem;
+    }
+    .rations-card p {
+      margin: 0;
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .rations-card.ingredients { border-top: 4px solid #ea580c; }
+    .rations-card.cm { border-top: 4px solid #2563eb; }
+    .rations-card.gad { border-top: 4px solid #16a34a; }
+{% endblock %}
+
+{% block content %}
+  <p class="muted" style="margin-top:0;">
+    Manage feed ingredients and farm rations for benchmarking.
+  </p>
+
+  <div class="rations-hub">
+    <a href="/benchmarking/rations/ingredients" class="rations-card ingredients">
+      <h2>Ingredients</h2>
+      <p>Monthly ingredient costs by category — concentrate, forage and straw.</p>
+    </a>
+    <a href="/benchmarking/rations/cm" class="rations-card cm">
+      <h2>CM Rations</h2>
+      <p>Cwrt Malle ration recipes and usage.</p>
+    </a>
+    <a href="/benchmarking/rations/gad" class="rations-card gad">
+      <h2>GAD Rations</h2>
+      <p>Green Acre Dairy ration recipes and usage.</p>
+    </a>
+  </div>
+{% endblock %}

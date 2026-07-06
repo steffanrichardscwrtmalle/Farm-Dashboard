@@ -808,6 +808,58 @@ class BenchmarkForecastLine(Base):
     )
 
 
+RATION_INGREDIENT_CATEGORIES: tuple[str, ...] = ("concentrate", "forage", "straw")
+
+
+class RationIngredient(Base):
+    """Feed ingredients for benchmarking rations (monthly cost entry)."""
+
+    __tablename__ = "ration_ingredients"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_ration_ingredient_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    category: Mapped[str] = mapped_column(String(16), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+
+class RationIngredientCost(Base):
+    """Monthly cost per tonne for a ration ingredient."""
+
+    __tablename__ = "ration_ingredient_costs"
+    __table_args__ = (
+        UniqueConstraint(
+            "fiscal_year",
+            "cost_month",
+            "ingredient_id",
+            name="uq_ration_ingredient_cost",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fiscal_year: Mapped[int] = mapped_column(Integer, index=True)
+    cost_month: Mapped[datetime.date] = mapped_column(Date, index=True)
+    ingredient_id: Mapped[int] = mapped_column(
+        ForeignKey("ration_ingredients.id"), index=True
+    )
+    cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+
 class HerdBirth(Base):
     """Birth records from DCEXPORT CMBORN / GADBORN files."""
 

@@ -18,6 +18,13 @@ from app.services.benchmarking import (
     list_metric_definitions,
     save_forecasts,
 )
+from app.services.benchmarking_rations import (
+    create_ingredient,
+    list_ingredient_categories,
+    list_ingredient_costs,
+    list_ingredients,
+    save_ingredient_costs,
+)
 
 router = APIRouter(prefix="/api/benchmarking")
 
@@ -80,3 +87,88 @@ def api_save_forecasts(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class CreateIngredientBody(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    category: str
+
+
+class IngredientCostRowBody(BaseModel):
+    cost_month: dt.date
+    ingredient_id: int
+    cost: float | None = None
+
+
+class SaveIngredientCostsBody(BaseModel):
+    fiscal_year: int
+    rows: list[IngredientCostRowBody] = Field(default_factory=list)
+
+
+@router.get("/rations/categories")
+def api_ration_categories(
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    return {"categories": list_ingredient_categories()}
+
+
+@router.get("/rations/ingredients")
+def api_list_ration_ingredients(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    return {"ingredients": list_ingredients(db)}
+
+
+@router.post("/rations/ingredients")
+def api_create_ration_ingredient(
+    body: CreateIngredientBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        ingredient = create_ingredient(
+            db,
+            name=body.name,
+            category=body.category,
+            user_id=user.id,
+        )
+        return {"ingredient": ingredient}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/rations/ingredient-costs")
+def api_list_ingredient_costs(
+    fiscal_year: int | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    years = available_fiscal_years()
+    year = fiscal_year if fiscal_year is not None else years[0]
+    if year not in years:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fiscal_year must be one of {years}",
+        )
+    return list_ingredient_costs(db, fiscal_year=year)
+
+
+@router.put("/rations/ingredient-costs")
+def api_save_ingredient_costs(
+    body: SaveIngredientCostsBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    years = available_fiscal_years()
+    if body.fiscal_year not in years:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fiscal_year must be one of {years}",
+        )
+    return save_ingredient_costs(
+        db,
+        fiscal_year=body.fiscal_year,
+        rows=[row.model_dump() for row in body.rows],
+        user_id=user.id,
+    )
