@@ -46,8 +46,12 @@ def api_cow_events_status(
     row_count = db.scalar(select(func.count()).select_from(CowEvent)) or 0
     latest_import = db.scalar(select(func.max(CowEvent.import_timestamp)))
     latest_event_date = db.scalar(select(func.max(CowEvent.event_date)))
+    farm_counts = dict(
+        db.execute(select(CowEvent.farm, func.count()).group_by(CowEvent.farm)).all()
+    )
     return {
         "row_count": row_count,
+        "farm_counts": farm_counts,
         "latest_import": latest_import.isoformat() if latest_import else None,
         "latest_event_date": latest_event_date.isoformat() if latest_event_date else None,
     }

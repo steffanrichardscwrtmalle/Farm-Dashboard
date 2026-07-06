@@ -152,10 +152,6 @@
             <option value="custom">Choose days back…</option>
           </select>
         </label>
-        <label class="import-scope" title="Re-download Eurofarm PDFs even if they were imported before">
-          <input type="checkbox" id="force-reimport">
-          <span>Re-fetch PDFs</span>
-        </label>
         <input type="file" id="upload-input" accept=".pdf,application/pdf" multiple hidden>
         <button type="button" id="upload-btn" class="secondary">Upload PDFs</button>
         <span id="import-status" class="meta-line" style="margin:0;"></span>
@@ -854,10 +850,8 @@
       statusEl.textContent = days
         ? `Importing last ${days} days…`
         : 'Importing from email…';
-      const forceReimport = document.getElementById('force-reimport')?.checked;
       const params = new URLSearchParams();
       if (days) params.set('days', String(days));
-      if (forceReimport) params.set('force_reimport', 'true');
       const url = '/api/cattle-sales/import' + (params.toString() ? `?${params.toString()}` : '');
       await fetch(url, { method: 'POST' });
       importPoll = setInterval(pollImportStatus, 2000);

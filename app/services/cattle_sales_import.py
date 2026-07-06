@@ -176,10 +176,8 @@ def _is_newer(candidate: dt.datetime | None, current: dt.datetime | None) -> boo
     return candidate >= current
 
 
-def _skip_message_ids(db: Session, *, force_reimport: bool = False) -> frozenset[str]:
+def _skip_message_ids(db: Session) -> frozenset[str]:
     """Skip already-imported emails unless stored weights look corrupt."""
-    if force_reimport:
-        return frozenset()
     imported = {
         mid
         for mid in db.scalars(
@@ -214,12 +212,10 @@ def _ingest_one_pdf(
     skipped_files: list[str],
 ) -> bool:
     received = _parse_received(source_received)
-    fallback_date = received.date() if received else None
     try:
         result = parse_cattle_sale_pdf(
             content,
             mailbox_farm=mailbox_farm,
-            fallback_sale_date=fallback_date,
             source_file=source_file,
         )
     except Exception:  # noqa: BLE001
@@ -237,22 +233,27 @@ def _ingest_one_pdf(
     if not farm:
         skipped_files.append(f"{source_file}: could not determine farm")
         return False
-    if not sale_date:
-        skipped_files.append(f"{source_file}: no sale date")
-        return False
     if not lines:
         skipped_files.append(f"{source_file}: no animal lines found")
         return False
 
+    ingested = False
     for line in lines:
-        key = (farm, line["etag"], sale_date)
+        line_sale_date = line.get("kill_date") or sale_date
+        if not line_sale_date:
+            warnings.append(
+                f"{source_file}: no kill date for {line.get('etag', 'unknown tag')}"
+            )
+            continue
+        key = (farm, line["etag"], line_sale_date)
+        kill_date = line.get("kill_date") or line_sale_date
         record: dict[str, Any] = {
             "farm": farm,
             "etag": line["etag"],
-            "sale_date": sale_date,
+            "sale_date": line_sale_date,
             "cold_weight_kg": line["cold_weight_kg"],
             "reject_kg": line.get("reject_kg"),
-            "kill_date": line.get("kill_date"),
+            "kill_date": kill_date,
             "amount_gbp": line["amount_gbp"],
             "source_message_id": source_message_id,
             "source_file": source_file,
@@ -261,7 +262,8 @@ def _ingest_one_pdf(
         existing = parsed_by_key.get(key)
         if existing is None or _is_newer(received, existing.get("source_received")):
             parsed_by_key[key] = record
-    return True
+            ingested = True
+    return ingested
 
 
 def _import_result(
@@ -342,7 +344,6 @@ def import_cattle_sales(
     *,
     full_history: bool = False,
     days: int | None = None,
-    force_reimport: bool = False,
 ) -> dict[str, Any]:
     if not cattle_sales_is_configured():
         raise ValueError(
@@ -359,7 +360,7 @@ def import_cattle_sales(
             days=CATTLE_SALES_LOOKBACK_DAYS
         )
 
-    skip_message_ids = _skip_message_ids(db, force_reimport=force_reimport)
+    skip_message_ids = _skip_message_ids(db)
 
     files_processed = 0
     files_skipped = 0
@@ -493,7 +494,6 @@ def run_import_in_background(
     *,
     full_history: bool = False,
     days: int | None = None,
-    force_reimport: bool = False,
 ) -> None:
     db = db_factory()
     try:
@@ -501,7 +501,6 @@ def run_import_in_background(
             db,
             full_history=full_history,
             days=days,
-            force_reimport=force_reimport,
         )
         message = (
             f"Imported {result['rows_total']} line(s) "

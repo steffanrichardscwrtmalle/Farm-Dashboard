@@ -148,6 +148,7 @@ def test_parse_rejected_sale_row():
     assert row["reject_kg"] == 287.5
     assert row["amount_gbp"] == 0.0
     assert row["is_rejected"] is True
+    assert row["kill_date"] == dt.date(2026, 6, 4)
 
 
 def test_parse_cattle_sale_pdf_text_fallback(monkeypatch):
@@ -216,6 +217,7 @@ def test_parse_misaligned_continuation_table_row():
     assert more_lines[0]["etag"] == "UK740651125211"
     assert more_lines[0]["cold_weight_kg"] == 402.0
     assert more_lines[0]["amount_gbp"] == 2130.58
+    assert more_lines[0]["kill_date"] == dt.date(2026, 6, 4)
 
 
 def test_parse_real_gad_sample_pdf():
@@ -273,7 +275,7 @@ def test_list_cattle_sales_matches_sold_event_when_herd_etag_lacks_uk_prefix() -
 
 
 def test_list_cattle_sales_matches_using_kill_date_when_cheque_date_is_later() -> None:
-    """SOLD events align to abattoir kill date, not always the cheque payment date."""
+    """SOLD events align to abattoir kill date stored as sale_date."""
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
@@ -296,7 +298,7 @@ def test_list_cattle_sales_matches_using_kill_date_when_cheque_date_is_later() -
         CattleSaleLine(
             farm="CM",
             etag="UK740651724069",
-            sale_date=dt.date(2026, 6, 30),
+            sale_date=dt.date(2026, 6, 16),
             kill_date=dt.date(2026, 6, 16),
             cold_weight_kg=263.6,
             amount_gbp=1159.93,

@@ -1,7 +1,8 @@
 """Parse Eurofarm Wales cheque payment report PDFs.
 
-Each report lists sold animals with ear tag, cold weight (kg), and amount (£).
+Each report lists sold animals with ear tag, cold weight (kg), kill date, and amount (£).
 Farm (CM / GAD) is inferred from the importing mailbox, not the PDF body.
+Sale date on each line is the per-animal kill date from the PDF table.
 """
 
 from __future__ import annotations
@@ -254,9 +255,21 @@ def _parse_kill_date_from_row(
     header: dict[str, int],
 ) -> dt.date | None:
     kill_idx = header.get("kill")
-    if kill_idx is None or kill_idx >= len(row):
-        return None
-    return _parse_short_date(_cell_text(row[kill_idx]))
+    if kill_idx is not None and kill_idx < len(row):
+        parsed = _parse_short_date(_cell_text(row[kill_idx]))
+        if parsed:
+            return parsed
+    # Eurofarm continuation rows often shift columns; kill date sits before YES.
+    yes_idx = next(
+        (idx for idx, cell in enumerate(row) if _cell_text(cell).upper() == "YES"),
+        None,
+    )
+    scan = row[:yes_idx] if yes_idx is not None else row
+    for cell in reversed(scan):
+        parsed = _parse_short_date(_cell_text(cell))
+        if parsed:
+            return parsed
+    return None
 
 
 def _sale_line_dict(
@@ -379,8 +392,16 @@ def _parse_text_lines(text: str, warnings: list[str]) -> list[dict[str, Any]]:
             continue
         if not is_acceptable_sale_line(weight, reject_kg, amount):
             continue
+        kill_date = None
+        kill_match = re.search(
+            r"(\d{1,2}/\d{1,2}/\d{2,4})\s+\d+\s+YES\b",
+            raw_line,
+            re.IGNORECASE,
+        )
+        if kill_match:
+            kill_date = _parse_short_date(kill_match.group(1))
         seen.add(etag)
-        lines.append(_sale_line_dict(etag, weight, amount, reject_kg))
+        lines.append(_sale_line_dict(etag, weight, amount, reject_kg, kill_date))
     if not lines:
         warnings.append("No animal rows found in PDF text fallback")
     return lines
@@ -464,8 +485,8 @@ def parse_cattle_sale_pdf(
 
     if not lines:
         warnings.append("No sale lines extracted from PDF")
-    if sale_date is None:
-        warnings.append("Could not parse sale/cheque date from PDF")
+    if sale_date is None and not any(line.get("kill_date") for line in lines):
+        warnings.append("Could not parse sale/kill date from PDF")
 
     return {
         "farm": farm,

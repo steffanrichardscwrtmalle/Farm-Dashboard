@@ -16,6 +16,7 @@ from app.api.office_admin_routes import router as office_admin_api_router
 from app.api.genetics_routes import router as genetics_api_router
 from app.api.nml_routes import router as nml_api_router
 from app.api.haulier_routes import router as haulier_api_router
+from app.api.benchmarking_routes import router as benchmarking_api_router
 from app.api.cattle_sales_routes import router as cattle_sales_api_router
 from app.api.milk_statements_routes import router as milk_statements_api_router
 from app.api.events_routes import router as events_api_router
@@ -37,9 +38,11 @@ from app.auth.permissions import (
     ACTION_HR_VIEW_SENSITIVE,
     PAGE_EVENTS,
     PAGE_FEED_RATE,
+    ACTION_BENCHMARKING_EDIT,
     ACTION_CATTLE_SALES_IMPORT,
     ACTION_MILK_QUALITY_IMPORT,
     ACTION_MILK_COLLECTIONS_IMPORT,
+    PAGE_BENCHMARKING,
     PAGE_CATTLE_SALES,
     PAGE_GENETICS,
     PAGE_HR,
@@ -105,6 +108,7 @@ app.include_router(nml_api_router)
 app.include_router(haulier_api_router)
 app.include_router(milk_statements_api_router)
 app.include_router(cattle_sales_api_router)
+app.include_router(benchmarking_api_router)
 app.include_router(admin_api_router)
 app.include_router(hr_api_router)
 
@@ -141,6 +145,10 @@ _MILK_QUALITY_BREADCRUMB = (
 _CATTLE_SALES_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/cattle-sales">Cattle Sales</a>'
+)
+_BENCHMARKING_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/benchmarking/forecasts">Benchmarking</a>'
 )
 
 _login_attempts: dict[str, list[float]] = defaultdict(list)
@@ -292,6 +300,19 @@ def _cattle_sales_context(title: str, active_nav: str, page_name: str | None = N
         "title": title,
         "active_nav_group": "cattle-sales",
         "active_section": "cattle-sales",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _benchmarking_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _BENCHMARKING_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "benchmarking",
+        "active_section": "benchmarking",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -1141,6 +1162,25 @@ def cattle_sales_page(request: Request):
             lookback_days=CATTLE_SALES_LOOKBACK_DAYS,
             farm_options=list(HERD_FARM_OPTIONS),
             **_cattle_sales_context("Cattle Sales", "cattle-sales", None),
+        ),
+    )
+
+
+@app.get("/benchmarking/forecasts", response_class=HTMLResponse)
+def benchmarking_forecasts_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    from app.services.benchmarking import available_fiscal_years
+
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/forecasts.html",
+        _template_ctx(
+            request,
+            page_heading="Forecasts",
+            can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
+            fiscal_year_options=available_fiscal_years(),
+            **_benchmarking_context("Forecasts", "forecasts", None),
         ),
     )
 

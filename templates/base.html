@@ -607,6 +607,23 @@
           </div>
           {% endif %}
 
+          {% if perms.page('benchmarking') %}
+          <div class="nav-group{% if active_nav_group == 'benchmarking' %} expanded{% endif %}" data-nav-group="benchmarking">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'benchmarking' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'benchmarking' %}true{% else %}false{% endif %}"
+              aria-controls="benchmarking-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">Benchmarking</span>
+            </button>
+            <div class="nav-group-items" id="benchmarking-nav-items">
+              <a href="/benchmarking/forecasts" class="{% if active_nav == 'forecasts' %}active{% endif %}">Forecasts</a>
+            </div>
+          </div>
+          {% endif %}
+
           {% if perms.page('hr') %}
           <div class="nav-group{% if active_nav_group == 'hr' %} expanded{% endif %}" data-nav-group="hr">
             <button
@@ -874,6 +891,9 @@
           }
           if (group === "genetics" && !window.location.pathname.startsWith("/genetics")) {
             window.location.href = "/genetics/genomic-progress";
+          }
+          if (group === "benchmarking" && !window.location.pathname.startsWith("/benchmarking")) {
+            window.location.href = "/benchmarking/forecasts";
           }
           if (group === "hr" && !window.location.pathname.startsWith("/hr")) {
             window.location.href = "/hr/staff";

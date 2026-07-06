@@ -55,6 +55,21 @@ def init_db() -> None:
     _migrate_user_permissions()
     _migrate_feedlync_auth()
     _migrate_hr_schema()
+    _migrate_benchmarking_schema()
+
+
+def _migrate_benchmarking_schema() -> None:
+    """benchmark_forecast_lines is created via metadata; ensure helpful indexes exist."""
+    inspector = inspect(engine)
+    if "benchmark_forecast_lines" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_benchmark_forecast_fy_metric "
+                "ON benchmark_forecast_lines (fiscal_year, metric)"
+            )
+        )
 
 
 def _migrate_user_permissions() -> None:

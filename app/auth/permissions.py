@@ -17,6 +17,7 @@ PAGE_OFFICE_ADMIN = "office_admin"
 PAGE_GENETICS = "genetics"
 PAGE_MILK_QUALITY = "milk_quality"
 PAGE_CATTLE_SALES = "cattle_sales"
+PAGE_BENCHMARKING = "benchmarking"
 PAGE_HR = "hr"
 
 PAGE_KEYS: tuple[str, ...] = (
@@ -29,6 +30,7 @@ PAGE_KEYS: tuple[str, ...] = (
     PAGE_GENETICS,
     PAGE_MILK_QUALITY,
     PAGE_CATTLE_SALES,
+    PAGE_BENCHMARKING,
     PAGE_HR,
 )
 
@@ -42,6 +44,7 @@ PAGE_LABELS: dict[str, str] = {
     PAGE_GENETICS: "Genetics",
     PAGE_MILK_QUALITY: "Milk Sales",
     PAGE_CATTLE_SALES: "Cattle Sales",
+    PAGE_BENCHMARKING: "Benchmarking",
     PAGE_HR: "Staff / HR",
 }
 
@@ -58,6 +61,7 @@ ACTION_MILK_QUALITY_IMPORT = "milk_quality.import"
 ACTION_MILK_COLLECTIONS_IMPORT = "milk_quality.collections_import"
 ACTION_MILK_STATEMENTS_IMPORT = "milk_quality.statements_import"
 ACTION_CATTLE_SALES_IMPORT = "cattle_sales.import"
+ACTION_BENCHMARKING_EDIT = "benchmarking.edit"
 ACTION_HR_ENROLL = "hr.enroll"
 ACTION_HR_VIEW_SENSITIVE = "hr.view_sensitive"
 
@@ -75,6 +79,7 @@ ACTION_KEYS: tuple[str, ...] = (
     ACTION_MILK_COLLECTIONS_IMPORT,
     ACTION_MILK_STATEMENTS_IMPORT,
     ACTION_CATTLE_SALES_IMPORT,
+    ACTION_BENCHMARKING_EDIT,
     ACTION_HR_ENROLL,
     ACTION_HR_VIEW_SENSITIVE,
 )
@@ -93,6 +98,7 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_MILK_COLLECTIONS_IMPORT: "Milk Sales — import haulier collections from email",
     ACTION_MILK_STATEMENTS_IMPORT: "Milk Sales — import buyer statements from email",
     ACTION_CATTLE_SALES_IMPORT: "Cattle Sales — import Eurofarm cheque reports from email",
+    ACTION_BENCHMARKING_EDIT: "Benchmarking — edit forecast tables",
     ACTION_HR_ENROLL: "HR — enroll new staff",
     ACTION_HR_VIEW_SENSITIVE: "HR — view sensitive PII (NI, pay details)",
 }

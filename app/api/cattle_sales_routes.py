@@ -99,7 +99,6 @@ def api_import_cattle_sales(
     background_tasks: BackgroundTasks,
     full_history: bool = Query(False),
     days: int | None = Query(None, ge=1),
-    force_reimport: bool = Query(False),
     _: None = Depends(require_import_or_any_action(ACTION_CATTLE_SALES_IMPORT)),
 ):
     if not cattle_sales_is_configured():
@@ -119,7 +118,6 @@ def api_import_cattle_sales(
         SessionLocal,
         full_history=full_history,
         days=days,
-        force_reimport=force_reimport,
     )
     return {"status": "started", "message": "Cattle sales import started."}
 

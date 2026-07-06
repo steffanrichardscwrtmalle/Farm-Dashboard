@@ -1,0 +1,371 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Forecasts{% endblock %}
+
+{% block extra_styles %}
+    .benchmark-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .benchmark-toolbar label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.9rem;
+    }
+    .benchmark-toolbar select {
+      min-width: 6rem;
+      margin: 0;
+    }
+    .metric-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+    }
+    .metric-tab {
+      padding: 0.35rem 0.65rem;
+      font-size: 0.82rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--card-bg);
+      cursor: pointer;
+      color: inherit;
+    }
+    .metric-tab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .forecast-panel {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+    }
+    .forecast-panel h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1.05rem;
+    }
+    .forecast-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    .forecast-table th,
+    .forecast-table td {
+      border: 1px solid var(--border);
+      padding: 0.35rem 0.5rem;
+      text-align: center;
+    }
+    .forecast-table th {
+      background: #f1f5f9;
+      font-weight: 600;
+    }
+    .forecast-table td:first-child,
+    .forecast-table th:first-child {
+      text-align: left;
+      white-space: nowrap;
+    }
+    .forecast-table input {
+      width: 5.5rem;
+      max-width: 100%;
+      margin: 0;
+      padding: 0.25rem 0.35rem;
+      font-size: 0.85rem;
+      text-align: right;
+    }
+    .forecast-table input:disabled {
+      background: #f8fafc;
+      color: var(--muted);
+    }
+    .panel-actions {
+      margin-top: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .save-status {
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .save-status.ok { color: #15803d; }
+    .save-status.err { color: #b91c1c; }
+{% endblock %}
+
+{% block content %}
+  <p class="muted" style="margin-top:0;">
+    Enter monthly budget figures by farm (CM / GAD). UK fiscal year Apr–Mar.
+    {% if not can_edit %}<strong>View only</strong> — you do not have permission to edit.{% endif %}
+  </p>
+
+  <div class="benchmark-toolbar">
+    <label>
+      Fiscal year
+      <select id="fiscal-year-select">
+        {% for fy in fiscal_year_options %}
+        <option value="{{ fy }}">FY {{ fy }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+
+  <div class="metric-tabs" id="metric-tabs" role="tablist"></div>
+
+  <div class="forecast-panel" id="forecast-panel">
+    <h2 id="metric-title">Loading…</h2>
+    <div class="table-wrap">
+      <table class="forecast-table" id="forecast-table">
+        <thead id="forecast-thead"></thead>
+        <tbody id="forecast-tbody"></tbody>
+      </table>
+    </div>
+    {% if can_edit %}
+    <div class="panel-actions">
+      <button type="button" id="save-btn">Save this table</button>
+      <span class="save-status" id="save-status"></span>
+    </div>
+    {% endif %}
+  </div>
+
+  <p class="empty-state" id="load-error" hidden>Failed to load forecast data.</p>
+
+  <script>
+    const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+    const FARMS = ['CM', 'GAD'];
+
+    let metricDefs = [];
+    let forecastData = null;
+    let activeMetric = null;
+
+    function metricById(id) {
+      return metricDefs.find(m => m.id === id);
+    }
+
+    function renderTabs() {
+      const container = document.getElementById('metric-tabs');
+      container.innerHTML = metricDefs.map(m => `
+        <button type="button" class="metric-tab${m.id === activeMetric ? ' active' : ''}"
+          data-metric="${m.id}" role="tab" aria-selected="${m.id === activeMetric}">
+          ${m.label}
+        </button>
+      `).join('');
+      container.querySelectorAll('.metric-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          activeMetric = btn.dataset.metric;
+          renderTabs();
+          renderTable();
+        });
+      });
+    }
+
+    function buildHeader(meta) {
+      const head = document.getElementById('forecast-thead');
+      const subCols = [];
+      if (meta.has_quantity && meta.has_price) {
+        FARMS.forEach(farm => {
+          subCols.push(`<th colspan="2">${farm}</th>`);
+        });
+        const typeHeader = FARMS.map(farm => `
+          <th>${meta.quantity_label || 'Qty'}</th>
+          <th>${meta.price_label || 'Price'}</th>
+        `).join('');
+        head.innerHTML = `
+          <tr><th rowspan="2">Month</th>${subCols.join('')}</tr>
+          <tr>${typeHeader}</tr>
+        `;
+      } else if (meta.has_quantity) {
+        head.innerHTML = `
+          <tr>
+            <th>Month</th>
+            ${FARMS.map(f => `<th>${f}<br><span class="muted" style="font-weight:normal">${meta.quantity_label || ''}</span></th>`).join('')}
+          </tr>
+        `;
+      } else {
+        head.innerHTML = `
+          <tr>
+            <th>Month</th>
+            ${FARMS.map(f => `<th>${f}<br><span class="muted" style="font-weight:normal">${meta.price_label || ''}</span></th>`).join('')}
+          </tr>
+        `;
+      }
+    }
+
+    function cellInput(month, farm, field, value, rowIdx) {
+      const val = value == null ? '' : value;
+      const disabled = CAN_EDIT ? '' : ' disabled';
+      return `<input type="number" step="any" min="0"
+        data-month="${month}" data-farm="${farm}" data-field="${field}" data-row-idx="${rowIdx}"
+        value="${val}"${disabled}>`;
+    }
+
+    function renderTable() {
+      if (!forecastData || !activeMetric) return;
+      const meta = metricById(activeMetric);
+      if (!meta) return;
+
+      document.getElementById('metric-title').textContent = meta.label;
+      buildHeader(meta);
+
+      const rows = forecastData.metrics[activeMetric]?.rows || [];
+      const tbody = document.getElementById('forecast-tbody');
+      tbody.innerHTML = rows.map((row, rowIdx) => {
+        let cells = `<td>${row.month_label}</td>`;
+        if (meta.has_quantity && meta.has_price) {
+          FARMS.forEach(farm => {
+            const f = row[farm] || {};
+            cells += `<td>${cellInput(row.forecast_month, farm, 'quantity', f.quantity, rowIdx)}</td>`;
+            cells += `<td>${cellInput(row.forecast_month, farm, 'unit_price', f.unit_price, rowIdx)}</td>`;
+          });
+        } else if (meta.has_quantity) {
+          FARMS.forEach(farm => {
+            const f = row[farm] || {};
+            cells += `<td>${cellInput(row.forecast_month, farm, 'quantity', f.quantity, rowIdx)}</td>`;
+          });
+        } else {
+          FARMS.forEach(farm => {
+            const f = row[farm] || {};
+            cells += `<td>${cellInput(row.forecast_month, farm, 'unit_price', f.unit_price, rowIdx)}</td>`;
+          });
+        }
+        return `<tr>${cells}</tr>`;
+      }).join('');
+
+      document.getElementById('save-status').textContent = '';
+      document.getElementById('save-status').className = 'save-status';
+    }
+
+    function collectRows() {
+      const rows = [];
+      document.querySelectorAll('#forecast-tbody input').forEach(input => {
+        const raw = input.value.trim();
+        const value = raw === '' ? null : Number(raw);
+        rows.push({
+          forecast_month: input.dataset.month,
+          farm: input.dataset.farm,
+          field: input.dataset.field,
+          value: Number.isFinite(value) ? value : null,
+        });
+      });
+      const byKey = new Map();
+      rows.forEach(r => {
+        const key = `${r.forecast_month}|${r.farm}`;
+        const entry = byKey.get(key) || {
+          forecast_month: r.forecast_month,
+          farm: r.farm,
+          quantity: null,
+          unit_price: null,
+        };
+        entry[r.field] = r.value;
+        byKey.set(key, entry);
+      });
+      return [...byKey.values()];
+    }
+
+    function bindTableKeyboard() {
+      const tbody = document.getElementById('forecast-tbody');
+      if (tbody.dataset.keyboardBound === '1') return;
+      tbody.dataset.keyboardBound = '1';
+      tbody.addEventListener('keydown', (e) => {
+        const input = e.target;
+        if (!input.matches('input') || input.disabled) return;
+
+        const farm = input.dataset.farm;
+        const field = input.dataset.field;
+        const rowIdx = Number(input.dataset.rowIdx);
+        if (!farm || !field || Number.isNaN(rowIdx)) return;
+
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const delta = e.shiftKey ? -1 : 1;
+          const next = tbody.querySelector(
+            `input[data-row-idx="${rowIdx + delta}"][data-farm="${CSS.escape(farm)}"][data-field="${CSS.escape(field)}"]`
+          );
+          if (next) {
+            next.focus();
+            next.select();
+          }
+        }
+      });
+    }
+
+    async function loadForecasts() {
+      const fy = document.getElementById('fiscal-year-select').value;
+      document.getElementById('load-error').hidden = true;
+      try {
+        const res = await fetch(`/api/benchmarking/forecasts?fiscal_year=${encodeURIComponent(fy)}`);
+        if (!res.ok) throw new Error('load failed');
+        forecastData = await res.json();
+        if (!activeMetric && metricDefs.length) {
+          activeMetric = metricDefs[0].id;
+        }
+        renderTabs();
+        renderTable();
+      } catch (_) {
+        document.getElementById('load-error').hidden = false;
+      }
+    }
+
+    async function saveCurrentMetric() {
+      if (!CAN_EDIT || !activeMetric) return;
+      const statusEl = document.getElementById('save-status');
+      const fy = Number(document.getElementById('fiscal-year-select').value);
+      const btn = document.getElementById('save-btn');
+      btn.disabled = true;
+      statusEl.textContent = 'Saving…';
+      statusEl.className = 'save-status';
+      try {
+        const res = await fetch('/api/benchmarking/forecasts', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fiscal_year: fy,
+            metric: activeMetric,
+            rows: collectRows(),
+          }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(payload.detail || 'Save failed');
+        }
+        statusEl.textContent = 'Saved.';
+        statusEl.className = 'save-status ok';
+        await loadForecasts();
+      } catch (err) {
+        statusEl.textContent = err.message || 'Save failed.';
+        statusEl.className = 'save-status err';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function init() {
+      try {
+        const res = await fetch('/api/benchmarking/forecasts/metrics');
+        if (!res.ok) throw new Error('metrics');
+        const payload = await res.json();
+        metricDefs = payload.metrics || [];
+        if (metricDefs.length) {
+          activeMetric = metricDefs[0].id;
+        }
+      } catch (_) {
+        document.getElementById('load-error').hidden = false;
+        return;
+      }
+
+      document.getElementById('fiscal-year-select').addEventListener('change', loadForecasts);
+      if (CAN_EDIT) {
+        document.getElementById('save-btn').addEventListener('click', saveCurrentMetric);
+      }
+      bindTableKeyboard();
+      await loadForecasts();
+    }
+
+    init();
+  </script>
+{% endblock %}
