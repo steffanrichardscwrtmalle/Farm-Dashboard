@@ -103,6 +103,55 @@ def create_ingredient(
     return created
 
 
+def update_ingredient(
+    db: Session,
+    *,
+    ingredient_id: int,
+    name: str,
+    category: str,
+) -> dict[str, Any]:
+    row = db.get(RationIngredient, ingredient_id)
+    if row is None or not row.is_active:
+        raise ValueError("Ingredient not found")
+    clean_name = name.strip()
+    if not clean_name:
+        raise ValueError("Ingredient name is required")
+    if category not in RATION_INGREDIENT_CATEGORIES:
+        raise ValueError(
+            f"category must be one of {list(RATION_INGREDIENT_CATEGORIES)}"
+        )
+    if category != row.category:
+        max_order = db.scalar(
+            select(func.coalesce(func.max(RationIngredient.sort_order), -1)).where(
+                RationIngredient.category == category
+            )
+        )
+        row.sort_order = int(max_order or -1) + 1
+    row.name = clean_name
+    row.category = category
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ValueError(f"An ingredient named '{clean_name}' already exists") from exc
+    db.refresh(row)
+    return {
+        "id": row.id,
+        "name": row.name,
+        "category": row.category,
+        "category_label": RATION_CATEGORY_META[row.category]["label"],
+        "sort_order": row.sort_order,
+    }
+
+
+def deactivate_ingredient(db: Session, *, ingredient_id: int) -> None:
+    row = db.get(RationIngredient, ingredient_id)
+    if row is None or not row.is_active:
+        raise ValueError("Ingredient not found")
+    row.is_active = False
+    db.commit()
+
+
 def list_ingredient_costs(db: Session, *, fiscal_year: int) -> dict[str, Any]:
     months = fiscal_year_months(fiscal_year)
     ingredients = list_ingredients(db)

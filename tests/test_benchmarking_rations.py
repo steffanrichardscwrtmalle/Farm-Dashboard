@@ -11,10 +11,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models import Base, RationIngredient, RationIngredientCost
 from app.services.benchmarking_rations import (
     create_ingredient,
+    deactivate_ingredient,
     list_ingredient_categories,
     list_ingredient_costs,
     list_ingredients,
     save_ingredient_costs,
+    update_ingredient,
 )
 
 
@@ -117,3 +119,27 @@ def test_save_ingredient_costs_clears_blank(db: Session) -> None:
         user_id=1,
     )
     assert db.query(RationIngredientCost).count() == 0
+
+
+def test_update_ingredient_name_and_category(db: Session) -> None:
+    ing = create_ingredient(db, name="Blend", category="concentrate", user_id=1)
+    updated = update_ingredient(
+        db,
+        ingredient_id=ing["id"],
+        name="High Energy Blend",
+        category="forage",
+    )
+    assert updated["name"] == "High Energy Blend"
+    assert updated["category"] == "forage"
+    ingredients = list_ingredients(db)
+    assert len(ingredients) == 1
+    assert ingredients[0]["name"] == "High Energy Blend"
+
+
+def test_deactivate_ingredient_hides_from_library(db: Session) -> None:
+    ing = create_ingredient(db, name="Old Feed", category="straw", user_id=1)
+    deactivate_ingredient(db, ingredient_id=ing["id"])
+    assert list_ingredients(db) == []
+    row = db.get(RationIngredient, ing["id"])
+    assert row is not None
+    assert row.is_active is False

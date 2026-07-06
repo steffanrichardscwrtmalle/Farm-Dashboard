@@ -3,71 +3,141 @@
 {% block page_heading %}Ingredients{% endblock %}
 
 {% block extra_styles %}
-    .rations-back {
-      margin: 0 0 1rem;
-      display: inline-block;
+    main { max-width: none; }
+    .ingredients-page {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      min-height: calc(100vh - 7.5rem);
     }
+    .ingredients-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 1rem;
+      font-size: 0.82rem;
+    }
+    .ingredients-top .muted { margin: 0; }
+    .ingredients-top a { white-space: nowrap; }
     .ingredients-toolbar {
       display: flex;
       flex-wrap: wrap;
-      align-items: flex-end;
-      gap: 1rem;
-      margin-bottom: 1rem;
+      align-items: center;
+      gap: 0.5rem 0.75rem;
+      font-size: 0.82rem;
     }
     .ingredients-toolbar label {
-      display: flex;
-      flex-direction: column;
+      display: inline-flex;
+      align-items: center;
       gap: 0.35rem;
-      font-size: 0.875rem;
+      margin: 0;
     }
     .ingredients-toolbar select,
     .ingredients-toolbar input[type="text"] {
-      min-width: 10rem;
       margin: 0;
+      padding: 0.2rem 0.35rem;
+      font-size: 0.82rem;
+      min-width: 0;
     }
-    .add-ingredient-form {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: flex-end;
-      gap: 0.75rem;
-      padding: 0.85rem 1rem;
-      background: var(--card-bg);
+    .ingredients-toolbar #fiscal-year-select { width: 5.5rem; }
+    .ingredients-toolbar #ingredient-name { width: 9rem; }
+    .ingredients-toolbar #ingredient-category { width: 7rem; }
+    .ingredients-toolbar button {
+      padding: 0.25rem 0.55rem;
+      font-size: 0.82rem;
+    }
+    .form-status {
+      font-size: 0.8rem;
+    }
+    .form-status.err { color: #b91c1c; }
+    .form-status.ok { color: #15803d; }
+    .feed-library {
+      font-size: 0.82rem;
       border: 1px solid var(--border);
       border-radius: 6px;
-      margin-bottom: 1rem;
+      background: var(--card-bg);
+      padding: 0.35rem 0.6rem;
     }
-    .add-ingredient-form h3 {
-      margin: 0;
-      font-size: 0.95rem;
+    .feed-library summary {
+      cursor: pointer;
+      font-weight: 600;
+      user-select: none;
+    }
+    .library-table {
       width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.45rem;
+      font-size: 0.8rem;
     }
-    .add-ingredient-form label {
+    .library-table th,
+    .library-table td {
+      border: 1px solid var(--border);
+      padding: 0.2rem 0.35rem;
+      text-align: left;
+    }
+    .library-table th { background: #f8fafc; font-weight: 600; }
+    .library-table input,
+    .library-table select {
+      width: 100%;
+      margin: 0;
+      padding: 0.15rem 0.3rem;
+      font-size: 0.8rem;
+      box-sizing: border-box;
+    }
+    .library-table .cat-concentrate { color: #c2410c; }
+    .library-table .cat-forage { color: #15803d; }
+    .library-table .cat-straw { color: #a16207; }
+    .library-actions {
       display: flex;
-      flex-direction: column;
       gap: 0.35rem;
-      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+    .library-actions button {
+      padding: 0.15rem 0.4rem;
+      font-size: 0.75rem;
+    }
+    .library-actions .btn-remove {
+      color: #b91c1c;
+      border-color: #fecaca;
+      background: #fef2f2;
     }
     .cost-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 1rem;
+      padding: 0.5rem 0.65rem;
+    }
+    .table-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
     }
     .cost-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
     }
     .cost-table th,
     .cost-table td {
       border: 1px solid var(--border);
-      padding: 0.35rem 0.45rem;
+      padding: 0.12rem 0.3rem;
       text-align: center;
-      vertical-align: bottom;
+      vertical-align: middle;
+      line-height: 1.2;
     }
     .cost-table th {
       font-weight: 600;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .cost-table thead tr:nth-child(2) th {
+      top: 1.45rem;
     }
     .cost-table td:first-child,
     .cost-table th.sticky-month {
@@ -76,7 +146,10 @@
       position: sticky;
       left: 0;
       background: #f8fafc;
-      z-index: 1;
+      z-index: 3;
+    }
+    .cost-table thead tr:first-child th.sticky-month {
+      z-index: 4;
     }
     .cost-table th.cat-concentrate {
       background: #ffedd5;
@@ -97,92 +170,98 @@
     .cost-table th.ingredient-col.cat-forage { background: #f0fdf4; color: #15803d; }
     .cost-table th.ingredient-col.cat-straw { background: #fefce8; color: #a16207; }
     .cost-table input {
-      width: 4.75rem;
+      width: 4.5rem;
       max-width: 100%;
       margin: 0;
-      padding: 0.25rem 0.3rem;
-      font-size: 0.82rem;
+      padding: 0.12rem 0.2rem;
+      font-size: 0.8rem;
       text-align: right;
     }
     .cost-table input:disabled {
       background: #f8fafc;
       color: var(--muted);
     }
-    .table-wrap {
-      overflow-x: auto;
-    }
     .panel-actions {
-      margin-top: 0.75rem;
+      margin-top: 0.4rem;
       display: flex;
       align-items: center;
       gap: 0.75rem;
+      flex-shrink: 0;
     }
     .save-status {
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       color: var(--muted);
     }
     .save-status.ok { color: #15803d; }
     .save-status.err { color: #b91c1c; }
-    .form-status {
-      font-size: 0.85rem;
-      align-self: center;
-    }
-    .form-status.err { color: #b91c1c; }
-    .form-status.ok { color: #15803d; }
     .empty-ingredients {
-      padding: 1rem;
+      padding: 0.75rem;
       color: var(--muted);
-      font-size: 0.9rem;
+      font-size: 0.85rem;
     }
 {% endblock %}
 
 {% block content %}
-  <a href="/benchmarking/rations" class="rations-back">&larr; Back to Rations</a>
-
-  <p class="muted" style="margin-top:0;">
-    Enter monthly ingredient cost (£/t) by UK fiscal year Apr–Mar.
-    {% if not can_edit %}<strong>View only</strong> — you do not have permission to edit.{% endif %}
-  </p>
-
-  {% if can_edit %}
-  <form class="add-ingredient-form" id="add-ingredient-form">
-    <h3>Add ingredient</h3>
-    <label>
-      Name
-      <input type="text" id="ingredient-name" maxlength="128" required placeholder="e.g. Wheat blend">
-    </label>
-    <label>
-      Category
-      <select id="ingredient-category" required></select>
-    </label>
-    <button type="submit">Add ingredient</button>
-    <span class="form-status" id="add-status"></span>
-  </form>
-  {% endif %}
-
-  <div class="ingredients-toolbar">
-    <label>
-      Fiscal year
-      <select id="fiscal-year-select"></select>
-    </label>
-  </div>
-
-  <div class="cost-panel">
-    <div class="table-wrap">
-      <table class="cost-table" id="cost-table">
-        <thead id="cost-thead"></thead>
-        <tbody id="cost-tbody"></tbody>
-      </table>
+  <div class="ingredients-page">
+    <div class="ingredients-top">
+      <a href="/benchmarking/rations">&larr; Rations</a>
+      <span class="muted">Monthly ingredient cost (£/t), UK fiscal year Apr–Mar.</span>
+      {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
     </div>
-    <p class="empty-ingredients" id="no-ingredients" hidden>
-      No ingredients yet.{% if can_edit %} Add one above to start entering monthly costs.{% endif %}
-    </p>
+
+    <div class="ingredients-toolbar">
+      <label>
+        FY
+        <select id="fiscal-year-select"></select>
+      </label>
+      {% if can_edit %}
+      <label>
+        Add
+        <input type="text" id="ingredient-name" maxlength="128" placeholder="Name">
+      </label>
+      <label>
+        Cat.
+        <select id="ingredient-category"></select>
+      </label>
+      <button type="button" id="add-ingredient-btn">Add</button>
+      <span class="form-status" id="add-status"></span>
+      {% endif %}
+    </div>
+
     {% if can_edit %}
-    <div class="panel-actions">
-      <button type="button" id="save-btn">Save costs</button>
-      <span class="save-status" id="save-status"></span>
-    </div>
+    <details class="feed-library" id="feed-library">
+      <summary>Feed library</summary>
+      <table class="library-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Category</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="library-tbody"></tbody>
+      </table>
+      <p class="empty-ingredients" id="no-library" hidden>No ingredients in the library yet.</p>
+    </details>
     {% endif %}
+
+    <div class="cost-panel">
+      <div class="table-wrap">
+        <table class="cost-table" id="cost-table">
+          <thead id="cost-thead"></thead>
+          <tbody id="cost-tbody"></tbody>
+        </table>
+      </div>
+      <p class="empty-ingredients" id="no-ingredients" hidden>
+        No ingredients yet.{% if can_edit %} Add one above to start entering monthly costs.{% endif %}
+      </p>
+      {% if can_edit %}
+      <div class="panel-actions">
+        <button type="button" id="save-btn">Save costs</button>
+        <span class="save-status" id="save-status"></span>
+      </div>
+      {% endif %}
+    </div>
   </div>
 
   <p class="empty-state" id="load-error" hidden>Failed to load ingredient data.</p>
@@ -193,6 +272,12 @@
 
     let costData = null;
     let categories = [];
+
+    function categoryOptions(selected) {
+      return categories.map(c => `
+        <option value="${c.id}"${c.id === selected ? ' selected' : ''}>${c.label}</option>
+      `).join('');
+    }
 
     function ingredientsByCategory() {
       const ingredients = costData?.ingredients || [];
@@ -215,7 +300,7 @@
         const catMeta = categories.find(c => c.id === group.id) || { label: group.id, css: group.id };
         groupCells += `<th class="cat-${catMeta.css}" colspan="${group.items.length}">${catMeta.label}</th>`;
         group.items.forEach(ing => {
-          nameCells += `<th class="ingredient-col cat-${catMeta.css}" title="${catMeta.label}">${ing.name}<br><span class="muted" style="font-weight:normal">£/t</span></th>`;
+          nameCells += `<th class="ingredient-col cat-${catMeta.css}" title="${catMeta.label}">${ing.name}<br><span class="muted" style="font-weight:normal;font-size:0.7rem">£/t</span></th>`;
         });
       });
       head.innerHTML = `<tr><th class="sticky-month" rowspan="2">Month</th>${groupCells}</tr><tr>${nameCells}</tr>`;
@@ -229,6 +314,44 @@
         value="${val}"${disabled}>`;
     }
 
+    function renderFeedLibrary() {
+      if (!CAN_EDIT) return;
+      const tbody = document.getElementById('library-tbody');
+      const noLibrary = document.getElementById('no-library');
+      const ingredients = costData?.ingredients || [];
+      if (!ingredients.length) {
+        tbody.innerHTML = '';
+        noLibrary.hidden = false;
+        return;
+      }
+      noLibrary.hidden = true;
+      tbody.innerHTML = ingredients.map(ing => {
+        const catMeta = categories.find(c => c.id === ing.category) || { css: ing.category };
+        return `
+          <tr data-ingredient-id="${ing.id}">
+            <td><input type="text" class="library-name" value="${escapeHtml(ing.name)}" maxlength="128"></td>
+            <td class="cat-${catMeta.css}">
+              <select class="library-category">${categoryOptions(ing.category)}</select>
+            </td>
+            <td>
+              <div class="library-actions">
+                <button type="button" class="library-save-btn">Save</button>
+                <button type="button" class="library-remove-btn btn-remove">Remove</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
     function renderTable() {
       const ingredients = costData?.ingredients || [];
       const noIngredientsEl = document.getElementById('no-ingredients');
@@ -237,6 +360,7 @@
         tbody.innerHTML = '';
         buildHeader();
         noIngredientsEl.hidden = false;
+        renderFeedLibrary();
         return;
       }
       noIngredientsEl.hidden = true;
@@ -252,6 +376,7 @@
         });
         return `<tr>${cells}</tr>`;
       }).join('');
+      renderFeedLibrary();
     }
 
     function collectRows() {
@@ -268,6 +393,90 @@
       return rows;
     }
 
+    function bindTableKeyboard() {
+      const tbody = document.getElementById('cost-tbody');
+      if (tbody.dataset.keyboardBound === '1') return;
+      tbody.dataset.keyboardBound = '1';
+      tbody.addEventListener('keydown', (e) => {
+        const input = e.target;
+        if (!input.matches('input') || input.disabled) return;
+        const ingredientId = input.dataset.ingredientId;
+        const rowIdx = Number(input.dataset.rowIdx);
+        if (!ingredientId || Number.isNaN(rowIdx)) return;
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const delta = e.shiftKey ? -1 : 1;
+          const next = tbody.querySelector(
+            `input[data-row-idx="${rowIdx + delta}"][data-ingredient-id="${CSS.escape(ingredientId)}"]`
+          );
+          if (next) {
+            next.focus();
+            next.select();
+          }
+        }
+      });
+    }
+
+    function bindLibraryActions() {
+      if (!CAN_EDIT) return;
+      const tbody = document.getElementById('library-tbody');
+      if (tbody.dataset.actionsBound === '1') return;
+      tbody.dataset.actionsBound = '1';
+      tbody.addEventListener('click', async (e) => {
+        const row = e.target.closest('tr[data-ingredient-id]');
+        if (!row) return;
+        const ingredientId = Number(row.dataset.ingredientId);
+        if (e.target.matches('.library-save-btn')) {
+          await saveLibraryRow(row, ingredientId);
+        } else if (e.target.matches('.library-remove-btn')) {
+          await removeLibraryRow(ingredientId);
+        }
+      });
+    }
+
+    async function saveLibraryRow(row, ingredientId) {
+      const name = row.querySelector('.library-name').value.trim();
+      const category = row.querySelector('.library-category').value;
+      const statusEl = document.getElementById('add-status');
+      statusEl.textContent = '';
+      statusEl.className = 'form-status';
+      try {
+        const res = await fetch(`/api/benchmarking/rations/ingredients/${ingredientId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, category }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.detail || 'Could not save ingredient');
+        statusEl.textContent = 'Library updated.';
+        statusEl.className = 'form-status ok';
+        await loadCosts();
+      } catch (err) {
+        statusEl.textContent = err.message || 'Could not save ingredient';
+        statusEl.className = 'form-status err';
+      }
+    }
+
+    async function removeLibraryRow(ingredientId) {
+      if (!window.confirm('Remove this ingredient from the library? Its cost history will be kept but hidden.')) {
+        return;
+      }
+      const statusEl = document.getElementById('add-status');
+      try {
+        const res = await fetch(`/api/benchmarking/rations/ingredients/${ingredientId}`, {
+          method: 'DELETE',
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.detail || 'Could not remove ingredient');
+        statusEl.textContent = 'Ingredient removed.';
+        statusEl.className = 'form-status ok';
+        await loadCosts();
+      } catch (err) {
+        statusEl.textContent = err.message || 'Could not remove ingredient';
+        statusEl.className = 'form-status err';
+      }
+    }
+
     async function loadCategories() {
       const res = await fetch('/api/benchmarking/rations/categories');
       if (!res.ok) throw new Error('categories');
@@ -275,9 +484,7 @@
       categories = payload.categories || [];
       const select = document.getElementById('ingredient-category');
       if (select) {
-        select.innerHTML = categories.map(c => `
-          <option value="${c.id}">${c.label}</option>
-        `).join('');
+        select.innerHTML = categoryOptions(categories[0]?.id);
       }
     }
 
@@ -297,7 +504,7 @@
     function populateFiscalYears(options, selected) {
       const select = document.getElementById('fiscal-year-select');
       select.innerHTML = options.map(fy => `
-        <option value="${fy}"${fy === selected ? ' selected' : ''}>FY ${fy}</option>
+        <option value="${fy}"${fy === selected ? ' selected' : ''}>${fy}</option>
       `).join('');
     }
 
@@ -335,11 +542,16 @@
       }
     }
 
-    async function addIngredient(e) {
-      e.preventDefault();
+    async function addIngredient() {
       const statusEl = document.getElementById('add-status');
       const nameInput = document.getElementById('ingredient-name');
       const categorySelect = document.getElementById('ingredient-category');
+      const name = nameInput.value.trim();
+      if (!name) {
+        statusEl.textContent = 'Enter a name.';
+        statusEl.className = 'form-status err';
+        return;
+      }
       statusEl.textContent = '';
       statusEl.className = 'form-status';
       try {
@@ -347,14 +559,12 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name: nameInput.value.trim(),
+            name,
             category: categorySelect.value,
           }),
         });
         const payload = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(payload.detail || 'Could not add ingredient');
-        }
+        if (!res.ok) throw new Error(payload.detail || 'Could not add ingredient');
         nameInput.value = '';
         statusEl.textContent = 'Added.';
         statusEl.className = 'form-status ok';
@@ -381,10 +591,18 @@
         return;
       }
 
+      bindTableKeyboard();
+      bindLibraryActions();
       document.getElementById('fiscal-year-select').addEventListener('change', loadCosts);
       if (CAN_EDIT) {
         document.getElementById('save-btn').addEventListener('click', saveCosts);
-        document.getElementById('add-ingredient-form').addEventListener('submit', addIngredient);
+        document.getElementById('add-ingredient-btn').addEventListener('click', addIngredient);
+        document.getElementById('ingredient-name').addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            addIngredient();
+          }
+        });
       }
     }
 

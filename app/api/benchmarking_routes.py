@@ -20,10 +20,12 @@ from app.services.benchmarking import (
 )
 from app.services.benchmarking_rations import (
     create_ingredient,
+    deactivate_ingredient,
     list_ingredient_categories,
     list_ingredient_costs,
     list_ingredients,
     save_ingredient_costs,
+    update_ingredient,
 )
 
 router = APIRouter(prefix="/api/benchmarking")
@@ -94,6 +96,11 @@ class CreateIngredientBody(BaseModel):
     category: str
 
 
+class UpdateIngredientBody(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    category: str
+
+
 class IngredientCostRowBody(BaseModel):
     cost_month: dt.date
     ingredient_id: int
@@ -134,6 +141,38 @@ def api_create_ration_ingredient(
             user_id=user.id,
         )
         return {"ingredient": ingredient}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/rations/ingredients/{ingredient_id}")
+def api_update_ration_ingredient(
+    ingredient_id: int,
+    body: UpdateIngredientBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        ingredient = update_ingredient(
+            db,
+            ingredient_id=ingredient_id,
+            name=body.name,
+            category=body.category,
+        )
+        return {"ingredient": ingredient}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/rations/ingredients/{ingredient_id}")
+def api_deactivate_ration_ingredient(
+    ingredient_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        deactivate_ingredient(db, ingredient_id=ingredient_id)
+        return {"ok": True}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
