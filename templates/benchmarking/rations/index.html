@@ -36,6 +36,7 @@
     .rations-card.ingredients { border-top: 4px solid #ea580c; }
     .rations-card.cm { border-top: 4px solid #2563eb; }
     .rations-card.gad { border-top: 4px solid #16a34a; }
+    .rations-card.comparison { border-top: 4px solid #7c3aed; }
 {% endblock %}
 
 {% block content %}
@@ -55,6 +56,10 @@
     <a href="/benchmarking/rations/gad" class="rations-card gad">
       <h2>GAD Rations</h2>
       <p>Green Acre Dairy ration recipes and usage.</p>
+    </a>
+    <a href="/benchmarking/rations/cost-comparison" class="rations-card comparison">
+      <h2>Ration Cost Comparison</h2>
+      <p>Compare CM and GAD ration cost per head per day by month.</p>
     </a>
   </div>
 {% endblock %}

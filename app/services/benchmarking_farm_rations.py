@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 from typing import Any
 
@@ -374,3 +375,95 @@ def save_farm_ration_inclusions(
     return get_farm_ration_workbook(
         db, farm=farm_code, fiscal_year=fiscal_year, ration_id=ration_id
     )
+
+
+def ration_base_name(name: str, farm: str) -> str | None:
+    """Strip farm prefix from ration name, e.g. CM Milkers -> Milkers."""
+    farm_code = normalize_farm_code(farm)
+    stripped = name.strip()
+    prefix = f"{farm_code} "
+    if stripped.upper().startswith(prefix.upper()):
+        rest = stripped[len(prefix) :].strip()
+        return rest or None
+    return None
+
+
+def _cost_per_head_per_day(
+    cost_per_head_month: float | None, month_start: dt.date
+) -> float | None:
+    if cost_per_head_month is None:
+        return None
+    days = calendar.monthrange(month_start.year, month_start.month)[1]
+    return round(cost_per_head_month / days, 4)
+
+
+def _index_rations_by_base(
+    rations: list[dict[str, Any]], farm: str
+) -> dict[str, dict[str, Any]]:
+    indexed: dict[str, dict[str, Any]] = {}
+    for ration in rations:
+        base = ration_base_name(ration["name"], farm)
+        if base:
+            indexed[base.lower()] = ration
+    return indexed
+
+
+def get_ration_cost_comparison(db: Session, *, fiscal_year: int) -> dict[str, Any]:
+    cm_workbook = get_farm_ration_workbook(db, farm="CM", fiscal_year=fiscal_year)
+    gad_workbook = get_farm_ration_workbook(db, farm="GAD", fiscal_year=fiscal_year)
+    cm_index = _index_rations_by_base(cm_workbook["rations"], "CM")
+    gad_index = _index_rations_by_base(gad_workbook["rations"], "GAD")
+    months = fiscal_year_months(fiscal_year)
+
+    comparisons: list[dict[str, Any]] = []
+    for key in sorted(set(cm_index) | set(gad_index)):
+        cm_ration = cm_index.get(key)
+        gad_ration = gad_index.get(key)
+        base_label = (
+            ration_base_name(cm_ration["name"], "CM")
+            if cm_ration
+            else ration_base_name(gad_ration["name"], "GAD")
+        )
+        rows: list[dict[str, Any]] = []
+        for month_start in months:
+            month_iso = month_start.isoformat()
+            cm_row = next(
+                (row for row in (cm_ration or {}).get("rows", []) if row["inclusion_month"] == month_iso),
+                None,
+            )
+            gad_row = next(
+                (row for row in (gad_ration or {}).get("rows", []) if row["inclusion_month"] == month_iso),
+                None,
+            )
+            cm_cost = cm_row["cost_per_head"] if cm_row else None
+            gad_cost = gad_row["cost_per_head"] if gad_row else None
+            cm_day = _cost_per_head_per_day(cm_cost, month_start)
+            gad_day = _cost_per_head_per_day(gad_cost, month_start)
+            diff_day: float | None = None
+            if cm_day is not None and gad_day is not None:
+                diff_day = round(gad_day - cm_day, 4)
+            rows.append({
+                "inclusion_month": month_iso,
+                "month_label": month_start.strftime("%b-%y"),
+                "cm": {
+                    "ration_name": cm_ration["name"] if cm_ration else None,
+                    "cost_per_head_day": cm_day,
+                },
+                "gad": {
+                    "ration_name": gad_ration["name"] if gad_ration else None,
+                    "cost_per_head_day": gad_day,
+                },
+                "diff_per_day": diff_day,
+            })
+        comparisons.append({
+            "base_name": base_label,
+            "cm_ration_name": cm_ration["name"] if cm_ration else None,
+            "gad_ration_name": gad_ration["name"] if gad_ration else None,
+            "rows": rows,
+        })
+
+    return {
+        "fiscal_year": fiscal_year,
+        "fiscal_year_options": available_fiscal_years(),
+        "comparisons": comparisons,
+    }

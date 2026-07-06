@@ -1252,6 +1252,25 @@ def benchmarking_rations_gad_page(request: Request):
     )
 
 
+@app.get("/benchmarking/rations/cost-comparison", response_class=HTMLResponse)
+def benchmarking_rations_cost_comparison_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/rations/cost_comparison.html",
+        _template_ctx(
+            request,
+            page_heading="Ration Cost Comparison",
+            **_benchmarking_context(
+                "Rations",
+                "rations-comparison",
+                "Ration Cost Comparison",
+            ),
+        ),
+    )
+
+
 @app.get("/hr/staff", response_class=HTMLResponse)
 def hr_staff_directory_page(request: Request):
     if denied := _page_guard(request, PAGE_HR):

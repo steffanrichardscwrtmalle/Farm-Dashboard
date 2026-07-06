@@ -10,6 +10,8 @@ from app.models import Base, FarmRationInclusion
 from app.services.benchmarking_farm_rations import (
     create_farm_ration,
     get_farm_ration_workbook,
+    get_ration_cost_comparison,
+    ration_base_name,
     save_farm_ration_inclusions,
     update_farm_ration,
 )
@@ -108,3 +110,55 @@ def test_update_ration_changes_ingredients(db: Session) -> None:
     assert updated["name"] == "Growing heifers"
     assert updated["ingredient_ids"] == [b["id"]]
     assert db.query(FarmRationInclusion).count() == 0
+
+
+def test_ration_base_name_strips_farm_prefix() -> None:
+    assert ration_base_name("CM Milkers", "CM") == "Milkers"
+    assert ration_base_name("GAD Milkers", "gad") == "Milkers"
+    assert ration_base_name("Milkers", "CM") is None
+
+
+def test_ration_cost_comparison_pairs_by_suffix(db: Session) -> None:
+    a = create_ingredient(db, name="Blend", category="concentrate", user_id=1)
+    cm = create_farm_ration(
+        db, farm="cm", name="CM Milkers", ingredient_ids=[a["id"]], user_id=1
+    )
+    gad = create_farm_ration(
+        db, farm="gad", name="GAD Milkers", ingredient_ids=[a["id"]], user_id=1
+    )
+    save_ingredient_costs(
+        db,
+        fiscal_year=2026,
+        rows=[{"cost_month": "2025-04-01", "ingredient_id": a["id"], "cost": 310.0}],
+        user_id=1,
+    )
+    save_farm_ration_inclusions(
+        db,
+        farm="cm",
+        ration_id=cm["id"],
+        fiscal_year=2026,
+        rows=[{
+            "inclusion_month": "2025-04-01",
+            "ingredient_id": a["id"],
+            "kg_per_head": 10.0,
+        }],
+        user_id=1,
+    )
+    save_farm_ration_inclusions(
+        db,
+        farm="gad",
+        ration_id=gad["id"],
+        fiscal_year=2026,
+        rows=[{
+            "inclusion_month": "2025-04-01",
+            "ingredient_id": a["id"],
+            "kg_per_head": 12.0,
+        }],
+        user_id=1,
+    )
+    result = get_ration_cost_comparison(db, fiscal_year=2026)
+    assert len(result["comparisons"]) == 1
+    assert result["comparisons"][0]["base_name"] == "Milkers"
+    april = result["comparisons"][0]["rows"][0]
+    assert april["cm"]["cost_per_head_day"] == round(3.1 / 30, 4)
+    assert april["gad"]["cost_per_head_day"] == round(3.72 / 30, 4)

@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Ration Cost Comparison{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .comparison-page {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .comparison-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 1rem;
+      font-size: 0.82rem;
+    }
+    .comparison-toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.82rem;
+      margin: 0;
+    }
+    .comparison-toolbar select {
+      margin: 0;
+      padding: 0.2rem 0.35rem;
+      font-size: 0.82rem;
+    }
+    .comparison-block {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.65rem 0.75rem;
+    }
+    .comparison-block h2 {
+      margin: 0 0 0.15rem;
+      font-size: 1rem;
+    }
+    .comparison-block .ration-names {
+      margin: 0 0 0.5rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .comparison-table {
+      width: 100%;
+      max-width: 36rem;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .comparison-table th,
+    .comparison-table td {
+      border: 1px solid var(--border);
+      padding: 0.25rem 0.5rem;
+      text-align: right;
+    }
+    .comparison-table th:first-child,
+    .comparison-table td:first-child {
+      text-align: left;
+    }
+    .comparison-table th {
+      background: #f8fafc;
+      font-weight: 600;
+    }
+    .comparison-table th.cm { color: #1d4ed8; }
+    .comparison-table th.gad { color: #15803d; }
+    .comparison-table td.cm { color: #1e40af; }
+    .comparison-table td.gad { color: #166534; }
+    .comparison-table td.diff-pos { color: #b45309; }
+    .comparison-table td.diff-neg { color: #15803d; }
+    .empty-box {
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding: 0.5rem 0;
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="comparison-page">
+    <div class="comparison-top">
+      <a href="/benchmarking/rations">&larr; Rations</a>
+      <span class="muted">£/head/day by month — paired CM and GAD rations (e.g. CM Milkers vs GAD Milkers).</span>
+    </div>
+
+    <div class="comparison-toolbar">
+      <label>
+        FY
+        <select id="fiscal-year-select"></select>
+      </label>
+    </div>
+
+    <div id="comparison-blocks"></div>
+    <p class="empty-box" id="no-comparisons" hidden>
+      No paired rations found. Name CM rations <strong>CM …</strong> and GAD rations <strong>GAD …</strong> with the same suffix (e.g. CM Milkers / GAD Milkers).
+    </p>
+  </div>
+
+  <p class="empty-state" id="load-error" hidden>Failed to load comparison data.</p>
+
+  <script>
+    let comparisonData = null;
+
+    function formatMoney(value) {
+      if (value == null) return '—';
+      return value.toFixed(2);
+    }
+
+    function formatDiff(value) {
+      if (value == null) return '—';
+      const prefix = value > 0 ? '+' : '';
+      return prefix + value.toFixed(2);
+    }
+
+    function diffClass(value) {
+      if (value == null || value === 0) return '';
+      return value > 0 ? 'diff-pos' : 'diff-neg';
+    }
+
+    function renderComparisons() {
+      const container = document.getElementById('comparison-blocks');
+      const empty = document.getElementById('no-comparisons');
+      const comparisons = comparisonData?.comparisons || [];
+      if (!comparisons.length) {
+        container.innerHTML = '';
+        empty.hidden = false;
+        return;
+      }
+      empty.hidden = true;
+      container.innerHTML = comparisons.map(block => `
+        <section class="comparison-block">
+          <h2>${escapeHtml(block.base_name)}</h2>
+          <p class="ration-names">
+            ${block.cm_ration_name ? `CM: ${escapeHtml(block.cm_ration_name)}` : 'CM: —'}
+            &nbsp;·&nbsp;
+            ${block.gad_ration_name ? `GAD: ${escapeHtml(block.gad_ration_name)}` : 'GAD: —'}
+          </p>
+          <table class="comparison-table">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th class="cm">CM £/head/day</th>
+                <th class="gad">GAD £/head/day</th>
+                <th>GAD − CM</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${block.rows.map(row => `
+                <tr>
+                  <td>${row.month_label}</td>
+                  <td class="cm">${formatMoney(row.cm.cost_per_head_day)}</td>
+                  <td class="gad">${formatMoney(row.gad.cost_per_head_day)}</td>
+                  <td class="${diffClass(row.diff_per_day)}">${formatDiff(row.diff_per_day)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </section>
+      `).join('');
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function populateFiscalYears(options, selected) {
+      const select = document.getElementById('fiscal-year-select');
+      select.innerHTML = options.map(fy => `
+        <option value="${fy}"${fy === selected ? ' selected' : ''}>${fy}</option>
+      `).join('');
+    }
+
+    async function loadComparison() {
+      const fy = document.getElementById('fiscal-year-select').value;
+      document.getElementById('load-error').hidden = true;
+      try {
+        const res = await fetch(
+          `/api/benchmarking/rations/cost-comparison?fiscal_year=${encodeURIComponent(fy)}`
+        );
+        if (!res.ok) throw new Error('load failed');
+        comparisonData = await res.json();
+        renderComparisons();
+      } catch (_) {
+        document.getElementById('load-error').hidden = false;
+      }
+    }
+
+    async function init() {
+      try {
+        const res = await fetch('/api/benchmarking/rations/cost-comparison');
+        if (!res.ok) throw new Error('init');
+        comparisonData = await res.json();
+        populateFiscalYears(
+          comparisonData.fiscal_year_options || [comparisonData.fiscal_year],
+          comparisonData.fiscal_year
+        );
+        renderComparisons();
+      } catch (_) {
+        document.getElementById('load-error').hidden = false;
+        return;
+      }
+      document.getElementById('fiscal-year-select').addEventListener('change', loadComparison);
+    }
+
+    init();
+  </script>
+{% endblock %}

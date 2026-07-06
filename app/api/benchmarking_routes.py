@@ -22,6 +22,7 @@ from app.services.benchmarking_farm_rations import (
     create_farm_ration,
     deactivate_farm_ration,
     get_farm_ration_workbook,
+    get_ration_cost_comparison,
     normalize_farm_code,
     save_farm_ration_inclusions,
     update_farm_ration,
@@ -349,3 +350,19 @@ def api_save_farm_ration_inclusions(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/rations/cost-comparison")
+def api_ration_cost_comparison(
+    fiscal_year: int | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    years = available_fiscal_years()
+    year = fiscal_year if fiscal_year is not None else years[0]
+    if year not in years:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fiscal_year must be one of {years}",
+        )
+    return get_ration_cost_comparison(db, fiscal_year=year)
