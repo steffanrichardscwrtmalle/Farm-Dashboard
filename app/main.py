@@ -1177,10 +1177,10 @@ def benchmarking_forecasts_page(request: Request):
         "benchmarking/forecasts.html",
         _template_ctx(
             request,
-            page_heading="Forecasts",
+            page_heading="Manual Forecasts",
             can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
             fiscal_year_options=available_fiscal_years(),
-            **_benchmarking_context("Forecasts", "forecasts", None),
+            **_benchmarking_context("Manual Forecasts", "forecasts", None),
         ),
     )
 

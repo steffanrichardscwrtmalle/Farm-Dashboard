@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block page_heading %}Forecasts{% endblock %}
+{% block page_heading %}Manual Forecasts{% endblock %}
 
 {% block extra_styles %}
     .benchmark-toolbar {
@@ -37,9 +37,34 @@
       cursor: pointer;
       color: inherit;
     }
-    .metric-tab.active {
-      background: var(--accent);
-      border-color: var(--accent);
+    .metric-tab.category-cow {
+      border-color: #93c5fd;
+      color: #1d4ed8;
+      background: #eff6ff;
+    }
+    .metric-tab.category-cow.active {
+      background: #2563eb;
+      border-color: #2563eb;
+      color: #fff;
+    }
+    .metric-tab.category-beef {
+      border-color: #c4b5fd;
+      color: #6d28d9;
+      background: #f5f3ff;
+    }
+    .metric-tab.category-beef.active {
+      background: #7c3aed;
+      border-color: #7c3aed;
+      color: #fff;
+    }
+    .metric-tab.category-youngstock {
+      border-color: #86efac;
+      color: #15803d;
+      background: #f0fdf4;
+    }
+    .metric-tab.category-youngstock.active {
+      background: #16a34a;
+      border-color: #16a34a;
       color: #fff;
     }
     .forecast-panel {
@@ -208,7 +233,7 @@
     function renderTabs() {
       const container = document.getElementById('metric-tabs');
       container.innerHTML = metricDefs.map(m => `
-        <button type="button" class="metric-tab${m.id === activeMetric ? ' active' : ''}"
+        <button type="button" class="metric-tab category-${m.category}${m.id === activeMetric ? ' active' : ''}"
           data-metric="${m.id}" role="tab" aria-selected="${m.id === activeMetric}">
           ${m.label}
         </button>

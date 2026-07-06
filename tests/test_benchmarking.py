@@ -34,9 +34,9 @@ def test_fiscal_year_months_apr_to_mar() -> None:
     assert months[-1] == dt.date(2026, 3, 1)
 
 
-def test_list_metric_definitions_has_twelve_metrics() -> None:
+def test_list_metric_definitions_has_thirteen_metrics() -> None:
     defs = list_metric_definitions()
-    assert len(defs) == 12
+    assert len(defs) == 13
     assert {d["id"] for d in defs} == set(BENCHMARK_METRIC_KEYS)
 
 
