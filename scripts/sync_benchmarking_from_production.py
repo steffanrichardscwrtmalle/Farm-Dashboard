@@ -108,6 +108,13 @@ def _reset_sqlite_sequences(engine, models: tuple[type, ...]) -> None:
     if engine.dialect.name != "sqlite":
         return
     with engine.begin() as conn:
+        has_sequence = conn.execute(
+            text(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'"
+            )
+        ).scalar()
+        if not has_sequence:
+            return
         for model in models:
             table = model.__tablename__
             max_id = conn.execute(
