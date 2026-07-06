@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import datetime as dt
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.models import Base, CattleSaleLine, CowEvent
 from app.services.cattle_sale_pdf import (
     _parse_table_rows,
     is_acceptable_sale_line,
@@ -16,6 +20,7 @@ from app.services.cattle_sales import (
     compute_dim_at_cull,
     compute_price_per_kg,
     format_age_years_months,
+    list_cattle_sales,
 )
 
 
@@ -224,3 +229,44 @@ def test_parse_real_gad_sample_pdf():
     assert len(result["lines"]) == 3
     assert abs(sum(line["amount_gbp"] for line in result["lines"]) - 4878.80) < 0.01
     assert result["lines"][0]["cold_weight_kg"] == 387.7
+
+
+def test_list_cattle_sales_matches_sold_event_when_herd_etag_lacks_uk_prefix() -> None:
+    """CM herd exports often store ETAG without the UK prefix."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="724069",
+            etag="740651724069",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 18),
+            dest="EUROFARM",
+            remark="CAR16",
+            gndr="M",
+            bdat=dt.date(2022, 1, 1),
+            lact=0,
+            cbrd=1,
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651724069",
+            sale_date=dt.date(2026, 6, 22),
+            cold_weight_kg=350.0,
+            amount_gbp=1500.0,
+        )
+    )
+    session.commit()
+
+    result = list_cattle_sales(session, farms=["CM"])
+    assert result["total"] == 1
+    row = result["rows"][0]
+    assert row["event_matched"] is True
+    assert row["cow_id"] == "724069"
+    assert row["event_date"] == "2026-06-18"
+
+    session.close()

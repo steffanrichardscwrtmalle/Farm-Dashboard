@@ -89,13 +89,17 @@ def _load_sold_events(
 ) -> dict[tuple[str, str], list[CowEvent]]:
     if not etags:
         return {}
+    normalized_etags = {normalize_etag(etag) for etag in etags}
+    normalized_etags.discard("")
+    if not normalized_etags:
+        return {}
+
     window_start = min_date - dt.timedelta(days=EVENT_MATCH_WINDOW_DAYS)
     window_end = max_date + dt.timedelta(days=EVENT_MATCH_WINDOW_DAYS)
     rows = db.scalars(
         select(CowEvent).where(
             CowEvent.event == SOLD_EVENT,
             CowEvent.farm.in_(farms),
-            CowEvent.etag.in_(list(etags)),
             CowEvent.event_date.isnot(None),
             CowEvent.event_date >= window_start,
             CowEvent.event_date <= window_end,
@@ -104,7 +108,7 @@ def _load_sold_events(
     grouped: dict[tuple[str, str], list[CowEvent]] = {}
     for row in rows:
         etag = normalize_etag(row.etag)
-        if not etag:
+        if not etag or etag not in normalized_etags:
             continue
         key = (row.farm, etag)
         grouped.setdefault(key, []).append(row)
@@ -199,8 +203,9 @@ def list_cattle_sales(
 
     rows: list[dict[str, Any]] = []
     for line in sale_lines:
+        norm_etag = normalize_etag(line.etag)
         match = _best_sold_match(
-            sold_by_key.get((line.farm, line.etag), []),
+            sold_by_key.get((line.farm, norm_etag), []),
             line.sale_date,
         )
         event_matched = match is not None
