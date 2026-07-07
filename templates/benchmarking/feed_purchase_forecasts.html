@@ -26,6 +26,41 @@
       margin: 0;
       padding: 0.2rem 0.35rem;
     }
+    .farm-slicer {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .farm-slicer-label {
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+    .slicer-group {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .slicer-btn {
+      min-width: 3.5rem;
+      padding: 0.35rem 0.65rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .slicer-btn.selected {
+      background: #dceaf7;
+      border-color: #5a9fd4;
+      color: #1e3a5f;
+    }
+    .slicer-btn[data-value="GAD"].selected {
+      background: #ffecd9;
+      border-color: #ffb366;
+      color: #b45309;
+    }
     .meta-line {
       color: var(--muted);
       font-size: 0.875rem;
@@ -183,6 +218,14 @@
           {% endfor %}
         </select>
       </label>
+      <div class="farm-slicer" role="group" aria-label="Farm">
+        <span class="farm-slicer-label">Farm</span>
+        <div class="slicer-group">
+          {% for farm in farm_options %}
+          <button type="button" class="slicer-btn selected" data-value="{{ farm }}" aria-pressed="true">{{ farm }}</button>
+          {% endfor %}
+        </div>
+      </div>
     </div>
 
     <p class="meta-line" id="meta-line">Loading feed purchase forecasts…</p>
@@ -235,6 +278,23 @@
     let reportData = null;
     let showDetail = false;
 
+    function selectedFarms() {
+      return [...document.querySelectorAll(".farm-slicer .slicer-btn.selected")]
+        .map(btn => btn.dataset.value);
+    }
+
+    function bindFarmSlicers() {
+      document.querySelectorAll(".farm-slicer .slicer-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const selectedCount = document.querySelectorAll(".farm-slicer .slicer-btn.selected").length;
+          if (btn.classList.contains("selected") && selectedCount <= 1) return;
+          btn.classList.toggle("selected");
+          btn.setAttribute("aria-pressed", btn.classList.contains("selected") ? "true" : "false");
+          renderTable();
+        });
+      });
+    }
+
     function farmColCount() {
       return SUMMARY_HEADERS.length + (showDetail ? DETAIL_KEYS.length : 0);
     }
@@ -250,10 +310,17 @@
     function renderTableHead() {
       const span = farmColCount();
       const farmClass = { CM: "col-cm", GAD: "col-gad" };
-      const farmSubheads = FARM_ORDER.map((farm) => {
+      const farms = selectedFarms();
+      const groupHeaders = farms.map((farm, index) => {
+        const colClass = farmClass[farm];
+        const divider = index === 0 ? " farm-divider" : " farm-divider";
+        const groupClass = farm === "CM" ? "group-cm" : "group-gad";
+        return `<th colspan="${span}" class="${groupClass} ${colClass}${divider}">${farm}</th>`;
+      }).join("");
+      const farmSubheads = farms.map((farm, farmIndex) => {
         const colClass = farmClass[farm];
         const summary = SUMMARY_HEADERS.map((label, index) =>
-          `<th class="value-cell ${colClass}${index === 0 ? " farm-divider" : ""}">${label}</th>`
+          `<th class="value-cell ${colClass}${farmIndex === 0 && index === 0 ? " farm-divider" : index === 0 ? " farm-divider" : ""}">${label}</th>`
         ).join("");
         const detail = showDetail
           ? DETAIL_KEYS.map((key, index) =>
@@ -266,8 +333,7 @@
       document.getElementById("feed-table-head").innerHTML = `
         <tr class="group-row">
           <th rowspan="2" class="month-cell">Month</th>
-          <th colspan="${span}" class="group-cm farm-divider">CM</th>
-          <th colspan="${span}" class="group-gad farm-divider">GAD</th>
+          ${groupHeaders}
         </tr>
         <tr class="subhead-row">${farmSubheads}</tr>
       `;
@@ -342,7 +408,7 @@
       });
     }
 
-    function farmValueCells(farmData, farm) {
+    function farmValueCells(farmData, farm, isFirstFarm) {
       const colClass = farm === "CM" ? "col-cm" : "col-gad";
       const summaryValues = [
         farmData.dairy_concentrate,
@@ -351,7 +417,7 @@
         farmData.forage,
       ];
       const summary = summaryValues.map((value, index) =>
-        `<td class="value-cell ${colClass}${index === 0 ? " farm-divider" : ""}">${formatMoney(value)}</td>`
+        `<td class="value-cell ${colClass}${isFirstFarm && index === 0 ? " farm-divider" : index === 0 ? " farm-divider" : ""}">${formatMoney(value)}</td>`
       ).join("");
       const detail = showDetail
         ? DETAIL_KEYS.map((key, index) => {
@@ -372,9 +438,12 @@
       renderTableHead();
 
       const rows = buildMonthlyRows(reportData);
+      const farms = selectedFarms();
       document.getElementById("feed-table-body").innerHTML = rows.map(monthRow => {
         const projected = monthRow.source === "projected" ? "projected-row" : "";
-        const cells = FARM_ORDER.map(farm => farmValueCells(monthRow.farms[farm], farm)).join("");
+        const cells = farms.map((farm, index) =>
+          farmValueCells(monthRow.farms[farm], farm, index === 0)
+        ).join("");
         return `
           <tr class="${projected}">
             <td class="month-cell">${monthRow.month_label}${monthRow.source === "projected" ? " *" : ""}</td>
@@ -419,6 +488,7 @@
       showDetail = event.target.checked;
       renderTable();
     });
+    bindFarmSlicers();
     loadReport();
   </script>
 {% endblock %}

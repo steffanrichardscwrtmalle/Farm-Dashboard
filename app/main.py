@@ -1210,6 +1210,7 @@ def benchmarking_feed_purchase_forecasts_page(request: Request):
     if denied := _page_guard(request, PAGE_BENCHMARKING):
         return denied
     from app.services.benchmarking import available_fiscal_years
+    from app.models import HERD_FARM_OPTIONS
 
     return templates.TemplateResponse(
         request,
@@ -1218,10 +1219,59 @@ def benchmarking_feed_purchase_forecasts_page(request: Request):
             request,
             page_heading="Feed Purchase Forecasts",
             fiscal_year_options=available_fiscal_years(),
+            farm_options=list(HERD_FARM_OPTIONS),
             **_benchmarking_context(
                 "Feed Purchase Forecasts",
                 "feed-purchase-forecasts",
                 "Feed Purchase Forecasts",
+            ),
+        ),
+    )
+
+
+@app.get("/benchmarking/milk-sales-forecasts", response_class=HTMLResponse)
+def benchmarking_milk_sales_forecasts_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    from app.services.benchmarking import available_fiscal_years
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/milk_sales_forecasts.html",
+        _template_ctx(
+            request,
+            page_heading="Milk Sales Forecast",
+            fiscal_year_options=available_fiscal_years(),
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_benchmarking_context(
+                "Milk Sales Forecast",
+                "milk-sales-forecasts",
+                "Milk Sales Forecast",
+            ),
+        ),
+    )
+
+
+@app.get("/benchmarking/stock-sales-purchases-forecasts", response_class=HTMLResponse)
+def benchmarking_stock_sales_purchases_forecasts_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    from app.services.benchmarking import available_fiscal_years
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/stock_sales_purchases_forecasts.html",
+        _template_ctx(
+            request,
+            page_heading="Stock Sales / Purchases Forecast",
+            fiscal_year_options=available_fiscal_years(),
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_benchmarking_context(
+                "Stock Sales / Purchases Forecast",
+                "stock-sales-purchases-forecasts",
+                "Stock Sales / Purchases Forecast",
             ),
         ),
     )
