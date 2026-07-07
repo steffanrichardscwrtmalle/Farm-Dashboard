@@ -904,7 +904,7 @@ class FarmRationIngredient(Base):
 
 
 class FarmRationInclusion(Base):
-    """Monthly kg/head inclusion per ingredient for a farm ration."""
+    """Daily kg/head inclusion per ingredient for a farm ration (stored per month)."""
 
     __tablename__ = "farm_ration_inclusions"
     __table_args__ = (

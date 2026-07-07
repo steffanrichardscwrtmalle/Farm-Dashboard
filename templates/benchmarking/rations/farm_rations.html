@@ -212,7 +212,7 @@
   <div class="farm-rations-page">
     <div class="farm-rations-top">
       <a href="/benchmarking/rations">&larr; Rations</a>
-      <span class="muted">Monthly kg/head inclusions with cost/head from ingredient prices.</span>
+      <span class="muted">Daily kg/head inclusions by month, with £/head/day from ingredient prices.</span>
       {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
     </div>
 
@@ -334,17 +334,17 @@
       const head = document.getElementById('inclusion-thead');
       const ingredients = ration?.ingredients || [];
       if (!ingredients.length) {
-        head.innerHTML = '<tr><th class="sticky-month">Month</th><th class="total-col">£/head</th></tr>';
+        head.innerHTML = '<tr><th class="sticky-month">Month</th><th class="total-col">£/head/day</th></tr>';
         return;
       }
       let cols = '';
       ingredients.forEach(ing => {
-        cols += `<th class="cat-${ing.category}">${escapeHtml(ing.name)}<span class="cost-hint">kg/head</span></th>`;
+        cols += `<th class="cat-${ing.category}">${escapeHtml(ing.name)}<span class="cost-hint">kg/head/day</span></th>`;
       });
       head.innerHTML = `<tr>
         <th class="sticky-month">Month</th>
         ${cols}
-        <th class="total-col">£/head</th>
+        <th class="total-col">£/head/day</th>
       </tr>`;
     }
 

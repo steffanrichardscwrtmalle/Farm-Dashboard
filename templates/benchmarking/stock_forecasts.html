@@ -1,0 +1,1168 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .page-layout { grid-template-columns: 1fr; }
+    }
+    .sidebar-column { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-of-type { margin-bottom: 0; }
+    .filter-section .section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .slicer-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .stock-group-slicer { grid-template-columns: 1fr 1fr 1fr; }
+    .slicer-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      min-height: 3.25rem;
+      padding: 0.5rem 0.4rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .slicer-btn.selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
+    .slicer-btn[data-value="youngstock"].selected { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
+    .slicer-btn[data-value="beef"].selected { background: #ede9fe; border-color: #a78bfa; color: #5b21b6; }
+    .date-inputs { display: grid; gap: 0.5rem; }
+    .filter-select { width: 100%; margin: 0; }
+    .date-inputs label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+    }
+    .date-inputs input[type="range"] { width: 100%; }
+    .date-inputs .month-label { font-weight: 600; min-width: 4.5rem; text-align: right; }
+    .content-panel { min-width: 0; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
+    .meta-line.is-loading { font-style: italic; }
+    .table-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 14rem);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    #forecasts-table { width: 100%; border-collapse: collapse; }
+    #forecasts-table th, #forecasts-table td {
+      padding: 0.45rem 0.55rem;
+      text-align: right;
+      white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+    }
+    #forecasts-table th:first-child, #forecasts-table td:first-child { text-align: left; }
+    #forecasts-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    #forecasts-table tbody tr.warn-row { background: #fef2f2; }
+    #forecasts-table tbody tr.projected-row {
+      background: #ecfdf5;
+      color: #14532d;
+    }
+    #forecasts-table tbody tr.warn-row.projected-row {
+      background: #fef2f2;
+      color: inherit;
+    }
+    #forecasts-table th .sales-toggle {
+      background: transparent;
+      border: none;
+      color: inherit;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    #forecasts-table th .sales-toggle:hover { text-decoration: underline; }
+    #forecasts-table th .sales-toggle .chevron {
+      font-size: 0.75rem;
+      opacity: 0.9;
+    }
+    #forecasts-table tfoot th,
+    #forecasts-table tfoot td {
+      background: #f3f4f6;
+      font-weight: 600;
+      border-top: 2px solid var(--border);
+    }
+    #forecasts-table tfoot tr.average-row th,
+    #forecasts-table tfoot tr.average-row td {
+      background: #e8eef4;
+      border-bottom: none;
+    }
+    .summary-panel {
+      padding: 1rem 1.25rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      width: 100%;
+    }
+    .summary-panel h3 {
+      margin: 0 0 0.35rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .summary-panel .summary-value {
+      margin: 0;
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #1e3a5f;
+      line-height: 1.2;
+    }
+    .summary-panel .summary-note {
+      margin: 0.35rem 0 0;
+      font-size: 0.8125rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .empty-state {
+      padding: 2rem;
+      color: var(--muted);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .valuations-section {
+      margin-top: 2rem;
+      padding-top: 1.5rem;
+      border-top: 2px solid var(--border);
+    }
+    .valuations-section h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.125rem;
+    }
+    .valuations-note {
+      font-size: 0.8125rem;
+      color: var(--muted);
+      margin-bottom: 0.75rem;
+      line-height: 1.45;
+    }
+    #valuations-forecasts-table { width: 100%; border-collapse: collapse; }
+    #valuations-forecasts-table th, #valuations-forecasts-table td {
+      padding: 0.45rem 0.55rem;
+      text-align: right;
+      white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+    }
+    #valuations-forecasts-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    #valuations-forecasts-table thead tr.group-row th {
+      top: 0;
+      text-align: center;
+      border-left: 1px solid rgba(255,255,255,0.25);
+    }
+    #valuations-forecasts-table thead tr.subhead-row th {
+      top: 2.1rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      border-left: 1px solid rgba(255,255,255,0.15);
+    }
+    #valuations-forecasts-table tbody td {
+      border-left: 1px solid var(--border);
+    }
+    #valuations-forecasts-table tbody td.month-cell {
+      font-weight: 600;
+      text-align: left;
+      position: sticky;
+      left: 0;
+      background: var(--card);
+      z-index: 1;
+    }
+    #valuations-forecasts-table .group-start {
+      border-left: 2px solid #94a3b8 !important;
+    }
+    #valuations-forecasts-table tbody tr.projected-row {
+      background: #ecfdf5;
+      color: #14532d;
+    }
+    #valuations-forecasts-table tbody tr.projected-row td.month-cell {
+      background: #ecfdf5;
+    }
+    #valuation-change-table { width: 100%; border-collapse: collapse; }
+    #valuation-change-table th, #valuation-change-table td {
+      padding: 0.45rem 0.55rem;
+      text-align: right;
+      white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+    }
+    #valuation-change-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    #valuation-change-table thead tr.group-row th {
+      top: 0;
+      text-align: center;
+      border-left: 1px solid rgba(255,255,255,0.25);
+    }
+    #valuation-change-table thead tr.subhead-row th {
+      top: 2.1rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      border-left: 1px solid rgba(255,255,255,0.15);
+    }
+    #valuation-change-table tbody td {
+      border-left: 1px solid var(--border);
+    }
+    #valuation-change-table tbody td.month-cell {
+      font-weight: 600;
+      text-align: left;
+      position: sticky;
+      left: 0;
+      background: var(--card);
+      z-index: 1;
+    }
+    #valuation-change-table .group-start {
+      border-left: 2px solid #94a3b8 !important;
+    }
+    #valuation-change-table tbody tr.projected-row {
+      background: #ecfdf5;
+      color: #14532d;
+    }
+    #valuation-change-table tbody tr.projected-row td.month-cell {
+      background: #ecfdf5;
+    }
+    #valuation-change-table .change-negative { color: #b91c1c; }
+    #valuation-change-table .change-positive { color: #15803d; }
+    #valuation-change-table tfoot td {
+      background: #f3f4f6;
+      font-weight: 600;
+      border-top: 2px solid var(--border);
+    }
+    #valuation-change-table tfoot td.month-cell {
+      background: #f3f4f6;
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="page-layout">
+    <div class="sidebar-column">
+      <aside class="filter-panel">
+        <h2>Filters</h2>
+        <div class="filter-section">
+          <span class="section-label">Farm</span>
+          <div class="slicer-group farm-slicer" role="group" aria-label="Farm">
+            {% for farm in farm_options %}
+            <button type="button" class="slicer-btn selected" data-value="{{ farm }}" aria-pressed="true">
+              {{ farm }}
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Stock group</span>
+          <div class="slicer-group stock-group-slicer" role="group" aria-label="Stock group">
+            <button type="button" class="slicer-btn selected" data-value="cows" aria-pressed="true">Cows</button>
+            <button type="button" class="slicer-btn" data-value="youngstock" aria-pressed="false">Youngstock</button>
+            <button type="button" class="slicer-btn" data-value="beef" aria-pressed="false">Beef</button>
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Fiscal year</span>
+          <select id="fiscal-year-select" class="filter-select">
+            {% for year in fiscal_year_options %}
+            <option value="{{ year }}"{% if loop.first %} selected{% endif %}>{{ year }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </aside>
+      <div class="summary-panel" id="summary-panel" style="display:none;">
+        <h3>Average stock</h3>
+        <p class="summary-value" id="avg-stock-value">—</p>
+        <p class="summary-note" id="avg-stock-note"></p>
+      </div>
+    </div>
+
+    <section class="content-panel">
+      <p class="meta-line" id="meta-line">Loading stock forecasts…</p>
+      <div id="empty-state" class="empty-state" style="display:none;"></div>
+      <div class="table-wrap" id="table-wrap" style="display:none;">
+        <table id="forecasts-table">
+          <thead id="table-head"></thead>
+          <tbody id="table-body"></tbody>
+          <tfoot id="table-foot"></tfoot>
+        </table>
+      </div>
+
+      <div class="valuations-section" id="valuations-section">
+        <h2>Valuations Forecast</h2>
+        <p class="valuations-note" id="valuations-note">Loading valuations forecast…</p>
+        <div id="valuations-empty" class="empty-state" style="display:none;"></div>
+        <div class="table-wrap" id="valuations-wrap" style="display:none;">
+          <table id="valuations-forecasts-table">
+            <thead>
+              <tr class="group-row">
+                <th rowspan="2">Month</th>
+                <th colspan="5">Cows</th>
+                <th colspan="5">Youngstock</th>
+                <th colspan="5">Beef</th>
+                <th colspan="5">Total</th>
+              </tr>
+              <tr class="subhead-row">
+                <th class="group-start">Open No</th>
+                <th>Open Value</th>
+                <th>Close No</th>
+                <th>Close Avg</th>
+                <th>Close Value</th>
+                <th class="group-start">Open No</th>
+                <th>Open Value</th>
+                <th>Close No</th>
+                <th>Close Avg</th>
+                <th>Close Value</th>
+                <th class="group-start">Open No</th>
+                <th>Open Value</th>
+                <th>Close No</th>
+                <th>Close Avg</th>
+                <th>Close Value</th>
+                <th class="group-start">Open No</th>
+                <th>Open Value</th>
+                <th>Close No</th>
+                <th>Close Avg</th>
+                <th>Close Value</th>
+              </tr>
+            </thead>
+            <tbody id="valuations-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="valuations-section" id="valuation-change-section">
+        <h2>Valuation Change Forecast</h2>
+        <p class="valuations-note">Monthly change in valuation (closing − opening) by farm and category.</p>
+        <div id="valuation-change-empty" class="empty-state" style="display:none;"></div>
+        <div class="table-wrap" id="valuation-change-wrap" style="display:none;">
+          <table id="valuation-change-table">
+            <thead id="valuation-change-head"></thead>
+            <tbody id="valuation-change-body"></tbody>
+            <tfoot id="valuation-change-foot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const SALES_REASONS = ["CULL", "TB", "OFS", "Beef", "Dairy"];
+    const STOCK_GROUP_LABELS = {
+      cows: "Cows",
+      youngstock: "Youngstock (F)",
+      beef: "Beef",
+    };
+    const VALUATION_CATEGORIES = [
+      { key: "Dairy", label: "Cows" },
+      { key: "Youngstock", label: "Youngstock" },
+      { key: "Beef", label: "Beef" },
+    ];
+    let salesExpanded = false;
+    let cachedRows = [];
+    let cachedStockGroup = "cows";
+    let salesToggleBound = false;
+    let cachedCutoff = { actual: null, projected: null };
+    let cachedFiscalYear = null;
+    let cachedValuationForecast = null;
+
+    function allFarmOptions() {
+      return [...document.querySelectorAll(".farm-slicer .slicer-btn")]
+        .map(btn => btn.dataset.value);
+    }
+
+    function selectedFarms() {
+      return [...document.querySelectorAll(".farm-slicer .slicer-btn.selected")]
+        .map(btn => btn.dataset.value);
+    }
+    function bindFarmSlicers() {
+      document.querySelectorAll(".farm-slicer .slicer-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const selected = btn.classList.contains("selected");
+          const selectedCount = document.querySelectorAll(".farm-slicer .slicer-btn.selected").length;
+          if (selected && selectedCount <= 1) return;
+          btn.classList.toggle("selected", !selected);
+          btn.setAttribute("aria-pressed", btn.classList.contains("selected") ? "true" : "false");
+          loadReport();
+        });
+      });
+    }
+
+    function showBirthsColumn(stockGroup) {
+      return stockGroup === "youngstock" || stockGroup === "beef";
+    }
+
+    function stockGroupLabel(stockGroup) {
+      return STOCK_GROUP_LABELS[stockGroup] || "Cows";
+    }
+
+    function selectedStockGroup() {
+      return document.querySelector(".stock-group-slicer .slicer-btn.selected")?.dataset.value || "cows";
+    }
+
+    function bindExclusiveSlicers(selector) {
+      document.querySelectorAll(`${selector} .slicer-btn`).forEach(btn => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(`${selector} .slicer-btn`).forEach(other => {
+            other.classList.remove("selected");
+            other.setAttribute("aria-pressed", "false");
+          });
+          btn.classList.add("selected");
+          btn.setAttribute("aria-pressed", "true");
+          loadReport();
+        });
+      });
+    }
+
+    function buildParams() {
+      const params = new URLSearchParams();
+      const farms = selectedFarms();
+      farms.forEach(farm => params.append("farm", farm));
+      params.set("stock_group", selectedStockGroup());
+      params.set("fiscal_year", document.getElementById("fiscal-year-select").value);
+      return params;
+    }
+
+    function buildValuationFetchParams(fiscalYear) {
+      const params = new URLSearchParams();
+      allFarmOptions().forEach(farm => params.append("farm", farm));
+      params.set("fiscal_year", fiscalYear);
+      return params;
+    }
+
+    function updateValuationsNote(data) {
+      const note = document.getElementById("valuations-note");
+      const fixedNote = formatFixedRatesNote(
+        data.fixed_rates,
+        data.fixed_rates_month,
+        allFarmOptions()
+      );
+      const projectedLabel = formatMonthLabelFromIso(data.projected_from);
+      note.textContent = fixedNote
+        ? `${fixedNote} Green rows are projected from ${projectedLabel}.`
+        : "Valuations forecast combines actual month-end valuations with projected head counts.";
+    }
+
+    function renderValuationsFromCache(data, farms) {
+      updateValuationsNote(data);
+      renderValuationsTable(data, farms);
+      renderValuationChangeTable(data, farms);
+    }
+
+    function formatGbp(value) {
+      const n = Number(value) || 0;
+      return `£${n.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
+    }
+
+    function formatNum(value) {
+      const n = Number(value) || 0;
+      return n.toLocaleString("en-GB", { maximumFractionDigits: 0 });
+    }
+
+    function rowTotalsForFarms(row, farms) {
+      if (farms.length === 1 && row.totals?.[farms[0]]) {
+        return row.totals[farms[0]];
+      }
+      return row.totals?.all || {};
+    }
+
+    function categoryForecastCells(totals, categoryKey, options = {}) {
+      const cats = totals.categories || {};
+      const data = cats[categoryKey] || {
+        opening: { count: 0, value_gbp: 0 },
+        closing: { count: 0, value_gbp: 0, avg_value_gbp: 0 },
+      };
+      const openCount = options.useDairyCows
+        ? (totals.dairy_cows_opening ?? data.opening.count)
+        : data.opening.count;
+      const closeCount = options.useDairyCows
+        ? (totals.dairy_cows_closing ?? data.closing.count)
+        : data.closing.count;
+      return `
+        <td class="group-start">${formatNum(openCount)}</td>
+        <td>${formatGbp(data.opening.value_gbp)}</td>
+        <td>${formatNum(closeCount)}</td>
+        <td>${formatGbp(data.closing.avg_value_gbp)}</td>
+        <td>${formatGbp(data.closing.value_gbp)}</td>
+      `;
+    }
+
+    function totalForecastCells(totals) {
+      const openAnimals = Number(totals.opening_total_animals) || 0;
+      const closeAnimals = Number(totals.closing_total_animals) || 0;
+      const openValue = Number(totals.opening_grand_total_gbp) || 0;
+      const closeValue = Number(totals.closing_grand_total_gbp) || 0;
+      const closeAvg = closeAnimals > 0 ? Math.floor(closeValue / closeAnimals) : 0;
+      return `
+        <td class="group-start">${formatNum(openAnimals)}</td>
+        <td>${formatGbp(openValue)}</td>
+        <td>${formatNum(closeAnimals)}</td>
+        <td>${formatGbp(closeAvg)}</td>
+        <td>${formatGbp(closeValue)}</td>
+      `;
+    }
+
+    function formatFixedRatesNote(fixedRates, fixedRatesMonth, farms) {
+      if (!fixedRatesMonth || !fixedRates) return "";
+      const parts = farms.flatMap(farm => {
+        const rates = fixedRates[farm];
+        if (!rates) return [];
+        return [
+          `${farm} cows ${formatGbp(rates.Dairy)}`,
+          `youngstock ${formatGbp(rates.Youngstock)}`,
+          `beef ${formatGbp(rates.Beef)}`,
+        ];
+      });
+      if (!parts.length) return "";
+      return `Projected months value head counts at fixed £/head from ${fixedRatesMonth}: ${parts.join(" · ")}.`;
+    }
+
+    function renderValuationsTable(data, farms) {
+      const empty = document.getElementById("valuations-empty");
+      const wrap = document.getElementById("valuations-wrap");
+      const body = document.getElementById("valuations-body");
+      const rows = data.rows || [];
+
+      if (!rows.length) {
+        empty.style.display = "";
+        empty.textContent = "No valuations forecast data for the selected filters.";
+        wrap.style.display = "none";
+        hideValuationChangeTable("No valuation change data for the selected filters.");
+        return;
+      }
+
+      empty.style.display = "none";
+      wrap.style.display = "";
+      body.innerHTML = rows.map(row => {
+        const totals = rowTotalsForFarms(row, farms);
+        const projected = row.source === "projected" ? "projected-row" : "";
+        return `
+          <tr class="${projected}">
+            <td class="month-cell">${row.month_label}${row.source === "projected" ? " *" : ""}</td>
+            ${categoryForecastCells(totals, "Dairy", { useDairyCows: true })}
+            ${categoryForecastCells(totals, "Youngstock")}
+            ${categoryForecastCells(totals, "Beef")}
+            ${totalForecastCells(totals)}
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function formatChangeGbp(value) {
+      const n = Number(value) || 0;
+      if (n === 0) return formatGbp(0);
+      const sign = n < 0 ? "−" : "+";
+      return `${sign}${formatGbp(Math.abs(n))}`;
+    }
+
+    function changeClass(value) {
+      const n = Number(value) || 0;
+      if (n < 0) return "change-negative";
+      if (n > 0) return "change-positive";
+      return "";
+    }
+
+    function categoryValuationChange(farmTotals, categoryKey) {
+      const cat = farmTotals?.categories?.[categoryKey] || {};
+      const opening = Number(cat.opening?.value_gbp) || 0;
+      const closing = Number(cat.closing?.value_gbp) || 0;
+      return closing - opening;
+    }
+
+    function farmValuationChangeTotal(farmTotals) {
+      return VALUATION_CATEGORIES.reduce(
+        (sum, category) => sum + categoryValuationChange(farmTotals, category.key),
+        0
+      );
+    }
+
+    function changeCell(value, groupStart = false) {
+      const cls = [
+        groupStart ? "group-start" : "",
+        changeClass(value),
+      ].filter(Boolean).join(" ");
+      return `<td${cls ? ` class="${cls}"` : ""}>${formatChangeGbp(value)}</td>`;
+    }
+
+    function farmChangeCells(farmTotals) {
+      return VALUATION_CATEGORIES.map((category, index) =>
+        changeCell(categoryValuationChange(farmTotals, category.key), index === 0)
+      ).join("")
+        + changeCell(farmValuationChangeTotal(farmTotals));
+    }
+
+    function renderValuationChangeHead(farms) {
+      const thead = document.getElementById("valuation-change-head");
+      if (farms.length === 1) {
+        thead.innerHTML = `
+          <tr>
+            <th>Month</th>
+            ${VALUATION_CATEGORIES.map(c => `<th>${c.label}</th>`).join("")}
+            <th>Total</th>
+          </tr>
+        `;
+        return;
+      }
+      thead.innerHTML = `
+        <tr class="group-row">
+          <th rowspan="2">Month</th>
+          ${farms.map(farm => `<th colspan="4">${farm}</th>`).join("")}
+          <th rowspan="2">Total</th>
+        </tr>
+        <tr class="subhead-row">
+          ${farms.map(() => `
+            <th class="group-start">Cows</th>
+            <th>Youngstock</th>
+            <th>Beef</th>
+            <th>Total</th>
+          `).join("")}
+        </tr>
+      `;
+    }
+
+    function computeValuationChangeTotals(rows, farms) {
+      const totals = Object.fromEntries(
+        farms.map(farm => [
+          farm,
+          Object.fromEntries(VALUATION_CATEGORIES.map(c => [c.key, 0])),
+        ])
+      );
+      const farmTotals = Object.fromEntries(farms.map(farm => [farm, 0]));
+      let grandTotal = 0;
+
+      for (const row of rows) {
+        for (const farm of farms) {
+          const farmData = row.totals?.[farm] || {};
+          for (const category of VALUATION_CATEGORIES) {
+            totals[farm][category.key] += categoryValuationChange(farmData, category.key);
+          }
+          farmTotals[farm] += farmValuationChangeTotal(farmData);
+        }
+        if (farms.length > 1) {
+          grandTotal += farms.reduce(
+            (sum, farm) => sum + farmValuationChangeTotal(row.totals?.[farm] || {}),
+            0
+          );
+        }
+      }
+
+      return { totals, farmTotals, grandTotal };
+    }
+
+    function renderValuationChangeFoot(rows, farms) {
+      const foot = document.getElementById("valuation-change-foot");
+      const { totals, farmTotals, grandTotal } = computeValuationChangeTotals(rows, farms);
+
+      const farmCells = farms.map(farm =>
+        VALUATION_CATEGORIES.map((category, index) =>
+          changeCell(totals[farm][category.key], index === 0)
+        ).join("") + changeCell(farmTotals[farm])
+      ).join("");
+
+      const grandCell = farms.length > 1 ? changeCell(grandTotal, true) : "";
+
+      foot.innerHTML = `
+        <tr class="total-row">
+          <td class="month-cell">Total</td>
+          ${farmCells}
+          ${grandCell}
+        </tr>
+      `;
+    }
+
+    function renderValuationChangeTable(data, farms) {
+      const empty = document.getElementById("valuation-change-empty");
+      const wrap = document.getElementById("valuation-change-wrap");
+      const body = document.getElementById("valuation-change-body");
+      const rows = data.rows || [];
+
+      if (!rows.length) {
+        empty.style.display = "";
+        empty.textContent = "No valuation change data for the selected filters.";
+        wrap.style.display = "none";
+        return;
+      }
+
+      empty.style.display = "none";
+      wrap.style.display = "";
+      renderValuationChangeHead(farms);
+
+      body.innerHTML = rows.map(row => {
+        const projected = row.source === "projected" ? "projected-row" : "";
+        const farmCells = farms.map(farm =>
+          farmChangeCells(row.totals?.[farm] || {})
+        ).join("");
+        const grandTotal = farms.length > 1
+          ? farms.reduce(
+              (sum, farm) => sum + farmValuationChangeTotal(row.totals?.[farm] || {}),
+              0
+            )
+          : 0;
+        const grandCell = farms.length > 1 ? changeCell(grandTotal, true) : "";
+
+        return `
+          <tr class="${projected}">
+            <td class="month-cell">${row.month_label}${row.source === "projected" ? " *" : ""}</td>
+            ${farmCells}
+            ${grandCell}
+          </tr>
+        `;
+      }).join("");
+      renderValuationChangeFoot(rows, farms);
+    }
+
+    function hideValuationChangeTable(message) {
+      const empty = document.getElementById("valuation-change-empty");
+      const wrap = document.getElementById("valuation-change-wrap");
+      if (message) {
+        empty.style.display = "";
+        empty.textContent = message;
+      } else {
+        empty.style.display = "none";
+      }
+      wrap.style.display = "none";
+    }
+
+    function applyValuationForecastData(data, farms) {
+      const fiscalYear = String(data.selected_fiscal_year);
+      cachedValuationForecast = { fiscalYear, data };
+      if (window.ValuationForecastCache) {
+        ValuationForecastCache.set(fiscalYear, data);
+      }
+      renderValuationsFromCache(data, farms);
+    }
+
+    async function loadValuationsForecast() {
+      const note = document.getElementById("valuations-note");
+      const empty = document.getElementById("valuations-empty");
+      const wrap = document.getElementById("valuations-wrap");
+      const farms = selectedFarms();
+      const fiscalYear = document.getElementById("fiscal-year-select").value;
+
+      if (!farms.length) {
+        note.textContent = "";
+        empty.style.display = "";
+        empty.textContent = "Please select at least one farm.";
+        wrap.style.display = "none";
+        hideValuationChangeTable("Please select at least one farm.");
+        return;
+      }
+
+      const sessionCached = window.ValuationForecastCache?.get(fiscalYear);
+      if (sessionCached) {
+        applyValuationForecastData(sessionCached, farms);
+        return;
+      }
+
+      if (
+        cachedValuationForecast
+        && cachedValuationForecast.fiscalYear === fiscalYear
+      ) {
+        renderValuationsFromCache(cachedValuationForecast.data, farms);
+        return;
+      }
+
+      const pending = window.ValuationForecastCache?.getInflight?.();
+      if (pending) {
+        note.textContent = "Loading valuations forecast…";
+        const data = await pending;
+        if (data && String(data.selected_fiscal_year) === String(fiscalYear)) {
+          applyValuationForecastData(data, farms);
+          return;
+        }
+      }
+
+      note.textContent = "Loading valuations forecast…";
+      try {
+        const res = await fetch(
+          `/api/benchmarking/stock-valuation-forecasts?${buildValuationFetchParams(fiscalYear)}`
+        );
+        if (!res.ok) throw new Error("load failed");
+        const data = await res.json();
+        applyValuationForecastData(data, farms);
+      } catch {
+        cachedValuationForecast = null;
+        note.textContent = "";
+        empty.style.display = "";
+        empty.textContent = "Failed to load valuations forecast.";
+        wrap.style.display = "none";
+        hideValuationChangeTable("Failed to load valuation change forecast.");
+      }
+    }
+
+    function renderFiscalYearOptions(options, selectedValue) {
+      const select = document.getElementById("fiscal-year-select");
+      const current = selectedValue || select.value;
+      select.innerHTML = "";
+      (options || []).forEach(year => {
+        const opt = document.createElement("option");
+        opt.value = String(year);
+        opt.textContent = String(year);
+        select.appendChild(opt);
+      });
+      if (current && [...select.options].some(opt => opt.value === String(current))) {
+        select.value = String(current);
+      } else if (select.options.length) {
+        select.value = select.options[0].value;
+      }
+    }
+
+    function salesToggleButton(expanded, compact) {
+      const chevron = expanded ? "▾" : "▸";
+      if (compact) {
+        return `<button type="button" class="sales-toggle" aria-expanded="${expanded}" title="Collapse sales breakdown"><span class="chevron">${chevron}</span></button>`;
+      }
+      return `<button type="button" class="sales-toggle" aria-expanded="${expanded}" title="Expand sales breakdown">Sales <span class="chevron">${chevron}</span></button>`;
+    }
+
+    function salesHeaderCells() {
+      if (!salesExpanded) {
+        return `<th>${salesToggleButton(false, false)}</th>`;
+      }
+      return SALES_REASONS.map((reason, idx) => {
+        if (idx === 0) {
+          return `<th>${salesToggleButton(true, true)} ${reason}</th>`;
+        }
+        return `<th>${reason}</th>`;
+      }).join("");
+    }
+
+    function salesBodyCells(row) {
+      if (!salesExpanded) {
+        return `<td>${(row.sales_total || 0).toLocaleString("en-GB")}</td>`;
+      }
+      return SALES_REASONS.map(reason =>
+        `<td>${(row.sales?.[reason] || 0).toLocaleString("en-GB")}</td>`
+      ).join("");
+    }
+
+    function formatTotal(n) {
+      return Math.round(n).toLocaleString("en-GB");
+    }
+
+    function formatAverage(n) {
+      return n.toLocaleString("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    }
+
+    function salesFooterCells(stats, isAverage) {
+      const fmt = isAverage ? formatAverage : formatTotal;
+      if (!salesExpanded) {
+        const value = isAverage ? stats.sales_total_avg : stats.sales_total;
+        return `<td>${fmt(value)}</td>`;
+      }
+      return SALES_REASONS.map(reason => {
+        const value = isAverage ? stats.sales_avg[reason] : stats.sales[reason];
+        return `<td>${fmt(value)}</td>`;
+      }).join("");
+    }
+
+    function computeTableStats(rows) {
+      const n = rows.length;
+      if (!n) return null;
+
+      const stats = {
+        sales_total: 0,
+        sales: Object.fromEntries(SALES_REASONS.map(r => [r, 0])),
+        deaths: 0,
+        births: 0,
+        calvings: 0,
+        purchases: 0,
+      };
+      let avgStockSum = 0;
+      let monthsWithClosing = 0;
+
+      for (const row of rows) {
+        stats.sales_total += row.sales_total || 0;
+        for (const reason of SALES_REASONS) {
+          stats.sales[reason] += row.sales?.[reason] || 0;
+        }
+        stats.deaths += row.deaths || 0;
+        stats.births += row.births || 0;
+        stats.calvings += row.calvings || 0;
+        stats.purchases += row.purchases || 0;
+        if (row.closing != null && !Number.isNaN(row.closing)) {
+          avgStockSum += (row.opening + row.closing) / 2;
+          monthsWithClosing += 1;
+        }
+      }
+
+      return {
+        ...stats,
+        sales_total_avg: stats.sales_total / n,
+        sales_avg: Object.fromEntries(
+          SALES_REASONS.map(r => [r, stats.sales[r] / n])
+        ),
+        deaths_avg: stats.deaths / n,
+        births_avg: stats.births / n,
+        calvings_avg: stats.calvings / n,
+        purchases_avg: stats.purchases / n,
+        avgStock: monthsWithClosing ? avgStockSum / monthsWithClosing : 0,
+        monthsWithClosing,
+        monthCount: n,
+      };
+    }
+
+    function renderSummaryPanel(stats) {
+      const panel = document.getElementById("summary-panel");
+      if (!stats) {
+        panel.style.display = "none";
+        return;
+      }
+      panel.style.display = "";
+      document.getElementById("avg-stock-value").textContent =
+        formatTotal(stats.avgStock);
+      document.getElementById("avg-stock-note").textContent =
+        `Mean of (opening + closing) ÷ 2 across ${stats.monthsWithClosing.toLocaleString("en-GB")} month${stats.monthsWithClosing === 1 ? "" : "s"}`;
+    }
+
+    function renderTableFoot(rows, stockGroup) {
+      const foot = document.getElementById("table-foot");
+      const stats = computeTableStats(rows);
+      if (!stats) {
+        foot.innerHTML = "";
+        renderSummaryPanel(null);
+        return;
+      }
+      const showBirths = showBirthsColumn(stockGroup);
+      foot.innerHTML = `
+        <tr class="total-row">
+          <td>Total</td>
+          <td>—</td>
+          ${salesFooterCells(stats, false)}
+          <td>${formatTotal(stats.deaths)}</td>
+          ${showBirths ? `<td>${formatTotal(stats.births)}</td>` : ""}
+          <td>${formatTotal(stats.calvings)}</td>
+          <td>${formatTotal(stats.purchases)}</td>
+          <td>—</td>
+        </tr>
+        <tr class="average-row">
+          <td>Average</td>
+          <td>—</td>
+          ${salesFooterCells(stats, true)}
+          <td>${formatAverage(stats.deaths_avg)}</td>
+          ${showBirths ? `<td>${formatAverage(stats.births_avg)}</td>` : ""}
+          <td>${formatAverage(stats.calvings_avg)}</td>
+          <td>${formatAverage(stats.purchases_avg)}</td>
+          <td>—</td>
+        </tr>
+      `;
+      renderSummaryPanel(stats);
+    }
+
+    function bindSalesToggle() {
+      if (salesToggleBound) return;
+      salesToggleBound = true;
+      document.getElementById("table-head").addEventListener("click", event => {
+        const btn = event.target.closest(".sales-toggle");
+        if (!btn) return;
+        salesExpanded = !salesExpanded;
+        renderTable(cachedRows, cachedStockGroup);
+      });
+    }
+
+    function renderTableHead(stockGroup) {
+      const showBirths = showBirthsColumn(stockGroup);
+      document.getElementById("table-head").innerHTML = `
+        <tr>
+          <th>Month</th>
+          <th>Opening</th>
+          ${salesHeaderCells()}
+          <th>Deaths</th>
+          ${showBirths ? "<th>Births</th>" : ""}
+          <th>Calvings</th>
+          <th>Purchases</th>
+          <th>Closing</th>
+        </tr>
+      `;
+    }
+
+    function rowClass(row) {
+      const classes = [];
+      if (row.warning) classes.push("warn-row");
+      if (row.source === "projected") classes.push("projected-row");
+      return classes.join(" ");
+    }
+
+    function renderTable(rows, stockGroup) {
+      const body = document.getElementById("table-body");
+      renderTableHead(stockGroup);
+      const showBirths = showBirthsColumn(stockGroup);
+      body.innerHTML = rows.map(row => `
+        <tr class="${rowClass(row)}">
+          <td>${row.event_month}${row.source === "projected" ? " *" : ""}</td>
+          <td>${row.opening.toLocaleString("en-GB")}</td>
+          ${salesBodyCells(row)}
+          <td>${row.deaths.toLocaleString("en-GB")}</td>
+          ${showBirths ? `<td>${row.births.toLocaleString("en-GB")}</td>` : ""}
+          <td>${row.calvings.toLocaleString("en-GB")}</td>
+          <td>${row.purchases.toLocaleString("en-GB")}</td>
+          <td>${row.closing.toLocaleString("en-GB")}</td>
+        </tr>
+      `).join("");
+      renderTableFoot(rows, stockGroup);
+    }
+
+    function formatMonthLabelFromIso(iso) {
+      if (!iso) return "—";
+      const [y, m] = iso.split("-").map(Number);
+      const date = new Date(y, m - 1, 1);
+      const mon = date.toLocaleDateString("en-GB", { month: "short" });
+      return `${mon}-${String(y).slice(-2)}`;
+    }
+
+    function buildMetaLine(farms, groupLabel, rowCount, fiscalYear) {
+      const actualLabel = formatMonthLabelFromIso(cachedCutoff.actual);
+      const projectedLabel = formatMonthLabelFromIso(cachedCutoff.projected);
+      const cutoffNote = cachedCutoff.actual && cachedCutoff.projected
+        ? ` · Actual through ${actualLabel} · Projected from ${projectedLabel}`
+        : "";
+      const fyNote = fiscalYear ? ` · FY ${fiscalYear}` : "";
+      return `${farms.join(" + ")} · ${groupLabel}: ${rowCount.toLocaleString("en-GB")} months${fyNote}${cutoffNote}`;
+    }
+
+    function applyStockForecastData(data, farms) {
+      renderFiscalYearOptions(data.fiscal_year_options || [], data.selected_fiscal_year);
+      cachedCutoff = {
+        actual: data.actual_cutoff || null,
+        projected: data.projected_from || null,
+      };
+      cachedFiscalYear = data.selected_fiscal_year;
+
+      const rows = data.rows || [];
+      const groupLabel = stockGroupLabel(data.stock_group);
+      const meta = document.getElementById("meta-line");
+      meta.textContent = buildMetaLine(farms, groupLabel, rows.length, cachedFiscalYear);
+
+      const empty = document.getElementById("empty-state");
+      const wrap = document.getElementById("table-wrap");
+      if (!rows.length) {
+        empty.style.display = "";
+        empty.textContent = "No stock forecast data for the selected filters.";
+        wrap.style.display = "none";
+        document.getElementById("summary-panel").style.display = "none";
+      } else {
+        empty.style.display = "none";
+        wrap.style.display = "";
+        cachedRows = rows;
+        cachedStockGroup = data.stock_group;
+        renderTable(cachedRows, cachedStockGroup);
+      }
+
+      if (window.StockForecastCache) {
+        StockForecastCache.set(data.selected_fiscal_year, data.stock_group, farms, data);
+      }
+    }
+
+    async function loadReport() {
+      const meta = document.getElementById("meta-line");
+      const empty = document.getElementById("empty-state");
+      const wrap = document.getElementById("table-wrap");
+      const farms = selectedFarms();
+      if (!farms.length) {
+        meta.textContent = "";
+        empty.style.display = "";
+        empty.textContent = "Please select at least one farm.";
+        wrap.style.display = "none";
+        document.getElementById("valuations-empty").style.display = "";
+        document.getElementById("valuations-empty").textContent = "Please select at least one farm.";
+        document.getElementById("valuations-wrap").style.display = "none";
+        document.getElementById("valuations-note").textContent = "";
+        hideValuationChangeTable("Please select at least one farm.");
+        return;
+      }
+
+      const fiscalYear = document.getElementById("fiscal-year-select").value;
+      const stockGroup = selectedStockGroup();
+      const valuationsPromise = loadValuationsForecast();
+
+      const sessionCached = window.StockForecastCache?.get(fiscalYear, stockGroup, farms);
+      if (sessionCached) {
+        applyStockForecastData(sessionCached, farms);
+        await valuationsPromise;
+        return;
+      }
+
+      const pendingStock = window.StockForecastCache?.getInflight?.();
+      if (pendingStock) {
+        meta.classList.add("is-loading");
+        meta.textContent = "Loading stock forecasts…";
+        const data = await pendingStock;
+        if (
+          data
+          && String(data.selected_fiscal_year) === String(fiscalYear)
+          && data.stock_group === stockGroup
+        ) {
+          applyStockForecastData(data, farms);
+          meta.classList.remove("is-loading");
+          await valuationsPromise;
+          return;
+        }
+      }
+
+      meta.classList.add("is-loading");
+      meta.textContent = "Loading stock forecasts…";
+      try {
+        const res = await fetch(`/api/benchmarking/stock-forecasts?${buildParams()}`);
+        if (!res.ok) throw new Error("load failed");
+        const data = await res.json();
+        applyStockForecastData(data, farms);
+      } catch {
+        meta.textContent = "";
+        empty.style.display = "";
+        empty.textContent = "Failed to load stock forecasts.";
+        wrap.style.display = "none";
+      } finally {
+        meta.classList.remove("is-loading");
+        await valuationsPromise;
+      }
+    }
+
+    bindFarmSlicers();
+    bindExclusiveSlicers(".stock-group-slicer");
+    bindSalesToggle();
+    document.getElementById("fiscal-year-select").addEventListener("change", loadReport);
+    loadReport();
+  </script>
+{% endblock %}

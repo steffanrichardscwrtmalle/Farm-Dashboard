@@ -36,6 +36,8 @@ from app.services.benchmarking_rations import (
     save_ingredient_costs,
     update_ingredient,
 )
+from app.services.stock_forecasts import build_stock_forecasts_report
+from app.services.stock_valuation_forecasts import build_stock_valuation_forecasts_report
 
 router = APIRouter(prefix="/api/benchmarking")
 
@@ -45,6 +47,7 @@ class ForecastRowBody(BaseModel):
     farm: str
     quantity: float | None = None
     unit_price: float | None = None
+    births: float | None = None
 
 
 class SaveForecastsBody(BaseModel):
@@ -366,3 +369,47 @@ def api_ration_cost_comparison(
             detail=f"fiscal_year must be one of {years}",
         )
     return get_ration_cost_comparison(db, fiscal_year=year)
+
+
+@router.get("/stock-forecasts")
+def api_stock_forecasts(
+    farm: list[str] | None = Query(None),
+    stock_group: str = Query("cows", pattern="^(cows|youngstock|beef)$"),
+    fiscal_year: int | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    years = available_fiscal_years()
+    year = fiscal_year if fiscal_year is not None else years[0]
+    if year not in years:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fiscal_year must be one of {years}",
+        )
+    return build_stock_forecasts_report(
+        db,
+        farms=farm,
+        stock_group=stock_group,
+        fiscal_year=year,
+    )
+
+
+@router.get("/stock-valuation-forecasts")
+def api_stock_valuation_forecasts(
+    farm: list[str] | None = Query(None),
+    fiscal_year: int | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    years = available_fiscal_years()
+    year = fiscal_year if fiscal_year is not None else years[0]
+    if year not in years:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fiscal_year must be one of {years}",
+        )
+    return build_stock_valuation_forecasts_report(
+        db,
+        farms=farm,
+        fiscal_year=year,
+    )

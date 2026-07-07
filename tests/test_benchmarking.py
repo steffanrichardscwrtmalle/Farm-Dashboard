@@ -12,6 +12,7 @@ from app.models import Base, BenchmarkForecastLine
 from app.services.benchmarking import (
     BENCHMARK_METRIC_KEYS,
     fiscal_year_months,
+    forecast_period_cutoff,
     list_forecasts,
     list_metric_definitions,
     save_forecasts,
@@ -34,25 +35,38 @@ def test_fiscal_year_months_apr_to_mar() -> None:
     assert months[-1] == dt.date(2026, 3, 1)
 
 
-def test_list_metric_definitions_has_thirteen_metrics() -> None:
+def test_list_metric_definitions_has_thirteen_tab_metrics() -> None:
     defs = list_metric_definitions()
     assert len(defs) == 13
-    assert {d["id"] for d in defs} == set(BENCHMARK_METRIC_KEYS)
+    assert {d["id"] for d in defs} == set(BENCHMARK_METRIC_KEYS) - {"beef_calf_birth"}
+
+
+def test_benchmark_metric_keys_include_beef_calf_birth() -> None:
+    assert len(BENCHMARK_METRIC_KEYS) == 14
+    assert "beef_calf_birth" in BENCHMARK_METRIC_KEYS
 
 
 def test_list_metric_definitions_grouped_by_category() -> None:
     defs = list_metric_definitions()
     categories = [d["category"] for d in defs]
     assert categories == sorted(categories, key=lambda c: ("cow", "youngstock", "beef").index(c))
-    assert categories.count("cow") == 8
-    assert categories.count("youngstock") == 3
+    assert categories.count("cow") == 7
+    assert categories.count("youngstock") == 4
     assert categories.count("beef") == 2
+
+
+def test_forecast_period_cutoff() -> None:
+    cutoff = forecast_period_cutoff(today=dt.date(2026, 7, 6))
+    assert cutoff["projected_from"] == "2026-07-01"
+    assert cutoff["actual_cutoff"] == "2026-06-01"
 
 
 def test_list_forecasts_zero_fills_all_metrics(db: Session) -> None:
     result = list_forecasts(db, fiscal_year=2026)
     assert result["fiscal_year"] == 2026
     assert len(result["months"]) == 12
+    assert "projected_from" in result
+    assert "actual_cutoff" in result
     assert set(result["metrics"].keys()) == set(BENCHMARK_METRIC_KEYS)
     cull_rows = result["metrics"]["cull"]["rows"]
     assert len(cull_rows) == 12
@@ -136,3 +150,34 @@ def test_save_unknown_metric_raises(db: Session) -> None:
             rows=[],
             user_id=None,
         )
+
+
+def test_beef_calf_sale_saves_births_with_sales(db: Session) -> None:
+    save_forecasts(
+        db,
+        fiscal_year=2026,
+        metric="beef_calf_sale",
+        rows=[
+            {
+                "forecast_month": "2025-04-01",
+                "farm": "CM",
+                "births": 12,
+                "quantity": 8,
+                "unit_price": 250.0,
+            },
+        ],
+        user_id=None,
+    )
+
+    result = list_forecasts(db, fiscal_year=2026)
+    april = result["metrics"]["beef_calf_sale"]["rows"][0]
+    assert april["CM"]["births"] == 12
+    assert april["CM"]["quantity"] == 8
+    assert april["CM"]["unit_price"] == 250.0
+
+    stored = db.query(BenchmarkForecastLine).order_by(BenchmarkForecastLine.metric).all()
+    assert len(stored) == 2
+    assert stored[0].metric == "beef_calf_birth"
+    assert stored[0].quantity == 12
+    assert stored[1].metric == "beef_calf_sale"
+    assert stored[1].quantity == 8

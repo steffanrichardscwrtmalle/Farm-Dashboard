@@ -61,12 +61,24 @@ BENCHMARK_METRICS: dict[str, dict[str, Any]] = {
         "category": "beef",
         "has_quantity": True,
         "has_price": True,
-        "quantity_label": "Head count",
+        "has_births": True,
+        "births_metric": "beef_calf_birth",
+        "births_label": "Births",
+        "quantity_label": "Sales",
         "price_label": "£/head",
     },
+    "beef_calf_birth": {
+        "label": "Beef Calf Births",
+        "category": "beef",
+        "hide_tab": True,
+        "has_quantity": True,
+        "has_price": False,
+        "quantity_label": "Births",
+        "price_label": None,
+    },
     "holstein_calves_born": {
-        "label": "Holstein Calves Born",
-        "category": "cow",
+        "label": "Youngstock Born",
+        "category": "youngstock",
         "has_quantity": True,
         "has_price": False,
         "quantity_label": "Head count",
@@ -127,6 +139,26 @@ BENCHMARK_METRIC_KEYS: tuple[str, ...] = tuple(BENCHMARK_METRICS.keys())
 BENCHMARK_CATEGORY_ORDER: tuple[str, ...] = ("cow", "youngstock", "beef")
 
 
+def _month_start(value: dt.date) -> dt.date:
+    return value.replace(day=1)
+
+
+def _subtract_month(value: dt.date) -> dt.date:
+    if value.month == 1:
+        return dt.date(value.year - 1, 12, 1)
+    return dt.date(value.year, value.month - 1, 1)
+
+
+def forecast_period_cutoff(today: dt.date | None = None) -> dict[str, str]:
+    reference = today or dt.date.today()
+    current_month = _month_start(reference)
+    last_actual_month = _subtract_month(current_month)
+    return {
+        "projected_from": current_month.isoformat(),
+        "actual_cutoff": last_actual_month.isoformat(),
+    }
+
+
 def available_fiscal_years() -> list[int]:
     """Current UK fiscal year and the next."""
     current = _fiscal_year_from_date(dt.date.today())
@@ -143,6 +175,8 @@ def list_metric_definitions() -> list[dict[str, Any]]:
         cat: [] for cat in BENCHMARK_CATEGORY_ORDER
     }
     for key, meta in BENCHMARK_METRICS.items():
+        if meta.get("hide_tab"):
+            continue
         by_category[meta["category"]].append({"id": key, **meta})
     result: list[dict[str, Any]] = []
     for cat in BENCHMARK_CATEGORY_ORDER:
@@ -187,13 +221,13 @@ def list_forecasts(db: Session, *, fiscal_year: int) -> dict[str, Any]:
     for metric in BENCHMARK_METRIC_KEYS:
         rows: list[dict[str, Any]] = []
         for month_start in months:
-            farms = by_metric_month[metric].get(month_start, _empty_farm_cells())
+            farm_cells = _farm_cells_for_metric_row(metric, month_start, by_metric_month)
             rows.append(
                 {
                     "forecast_month": month_start.isoformat(),
                     "month_label": month_start.strftime("%b-%y"),
-                    "CM": dict(farms.get("CM", {"quantity": None, "unit_price": None})),
-                    "GAD": dict(farms.get("GAD", {"quantity": None, "unit_price": None})),
+                    "CM": dict(farm_cells.get("CM", {"quantity": None, "unit_price": None})),
+                    "GAD": dict(farm_cells.get("GAD", {"quantity": None, "unit_price": None})),
                 }
             )
         metrics_payload[metric] = {"rows": rows}
@@ -203,6 +237,7 @@ def list_forecasts(db: Session, *, fiscal_year: int) -> dict[str, Any]:
         "fiscal_year_options": available_fiscal_years(),
         "months": [m.isoformat() for m in months],
         "metrics": metrics_payload,
+        **forecast_period_cutoff(),
     }
 
 
@@ -213,6 +248,79 @@ def _parse_optional_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _upsert_forecast_line(
+    db: Session,
+    *,
+    fiscal_year: int,
+    forecast_month: dt.date,
+    metric: str,
+    farm: str,
+    quantity: float | None,
+    unit_price: float | None,
+    user_id: int | None,
+) -> tuple[int, int]:
+    existing = db.scalar(
+        select(BenchmarkForecastLine).where(
+            BenchmarkForecastLine.fiscal_year == fiscal_year,
+            BenchmarkForecastLine.forecast_month == forecast_month,
+            BenchmarkForecastLine.metric == metric,
+            BenchmarkForecastLine.farm == farm,
+        )
+    )
+
+    if quantity is None and unit_price is None:
+        if existing is not None:
+            db.delete(existing)
+            return 0, 1
+        return 0, 0
+
+    if existing is None:
+        db.add(
+            BenchmarkForecastLine(
+                fiscal_year=fiscal_year,
+                forecast_month=forecast_month,
+                metric=metric,
+                farm=farm,
+                quantity=quantity,
+                unit_price=unit_price,
+                updated_by_user_id=user_id,
+            )
+        )
+        return 1, 0
+
+    existing.quantity = quantity
+    existing.unit_price = unit_price
+    existing.updated_by_user_id = user_id
+    return 1, 0
+
+
+def _farm_cells_for_metric_row(
+    metric: str,
+    month_start: dt.date,
+    by_metric_month: dict[str, dict[dt.date, dict[str, dict[str, float | None]]]],
+) -> dict[str, dict[str, float | None]]:
+    farms = by_metric_month[metric].get(month_start, _empty_farm_cells())
+    if metric != "beef_calf_sale":
+        return {
+            farm: dict(farms.get(farm, {"quantity": None, "unit_price": None}))
+            for farm in HERD_FARM_OPTIONS
+        }
+
+    births_metric = BENCHMARK_METRICS[metric].get("births_metric")
+    births_farms = (
+        by_metric_month.get(births_metric, {}).get(month_start, _empty_farm_cells())
+        if births_metric
+        else _empty_farm_cells()
+    )
+    payload: dict[str, dict[str, float | None]] = {}
+    for farm in HERD_FARM_OPTIONS:
+        cells = dict(farms.get(farm, {"quantity": None, "unit_price": None}))
+        birth_cells = births_farms.get(farm, {"quantity": None, "unit_price": None})
+        cells["births"] = birth_cells.get("quantity")
+        payload[farm] = cells
+    return payload
 
 
 def save_forecasts(
@@ -244,40 +352,35 @@ def save_forecasts(
 
         quantity = _parse_optional_float(row.get("quantity"))
         unit_price = _parse_optional_float(row.get("unit_price"))
+        births = _parse_optional_float(row.get("births"))
 
-        existing = db.scalar(
-            select(BenchmarkForecastLine).where(
-                BenchmarkForecastLine.fiscal_year == fiscal_year,
-                BenchmarkForecastLine.forecast_month == forecast_month,
-                BenchmarkForecastLine.metric == metric,
-                BenchmarkForecastLine.farm == farm,
-            )
+        updated_delta, deleted_delta = _upsert_forecast_line(
+            db,
+            fiscal_year=fiscal_year,
+            forecast_month=forecast_month,
+            metric=metric,
+            farm=farm,
+            quantity=quantity,
+            unit_price=unit_price,
+            user_id=user_id,
         )
+        updated += updated_delta
+        deleted += deleted_delta
 
-        if quantity is None and unit_price is None:
-            if existing is not None:
-                db.delete(existing)
-                deleted += 1
-            continue
-
-        if existing is None:
-            db.add(
-                BenchmarkForecastLine(
-                    fiscal_year=fiscal_year,
-                    forecast_month=forecast_month,
-                    metric=metric,
-                    farm=farm,
-                    quantity=quantity,
-                    unit_price=unit_price,
-                    updated_by_user_id=user_id,
-                )
+        births_metric = BENCHMARK_METRICS[metric].get("births_metric")
+        if births_metric:
+            b_updated, b_deleted = _upsert_forecast_line(
+                db,
+                fiscal_year=fiscal_year,
+                forecast_month=forecast_month,
+                metric=births_metric,
+                farm=farm,
+                quantity=births,
+                unit_price=None,
+                user_id=user_id,
             )
-            updated += 1
-        else:
-            existing.quantity = quantity
-            existing.unit_price = unit_price
-            existing.updated_by_user_id = user_id
-            updated += 1
+            updated += b_updated
+            deleted += b_deleted
 
     db.commit()
     return {"metric": metric, "fiscal_year": fiscal_year, "updated": updated, "deleted": deleted}

@@ -1185,6 +1185,26 @@ def benchmarking_forecasts_page(request: Request):
     )
 
 
+@app.get("/benchmarking/stock-forecasts", response_class=HTMLResponse)
+def benchmarking_stock_forecasts_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+    from app.services.benchmarking import available_fiscal_years
+
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/stock_forecasts.html",
+        _template_ctx(
+            request,
+            page_heading="Stock Forecasts",
+            farm_options=list(HERD_FARM_OPTIONS),
+            fiscal_year_options=available_fiscal_years(),
+            **_benchmarking_context("Stock Forecasts", "stock-forecasts", "Stock Forecasts"),
+        ),
+    )
+
+
 @app.get("/benchmarking/rations", response_class=HTMLResponse)
 def benchmarking_rations_hub_page(request: Request):
     if denied := _page_guard(request, PAGE_BENCHMARKING):

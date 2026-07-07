@@ -160,5 +160,5 @@ def test_ration_cost_comparison_pairs_by_suffix(db: Session) -> None:
     assert len(result["comparisons"]) == 1
     assert result["comparisons"][0]["base_name"] == "Milkers"
     april = result["comparisons"][0]["rows"][0]
-    assert april["cm"]["cost_per_head_day"] == round(3.1 / 30, 4)
-    assert april["gad"]["cost_per_head_day"] == round(3.72 / 30, 4)
+    assert april["cm"]["cost_per_head_day"] == 3.1
+    assert april["gad"]["cost_per_head_day"] == 3.72

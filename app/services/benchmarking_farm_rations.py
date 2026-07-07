@@ -1,8 +1,7 @@
-"""Farm ration recipes and monthly kg/head inclusions."""
+"""Farm ration recipes and monthly kg/head/day inclusions."""
 
 from __future__ import annotations
 
-import calendar
 import datetime as dt
 from typing import Any
 
@@ -388,15 +387,6 @@ def ration_base_name(name: str, farm: str) -> str | None:
     return None
 
 
-def _cost_per_head_per_day(
-    cost_per_head_month: float | None, month_start: dt.date
-) -> float | None:
-    if cost_per_head_month is None:
-        return None
-    days = calendar.monthrange(month_start.year, month_start.month)[1]
-    return round(cost_per_head_month / days, 4)
-
-
 def _index_rations_by_base(
     rations: list[dict[str, Any]], farm: str
 ) -> dict[str, dict[str, Any]]:
@@ -435,10 +425,8 @@ def get_ration_cost_comparison(db: Session, *, fiscal_year: int) -> dict[str, An
                 (row for row in (gad_ration or {}).get("rows", []) if row["inclusion_month"] == month_iso),
                 None,
             )
-            cm_cost = cm_row["cost_per_head"] if cm_row else None
-            gad_cost = gad_row["cost_per_head"] if gad_row else None
-            cm_day = _cost_per_head_per_day(cm_cost, month_start)
-            gad_day = _cost_per_head_per_day(gad_cost, month_start)
+            cm_day = cm_row["cost_per_head"] if cm_row else None
+            gad_day = gad_row["cost_per_head"] if gad_row else None
             diff_day: float | None = None
             if cm_day is not None and gad_day is not None:
                 diff_day = round(gad_day - cm_day, 4)

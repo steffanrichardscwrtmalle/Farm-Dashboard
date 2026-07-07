@@ -862,6 +862,29 @@ def _jv_beef_still_on_farm_count(
     return count
 
 
+def jv_beef_counts_by_farm(
+    db: Session,
+    *,
+    farms: list[str],
+    close_date: dt.date,
+) -> dict[str, int]:
+    """JV beef on farm at month-end — excluded from valuations and stock projections."""
+    anchor_ts = db.scalar(select(func.max(HerdInventory.import_timestamp)))
+    if anchor_ts is None:
+        return {farm: 0 for farm in farms}
+    _, profiles, _, exit_keys, _, jv_keys = _build_profiles(
+        db,
+        selected_farms=list(HERD_FARM_OPTIONS),
+        anchor_ts=anchor_ts,
+    )
+    return {
+        farm: _jv_beef_still_on_farm_count(
+            profiles, jv_keys, exit_keys, close_date, farm
+        )
+        for farm in farms
+    }
+
+
 def _accruals_closing_for_month(
     db: Session,
     *,

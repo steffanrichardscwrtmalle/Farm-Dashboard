@@ -198,6 +198,50 @@
       background: #f8fafc;
       color: var(--muted);
     }
+    .forecast-table tbody tr.row-projected td {
+      background: #ecfdf5;
+    }
+    .forecast-table tbody tr.row-projected td:first-child {
+      background: #d1fae5;
+      color: #14532d;
+      font-weight: 600;
+    }
+    .forecast-table tbody tr.row-projected input {
+      background: #ecfdf5;
+    }
+    .forecast-table tbody tr.row-superseded td {
+      background: #fef2f2;
+      color: #7f1d1d;
+    }
+    .forecast-table tbody tr.row-superseded td:first-child {
+      background: #fee2e2;
+      font-weight: 600;
+    }
+    .forecast-table tbody tr.row-superseded input {
+      background: #fef2f2;
+      color: #7f1d1d;
+    }
+    .forecasts-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin: 0;
+    }
+    .forecasts-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .forecasts-legend .swatch {
+      width: 0.85rem;
+      height: 0.85rem;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+    .forecasts-legend .swatch.projected { background: #ecfdf5; border-color: #86efac; }
+    .forecasts-legend .swatch.superseded { background: #fef2f2; border-color: #fca5a5; }
     .panel-actions {
       margin-top: 0.4rem;
       display: flex;
@@ -222,6 +266,10 @@
   <div class="forecasts-page">
     <div class="forecasts-top">
       <span class="muted">Monthly budget by farm (CM / GAD), UK fiscal year Apr–Mar.</span>
+      <p class="forecasts-legend" id="forecasts-legend" hidden>
+        <span><i class="swatch projected" aria-hidden="true"></i> Projection (from <span id="legend-projected-from">—</span>)</span>
+        <span><i class="swatch superseded" aria-hidden="true"></i> Superseded by actuals (through <span id="legend-actual-cutoff">—</span>)</span>
+      </p>
       {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
     </div>
 
@@ -271,6 +319,44 @@
     let forecastData = null;
     let activeMetric = null;
     let savedSnapshots = new Map();
+    let projectedFromMonth = null;
+
+    function parseMonthStart(iso) {
+      const [y, m] = iso.split('-').map(Number);
+      return new Date(y, m - 1, 1);
+    }
+
+    function formatMonthLabelFromIso(iso) {
+      if (!iso) return '—';
+      const date = parseMonthStart(iso);
+      const mon = date.toLocaleDateString('en-GB', { month: 'short' });
+      return `${mon}-${String(date.getFullYear()).slice(-2)}`;
+    }
+
+    function rowPeriodClass(forecastMonth) {
+      if (!projectedFromMonth) return '';
+      const rowMonth = parseMonthStart(forecastMonth);
+      const projectedFrom = parseMonthStart(projectedFromMonth);
+      return rowMonth >= projectedFrom ? 'row-projected' : 'row-superseded';
+    }
+
+    function isProjectedMonth(forecastMonth) {
+      if (!projectedFromMonth) return true;
+      return parseMonthStart(forecastMonth) >= parseMonthStart(projectedFromMonth);
+    }
+
+    function updatePeriodLegend() {
+      const legend = document.getElementById('forecasts-legend');
+      if (!forecastData?.projected_from) {
+        legend.hidden = true;
+        return;
+      }
+      legend.hidden = false;
+      document.getElementById('legend-projected-from').textContent =
+        formatMonthLabelFromIso(forecastData.projected_from);
+      document.getElementById('legend-actual-cutoff').textContent =
+        formatMonthLabelFromIso(forecastData.actual_cutoff);
+    }
 
     function metricById(id) {
       return metricDefs.find(m => m.id === id);
@@ -334,6 +420,7 @@
             farm,
             quantity: f.quantity,
             unit_price: f.unit_price,
+            births: f.births,
           });
         });
       });
@@ -349,6 +436,8 @@
       if (!meta || !forecastData) return false;
       const rows = rowsForMetric(metricId);
       return rows.some(row => {
+        if (!isProjectedMonth(row.forecast_month)) return false;
+        if (meta.has_births && isBlank(row.births)) return true;
         if (meta.has_quantity && isBlank(row.quantity)) return true;
         if (meta.has_price && isBlank(row.unit_price)) return true;
         return false;
@@ -406,7 +495,20 @@
     function buildHeader(meta) {
       const head = document.getElementById('forecast-thead');
       const subCols = [];
-      if (meta.has_quantity && meta.has_price) {
+      if (meta.has_births && meta.has_quantity && meta.has_price) {
+        FARMS.forEach(farm => {
+          subCols.push(`<th colspan="3">${farm}</th>`);
+        });
+        const typeHeader = FARMS.map(farm => `
+          <th>${meta.births_label || 'Births'}</th>
+          <th>${meta.quantity_label || 'Sales'}</th>
+          <th>${meta.price_label || 'Price'}</th>
+        `).join('');
+        head.innerHTML = `
+          <tr><th rowspan="2">Month</th>${subCols.join('')}</tr>
+          <tr>${typeHeader}</tr>
+        `;
+      } else if (meta.has_quantity && meta.has_price) {
         FARMS.forEach(farm => {
           subCols.push(`<th colspan="2">${farm}</th>`);
         });
@@ -455,7 +557,14 @@
       const tbody = document.getElementById('forecast-tbody');
       tbody.innerHTML = rows.map((row, rowIdx) => {
         let cells = `<td>${row.month_label}</td>`;
-        if (meta.has_quantity && meta.has_price) {
+        if (meta.has_births && meta.has_quantity && meta.has_price) {
+          FARMS.forEach(farm => {
+            const f = row[farm] || {};
+            cells += `<td>${cellInput(row.forecast_month, farm, 'births', f.births, rowIdx)}</td>`;
+            cells += `<td>${cellInput(row.forecast_month, farm, 'quantity', f.quantity, rowIdx)}</td>`;
+            cells += `<td>${cellInput(row.forecast_month, farm, 'unit_price', f.unit_price, rowIdx)}</td>`;
+          });
+        } else if (meta.has_quantity && meta.has_price) {
           FARMS.forEach(farm => {
             const f = row[farm] || {};
             cells += `<td>${cellInput(row.forecast_month, farm, 'quantity', f.quantity, rowIdx)}</td>`;
@@ -472,7 +581,7 @@
             cells += `<td>${cellInput(row.forecast_month, farm, 'unit_price', f.unit_price, rowIdx)}</td>`;
           });
         }
-        return `<tr>${cells}</tr>`;
+        return `<tr class="${rowPeriodClass(row.forecast_month)}">${cells}</tr>`;
       }).join('');
 
       captureSnapshot();
@@ -507,6 +616,7 @@
           farm: r.farm,
           quantity: null,
           unit_price: null,
+          births: null,
         };
         entry[r.field] = r.value;
         byKey.set(key, entry);
@@ -555,6 +665,8 @@
         const res = await fetch(`/api/benchmarking/forecasts?fiscal_year=${encodeURIComponent(fy)}`);
         if (!res.ok) throw new Error('load failed');
         forecastData = await res.json();
+        projectedFromMonth = forecastData.projected_from || null;
+        updatePeriodLegend();
         fySelect.dataset.loadedFy = fy;
         if (!activeMetric && metricDefs.length) {
           activeMetric = metricDefs[0].id;
