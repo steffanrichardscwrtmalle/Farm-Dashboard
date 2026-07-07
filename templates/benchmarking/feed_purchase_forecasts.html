@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Feed Purchase Forecasts{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .feed-page {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .feed-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1rem;
+      font-size: 0.875rem;
+    }
+    .feed-toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin: 0;
+    }
+    .feed-toolbar select {
+      margin: 0;
+      padding: 0.2rem 0.35rem;
+    }
+    .meta-line {
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+    .meta-line.is-loading::after {
+      content: " …";
+      animation: pulse 1s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      50% { opacity: 0.4; }
+    }
+    .feed-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+    }
+    .detail-toggle {
+      font-size: 0.8rem;
+      margin-bottom: 0.5rem;
+    }
+    .detail-toggle label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin: 0;
+      cursor: pointer;
+    }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .feed-table {
+      width: max-content;
+      max-width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      table-layout: fixed;
+    }
+    .feed-table th,
+    .feed-table td {
+      border-bottom: 1px solid var(--border);
+      border-left: 1px solid var(--border);
+      padding: 0.28rem 0.4rem;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .feed-table th:first-child,
+    .feed-table td:first-child {
+      border-left: none;
+    }
+    .feed-table th.month-cell,
+    .feed-table td.month-cell {
+      text-align: left;
+      font-weight: 600;
+      width: 5rem;
+      min-width: 5rem;
+      position: sticky;
+      left: 0;
+      background: var(--card);
+      z-index: 1;
+      border-right: 2px solid #cbd5e1;
+    }
+    .feed-table th.value-cell,
+    .feed-table td.value-cell {
+      width: 5.5rem;
+      min-width: 5.5rem;
+      max-width: 6rem;
+    }
+    .feed-table th.detail-cell,
+    .feed-table td.detail-cell {
+      width: 5.25rem;
+      min-width: 5.25rem;
+      max-width: 5.75rem;
+      font-size: 0.72rem;
+    }
+    .feed-table .detail-divider {
+      border-left: 2px solid #94a3b8 !important;
+    }
+    .feed-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .feed-table thead th.month-cell {
+      z-index: 3;
+      background: #1e3a5f;
+    }
+    .feed-table thead tr.group-row th {
+      text-align: center;
+      border-bottom: none;
+      padding-bottom: 0.1rem;
+      border-left: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .feed-table thead tr.group-row th.month-cell {
+      border-left: none;
+    }
+    .feed-table thead tr.group-row th.group-cm {
+      background: #1a3354;
+    }
+    .feed-table thead tr.group-row th.group-gad {
+      background: #163d2a;
+    }
+    .feed-table thead tr.subhead-row th {
+      top: 1.85rem;
+      font-size: 0.68rem;
+      font-weight: 500;
+      padding-top: 0.1rem;
+      border-left: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    .feed-table thead tr.subhead-row th.month-cell {
+      border-left: none;
+    }
+    .feed-table thead tr.subhead-row th.col-cm {
+      background: #1e3a5f;
+    }
+    .feed-table thead tr.subhead-row th.col-gad {
+      background: #1a4d35;
+    }
+    .feed-table .farm-divider {
+      border-left: 3px solid #64748b !important;
+    }
+    .feed-table tbody td.col-cm {
+      background: #f8fafc;
+    }
+    .feed-table tbody td.col-gad {
+      background: #f6faf7;
+    }
+    .feed-table tbody tr.projected-row td.col-cm,
+    .feed-table tbody tr.projected-row td.col-gad {
+      background: #ecfdf5;
+    }
+    .feed-table tbody tr.projected-row td.month-cell {
+      background: #ecfdf5;
+    }
+    .empty-state {
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding: 0.5rem 0;
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="feed-page">
+    <div class="feed-toolbar">
+      <label>
+        FY
+        <select id="fiscal-year-select">
+          {% for year in fiscal_year_options %}
+            <option value="{{ year }}"{% if loop.first %} selected{% endif %}>{{ year }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <p class="meta-line" id="meta-line">Loading feed purchase forecasts…</p>
+    <p class="empty-state" id="dry-note" style="display:none;"></p>
+
+    <div class="feed-card" id="feed-card" style="display:none;">
+      <div class="detail-toggle">
+        <label>
+          <input type="checkbox" id="detail-checkbox">
+          Show line-item detail
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table class="feed-table" id="feed-table">
+          <thead id="feed-table-head"></thead>
+          <tbody id="feed-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="empty-state" id="load-error" style="display:none;">Failed to load feed purchase forecasts.</p>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const FARM_ORDER = ["CM", "GAD"];
+    const CATEGORY_ORDER = [
+      { key: "concentrate", label: "Concentrates" },
+      { key: "straw", label: "Straw" },
+      { key: "forage", label: "Forage" },
+    ];
+    const SUMMARY_HEADERS = [
+      "Dairy Conc.",
+      "Youngstock Conc.",
+      "Straw",
+      "Forage",
+    ];
+    const DETAIL_SHORT_LABELS = {
+      milkers: "Milkers",
+      far_off: "Far Off",
+      close_up: "Close Up",
+      calf: "Calf",
+      pre_bullers: "Pre-Bullers",
+      bullers: "Bullers",
+      pregnant_heifers: "Preg. Heifers",
+    };
+    const DETAIL_KEYS = Object.keys(DETAIL_SHORT_LABELS);
+
+    let reportData = null;
+    let showDetail = false;
+
+    function farmColCount() {
+      return SUMMARY_HEADERS.length + (showDetail ? DETAIL_KEYS.length : 0);
+    }
+
+    function lineItemTotal(farmData, lineKey) {
+      const values = CATEGORY_ORDER
+        .map(({ key }) => farmData.detail?.[key]?.[lineKey])
+        .filter(value => value != null);
+      if (!values.length) return null;
+      return values.reduce((sum, value) => sum + value, 0);
+    }
+
+    function renderTableHead() {
+      const span = farmColCount();
+      const farmClass = { CM: "col-cm", GAD: "col-gad" };
+      const farmSubheads = FARM_ORDER.map((farm) => {
+        const colClass = farmClass[farm];
+        const summary = SUMMARY_HEADERS.map((label, index) =>
+          `<th class="value-cell ${colClass}${index === 0 ? " farm-divider" : ""}">${label}</th>`
+        ).join("");
+        const detail = showDetail
+          ? DETAIL_KEYS.map((key, index) =>
+              `<th class="detail-cell ${colClass}${index === 0 ? " detail-divider" : ""}">${DETAIL_SHORT_LABELS[key]}</th>`
+            ).join("")
+          : "";
+        return summary + detail;
+      }).join("");
+
+      document.getElementById("feed-table-head").innerHTML = `
+        <tr class="group-row">
+          <th rowspan="2" class="month-cell">Month</th>
+          <th colspan="${span}" class="group-cm farm-divider">CM</th>
+          <th colspan="${span}" class="group-gad farm-divider">GAD</th>
+        </tr>
+        <tr class="subhead-row">${farmSubheads}</tr>
+      `;
+    }
+
+    function formatMoney(value) {
+      if (value == null) return "—";
+      return "£" + Math.round(value).toLocaleString("en-GB");
+    }
+
+    function formatMonthLabelFromIso(iso) {
+      if (!iso) return "—";
+      const [y, m] = iso.split("-").map(Number);
+      const date = new Date(y, m - 1, 1);
+      const mon = date.toLocaleDateString("en-GB", { month: "short" });
+      return `${mon}-${String(y).slice(-2)}`;
+    }
+
+    function buildMetaLine(data) {
+      const actualLabel = formatMonthLabelFromIso(data.actual_cutoff);
+      const projectedLabel = formatMonthLabelFromIso(data.projected_from);
+      const cutoffNote = data.actual_cutoff && data.projected_from
+        ? ` · Actual through ${actualLabel} · Projected from ${projectedLabel}`
+        : "";
+      return `FY ${data.fiscal_year}${cutoffNote} · Green rows are projected months`;
+    }
+
+    function renderDryNote(data) {
+      const note = document.getElementById("dry-note");
+      const missing = data.missing_dry_pct_months || [];
+      if (!missing.length) {
+        note.style.display = "none";
+        note.textContent = "";
+        return;
+      }
+      note.style.display = "";
+      note.textContent = `Dry % not entered for: ${missing.join(", ")} (treated as 0%).`;
+    }
+
+    function rowByMonth(rows, monthStart) {
+      return (rows || []).find(row => row.month_start === monthStart) || {};
+    }
+
+    function buildMonthlyRows(data) {
+      const cmConc = data.farms?.CM?.tables?.concentrate?.rows || [];
+      return cmConc.map(row => {
+        const monthStart = row.month_start;
+        const farms = {};
+        for (const farm of FARM_ORDER) {
+          const tables = data.farms?.[farm]?.tables || {};
+          const conc = rowByMonth(tables.concentrate?.rows, monthStart);
+          const straw = rowByMonth(tables.straw?.rows, monthStart);
+          const forage = rowByMonth(tables.forage?.rows, monthStart);
+          farms[farm] = {
+            dairy_concentrate: conc.dairy ?? null,
+            youngstock_concentrate: conc.youngstock ?? null,
+            straw: straw.total ?? null,
+            forage: forage.total ?? null,
+            detail: {
+              concentrate: conc.detail || {},
+              straw: straw.detail || {},
+              forage: forage.detail || {},
+            },
+          };
+        }
+        return {
+          month_start: monthStart,
+          month_label: row.month_label,
+          source: row.source,
+          farms,
+        };
+      });
+    }
+
+    function farmValueCells(farmData, farm) {
+      const colClass = farm === "CM" ? "col-cm" : "col-gad";
+      const summaryValues = [
+        farmData.dairy_concentrate,
+        farmData.youngstock_concentrate,
+        farmData.straw,
+        farmData.forage,
+      ];
+      const summary = summaryValues.map((value, index) =>
+        `<td class="value-cell ${colClass}${index === 0 ? " farm-divider" : ""}">${formatMoney(value)}</td>`
+      ).join("");
+      const detail = showDetail
+        ? DETAIL_KEYS.map((key, index) => {
+            const value = lineItemTotal(farmData, key);
+            return `<td class="detail-cell ${colClass}${index === 0 ? " detail-divider" : ""}">${formatMoney(value)}</td>`;
+          }).join("")
+        : "";
+      return summary + detail;
+    }
+
+    function renderTable() {
+      if (!reportData?.farms) {
+        document.getElementById("feed-table-head").innerHTML = "";
+        document.getElementById("feed-table-body").innerHTML = "";
+        return;
+      }
+
+      renderTableHead();
+
+      const rows = buildMonthlyRows(reportData);
+      document.getElementById("feed-table-body").innerHTML = rows.map(monthRow => {
+        const projected = monthRow.source === "projected" ? "projected-row" : "";
+        const cells = FARM_ORDER.map(farm => farmValueCells(monthRow.farms[farm], farm)).join("");
+        return `
+          <tr class="${projected}">
+            <td class="month-cell">${monthRow.month_label}${monthRow.source === "projected" ? " *" : ""}</td>
+            ${cells}
+          </tr>
+        `;
+      }).join("");
+    }
+
+    async function loadReport() {
+      const meta = document.getElementById("meta-line");
+      const error = document.getElementById("load-error");
+      const card = document.getElementById("feed-card");
+      error.style.display = "none";
+      meta.classList.add("is-loading");
+      meta.textContent = "Loading feed purchase forecasts…";
+
+      const fy = document.getElementById("fiscal-year-select").value;
+      try {
+        const res = await fetch(
+          `/api/benchmarking/feed-purchase-forecasts?fiscal_year=${encodeURIComponent(fy)}`
+        );
+        if (!res.ok) throw new Error("load failed");
+        reportData = await res.json();
+        meta.textContent = buildMetaLine(reportData);
+        renderDryNote(reportData);
+        card.style.display = "";
+        renderTable();
+      } catch {
+        meta.textContent = "";
+        error.style.display = "";
+        card.style.display = "none";
+        document.getElementById("feed-table-head").innerHTML = "";
+        document.getElementById("feed-table-body").innerHTML = "";
+      } finally {
+        meta.classList.remove("is-loading");
+      }
+    }
+
+    document.getElementById("fiscal-year-select").addEventListener("change", loadReport);
+    document.getElementById("detail-checkbox").addEventListener("change", (event) => {
+      showDetail = event.target.checked;
+      renderTable();
+    });
+    loadReport();
+  </script>
+{% endblock %}

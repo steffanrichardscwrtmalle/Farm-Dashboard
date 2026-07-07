@@ -24,6 +24,15 @@ FARM_RATION_SLUGS: dict[str, str] = {
     "gad": "GAD",
 }
 
+FEED_INGREDIENT_CATEGORIES: tuple[str, ...] = ("concentrate", "forage", "straw")
+
+RATION_SUFFIX_PATTERNS: dict[str, tuple[str, ...]] = {
+    "milkers": ("milkers", "milker"),
+    "far_off": ("far off", "faroff"),
+    "close_up": ("close up", "closeup"),
+    "bullers": ("bullers", "bulling heifer", "bulling"),
+}
+
 
 def normalize_farm_code(farm: str) -> str:
     key = farm.strip().lower()
@@ -385,6 +394,70 @@ def ration_base_name(name: str, farm: str) -> str | None:
         rest = stripped[len(prefix) :].strip()
         return rest or None
     return None
+
+
+def ration_suffix_key(base_name: str) -> str | None:
+    """Map ration base name to feed forecast suffix key."""
+    normalized = " ".join(base_name.strip().lower().split())
+    compact = normalized.replace(" ", "")
+    for key, patterns in RATION_SUFFIX_PATTERNS.items():
+        for pattern in patterns:
+            p = pattern.lower()
+            if normalized == p or compact == p.replace(" ", ""):
+                return key
+    return None
+
+
+def category_cost_per_head_day(
+    row: dict[str, Any],
+    ration: dict[str, Any],
+    category: str,
+) -> float | None:
+    """£/head/day for one ingredient category within a ration month row."""
+    inclusions = row.get("inclusions", {})
+    costs = row.get("ingredient_costs", {})
+    total = 0.0
+    has_value = False
+    for ing in ration.get("ingredients", []):
+        if ing.get("category") != category:
+            continue
+        key = str(ing["id"])
+        kg = inclusions.get(key)
+        if kg is None:
+            continue
+        cost = costs.get(key)
+        if cost is None:
+            return None
+        total += (float(kg) / 1000.0) * float(cost)
+        has_value = True
+    return round(total, 4) if has_value else None
+
+
+def ration_costs_by_suffix(
+    db: Session,
+    *,
+    farm: str,
+    fiscal_year: int,
+) -> dict[str, dict[str, dict[str, float | None]]]:
+    """Per-month concentrate/forage/straw £/head/day by ration suffix key."""
+    workbook = get_farm_ration_workbook(db, farm=farm, fiscal_year=fiscal_year)
+    result: dict[str, dict[str, dict[str, float | None]]] = {
+        key: {} for key in RATION_SUFFIX_PATTERNS
+    }
+    for ration in workbook["rations"]:
+        base = ration_base_name(ration["name"], farm)
+        if not base:
+            continue
+        suffix = ration_suffix_key(base)
+        if suffix is None:
+            continue
+        for row in ration.get("rows", []):
+            month_iso = row["inclusion_month"]
+            result[suffix][month_iso] = {
+                category: category_cost_per_head_day(row, ration, category)
+                for category in FEED_INGREDIENT_CATEGORIES
+            }
+    return result
 
 
 def _index_rations_by_base(

@@ -1205,6 +1205,28 @@ def benchmarking_stock_forecasts_page(request: Request):
     )
 
 
+@app.get("/benchmarking/feed-purchase-forecasts", response_class=HTMLResponse)
+def benchmarking_feed_purchase_forecasts_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    from app.services.benchmarking import available_fiscal_years
+
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/feed_purchase_forecasts.html",
+        _template_ctx(
+            request,
+            page_heading="Feed Purchase Forecasts",
+            fiscal_year_options=available_fiscal_years(),
+            **_benchmarking_context(
+                "Feed Purchase Forecasts",
+                "feed-purchase-forecasts",
+                "Feed Purchase Forecasts",
+            ),
+        ),
+    )
+
+
 @app.get("/benchmarking/rations", response_class=HTMLResponse)
 def benchmarking_rations_hub_page(request: Request):
     if denied := _page_guard(request, PAGE_BENCHMARKING):
