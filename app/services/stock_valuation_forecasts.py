@@ -294,6 +294,8 @@ def build_stock_valuation_forecasts_report(
     farms: list[str] | None = None,
     fiscal_year: int | None = None,
     today: dt.date | None = None,
+    shared: Any | None = None,
+    forecast_heads: dict[str, dict[str, dict[str, dict[str, int]]]] | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     reference_today = today or dt.date.today()
@@ -348,11 +350,12 @@ def build_stock_valuation_forecasts_report(
         last_actual_month,
     )
 
-    forecast_heads = build_stock_forecast_heads_index(
+    forecast_heads = forecast_heads or build_stock_forecast_heads_index(
         db,
         farms=selected_farms,
         fiscal_year=year,
         today=reference_today,
+        shared=shared,
     )
 
     rows: list[dict[str, Any]] = []

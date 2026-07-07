@@ -1095,6 +1095,23 @@
       }
     }
 
+    function applyPageData(pageData, farms) {
+      if (pageData?.stock_forecasts) {
+        applyStockForecastData(pageData.stock_forecasts, farms);
+      }
+      if (pageData?.valuation_forecasts) {
+        applyValuationForecastData(pageData.valuation_forecasts, farms);
+      }
+      if (window.StockForecastsPageCache && pageData) {
+        StockForecastsPageCache.set(
+          pageData.stock_forecasts?.selected_fiscal_year,
+          pageData.stock_forecasts?.stock_group,
+          farms,
+          pageData
+        );
+      }
+    }
+
     async function loadReport() {
       const meta = document.getElementById("meta-line");
       const empty = document.getElementById("empty-state");
@@ -1115,28 +1132,29 @@
 
       const fiscalYear = document.getElementById("fiscal-year-select").value;
       const stockGroup = selectedStockGroup();
-      const valuationsPromise = loadValuationsForecast();
 
-      const sessionCached = window.StockForecastCache?.get(fiscalYear, stockGroup, farms);
+      const sessionCached = window.StockForecastsPageCache?.get(
+        fiscalYear,
+        stockGroup,
+        farms
+      );
       if (sessionCached) {
-        applyStockForecastData(sessionCached, farms);
-        await valuationsPromise;
+        applyPageData(sessionCached, farms);
         return;
       }
 
-      const pendingStock = window.StockForecastCache?.getInflight?.();
-      if (pendingStock) {
+      const pendingPage = window.StockForecastsPageCache?.getInflight?.();
+      if (pendingPage) {
         meta.classList.add("is-loading");
         meta.textContent = "Loading stock forecasts…";
-        const data = await pendingStock;
+        const pageData = await pendingPage;
         if (
-          data
-          && String(data.selected_fiscal_year) === String(fiscalYear)
-          && data.stock_group === stockGroup
+          pageData
+          && String(pageData.stock_forecasts?.selected_fiscal_year) === String(fiscalYear)
+          && pageData.stock_forecasts?.stock_group === stockGroup
         ) {
-          applyStockForecastData(data, farms);
+          applyPageData(pageData, farms);
           meta.classList.remove("is-loading");
-          await valuationsPromise;
           return;
         }
       }
@@ -1144,18 +1162,22 @@
       meta.classList.add("is-loading");
       meta.textContent = "Loading stock forecasts…";
       try {
-        const res = await fetch(`/api/benchmarking/stock-forecasts?${buildParams()}`);
+        const res = await fetch(`/api/benchmarking/stock-forecasts-page?${buildParams()}`);
         if (!res.ok) throw new Error("load failed");
-        const data = await res.json();
-        applyStockForecastData(data, farms);
+        const pageData = await res.json();
+        applyPageData(pageData, farms);
       } catch {
         meta.textContent = "";
         empty.style.display = "";
         empty.textContent = "Failed to load stock forecasts.";
         wrap.style.display = "none";
+        document.getElementById("valuations-note").textContent = "";
+        document.getElementById("valuations-empty").style.display = "";
+        document.getElementById("valuations-empty").textContent = "Failed to load valuations forecast.";
+        document.getElementById("valuations-wrap").style.display = "none";
+        hideValuationChangeTable("Failed to load valuation change forecast.");
       } finally {
         meta.classList.remove("is-loading");
-        await valuationsPromise;
       }
     }
 

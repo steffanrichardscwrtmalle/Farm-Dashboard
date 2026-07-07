@@ -8,7 +8,7 @@ the Manual Forecasts page apply immediately without a snapshot rebuild.
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import select
@@ -314,6 +314,34 @@ class _ForecastSharedContext:
     heifers_due_index: dict[tuple[str, dt.date], int]
     jv_beef_by_farm: dict[str, int]
     today: dt.date
+    accrual_seed_cache: dict[tuple[str, str], dict[str, Any]] = field(
+        default_factory=dict
+    )
+
+
+def _accrual_cache_key(farms: list[str], stock_group: str) -> tuple[str, str]:
+    return (",".join(sorted(farms)), stock_group)
+
+
+def _load_accrual_seed_report(
+    db: Session,
+    *,
+    farms: list[str],
+    stock_group: str,
+    shared: _ForecastSharedContext,
+) -> dict[str, Any]:
+    key = _accrual_cache_key(farms, stock_group)
+    cached = shared.accrual_seed_cache.get(key)
+    if cached is not None:
+        return cached
+    report = build_stock_accruals_report(
+        db,
+        farms=farms,
+        stock_group=stock_group,
+        month_to=_last_day_of_month(shared.last_actual_month),
+    )
+    shared.accrual_seed_cache[key] = report
+    return report
 
 
 def _build_forecast_shared_context(
@@ -362,11 +390,11 @@ def _build_stock_forecast_rows(
     shared: _ForecastSharedContext,
 ) -> list[dict[str, Any]]:
     group = normalize_stock_group(stock_group)
-    seed_report = build_stock_accruals_report(
+    seed_report = _load_accrual_seed_report(
         db,
         farms=farms,
         stock_group=group,
-        month_to=_last_day_of_month(shared.last_actual_month),
+        shared=shared,
     )
 
     actual_rows: list[dict[str, Any]] = []
@@ -439,6 +467,7 @@ def build_stock_forecast_heads_index(
     farms: list[str] | None = None,
     fiscal_year: int,
     today: dt.date | None = None,
+    shared: _ForecastSharedContext | None = None,
 ) -> dict[str, dict[str, dict[str, dict[str, int]]]]:
     """Per-farm projected head counts for all valuation categories in one pass."""
     selected_farms = normalize_farms(farms)
@@ -446,12 +475,13 @@ def build_stock_forecast_heads_index(
         return {}
 
     reference_today = today or dt.date.today()
-    shared = _build_forecast_shared_context(
-        db,
-        farms=selected_farms,
-        fiscal_year=fiscal_year,
-        today=reference_today,
-    )
+    if shared is None:
+        shared = _build_forecast_shared_context(
+            db,
+            farms=selected_farms,
+            fiscal_year=fiscal_year,
+            today=reference_today,
+        )
 
     heads: dict[str, dict[str, dict[str, dict[str, int]]]] = {
         farm: {} for farm in selected_farms
@@ -475,6 +505,82 @@ def build_stock_forecast_heads_index(
     return heads
 
 
+def build_stock_forecasts_page_report(
+    db: Session,
+    *,
+    farms: list[str] | None = None,
+    stock_group: str | None = None,
+    fiscal_year: int | None = None,
+    today: dt.date | None = None,
+) -> dict[str, Any]:
+    """Stock movements and valuation forecasts in one pass (avoids duplicate work/OOM)."""
+    from app.services.stock_valuation_forecasts import (
+        build_stock_valuation_forecasts_report,
+    )
+
+    selected_farms = normalize_farms(farms)
+    group = normalize_stock_group(stock_group)
+    reference_today = today or dt.date.today()
+
+    year_options = available_fiscal_years()
+    year = fiscal_year if fiscal_year is not None else year_options[0]
+    if year not in year_options:
+        year = year_options[0]
+
+    if not selected_farms:
+        empty_stock = build_stock_forecasts_report(
+            db,
+            farms=[],
+            stock_group=group,
+            fiscal_year=year,
+            today=reference_today,
+        )
+        empty_valuation = build_stock_valuation_forecasts_report(
+            db,
+            farms=[],
+            fiscal_year=year,
+            today=reference_today,
+        )
+        return {
+            "stock_forecasts": empty_stock,
+            "valuation_forecasts": empty_valuation,
+        }
+
+    shared = _build_forecast_shared_context(
+        db,
+        farms=selected_farms,
+        fiscal_year=year,
+        today=reference_today,
+    )
+    forecast_heads = build_stock_forecast_heads_index(
+        db,
+        farms=selected_farms,
+        fiscal_year=year,
+        today=reference_today,
+        shared=shared,
+    )
+    stock_report = build_stock_forecasts_report(
+        db,
+        farms=selected_farms,
+        stock_group=group,
+        fiscal_year=year,
+        today=reference_today,
+        shared=shared,
+    )
+    valuation_report = build_stock_valuation_forecasts_report(
+        db,
+        farms=selected_farms,
+        fiscal_year=year,
+        today=reference_today,
+        shared=shared,
+        forecast_heads=forecast_heads,
+    )
+    return {
+        "stock_forecasts": stock_report,
+        "valuation_forecasts": valuation_report,
+    }
+
+
 def build_stock_forecasts_report(
     db: Session,
     *,
@@ -482,6 +588,7 @@ def build_stock_forecasts_report(
     stock_group: str | None = None,
     fiscal_year: int | None = None,
     today: dt.date | None = None,
+    shared: _ForecastSharedContext | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     group = normalize_stock_group(stock_group)
@@ -513,12 +620,13 @@ def build_stock_forecasts_report(
     if not selected_farms:
         return empty
 
-    shared = _build_forecast_shared_context(
-        db,
-        farms=selected_farms,
-        fiscal_year=year,
-        today=reference_today,
-    )
+    if shared is None:
+        shared = _build_forecast_shared_context(
+            db,
+            farms=selected_farms,
+            fiscal_year=year,
+            today=reference_today,
+        )
     combined = _build_stock_forecast_rows(
         db,
         farms=selected_farms,

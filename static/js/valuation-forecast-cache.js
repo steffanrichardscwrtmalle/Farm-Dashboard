@@ -1,16 +1,14 @@
 /**
- * Session-scoped cache + background prefetch for Stock Forecasts page APIs.
- * Lets the page render immediately when navigating from other benchmarking pages.
+ * Session-scoped cache + background prefetch for Stock Forecasts page.
+ * Uses a single combined API to avoid parallel heavy requests (OOM on small instances).
  */
 (function () {
-  const VALUATION_STORAGE_KEY = "farm-dashboard:valuation-forecast";
-  const STOCK_STORAGE_KEY = "farm-dashboard:stock-forecast";
+  const PAGE_STORAGE_KEY = "farm-dashboard:stock-forecasts-page";
   const FY_KEY = "farm-dashboard:valuation-forecast-fy";
   const DEFAULT_FARMS = ["CM", "GAD"];
   const DEFAULT_STOCK_GROUP = "cows";
 
-  let valuationInflight = null;
-  let stockInflight = null;
+  let pageInflight = null;
 
   function farms() {
     if (Array.isArray(window.__HERD_FARMS__) && window.__HERD_FARMS__.length) {
@@ -19,7 +17,7 @@
     return DEFAULT_FARMS;
   }
 
-  function stockCacheKey(fiscalYear, stockGroup, farmList) {
+  function pageCacheKey(fiscalYear, stockGroup, farmList) {
     const fy = fiscalYear != null ? String(fiscalYear) : "";
     const group = stockGroup || DEFAULT_STOCK_GROUP;
     const list = farmList && farmList.length ? farmList : farms();
@@ -52,16 +50,7 @@
     }
   }
 
-  function buildValuationUrl(fiscalYear) {
-    const params = new URLSearchParams();
-    farms().forEach(farm => params.append("farm", farm));
-    if (fiscalYear) {
-      params.set("fiscal_year", String(fiscalYear));
-    }
-    return `/api/benchmarking/stock-valuation-forecasts?${params}`;
-  }
-
-  function buildStockUrl(fiscalYear, stockGroup, farmList) {
+  function buildPageUrl(fiscalYear, stockGroup, farmList) {
     const params = new URLSearchParams();
     const list = farmList && farmList.length ? farmList : farms();
     list.forEach(farm => params.append("farm", farm));
@@ -69,81 +58,38 @@
     if (fiscalYear) {
       params.set("fiscal_year", String(fiscalYear));
     }
-    return `/api/benchmarking/stock-forecasts?${params}`;
+    return `/api/benchmarking/stock-forecasts-page?${params}`;
   }
 
-  const ValuationForecastCache = {
-    get(fiscalYear) {
-      const entry = readJson(VALUATION_STORAGE_KEY);
-      if (!entry || String(entry.fiscalYear) !== String(fiscalYear)) {
-        return null;
-      }
-      return entry.data;
-    },
+  function setPageCache(fiscalYear, stockGroup, farmList, pageData) {
+    if (!pageData) return;
+    const stock = pageData.stock_forecasts;
+    const year = fiscalYear != null ? fiscalYear : stock?.selected_fiscal_year;
+    if (year == null) return;
+    rememberFiscalYear(year);
+    const key = pageCacheKey(year, stockGroup || stock?.stock_group, farmList);
+    const store = readJson(PAGE_STORAGE_KEY) || {};
+    store[key] = pageData;
+    writeJson(PAGE_STORAGE_KEY, store);
+  }
 
-    set(fiscalYear, data) {
-      if (!data) return;
-      const year = fiscalYear != null ? fiscalYear : data.selected_fiscal_year;
-      if (year == null) return;
-      rememberFiscalYear(year);
-      writeJson(VALUATION_STORAGE_KEY, { fiscalYear: String(year), data });
-    },
+  function getPageCache(fiscalYear, stockGroup, farmList) {
+    const key = pageCacheKey(fiscalYear, stockGroup, farmList);
+    const store = readJson(PAGE_STORAGE_KEY) || {};
+    return store[key] || null;
+  }
 
-    getInflight() {
-      return valuationInflight;
-    },
-
-    prefetch(fiscalYear) {
-      const fy =
-        fiscalYear != null ? fiscalYear : sessionStorage.getItem(FY_KEY) || undefined;
-      const cached = ValuationForecastCache.get(fy || readJson(VALUATION_STORAGE_KEY)?.fiscalYear);
-      if (cached && fy != null && String(cached.selected_fiscal_year) === String(fy)) {
-        return Promise.resolve(cached);
-      }
-      if (valuationInflight) {
-        return valuationInflight;
-      }
-
-      valuationInflight = fetch(buildValuationUrl(fy))
-        .then(response => {
-          if (!response.ok) {
-            throw new Error("prefetch failed");
-          }
-          return response.json();
-        })
-        .then(data => {
-          ValuationForecastCache.set(data.selected_fiscal_year, data);
-          return data;
-        })
-        .catch(() => null)
-        .finally(() => {
-          valuationInflight = null;
-        });
-
-      return valuationInflight;
-    },
-  };
-
-  const StockForecastCache = {
+  const StockForecastsPageCache = {
     get(fiscalYear, stockGroup, farmList) {
-      const key = stockCacheKey(fiscalYear, stockGroup, farmList);
-      const store = readJson(STOCK_STORAGE_KEY) || {};
-      return store[key] || null;
+      return getPageCache(fiscalYear, stockGroup, farmList);
     },
 
-    set(fiscalYear, stockGroup, farmList, data) {
-      if (!data) return;
-      const year = fiscalYear != null ? fiscalYear : data.selected_fiscal_year;
-      if (year == null) return;
-      rememberFiscalYear(year);
-      const key = stockCacheKey(year, stockGroup || data.stock_group, farmList);
-      const store = readJson(STOCK_STORAGE_KEY) || {};
-      store[key] = data;
-      writeJson(STOCK_STORAGE_KEY, store);
+    set(fiscalYear, stockGroup, farmList, pageData) {
+      setPageCache(fiscalYear, stockGroup, farmList, pageData);
     },
 
     getInflight() {
-      return stockInflight;
+      return pageInflight;
     },
 
     prefetch(fiscalYear, stockGroup, farmList) {
@@ -151,46 +97,105 @@
         fiscalYear != null ? fiscalYear : sessionStorage.getItem(FY_KEY) || undefined;
       const group = stockGroup || DEFAULT_STOCK_GROUP;
       const list = farmList && farmList.length ? farmList : farms();
-      const cached = StockForecastCache.get(fy, group, list);
+      const cached = getPageCache(fy, group, list);
       if (
         cached
         && fy != null
-        && String(cached.selected_fiscal_year) === String(fy)
-        && cached.stock_group === group
+        && String(cached.stock_forecasts?.selected_fiscal_year) === String(fy)
+        && cached.stock_forecasts?.stock_group === group
       ) {
         return Promise.resolve(cached);
       }
-      if (stockInflight) {
-        return stockInflight;
+      if (pageInflight) {
+        return pageInflight;
       }
 
-      stockInflight = fetch(buildStockUrl(fy, group, list))
+      pageInflight = fetch(buildPageUrl(fy, group, list))
         .then(response => {
           if (!response.ok) {
             throw new Error("prefetch failed");
           }
           return response.json();
         })
-        .then(data => {
-          StockForecastCache.set(data.selected_fiscal_year, group, list, data);
-          return data;
+        .then(pageData => {
+          setPageCache(fy, group, list, pageData);
+          return pageData;
         })
         .catch(() => null)
         .finally(() => {
-          stockInflight = null;
+          pageInflight = null;
         });
 
-      return stockInflight;
+      return pageInflight;
+    },
+  };
+
+  const ValuationForecastCache = {
+    get(fiscalYear) {
+      const page = getPageCache(
+        fiscalYear,
+        DEFAULT_STOCK_GROUP,
+        farms()
+      );
+      return page?.valuation_forecasts || null;
+    },
+
+    set(fiscalYear, data) {
+      if (!data) return;
+      const page = getPageCache(fiscalYear, DEFAULT_STOCK_GROUP, farms()) || {};
+      page.valuation_forecasts = data;
+      if (!page.stock_forecasts) {
+        page.stock_forecasts = { selected_fiscal_year: fiscalYear };
+      }
+      setPageCache(fiscalYear, DEFAULT_STOCK_GROUP, farms(), page);
+    },
+
+    getInflight() {
+      const pending = pageInflight;
+      if (!pending) return null;
+      return pending.then(page => page?.valuation_forecasts || null);
+    },
+
+    prefetch(fiscalYear) {
+      return StockForecastsPageCache.prefetch(
+        fiscalYear,
+        DEFAULT_STOCK_GROUP,
+        farms()
+      ).then(page => page?.valuation_forecasts || null);
+    },
+  };
+
+  const StockForecastCache = {
+    get(fiscalYear, stockGroup, farmList) {
+      return getPageCache(fiscalYear, stockGroup, farmList)?.stock_forecasts || null;
+    },
+
+    set(fiscalYear, stockGroup, farmList, data) {
+      if (!data) return;
+      const page = getPageCache(fiscalYear, stockGroup, farmList) || {};
+      page.stock_forecasts = data;
+      setPageCache(fiscalYear, stockGroup, farmList, page);
+    },
+
+    getInflight() {
+      const pending = pageInflight;
+      if (!pending) return null;
+      return pending.then(page => page?.stock_forecasts || null);
+    },
+
+    prefetch(fiscalYear, stockGroup, farmList) {
+      return StockForecastsPageCache.prefetch(
+        fiscalYear,
+        stockGroup,
+        farmList
+      ).then(page => page?.stock_forecasts || null);
     },
   };
 
   function prefetchPage(fiscalYear) {
     const fy =
       fiscalYear != null ? fiscalYear : sessionStorage.getItem(FY_KEY) || undefined;
-    return Promise.all([
-      ValuationForecastCache.prefetch(fy),
-      StockForecastCache.prefetch(fy, DEFAULT_STOCK_GROUP, farms()),
-    ]);
+    return StockForecastsPageCache.prefetch(fy, DEFAULT_STOCK_GROUP, farms());
   }
 
   function schedulePrefetch(delayMs) {
@@ -216,12 +221,9 @@
 
   function init() {
     bindLinkPrefetch();
-    if (window.location.pathname.startsWith("/benchmarking/stock-forecasts")) {
-      return;
-    }
-    schedulePrefetch();
   }
 
+  window.StockForecastsPageCache = StockForecastsPageCache;
   window.ValuationForecastCache = ValuationForecastCache;
   window.StockForecastCache = StockForecastCache;
 

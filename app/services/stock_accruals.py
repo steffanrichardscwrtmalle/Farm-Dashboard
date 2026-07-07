@@ -529,14 +529,18 @@ def _snapshot_from_farm_month(
 
 
 def _accrual_snapshot_has_data(db: Session, anchor_ts: dt.datetime) -> bool:
-    return (
-        db.scalar(
-            select(func.count())
-            .select_from(StockAccrualSnapshot)
-            .where(StockAccrualSnapshot.anchor_import_timestamp == anchor_ts)
-        )
-        or 0
-    ) > 0
+    try:
+        return (
+            db.scalar(
+                select(func.count())
+                .select_from(StockAccrualSnapshot)
+                .where(StockAccrualSnapshot.anchor_import_timestamp == anchor_ts)
+            )
+            or 0
+        ) > 0
+    except Exception:
+        db.rollback()
+        return False
 
 
 def _rows_from_snapshots(
@@ -585,6 +589,7 @@ def rebuild_stock_accrual_snapshots(db: Session) -> dict[str, Any]:
                 bounds_max = candidate_month
 
     db.execute(delete(StockAccrualSnapshot))
+    db.commit()
     rows_written = 0
     for farm in farms:
         for stock_group in stock_groups:
@@ -609,9 +614,9 @@ def rebuild_stock_accrual_snapshots(db: Session) -> dict[str, Any]:
                     )
                 )
                 rows_written += 1
-
-    db.commit()
-    gc.collect()
+        db.commit()
+        db.expire_all()
+        gc.collect()
     return {
         "anchor_import_timestamp": anchor_ts.isoformat(timespec="seconds"),
         "rows_written": rows_written,
@@ -678,16 +683,23 @@ def build_stock_accruals_report(
     anchor_ts = _accrual_anchor_ts(db)
     from_snapshot = False
     if anchor_ts is not None and _accrual_snapshot_has_data(db, anchor_ts):
-        rows = _rows_from_snapshots(
-            db,
-            anchor_ts=anchor_ts,
-            selected_farms=selected_farms,
-            stock_group=group,
-            effective_from=effective_from,
-            effective_to=effective_to,
-        )
-        from_snapshot = True
+        try:
+            rows = _rows_from_snapshots(
+                db,
+                anchor_ts=anchor_ts,
+                selected_farms=selected_farms,
+                stock_group=group,
+                effective_from=effective_from,
+                effective_to=effective_to,
+            )
+            from_snapshot = True
+        except Exception:
+            db.rollback()
+            rows = None
     else:
+        rows = None
+
+    if rows is None:
         per_farm = [
             _compute_farm_rows(
                 db,
