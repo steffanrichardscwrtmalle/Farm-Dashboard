@@ -362,3 +362,42 @@ def test_beef_projections_exclude_jv_animals(db: Session) -> None:
     assert july["source"] == "projected"
     assert july["opening"] == 0
     assert july["closing"] == 0
+
+
+def test_projected_rows_update_when_manual_forecasts_change(db: Session) -> None:
+    from app.services.stock_accruals import rebuild_stock_accrual_snapshots
+
+    _seed_cows_baseline(db, opening=100)
+    db.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="1",
+            etag="UK1",
+            bdat=dt.date(2020, 1, 1),
+            lact=2,
+            import_timestamp=dt.datetime(2026, 6, 30, 12, 0, 0),
+        )
+    )
+    db.commit()
+    rebuild_stock_accrual_snapshots(db)
+
+    db.add(
+        BenchmarkForecastLine(
+            fiscal_year=FISCAL_YEAR,
+            forecast_month=dt.date(2026, 7, 1),
+            metric="cull",
+            farm="CM",
+            quantity=4,
+        )
+    )
+    db.commit()
+
+    july = next(r for r in _report(db)["rows"] if r["month_start"] == "2026-07-01")
+    assert july["sales"]["CULL"] == 4
+
+    line = db.query(BenchmarkForecastLine).one()
+    line.quantity = 9
+    db.commit()
+
+    july_updated = next(r for r in _report(db)["rows"] if r["month_start"] == "2026-07-01")
+    assert july_updated["sales"]["CULL"] == 9

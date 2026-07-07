@@ -25,6 +25,7 @@ from app.services.genomic_import import import_genomic_results
 from app.services.herd_birth_import import import_herd_births
 from app.services.herd_events_import import import_cow_events
 from app.services.herd_inventory_import import import_herd_inventory
+from app.services.stock_accruals import rebuild_stock_accrual_snapshots
 from app.services.stock_valuations import rebuild_stock_valuation_snapshots
 
 
@@ -131,6 +132,14 @@ def main() -> int:
         _log(
             f"Rebuilt stock valuation snapshots: {valuation_stats['rows_written']:,} rows "
             f"for anchor {valuation_stats.get('anchor_import_timestamp') or 'n/a'}"
+        )
+
+        step = "stock accruals"
+        _log("Step: rebuilding stock accrual snapshots...")
+        accrual_stats = rebuild_stock_accrual_snapshots(db)
+        _log(
+            f"Rebuilt stock accrual snapshots: {accrual_stats['rows_written']:,} rows "
+            f"for anchor {accrual_stats.get('anchor_import_timestamp') or 'n/a'}"
         )
 
         return 0

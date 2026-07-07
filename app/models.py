@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, Time, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, Time, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -381,6 +381,42 @@ class StockValuationSnapshot(Base):
     youngstock_aged_sum: Mapped[int] = mapped_column(Integer, default=0)
     youngstock_lact_sum: Mapped[float] = mapped_column(Float, default=0)
     youngstock_lact_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class StockAccrualSnapshot(Base):
+    """Pre-computed monthly stock accrual rows per farm (rebuilt on herd import).
+
+    Actual movement months only; projected stock forecast rows always use live
+    manual forecast data at read time.
+    """
+
+    __tablename__ = "stock_accrual_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "anchor_import_timestamp",
+            "farm",
+            "stock_group",
+            "month_start",
+            name="uq_stock_accrual_snapshot",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    anchor_import_timestamp: Mapped[datetime.datetime] = mapped_column(
+        DateTime, index=True
+    )
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    stock_group: Mapped[str] = mapped_column(String(16), index=True)
+    month_start: Mapped[datetime.date] = mapped_column(Date, index=True)
+    opening_count: Mapped[int] = mapped_column(Integer, default=0)
+    sales: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)
+    sales_total: Mapped[int] = mapped_column(Integer, default=0)
+    deaths: Mapped[int] = mapped_column(Integer, default=0)
+    births: Mapped[int] = mapped_column(Integer, default=0)
+    calvings: Mapped[int] = mapped_column(Integer, default=0)
+    purchases: Mapped[int] = mapped_column(Integer, default=0)
+    closing_count: Mapped[int] = mapped_column(Integer, default=0)
+    warning: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class StockPurchaseAnimal(Base):

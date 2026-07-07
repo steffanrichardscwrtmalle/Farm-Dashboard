@@ -71,3 +71,67 @@ def test_beef_fresh_not_counted_as_youngstock_calving(db: Session) -> None:
         lact_filter="fresh_heifers",
     )
     assert counts.get((2024, 8)) == 1
+
+
+def test_rebuild_accrual_snapshots_served_from_table(db: Session) -> None:
+    from app.models import HerdInventory, StockOpeningBaseline
+    from app.services.stock_accruals import (
+        build_stock_accruals_report,
+        rebuild_stock_accrual_snapshots,
+    )
+
+    anchor_ts = dt.datetime(2026, 6, 30, 12, 0, 0)
+    db.add(
+        StockOpeningBaseline(
+            farm="CM",
+            stock_group="cows",
+            month_start=dt.date(2024, 4, 1),
+            opening_count=100,
+        )
+    )
+    db.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="1",
+            etag="UK1",
+            bdat=dt.date(2020, 1, 1),
+            lact=2,
+            import_timestamp=anchor_ts,
+        )
+    )
+    db.add(
+        CowEvent(
+            farm="CM",
+            cow_id="1",
+            etag="UK1",
+            event="SOLD",
+            event_date=dt.date(2026, 3, 10),
+            lact=2,
+            remark="",
+            bdat=dt.date(2020, 1, 1),
+        )
+    )
+    db.commit()
+
+    live = build_stock_accruals_report(
+        db,
+        farms=["CM"],
+        stock_group="cows",
+        month_from=dt.date(2026, 3, 1),
+        month_to=dt.date(2026, 3, 31),
+    )
+    assert live.get("from_snapshot") is False
+    assert live["rows"]
+
+    stats = rebuild_stock_accrual_snapshots(db)
+    assert stats["rows_written"] > 0
+
+    cached = build_stock_accruals_report(
+        db,
+        farms=["CM"],
+        stock_group="cows",
+        month_from=dt.date(2026, 3, 1),
+        month_to=dt.date(2026, 3, 31),
+    )
+    assert cached.get("from_snapshot") is True
+    assert cached["rows"] == live["rows"]

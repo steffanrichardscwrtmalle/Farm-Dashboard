@@ -1,4 +1,9 @@
-"""Stock forecasts: actual accruals through last complete month plus projected movements."""
+"""Stock forecasts: actual accruals through last complete month plus projected movements.
+
+Actual months are served from stock accrual snapshots when available (rebuilt on
+herd import). Projected months always read live manual forecast lines so edits on
+the Manual Forecasts page apply immediately without a snapshot rebuild.
+"""
 
 from __future__ import annotations
 

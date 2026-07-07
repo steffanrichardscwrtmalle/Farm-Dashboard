@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import datetime as dt
+import gc
 from typing import Any
 
-from sqlalchemy import and_, extract, func, or_, select
+from sqlalchemy import and_, delete, extract, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    HERD_FARM_OPTIONS,
     STOCK_GROUP_BEEF,
     STOCK_GROUP_COWS,
     STOCK_GROUP_YOUNGSTOCK,
     CowEvent,
     HerdBirth,
+    HerdInventory,
+    StockAccrualSnapshot,
     StockOpeningBaseline,
     StockPurchaseAnimal,
 )
@@ -436,6 +440,184 @@ def _merge_farm_rows(farm_rows: list[list[dict[str, Any]]]) -> list[dict[str, An
     return sorted(by_month.values(), key=lambda row: row["month_start"])
 
 
+def _accrual_anchor_ts(db: Session) -> dt.datetime | None:
+    return db.scalar(select(func.max(HerdInventory.import_timestamp)))
+
+
+def _fiscal_year_options_for_farms(db: Session, farms: list[str]) -> list[int]:
+    return sorted(
+        {
+            int(value)
+            for value in db.scalars(
+                select(CowEvent.fiscal_year)
+                .where(CowEvent.fiscal_year.isnot(None))
+                .where(CowEvent.farm.in_(farms))
+                .distinct()
+            ).all()
+            if value is not None
+        },
+        reverse=True,
+    )
+
+
+def _accrual_bounds_for_farms(
+    db: Session, farms: list[str], baselines: list[StockOpeningBaseline]
+) -> tuple[dt.date, dt.date]:
+    bounds_min = min(_month_start(b.month_start) for b in baselines)
+    bounds_max = dt.date.today().replace(day=1)
+
+    latest_event = db.scalar(
+        select(func.max(CowEvent.event_date)).where(CowEvent.farm.in_(farms))
+    )
+    latest_birth = db.scalar(
+        select(func.max(HerdBirth.bdat)).where(HerdBirth.farm.in_(farms))
+    )
+    for candidate in (latest_event, latest_birth):
+        if candidate is not None:
+            candidate_month = _month_start(candidate)
+            if candidate_month > bounds_max:
+                bounds_max = candidate_month
+    return bounds_min, bounds_max
+
+
+def _snapshot_from_row(
+    snapshot: StockAccrualSnapshot,
+) -> dict[str, Any]:
+    sales = dict(_ZERO_SALES)
+    for reason, count in (snapshot.sales or {}).items():
+        if reason in sales:
+            sales[reason] = int(count)
+    month_start = snapshot.month_start
+    return {
+        "month_start": month_start.isoformat(),
+        "event_month": month_start.strftime("%b-%y"),
+        "opening": int(snapshot.opening_count),
+        "sales": sales,
+        "sales_total": int(snapshot.sales_total),
+        "deaths": int(snapshot.deaths),
+        "births": int(snapshot.births),
+        "calvings": int(snapshot.calvings),
+        "purchases": int(snapshot.purchases),
+        "closing": int(snapshot.closing_count),
+        "warning": bool(snapshot.warning),
+    }
+
+
+def _snapshot_from_farm_month(
+    *,
+    anchor_ts: dt.datetime,
+    farm: str,
+    stock_group: str,
+    row: dict[str, Any],
+) -> StockAccrualSnapshot:
+    sales = {reason: int(row["sales"].get(reason, 0)) for reason in SALES_TABLE_REASON_ORDER}
+    return StockAccrualSnapshot(
+        anchor_import_timestamp=anchor_ts,
+        farm=farm,
+        stock_group=stock_group,
+        month_start=dt.date.fromisoformat(row["month_start"]),
+        opening_count=int(row["opening"]),
+        sales=sales,
+        sales_total=int(row["sales_total"]),
+        deaths=int(row["deaths"]),
+        births=int(row["births"]),
+        calvings=int(row["calvings"]),
+        purchases=int(row["purchases"]),
+        closing_count=int(row["closing"]),
+        warning=bool(row["warning"]),
+    )
+
+
+def _accrual_snapshot_has_data(db: Session, anchor_ts: dt.datetime) -> bool:
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(StockAccrualSnapshot)
+            .where(StockAccrualSnapshot.anchor_import_timestamp == anchor_ts)
+        )
+        or 0
+    ) > 0
+
+
+def _rows_from_snapshots(
+    db: Session,
+    *,
+    anchor_ts: dt.datetime,
+    selected_farms: list[str],
+    stock_group: str,
+    effective_from: dt.date,
+    effective_to: dt.date,
+) -> list[dict[str, Any]]:
+    snapshots = db.scalars(
+        select(StockAccrualSnapshot)
+        .where(StockAccrualSnapshot.anchor_import_timestamp == anchor_ts)
+        .where(StockAccrualSnapshot.farm.in_(selected_farms))
+        .where(StockAccrualSnapshot.stock_group == stock_group)
+        .where(StockAccrualSnapshot.month_start >= effective_from)
+        .where(StockAccrualSnapshot.month_start <= effective_to)
+        .order_by(StockAccrualSnapshot.farm.asc(), StockAccrualSnapshot.month_start.asc())
+    ).all()
+
+    by_farm: dict[str, list[dict[str, Any]]] = {farm: [] for farm in selected_farms}
+    for snapshot in snapshots:
+        by_farm.setdefault(snapshot.farm, []).append(_snapshot_from_row(snapshot))
+
+    return _merge_farm_rows([by_farm[farm] for farm in selected_farms])
+
+
+def rebuild_stock_accrual_snapshots(db: Session) -> dict[str, Any]:
+    """Recompute and persist stock accrual rows for all farms and stock groups."""
+    anchor_ts = _accrual_anchor_ts(db)
+    if anchor_ts is None:
+        db.execute(delete(StockAccrualSnapshot))
+        db.commit()
+        return {"anchor_import_timestamp": None, "rows_written": 0}
+
+    farms = list(HERD_FARM_OPTIONS)
+    stock_groups = (STOCK_GROUP_COWS, STOCK_GROUP_YOUNGSTOCK, STOCK_GROUP_BEEF)
+    bounds_max = dt.date.today().replace(day=1)
+    latest_event = db.scalar(select(func.max(CowEvent.event_date)))
+    latest_birth = db.scalar(select(func.max(HerdBirth.bdat)))
+    for candidate in (latest_event, latest_birth):
+        if candidate is not None:
+            candidate_month = _month_start(candidate)
+            if candidate_month > bounds_max:
+                bounds_max = candidate_month
+
+    db.execute(delete(StockAccrualSnapshot))
+    rows_written = 0
+    for farm in farms:
+        for stock_group in stock_groups:
+            baseline = _get_baseline(db, farm, stock_group)
+            if baseline is None:
+                continue
+            baseline_month = _month_start(baseline.month_start)
+            farm_rows = _compute_farm_rows(
+                db,
+                farm=farm,
+                stock_group=stock_group,
+                display_from=baseline_month,
+                display_to=bounds_max,
+            )
+            for row in farm_rows:
+                db.add(
+                    _snapshot_from_farm_month(
+                        anchor_ts=anchor_ts,
+                        farm=farm,
+                        stock_group=stock_group,
+                        row=row,
+                    )
+                )
+                rows_written += 1
+
+    db.commit()
+    gc.collect()
+    return {
+        "anchor_import_timestamp": anchor_ts.isoformat(timespec="seconds"),
+        "rows_written": rows_written,
+    }
+
+
 def build_stock_accruals_report(
     db: Session,
     *,
@@ -476,34 +658,8 @@ def build_stock_accruals_report(
             "selected_fiscal_year": fiscal_year,
         }
 
-    fiscal_year_options = sorted(
-        {
-            int(value)
-            for value in db.scalars(
-                select(CowEvent.fiscal_year)
-                .where(CowEvent.fiscal_year.isnot(None))
-                .where(CowEvent.farm.in_(selected_farms))
-                .distinct()
-            ).all()
-            if value is not None
-        },
-        reverse=True,
-    )
-
-    bounds_min = min(_month_start(b.month_start) for b in baselines)
-    bounds_max = dt.date.today().replace(day=1)
-
-    latest_event = db.scalar(
-        select(func.max(CowEvent.event_date)).where(CowEvent.farm.in_(selected_farms))
-    )
-    latest_birth = db.scalar(
-        select(func.max(HerdBirth.bdat)).where(HerdBirth.farm.in_(selected_farms))
-    )
-    for candidate in (latest_event, latest_birth):
-        if candidate is not None:
-            candidate_month = _month_start(candidate)
-            if candidate_month > bounds_max:
-                bounds_max = candidate_month
+    fiscal_year_options = _fiscal_year_options_for_farms(db, selected_farms)
+    bounds_min, bounds_max = _accrual_bounds_for_farms(db, selected_farms, baselines)
 
     if fiscal_year is not None:
         slider_min, slider_max = _fiscal_year_calendar_bounds(fiscal_year)
@@ -519,17 +675,30 @@ def build_stock_accruals_report(
     if effective_from > effective_to:
         effective_from, effective_to = effective_to, effective_from
 
-    per_farm = [
-        _compute_farm_rows(
+    anchor_ts = _accrual_anchor_ts(db)
+    from_snapshot = False
+    if anchor_ts is not None and _accrual_snapshot_has_data(db, anchor_ts):
+        rows = _rows_from_snapshots(
             db,
-            farm=farm,
+            anchor_ts=anchor_ts,
+            selected_farms=selected_farms,
             stock_group=group,
-            display_from=effective_from,
-            display_to=effective_to,
+            effective_from=effective_from,
+            effective_to=effective_to,
         )
-        for farm in selected_farms
-    ]
-    rows = _merge_farm_rows(per_farm)
+        from_snapshot = True
+    else:
+        per_farm = [
+            _compute_farm_rows(
+                db,
+                farm=farm,
+                stock_group=group,
+                display_from=effective_from,
+                display_to=effective_to,
+            )
+            for farm in selected_farms
+        ]
+        rows = _merge_farm_rows(per_farm)
 
     return {
         "rows": rows,
@@ -541,4 +710,5 @@ def build_stock_accruals_report(
         },
         "fiscal_year_options": fiscal_year_options,
         "selected_fiscal_year": fiscal_year,
+        "from_snapshot": from_snapshot,
     }
