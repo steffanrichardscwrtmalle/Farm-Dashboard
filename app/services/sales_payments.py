@@ -15,6 +15,7 @@ from app.services.events_common import (
     SALES_DAIRY_REMARKS,
     SALES_MAPPED_REMARKS,
     SALES_TABLE_REASON_ORDER,
+    SALES_TB_REMARKS,
     _sales_reason_expression,
 )
 from app.services.events_common import normalize_farms
@@ -72,7 +73,7 @@ def _reason_filter_conditions(reasons: list[str] | None):
     if "OFS" in reasons:
         conditions.append(CowEvent.remark == "OFS")
     if "TB" in reasons:
-        conditions.append(CowEvent.remark == "CAR11")
+        conditions.append(CowEvent.remark.in_(list(SALES_TB_REMARKS)))
     if "Beef" in reasons:
         conditions.append(CowEvent.remark == "CAR16")
     if "Dairy" in reasons:

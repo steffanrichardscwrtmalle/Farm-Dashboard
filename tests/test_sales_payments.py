@@ -79,6 +79,40 @@ def test_list_sales_payments_includes_matched_cattle_sale_amount(db: Session) ->
     assert by_etag["UK740651329749"]["amount_gbp"] is None
 
 
+def test_list_sales_payments_filters_tb_remarks(db: Session) -> None:
+    db.add(
+        CowEvent(
+            farm="CM",
+            cow_id="3003",
+            etag="UK740651TB001",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 12),
+            dest="MARKET",
+            remark="TB",
+            gndr="F",
+            bdat=dt.date(2020, 1, 1),
+        )
+    )
+    db.add(
+        CowEvent(
+            farm="CM",
+            cow_id="3004",
+            etag="UK740651TB002",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 13),
+            dest="MARKET",
+            remark="CAR11",
+            gndr="F",
+            bdat=dt.date(2020, 2, 1),
+        )
+    )
+    db.commit()
+
+    result = list_sales_payments(db, farms=["CM"], reasons=["TB"])
+    etags = {row["etag"] for row in result["rows"]}
+    assert etags == {"UK740651TB001", "UK740651TB002"}
+
+
 def test_list_sales_payments_has_amount_filter(db: Session) -> None:
     result = list_sales_payments(db, farms=["CM"], has_amount=True)
     assert result["total"] == 1
