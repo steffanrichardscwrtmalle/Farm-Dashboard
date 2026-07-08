@@ -301,6 +301,10 @@ def _set_mapping_sources(
     ).all()
     for row in existing:
         db.delete(row)
+    # Flush the deletes before re-inserting so replacing a source with the same
+    # key does not trip the (mapping_id, source_key) unique constraint (the unit
+    # of work would otherwise run the INSERTs before the DELETEs).
+    db.flush()
     for key in normalized:
         db.add(FinancialForecastMappingSource(mapping_id=mapping_id, source_key=key))
     return normalized

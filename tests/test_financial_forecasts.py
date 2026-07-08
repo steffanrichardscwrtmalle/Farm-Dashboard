@@ -68,6 +68,35 @@ def test_validate_data_source_keys_rejects_unknown() -> None:
         validate_data_source_keys(["not.a.real.source"])
 
 
+def test_update_mapping_keeps_same_data_source(db: Session) -> None:
+    """Re-saving a mapping with an unchanged source must not hit the unique constraint."""
+    add_financial_option(db, "heading", "Test Heading")
+    add_financial_option(db, "group", "Test Group")
+    mapping = create_financial_mapping(
+        db,
+        heading="Test Heading",
+        item_type="Profit & Loss",
+        band="Sales",
+        group="Test Group",
+        data_sources=["milk_sales.monthly_litres"],
+    )
+    update_financial_mapping(
+        db,
+        mapping.id,
+        heading="Test Heading",
+        item_type="Profit & Loss",
+        band="Sales",
+        group="Test Group",
+        data_sources=["milk_sales.monthly_litres", "milk_sales.monthly_revenue"],
+    )
+    rows = list_financial_mappings(db)
+    match = next(row for row in rows if row["id"] == mapping.id)
+    assert match["data_sources"] == [
+        "milk_sales.monthly_litres",
+        "milk_sales.monthly_revenue",
+    ]
+
+
 def test_create_update_delete_mapping(db: Session) -> None:
     add_financial_option(db, "heading", "Test Heading")
     add_financial_option(db, "group", "Test Group")
