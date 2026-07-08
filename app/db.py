@@ -66,6 +66,7 @@ def _migrate_financial_forecasts_schema() -> None:
     from app.models import (
         FinancialForecastLine,
         FinancialForecastMapping,
+        FinancialForecastMappingSource,
         FinancialForecastOption,
     )
 
@@ -79,14 +80,24 @@ def _migrate_financial_forecasts_schema() -> None:
             needs_rebuild = True
 
     if needs_rebuild:
+        cascade = "" if DATABASE_URL.startswith("sqlite") else " CASCADE"
         with engine.begin() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS financial_forecast_lines"))
-            conn.execute(text("DROP TABLE IF EXISTS financial_forecast_mappings"))
-            conn.execute(text("DROP TABLE IF EXISTS financial_forecast_options"))
+            for table in (
+                "financial_forecast_mapping_sources",
+                "financial_forecast_lines",
+                "financial_forecast_mappings",
+                "financial_forecast_options",
+            ):
+                conn.execute(text(f"DROP TABLE IF EXISTS {table}{cascade}"))
         FinancialForecastOption.__table__.create(bind=engine, checkfirst=True)
         FinancialForecastMapping.__table__.create(bind=engine, checkfirst=True)
+        FinancialForecastMappingSource.__table__.create(bind=engine, checkfirst=True)
         FinancialForecastLine.__table__.create(bind=engine, checkfirst=True)
         return
+
+    # Ensure the data-source link table exists on databases created before it was
+    # added (it maps each heading mapping to one or more benchmarking sources).
+    FinancialForecastMappingSource.__table__.create(bind=engine, checkfirst=True)
 
     if "financial_forecast_lines" not in tables:
         return

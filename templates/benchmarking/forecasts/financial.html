@@ -130,6 +130,14 @@
       margin: 0;
       flex-shrink: 0;
     }
+    .data-source-option.is-disabled {
+      color: var(--muted);
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+    .data-source-option.is-disabled:hover {
+      background: transparent;
+    }
     .forecasts-page {
       display: flex;
       flex-direction: column;
@@ -599,6 +607,14 @@
       el.textContent = text;
       el.className = ok ? 'message ok' : 'message err';
     }
+    async function readResponse(res) {
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch (_) {
+        return { detail: text || `HTTP ${res.status} ${res.statusText}` };
+      }
+    }
     function buildSelectOptions(options, selected, placeholder) {
       const unique = [...new Set(options.filter(Boolean))].sort((a, b) =>
         a.localeCompare(b, undefined, { sensitivity: 'base' })
@@ -690,6 +706,31 @@
       updateDataSourceTrigger(dropdown);
     }
 
+    function refreshDataSourceDisabledStates() {
+      const dropdowns = [...document.querySelectorAll('.data-source-dropdown')];
+      const owner = new Map();
+      for (const dd of dropdowns) {
+        for (const cb of dd.querySelectorAll('input[type=checkbox]:checked')) {
+          if (!owner.has(cb.value)) owner.set(cb.value, dd);
+        }
+      }
+      for (const dd of dropdowns) {
+        for (const cb of dd.querySelectorAll('input[type=checkbox]')) {
+          const ownerDd = owner.get(cb.value);
+          const takenElsewhere = ownerDd && ownerDd !== dd && !cb.checked;
+          cb.disabled = !!takenElsewhere;
+          const label = cb.closest('.data-source-option');
+          if (!label) continue;
+          label.classList.toggle('is-disabled', cb.disabled);
+          if (cb.disabled) {
+            label.title = 'Already used by another mapping';
+          } else {
+            label.removeAttribute('title');
+          }
+        }
+      }
+    }
+
     function renderAddDataSourceDropdown() {
       const container = document.getElementById('add-data-sources');
       if (!container) return;
@@ -699,6 +740,7 @@
       </button>
       <div class="data-source-panel" hidden>${buildDataSourcePanelHtml([])}</div>`;
       initDataSourceDropdown(container);
+      refreshDataSourceDisabledStates();
     }
 
     function bindDataSourceDropdowns() {
@@ -723,6 +765,7 @@
       document.addEventListener('change', (e) => {
         if (e.target.matches('.data-source-dropdown input[type=checkbox]')) {
           updateDataSourceTrigger(e.target.closest('.data-source-dropdown'));
+          refreshDataSourceDisabledStates();
         }
       });
 
@@ -830,6 +873,7 @@
         </tr>
       `).join('');
       tbody.querySelectorAll('.data-source-dropdown').forEach(initDataSourceDropdown);
+      refreshDataSourceDisabledStates();
     }
 
     async function loadMappings() {
@@ -1257,44 +1301,56 @@
           group: document.getElementById('add-group').value,
           data_sources: selectedDataSources(document.getElementById('add-data-sources')),
         };
-        const res = await fetch('/api/benchmarking/financial-forecasts/mappings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const data = await res.json();
-        if (!res.ok) { showMsg('mapping-message', data.detail || 'Failed', false); return; }
-        showMsg('mapping-message', 'Mapping added.', true);
-        const addDropdown = document.getElementById('add-data-sources');
-        addDropdown.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = false; });
-        updateDataSourceTrigger(addDropdown);
-        await loadMappings();
-        forecastData = null;
-      });
-
-      document.getElementById('save-mappings-btn').addEventListener('click', async () => {
-        const rows = [...document.querySelectorAll('#mappings-body tr[data-id]')];
-        for (const row of rows) {
-          const id = row.dataset.id;
-          const body = {};
-          row.querySelectorAll('[data-field]').forEach(el => {
-            if (el.dataset.field === 'data_sources') {
-              body.data_sources = selectedDataSources(el);
-            } else {
-              body[el.dataset.field] = el.value;
-            }
-          });
-          const res = await fetch(`/api/benchmarking/financial-forecasts/mappings/${id}`, {
-            method: 'PUT',
+        try {
+          const res = await fetch('/api/benchmarking/financial-forecasts/mappings', {
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           });
-          const data = await res.json();
-          if (!res.ok) { showMsg('mapping-message', data.detail || 'Save failed', false); return; }
+          const data = await readResponse(res);
+          if (!res.ok) { showMsg('mapping-message', data.detail || 'Failed', false); return; }
+          showMsg('mapping-message', 'Mapping added.', true);
+          const addDropdown = document.getElementById('add-data-sources');
+          addDropdown.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = false; });
+          updateDataSourceTrigger(addDropdown);
+          await loadMappings();
+          forecastData = null;
+        } catch (err) {
+          showMsg('mapping-message', `Could not add mapping: ${err.message}`, false);
         }
-        showMsg('mapping-message', 'All mappings saved.', true);
-        await loadMappings();
-        forecastData = null;
+      });
+
+      document.getElementById('save-mappings-btn').addEventListener('click', async () => {
+        const btn = document.getElementById('save-mappings-btn');
+        btn.disabled = true;
+        try {
+          const rows = [...document.querySelectorAll('#mappings-body tr[data-id]')];
+          for (const row of rows) {
+            const id = row.dataset.id;
+            const body = {};
+            row.querySelectorAll('[data-field]').forEach(el => {
+              if (el.dataset.field === 'data_sources') {
+                body.data_sources = selectedDataSources(el);
+              } else {
+                body[el.dataset.field] = el.value;
+              }
+            });
+            const res = await fetch(`/api/benchmarking/financial-forecasts/mappings/${id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            const data = await readResponse(res);
+            if (!res.ok) { showMsg('mapping-message', data.detail || 'Save failed', false); return; }
+          }
+          showMsg('mapping-message', 'All mappings saved.', true);
+          await loadMappings();
+          forecastData = null;
+        } catch (err) {
+          showMsg('mapping-message', `Could not save mappings: ${err.message}`, false);
+        } finally {
+          btn.disabled = false;
+        }
       });
 
       document.getElementById('mappings-body').addEventListener('click', async (e) => {

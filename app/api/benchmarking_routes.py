@@ -614,6 +614,9 @@ def api_create_financial_forecast_mapping(
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - surface DB/schema errors as JSON
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Could not save mapping: {exc}") from exc
 
 
 @router.put("/financial-forecasts/mappings/{mapping_id}")
@@ -645,6 +648,9 @@ def api_update_financial_forecast_mapping(
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - surface DB/schema errors as JSON
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Could not save mapping: {exc}") from exc
 
 
 @router.delete("/financial-forecasts/mappings/{mapping_id}")
