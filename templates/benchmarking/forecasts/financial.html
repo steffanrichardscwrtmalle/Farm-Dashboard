@@ -275,13 +275,15 @@
     }
     .grid-table .total-col,
     .grid-table .ppl-col {
-      min-width: 4.5rem;
-      max-width: 5.5rem;
+      min-width: 5rem;
+      max-width: 5rem;
+      width: 5rem;
       text-align: right;
       font-weight: 600;
       white-space: nowrap;
       padding: 0.06rem 0.28rem;
       background: #f1f5f9;
+      box-sizing: border-box;
     }
     .grid-table thead .total-col,
     .grid-table thead .ppl-col {
@@ -484,10 +486,16 @@
       z-index: 3;
       text-align: left;
       font-weight: 600;
-      min-width: 12rem;
+      /* Width set in JS to match Item type+Band+Group+Heading sticky cols above */
+      width: 14.7rem;
+      min-width: 14.7rem;
+      max-width: 14.7rem;
+      box-sizing: border-box;
       border-right: 2px solid #94a3b8;
       background: #f8fafc;
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .summary-table thead .summary-label {
       z-index: 5;
@@ -497,16 +505,20 @@
     .summary-table .month-col {
       min-width: 5rem;
       max-width: 5rem;
+      width: 5rem;
       text-align: right;
+      box-sizing: border-box;
     }
     .summary-table .total-col,
     .summary-table .ppl-col {
-      min-width: 4.5rem;
-      max-width: 5.5rem;
+      min-width: 5rem;
+      max-width: 5rem;
+      width: 5rem;
       text-align: right;
       font-weight: 600;
       white-space: nowrap;
       background: #e8eef5;
+      box-sizing: border-box;
     }
     .summary-table thead .total-col,
     .summary-table thead .ppl-col {
@@ -1123,6 +1135,13 @@
         });
         left += w;
       });
+
+      // Match summary label column to the combined sticky label width so months line up.
+      document.querySelectorAll('#summary-table .summary-label').forEach(el => {
+        el.style.width = `${left}px`;
+        el.style.minWidth = `${left}px`;
+        el.style.maxWidth = `${left}px`;
+      });
     }
 
     function updateRowTotals() {
@@ -1242,6 +1261,8 @@
       requestAnimationFrame(() => {
         updateStickyLabelOffsets();
         renderProfitSummary();
+        // Re-apply after summary rows exist so label width matches sticky cols.
+        updateStickyLabelOffsets();
         bindSummaryScrollSync();
       });
     }
@@ -1623,6 +1644,7 @@
         scheduleAutosave();
         updateRowTotals();
         renderProfitSummary();
+        updateStickyLabelOffsets();
       });
     }
 

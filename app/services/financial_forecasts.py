@@ -101,7 +101,18 @@ DEFAULT_FINANCIAL_MAPPINGS: tuple[tuple[str, str, str, str], ...] = (
     ("Profit & Loss", "Valuation Change", "Valuation Change", "Forage Valuation Change"),
 )
 
-ITEM_TYPE_ORDER: tuple[str, ...] = ("Cash", "Profit & Loss")
+# Display order for Monthly Budget grid (and band picker).
+ITEM_TYPE_ORDER: tuple[str, ...] = ("Data", "Profit & Loss", "Cash")
+
+# Within Profit & Loss, bands appear in this order (then any other bands A–Z).
+BAND_ORDER: tuple[str, ...] = (
+    "Sales",
+    "Valuation Change",
+    "Purchases",
+    "Overhead Expenses",
+    "Overheads",
+    "Capital Depreciation",
+)
 
 
 def _normalize(value: str) -> str:
@@ -463,9 +474,18 @@ def list_band_definitions(db: Session) -> list[dict[str, Any]]:
             }
         )
 
-    def sort_key(item: dict[str, Any]) -> tuple[int, str]:
-        item_type_rank = ITEM_TYPE_ORDER.index(item["item_type"]) if item["item_type"] in ITEM_TYPE_ORDER else 99
-        return item_type_rank, item["band"]
+    def sort_key(item: dict[str, Any]) -> tuple[int, int, str]:
+        item_type_rank = (
+            ITEM_TYPE_ORDER.index(item["item_type"])
+            if item["item_type"] in ITEM_TYPE_ORDER
+            else 99
+        )
+        band_rank = (
+            BAND_ORDER.index(item["band"])
+            if item["band"] in BAND_ORDER
+            else 99
+        )
+        return item_type_rank, band_rank, item["band"]
 
     return sorted(bands.values(), key=sort_key)
 
