@@ -844,6 +844,104 @@ class BenchmarkForecastLine(Base):
     )
 
 
+FINANCIAL_OPTION_ITEM_TYPE = "item_type"
+FINANCIAL_OPTION_BAND = "band"
+FINANCIAL_OPTION_GROUP = "group"
+FINANCIAL_OPTION_HEADING = "heading"
+FINANCIAL_OPTION_TYPES: tuple[str, ...] = (
+    FINANCIAL_OPTION_ITEM_TYPE,
+    FINANCIAL_OPTION_BAND,
+    FINANCIAL_OPTION_GROUP,
+    FINANCIAL_OPTION_HEADING,
+)
+
+
+class FinancialForecastOption(Base):
+    """Allowed values for financial forecast category hierarchy."""
+
+    __tablename__ = "financial_forecast_options"
+    __table_args__ = (
+        UniqueConstraint("option_type", "value", name="uq_financial_forecast_option_type_value"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    option_type: Mapped[str] = mapped_column(String(32), index=True)
+    value: Mapped[str] = mapped_column(String(255))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class FinancialForecastMapping(Base):
+    """Maps each heading to its item type, band and group."""
+
+    __tablename__ = "financial_forecast_mappings"
+    __table_args__ = (
+        UniqueConstraint(
+            "item_type",
+            "band",
+            "group",
+            "heading",
+            name="uq_financial_forecast_mapping",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    heading: Mapped[str] = mapped_column(String(255), index=True)
+    item_type: Mapped[str] = mapped_column(String(64))
+    band: Mapped[str] = mapped_column(String(128))
+    group: Mapped[str] = mapped_column(String(128))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class FinancialForecastMappingSource(Base):
+    """Links a financial heading mapping to one or more benchmarking data sources."""
+
+    __tablename__ = "financial_forecast_mapping_sources"
+    __table_args__ = (
+        UniqueConstraint(
+            "mapping_id",
+            "source_key",
+            name="uq_financial_forecast_mapping_source",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    mapping_id: Mapped[int] = mapped_column(
+        ForeignKey("financial_forecast_mappings.id", ondelete="CASCADE"),
+        index=True,
+    )
+    source_key: Mapped[str] = mapped_column(String(64), index=True)
+
+
+class FinancialForecastLine(Base):
+    """Manual monthly financial forecast amounts (per farm, per mapping)."""
+
+    __tablename__ = "financial_forecast_lines"
+    __table_args__ = (
+        UniqueConstraint(
+            "fiscal_year",
+            "forecast_month",
+            "mapping_id",
+            "farm",
+            name="uq_financial_forecast_line",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fiscal_year: Mapped[int] = mapped_column(Integer, index=True)
+    forecast_month: Mapped[datetime.date] = mapped_column(Date, index=True)
+    mapping_id: Mapped[int] = mapped_column(
+        ForeignKey("financial_forecast_mappings.id"), index=True
+    )
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+
 RATION_INGREDIENT_CATEGORIES: tuple[str, ...] = ("concentrate", "forage", "straw")
 
 

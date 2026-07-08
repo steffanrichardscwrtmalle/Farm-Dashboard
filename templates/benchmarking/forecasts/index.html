@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Budgets{% endblock %}
+
+{% block extra_styles %}
+    .forecasts-hub {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }
+    .forecasts-card {
+      display: block;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .forecasts-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+    .forecasts-card h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.05rem;
+    }
+    .forecasts-card p {
+      margin: 0;
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .forecasts-card.livestock { border-top: 4px solid #2563eb; }
+    .forecasts-card.financial { border-top: 4px solid #ea580c; }
+{% endblock %}
+
+{% block content %}
+  <p class="muted" style="margin-top:0;">
+    Enter monthly budget figures manually — livestock movements and prices, or other farm costs and income.
+  </p>
+
+  <div class="forecasts-hub">
+    <a href="/benchmarking/forecasts/livestock" class="forecasts-card livestock">
+      <h2>Livestock Forecasts</h2>
+      <p>Cull cows, sales, purchases, deaths, milk price and yield — by farm and month.</p>
+    </a>
+    <a href="/benchmarking/forecasts/financial" class="forecasts-card financial">
+      <h2>Financial Forecasts</h2>
+      <p>Overheads, purchases, sales, cash flow and other costs — mapped by item type, band and group.</p>
+    </a>
+  </div>
+{% endblock %}

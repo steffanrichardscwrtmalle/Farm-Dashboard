@@ -56,7 +56,55 @@ def init_db() -> None:
     _migrate_feedlync_auth()
     _migrate_hr_schema()
     _migrate_benchmarking_schema()
+    _migrate_financial_forecasts_schema()
     _migrate_rations_schema()
+    _seed_financial_forecasts()
+
+
+def _migrate_financial_forecasts_schema() -> None:
+    """financial_forecast_* tables are created via metadata; migrate legacy schemas."""
+    from app.models import (
+        FinancialForecastLine,
+        FinancialForecastMapping,
+        FinancialForecastOption,
+    )
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+
+    needs_rebuild = False
+    if "financial_forecast_lines" in tables:
+        columns = {col["name"] for col in inspector.get_columns("financial_forecast_lines")}
+        if "mapping_id" not in columns:
+            needs_rebuild = True
+
+    if needs_rebuild:
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS financial_forecast_lines"))
+            conn.execute(text("DROP TABLE IF EXISTS financial_forecast_mappings"))
+            conn.execute(text("DROP TABLE IF EXISTS financial_forecast_options"))
+        FinancialForecastOption.__table__.create(bind=engine, checkfirst=True)
+        FinancialForecastMapping.__table__.create(bind=engine, checkfirst=True)
+        FinancialForecastLine.__table__.create(bind=engine, checkfirst=True)
+        return
+
+    if "financial_forecast_lines" not in tables:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_financial_forecast_fy_mapping "
+                "ON financial_forecast_lines (fiscal_year, mapping_id)"
+            )
+        )
+
+
+def _seed_financial_forecasts() -> None:
+    from app.services.financial_forecasts import seed_financial_forecasts_if_empty
+
+    with SessionLocal() as db:
+        seed_financial_forecasts_if_empty(db)
 
 
 def _migrate_benchmarking_schema() -> None:

@@ -16,6 +16,7 @@ from app.models import (
 )
 from app.services.milk_sales_forecasts import (
     _compute_milk_litres,
+    _compute_milk_revenue,
     _fiscal_year_days,
     build_milk_sales_forecasts_report,
 )
@@ -47,6 +48,11 @@ def test_compute_milk_litres_formula() -> None:
     expected_daily = 100.0 * (8000.0 / fy_days)
     assert daily == round(expected_daily)
     assert monthly == round(expected_daily * 30)
+
+
+def test_compute_milk_revenue_from_litres_and_ppl() -> None:
+    assert _compute_milk_revenue(100_000, 40.0) == 40_000
+    assert _compute_milk_revenue(None, 40.0) is None
 
 
 def test_compute_milk_litres_null_without_yield() -> None:
@@ -102,6 +108,15 @@ def test_build_milk_sales_forecasts_report_totals(db: Session) -> None:
                 quantity=8000.0,
             )
         )
+        db.add(
+            BenchmarkForecastLine(
+                fiscal_year=FISCAL_YEAR,
+                forecast_month=month_start,
+                metric="milk_price",
+                farm="CM",
+                unit_price=40.0,
+            )
+        )
     db.commit()
 
     report = build_milk_sales_forecasts_report(
@@ -116,6 +131,7 @@ def test_build_milk_sales_forecasts_report_totals(db: Session) -> None:
     assert july["source"] == "projected"
     assert july["farms"]["CM"]["monthly_litres"] is not None
     assert july["farms"]["CM"]["daily_litres"] is not None
+    assert july["farms"]["CM"]["monthly_revenue"] is not None
 
     cm_total = report["totals"]["CM"]["monthly_litres"]
     cm_avg_daily = report["totals"]["CM"]["daily_litres"]

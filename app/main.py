@@ -1167,20 +1167,62 @@ def cattle_sales_page(request: Request):
 
 
 @app.get("/benchmarking/forecasts", response_class=HTMLResponse)
-def benchmarking_forecasts_page(request: Request):
+def benchmarking_forecasts_hub_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/forecasts/index.html",
+        _template_ctx(
+            request,
+            page_heading="Budgets",
+            **_benchmarking_context("Budgets", "forecasts", None),
+        ),
+    )
+
+
+@app.get("/benchmarking/forecasts/livestock", response_class=HTMLResponse)
+def benchmarking_livestock_forecasts_page(request: Request):
     if denied := _page_guard(request, PAGE_BENCHMARKING):
         return denied
     from app.services.benchmarking import available_fiscal_years
 
     return templates.TemplateResponse(
         request,
-        "benchmarking/forecasts.html",
+        "benchmarking/forecasts/livestock.html",
         _template_ctx(
             request,
-            page_heading="Manual Forecasts",
+            page_heading="Livestock Forecasts",
             can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
             fiscal_year_options=available_fiscal_years(),
-            **_benchmarking_context("Manual Forecasts", "forecasts", None),
+            **_benchmarking_context(
+                "Livestock Forecasts",
+                "forecasts-livestock",
+                "Livestock Forecasts",
+            ),
+        ),
+    )
+
+
+@app.get("/benchmarking/forecasts/financial", response_class=HTMLResponse)
+def benchmarking_financial_forecasts_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    from app.services.benchmarking import available_fiscal_years
+
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/forecasts/financial.html",
+        _template_ctx(
+            request,
+            page_heading="Financial Forecasts",
+            can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
+            fiscal_year_options=available_fiscal_years(),
+            **_benchmarking_context(
+                "Financial Forecasts",
+                "forecasts-financial",
+                "Financial Forecasts",
+            ),
         ),
     )
 

@@ -276,6 +276,11 @@
       return Math.round(value).toLocaleString("en-GB");
     }
 
+    function formatRevenue(value) {
+      if (value == null) return "—";
+      return "£" + Math.round(value).toLocaleString("en-GB");
+    }
+
     function formatMonthLabelFromIso(iso) {
       if (!iso) return "—";
       const [y, m] = iso.split("-").map(Number);
@@ -295,22 +300,32 @@
 
     function renderYieldNote(data) {
       const note = document.getElementById("yield-note");
-      const missing = data.missing_yield_months || [];
-      if (!missing.length) {
+      const missingYield = data.missing_yield_months || [];
+      const missingPrice = data.missing_price_months || [];
+      const parts = [];
+      if (missingYield.length) {
+        parts.push(`Average yield not entered for: ${missingYield.join(", ")}.`);
+      }
+      if (missingPrice.length) {
+        parts.push(`Milk price (ppl) not entered for: ${missingPrice.join(", ")}.`);
+      }
+      if (!parts.length) {
         note.style.display = "none";
         note.textContent = "";
         return;
       }
       note.style.display = "";
-      note.textContent = `Average yield not entered for: ${missing.join(", ")}.`;
+      note.textContent = parts.join(" ");
     }
 
     function combineCells(cells) {
       const monthly = cells.map(cell => cell?.monthly_litres).filter(value => value != null);
       const daily = cells.map(cell => cell?.daily_litres).filter(value => value != null);
+      const revenue = cells.map(cell => cell?.monthly_revenue).filter(value => value != null);
       return {
         monthly_litres: monthly.length ? monthly.reduce((sum, value) => sum + value, 0) : null,
         daily_litres: daily.length ? daily.reduce((sum, value) => sum + value, 0) : null,
+        monthly_revenue: revenue.length ? revenue.reduce((sum, value) => sum + value, 0) : null,
       };
     }
 
@@ -345,7 +360,7 @@
       const columns = visibleColumns();
       const groupHeaders = columns.map((column, index) => {
         const divider = index === 0 ? " farm-divider" : " farm-divider";
-        return `<th colspan="2" class="${groupClass(column)}${divider}">${column}</th>`;
+        return `<th colspan="3" class="${groupClass(column)}${divider}">${column}</th>`;
       }).join("");
       const subheads = columns.map((column, columnIndex) => {
         const colClass = columnClass(column);
@@ -353,6 +368,7 @@
         return `
           <th class="value-cell ${colClass}${divider}">Monthly Litres</th>
           <th class="value-cell ${colClass}">Daily Litres</th>
+          <th class="value-cell ${colClass}">Monthly £</th>
         `;
       }).join("");
       document.getElementById("milk-table-head").innerHTML = `
@@ -370,6 +386,7 @@
       return `
         <td class="value-cell ${colClass}${divider}">${formatLitres(farmData.monthly_litres)}</td>
         <td class="value-cell ${colClass}">${formatLitres(farmData.daily_litres)}</td>
+        <td class="value-cell ${colClass}">${formatRevenue(farmData.monthly_revenue)}</td>
       `;
     }
 

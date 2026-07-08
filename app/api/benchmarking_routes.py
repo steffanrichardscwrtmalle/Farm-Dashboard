@@ -37,6 +37,20 @@ from app.services.benchmarking_rations import (
     update_ingredient,
 )
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
+from app.services.financial_data_sources import list_financial_data_sources
+from app.services.financial_forecast_autofill import fill_financial_forecasts_from_data_sources
+from app.services.financial_forecasts import (
+    add_financial_option,
+    create_financial_mapping,
+    delete_financial_mapping,
+    delete_financial_option,
+    list_band_definitions,
+    list_financial_forecasts,
+    list_financial_mappings,
+    list_financial_options,
+    save_financial_forecasts,
+    update_financial_mapping,
+)
 from app.services.milk_sales_forecasts import build_milk_sales_forecasts_report
 from app.services.stock_sales_purchases_forecasts import (
     build_stock_sales_purchases_forecasts_report,
@@ -492,3 +506,227 @@ def api_stock_sales_purchases_forecasts(
             detail=f"fiscal_year must be one of {years}",
         )
     return build_stock_sales_purchases_forecasts_report(db, fiscal_year=year)
+
+
+class FinancialOptionBody(BaseModel):
+    option_type: str
+    value: str = Field(min_length=1, max_length=255)
+
+
+class FinancialMappingBody(BaseModel):
+    heading: str = Field(min_length=1, max_length=255)
+    item_type: str = Field(min_length=1, max_length=64)
+    band: str = Field(min_length=1, max_length=128)
+    group: str = Field(min_length=1, max_length=128)
+    data_sources: list[str] = Field(default_factory=list)
+
+
+class FinancialForecastRowBody(BaseModel):
+    mapping_id: int
+    forecast_month: dt.date
+    CM: float | None = None
+    GAD: float | None = None
+
+
+class SaveFinancialForecastsBody(BaseModel):
+    fiscal_year: int
+    band_id: str
+    rows: list[FinancialForecastRowBody] = Field(default_factory=list)
+
+
+class FillFinancialForecastsBody(BaseModel):
+    fiscal_year: int
+    farms: list[str] = Field(default_factory=list)
+    fill_mode: str = "replace"
+
+
+@router.get("/financial-forecasts/options")
+def api_financial_forecast_options(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    return list_financial_options(db)
+
+
+@router.post("/financial-forecasts/options")
+def api_add_financial_forecast_option(
+    body: FinancialOptionBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        option = add_financial_option(db, body.option_type, body.value)
+        return {"id": option.id, "option_type": option.option_type, "value": option.value}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/financial-forecasts/options/{option_id}")
+def api_delete_financial_forecast_option(
+    option_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        delete_financial_option(db, option_id)
+        return {"deleted": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/financial-forecasts/data-sources")
+def api_financial_forecast_data_sources(
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    return list_financial_data_sources()
+
+
+@router.get("/financial-forecasts/mappings")
+def api_financial_forecast_mappings(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    return {"items": list_financial_mappings(db)}
+
+
+@router.post("/financial-forecasts/mappings")
+def api_create_financial_forecast_mapping(
+    body: FinancialMappingBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        mapping = create_financial_mapping(
+            db,
+            heading=body.heading,
+            item_type=body.item_type,
+            band=body.band,
+            group=body.group,
+            data_sources=body.data_sources,
+        )
+        return {
+            "id": mapping.id,
+            "heading": mapping.heading,
+            "item_type": mapping.item_type,
+            "band": mapping.band,
+            "group": mapping.group,
+            "data_sources": body.data_sources,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/financial-forecasts/mappings/{mapping_id}")
+def api_update_financial_forecast_mapping(
+    mapping_id: int,
+    body: FinancialMappingBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        mapping = update_financial_mapping(
+            db,
+            mapping_id,
+            heading=body.heading,
+            item_type=body.item_type,
+            band=body.band,
+            group=body.group,
+            data_sources=body.data_sources,
+        )
+        sources = list_financial_mappings(db)
+        row = next((item for item in sources if item["id"] == mapping.id), None)
+        return {
+            "id": mapping.id,
+            "heading": mapping.heading,
+            "item_type": mapping.item_type,
+            "band": mapping.band,
+            "group": mapping.group,
+            "data_sources": row["data_sources"] if row else body.data_sources,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/financial-forecasts/mappings/{mapping_id}")
+def api_delete_financial_forecast_mapping(
+    mapping_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        delete_financial_mapping(db, mapping_id)
+        return {"deleted": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/financial-forecasts/bands")
+def api_financial_forecast_bands(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    return {"bands": list_band_definitions(db)}
+
+
+@router.get("/financial-forecasts")
+def api_list_financial_forecasts(
+    fiscal_year: int | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    years = available_fiscal_years()
+    year = fiscal_year if fiscal_year is not None else years[0]
+    if year not in years:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fiscal_year must be one of {years}",
+        )
+    return list_financial_forecasts(db, fiscal_year=year)
+
+
+@router.post("/financial-forecasts/fill-from-sources")
+def api_fill_financial_forecasts_from_sources(
+    body: FillFinancialForecastsBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    years = available_fiscal_years()
+    if body.fiscal_year not in years:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fiscal_year must be one of {years}",
+        )
+    try:
+        return fill_financial_forecasts_from_data_sources(
+            db,
+            fiscal_year=body.fiscal_year,
+            farms=body.farms or None,
+            fill_mode=body.fill_mode,
+            user_id=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/financial-forecasts")
+def api_save_financial_forecasts(
+    body: SaveFinancialForecastsBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    years = available_fiscal_years()
+    if body.fiscal_year not in years:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fiscal_year must be one of {years}",
+        )
+    try:
+        return save_financial_forecasts(
+            db,
+            fiscal_year=body.fiscal_year,
+            band_id=body.band_id,
+            rows=[row.model_dump() for row in body.rows],
+            user_id=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
