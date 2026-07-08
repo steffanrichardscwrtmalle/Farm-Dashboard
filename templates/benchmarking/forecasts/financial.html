@@ -211,6 +211,7 @@
       border-collapse: separate;
       border-spacing: 0;
       font-size: 0.72rem;
+      width: max-content;
       min-width: max-content;
     }
     .grid-table th,
@@ -245,33 +246,53 @@
       background: #1e3a5f;
       color: #fff;
     }
-    .grid-table .col-item-type {
-      left: 0;
-      min-width: 4.75rem;
-      max-width: 4.75rem;
-    }
-    .grid-table .col-band {
-      left: 4.75rem;
-      min-width: 6.75rem;
-      max-width: 6.75rem;
-    }
-    .grid-table .col-group {
-      left: 11.5rem;
-      min-width: 6.75rem;
-      max-width: 6.75rem;
-    }
+    /* Compact label columns — sized to content via JS after render */
+    .grid-table .col-item-type,
+    .grid-table .col-band,
+    .grid-table .col-group,
     .grid-table .col-heading {
-      left: 18.25rem;
-      min-width: 8.25rem;
+      padding-left: 0.28rem;
+      padding-right: 0.28rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .grid-table .col-item-type { left: 0; width: 4.2rem; min-width: 4.2rem; max-width: 4.2rem; }
+    .grid-table .col-band { left: 4.2rem; width: 5.25rem; min-width: 5.25rem; max-width: 5.25rem; }
+    .grid-table .col-group { left: 9.45rem; width: 5.25rem; min-width: 5.25rem; max-width: 5.25rem; }
+    .grid-table .col-heading {
+      left: 14.7rem;
+      width: 7rem;
+      min-width: 7rem;
+      max-width: 7rem;
       border-right: 2px solid #94a3b8;
     }
     .grid-table thead .col-heading { border-right-color: #64748b; }
     .grid-table .month-col {
-      min-width: 3.75rem;
-      max-width: 3.75rem;
+      min-width: 5rem;
+      max-width: 5rem;
       text-align: center;
       padding: 0.02rem 0.1rem;
     }
+    .grid-table .total-col,
+    .grid-table .ppl-col {
+      min-width: 4.5rem;
+      max-width: 5.5rem;
+      text-align: right;
+      font-weight: 600;
+      white-space: nowrap;
+      padding: 0.06rem 0.28rem;
+      background: #f1f5f9;
+    }
+    .grid-table thead .total-col,
+    .grid-table thead .ppl-col {
+      background: #1e3a5f;
+      color: #fff;
+      text-align: center;
+    }
+    .grid-table tbody tr:nth-child(even) td.total-col,
+    .grid-table tbody tr:nth-child(even) td.ppl-col { background: #e8eef5; }
+    .grid-table td.total-col.neg,
+    .grid-table td.ppl-col.neg { color: #b91c1c; }
     .grid-table .span-item-type {
       background: #eff6ff;
       color: #1e3a8a;
@@ -436,6 +457,7 @@
       border-collapse: separate;
       border-spacing: 0;
       font-size: 0.72rem;
+      width: max-content;
       min-width: max-content;
     }
     .summary-table th,
@@ -462,10 +484,10 @@
       z-index: 3;
       text-align: left;
       font-weight: 600;
-      min-width: 26.5rem;
-      max-width: 26.5rem;
+      min-width: 12rem;
       border-right: 2px solid #94a3b8;
       background: #f8fafc;
+      white-space: nowrap;
     }
     .summary-table thead .summary-label {
       z-index: 5;
@@ -473,10 +495,27 @@
       color: #fff;
     }
     .summary-table .month-col {
-      min-width: 3.75rem;
-      max-width: 3.75rem;
+      min-width: 5rem;
+      max-width: 5rem;
       text-align: right;
     }
+    .summary-table .total-col,
+    .summary-table .ppl-col {
+      min-width: 4.5rem;
+      max-width: 5.5rem;
+      text-align: right;
+      font-weight: 600;
+      white-space: nowrap;
+      background: #e8eef5;
+    }
+    .summary-table thead .total-col,
+    .summary-table thead .ppl-col {
+      background: #14532d;
+      color: #fff;
+      text-align: center;
+    }
+    .summary-table tr.cumulative td.total-col,
+    .summary-table tr.cumulative td.ppl-col { background: #dbe4ee; }
     .summary-table tr.cumulative td { background: #f1f5f9; }
     .summary-table tr.cumulative td.summary-label { background: #e8eef5; }
     .summary-table tr.ppl td { color: #475569; font-style: italic; }
@@ -1010,6 +1049,110 @@
       return meta;
     }
 
+    function formatPplDisplay(amount, litres) {
+      if (!litres) return '—';
+      const ppl = (Number(amount) * 100) / Number(litres);
+      if (!Number.isFinite(ppl)) return '—';
+      return ppl.toFixed(2) + 'p';
+    }
+
+    function getLitresSoldTotal() {
+      if (!forecastData) return 0;
+      const rows = forecastData.grid_rows || [];
+      let total = 0;
+      rows.forEach(row => {
+        const heading = (row.heading || '').toLowerCase();
+        if (row.item_type !== 'Data' || !heading.includes('litre')) return;
+        (row.months || []).forEach(month => {
+          const input = document.querySelector(
+            `#forecast-grid-body input.amount-input[data-mapping-id="${row.mapping_id}"][data-month="${month.forecast_month}"]`
+          );
+          const raw = input ? parseAmountInput(input.value) : month[activeFarm];
+          total += Number(raw) || 0;
+        });
+      });
+      return total;
+    }
+
+    function getRowMonthValues(row) {
+      return (row.months || []).map(month => {
+        const input = document.querySelector(
+          `#forecast-grid-body input.amount-input[data-mapping-id="${row.mapping_id}"][data-month="${month.forecast_month}"]`
+        );
+        const raw = input ? parseAmountInput(input.value) : month[activeFarm];
+        return Number(raw) || 0;
+      });
+    }
+
+    function updateStickyLabelOffsets() {
+      const table = document.getElementById('forecast-grid');
+      const head = document.getElementById('forecast-grid-head');
+      if (!table || !head) return;
+
+      const cols = ['col-item-type', 'col-band', 'col-group', 'col-heading'];
+      const probe = document.createElement('span');
+      probe.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;';
+      document.body.appendChild(probe);
+
+      const widths = cols.map(cls => {
+        const sample = head.querySelector(`th.${cls}`) || table.querySelector(`.${cls}`);
+        if (!sample) return 40;
+        const cs = getComputedStyle(sample);
+        probe.style.font = cs.font;
+        probe.style.fontWeight = cs.fontWeight;
+        probe.style.letterSpacing = cs.letterSpacing;
+        let max = 0;
+        document.querySelectorAll(`.grid-table .${cls}`).forEach(el => {
+          probe.textContent = (el.textContent || '').trim();
+          max = Math.max(max, probe.getBoundingClientRect().width);
+        });
+        const padL = parseFloat(cs.paddingLeft) || 0;
+        const padR = parseFloat(cs.paddingRight) || 0;
+        return Math.ceil(max + padL + padR + 4);
+      });
+      probe.remove();
+
+      let left = 0;
+      cols.forEach((cls, i) => {
+        const w = Math.max(widths[i] || 40, 28);
+        document.querySelectorAll(`.grid-table .${cls}`).forEach(el => {
+          el.style.left = `${left}px`;
+          el.style.width = `${w}px`;
+          el.style.minWidth = `${w}px`;
+          el.style.maxWidth = `${w}px`;
+        });
+        left += w;
+      });
+    }
+
+    function updateRowTotals() {
+      if (!forecastData) return;
+      const rows = forecastData.grid_rows || [];
+      const litresTotal = getLitresSoldTotal();
+      rows.forEach((row, rowIdx) => {
+        const values = getRowMonthValues(row);
+        const total = values.reduce((sum, v) => sum + v, 0);
+        const isCurrency = row.item_type !== 'Data';
+        const totalEl = document.querySelector(`#forecast-grid-body tr[data-row-idx="${rowIdx}"] .total-col`);
+        const pplEl = document.querySelector(`#forecast-grid-body tr[data-row-idx="${rowIdx}"] .ppl-col`);
+        if (totalEl) {
+          totalEl.textContent = formatAmountDisplay(total, isCurrency);
+          totalEl.classList.toggle('neg', total < 0);
+        }
+        if (pplEl) {
+          // Data litres row itself: show blank/dash for PPL (dividing by itself is not meaningful as a cost/revenue PPL)
+          if (row.item_type === 'Data' && (row.heading || '').toLowerCase().includes('litre')) {
+            pplEl.textContent = '—';
+            pplEl.classList.remove('neg');
+          } else {
+            const ppl = litresTotal ? (total * 100) / litresTotal : null;
+            pplEl.textContent = formatPplDisplay(total, litresTotal);
+            pplEl.classList.toggle('neg', ppl != null && ppl < 0);
+          }
+        }
+      });
+    }
+
     function renderForecastGrid() {
       if (!forecastData) return;
       const months = forecastData.month_labels || [];
@@ -1023,14 +1166,30 @@
           <th class="sticky-col col-group">Group</th>
           <th class="sticky-col col-heading">Heading</th>
           ${months.map(m => `<th class="month-col">${esc(m.month_label)}</th>`).join('')}
+          <th class="total-col">Total</th>
+          <th class="ppl-col">PPL</th>
         </tr>
       `;
 
       if (!rows.length) {
         document.getElementById('forecast-grid-body').innerHTML =
-          `<tr><td colspan="${4 + months.length}" class="muted">No heading mappings yet.</td></tr>`;
+          `<tr><td colspan="${6 + months.length}" class="muted">No heading mappings yet.</td></tr>`;
+        requestAnimationFrame(() => {
+          updateStickyLabelOffsets();
+          renderProfitSummary();
+        });
         return;
       }
+
+      // First pass: compute litres total from source data (inputs not yet in DOM for this render)
+      let litresTotal = 0;
+      rows.forEach(row => {
+        const heading = (row.heading || '').toLowerCase();
+        if (row.item_type !== 'Data' || !heading.includes('litre')) return;
+        (row.months || []).forEach(month => {
+          litresTotal += Number(month[activeFarm]) || 0;
+        });
+      });
 
       document.getElementById('forecast-grid-body').innerHTML = rows.map((row, rowIdx) => {
         const span = spans[rowIdx];
@@ -1049,8 +1208,10 @@
 
         const isAuto = !!row.auto;
         const isCurrency = row.item_type !== 'Data';
+        let rowTotal = 0;
         const monthCells = row.months.map((month, colIdx) => {
           const val = month[activeFarm];
+          rowTotal += Number(val) || 0;
           const display = formatAmountDisplay(val, isCurrency);
           const disabled = (!CAN_EDIT || isAuto) ? ' disabled' : '';
           const cellClass = rowPeriodClass(month.forecast_month);
@@ -1068,13 +1229,21 @@
           </td>`;
         }).join('');
 
-        return `<tr data-mapping-id="${row.mapping_id}">${labelCells}${monthCells}</tr>`;
+        const isLitresRow = row.item_type === 'Data' && (row.heading || '').toLowerCase().includes('litre');
+        const totalDisplay = formatAmountDisplay(rowTotal, isCurrency);
+        const pplDisplay = isLitresRow ? '—' : formatPplDisplay(rowTotal, litresTotal);
+        const totalNeg = rowTotal < 0 ? ' neg' : '';
+        const pplNeg = (!isLitresRow && litresTotal && ((rowTotal * 100) / litresTotal) < 0) ? ' neg' : '';
+
+        return `<tr data-mapping-id="${row.mapping_id}" data-row-idx="${rowIdx}">${labelCells}${monthCells}<td class="total-col${totalNeg}">${esc(totalDisplay)}</td><td class="ppl-col${pplNeg}">${esc(pplDisplay)}</td></tr>`;
       }).join('');
 
       savedSnapshot = collectForecastRows().map(r => JSON.stringify(r)).join('|');
-
-      renderProfitSummary();
-      bindSummaryScrollSync();
+      requestAnimationFrame(() => {
+        updateStickyLabelOffsets();
+        renderProfitSummary();
+        bindSummaryScrollSync();
+      });
     }
 
     function computeMonthlySummary() {
@@ -1160,21 +1329,45 @@
         const cls = ppl < 0 ? 'month-col neg' : 'month-col';
         return `<td class="${cls}">${ppl.toFixed(2)}p</td>`;
       }).join('');
+      const totalMoneyCell = v => {
+        const cls = (Number(v) || 0) < 0 ? 'total-col neg' : 'total-col';
+        return `<td class="${cls}">${esc(formatAmountDisplay(v, true))}</td>`;
+      };
+      const totalPplCell = (amount, litres) => {
+        const ppl = litres ? (Number(amount) * 100) / Number(litres) : null;
+        const cls = (ppl != null && ppl < 0) ? 'ppl-col neg' : 'ppl-col';
+        return `<td class="${cls}">${esc(formatPplDisplay(amount, litres))}</td>`;
+      };
+      const sum = arr => arr.reduce((a, b) => a + (Number(b) || 0), 0);
+      const litresTotal = sum(s.litres);
 
       thead.innerHTML = `<tr>
         <th class="summary-label">Profit &amp; cashflow (${esc(activeFarm)})</th>
         ${s.monthDefs.map(m => `<th class="month-col">${esc(m.month_label)}</th>`).join('')}
+        <th class="total-col">Total</th>
+        <th class="ppl-col">PPL</th>
       </tr>`;
 
+      const moneyRow = (label, values, extraClass = '', useLastAsTotal = false) => {
+        const total = useLastAsTotal ? (values[values.length - 1] || 0) : sum(values);
+        const den = useLastAsTotal ? (s.cumLitres[s.cumLitres.length - 1] || 0) : litresTotal;
+        return `<tr class="${extraClass}"><td class="summary-label">${label}</td>${moneyCells(values)}${totalMoneyCell(total)}${totalPplCell(total, den)}</tr>`;
+      };
+      const pplRow = (label, values, dens, extraClass = '', useLastAsTotal = false) => {
+        const totalAmount = useLastAsTotal ? (values[values.length - 1] || 0) : sum(values);
+        const totalDen = useLastAsTotal ? (dens[dens.length - 1] || 0) : sum(dens);
+        return `<tr class="ppl ${extraClass}"><td class="summary-label">${label}</td>${pplCells(values, dens)}<td class="total-col">—</td>${totalPplCell(totalAmount, totalDen)}</tr>`;
+      };
+
       tbody.innerHTML = [
-        `<tr><td class="summary-label">Monthly Profit</td>${moneyCells(s.monthlyProfit)}</tr>`,
-        `<tr class="ppl"><td class="summary-label">Monthly Profit PPL</td>${pplCells(s.monthlyProfit, s.litres)}</tr>`,
-        `<tr class="cumulative"><td class="summary-label">Cumulative Profit</td>${moneyCells(s.cumProfit)}</tr>`,
-        `<tr class="cumulative ppl"><td class="summary-label">Cumulative Profit PPL</td>${pplCells(s.cumProfit, s.cumLitres)}</tr>`,
-        `<tr><td class="summary-label">Monthly Cashflow</td>${moneyCells(s.monthlyCashflow)}</tr>`,
-        `<tr class="ppl"><td class="summary-label">Monthly Cashflow PPL</td>${pplCells(s.monthlyCashflow, s.litres)}</tr>`,
-        `<tr class="cumulative"><td class="summary-label">Cumulative Cashflow</td>${moneyCells(s.cumCashflow)}</tr>`,
-        `<tr class="cumulative ppl"><td class="summary-label">Cumulative Cashflow PPL</td>${pplCells(s.cumCashflow, s.cumLitres)}</tr>`,
+        moneyRow('Monthly Profit', s.monthlyProfit),
+        pplRow('Monthly Profit PPL', s.monthlyProfit, s.litres),
+        moneyRow('Cumulative Profit', s.cumProfit, 'cumulative', true),
+        pplRow('Cumulative Profit PPL', s.cumProfit, s.cumLitres, 'cumulative', true),
+        moneyRow('Monthly Cashflow', s.monthlyCashflow),
+        pplRow('Monthly Cashflow PPL', s.monthlyCashflow, s.litres),
+        moneyRow('Cumulative Cashflow', s.cumCashflow, 'cumulative', true),
+        pplRow('Cumulative Cashflow PPL', s.cumCashflow, s.cumLitres, 'cumulative', true),
       ].join('');
     }
 
@@ -1428,6 +1621,7 @@
       body.addEventListener('input', (e) => {
         if (!e.target.matches('input.amount-input') || e.target.disabled) return;
         scheduleAutosave();
+        updateRowTotals();
         renderProfitSummary();
       });
     }
