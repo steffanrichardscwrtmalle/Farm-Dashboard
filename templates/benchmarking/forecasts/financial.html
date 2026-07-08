@@ -426,12 +426,67 @@
     .save-status.err { color: #b91c1c; }
     .message.ok { color: #15803d; }
     .message.err { color: #b91c1c; }
+    .summary-wrap {
+      margin-top: 0.6rem;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .summary-table {
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.72rem;
+      min-width: max-content;
+    }
+    .summary-table th,
+    .summary-table td {
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 0.18rem 0.3rem;
+      text-align: right;
+      white-space: nowrap;
+      background: #fff;
+    }
+    .summary-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      background: #14532d;
+      color: #fff;
+      font-weight: 600;
+      text-align: center;
+    }
+    .summary-table .summary-label {
+      position: sticky;
+      left: 0;
+      z-index: 3;
+      text-align: left;
+      font-weight: 600;
+      min-width: 26.5rem;
+      max-width: 26.5rem;
+      border-right: 2px solid #94a3b8;
+      background: #f8fafc;
+    }
+    .summary-table thead .summary-label {
+      z-index: 5;
+      background: #14532d;
+      color: #fff;
+    }
+    .summary-table .month-col {
+      min-width: 3.75rem;
+      max-width: 3.75rem;
+      text-align: right;
+    }
+    .summary-table tr.cumulative td { background: #f1f5f9; }
+    .summary-table tr.cumulative td.summary-label { background: #e8eef5; }
+    .summary-table tr.ppl td { color: #475569; font-style: italic; }
+    .summary-table td.neg { color: #b91c1c; }
 {% endblock %}
 
 {% block content %}
   <div class="page-tabs" role="tablist">
     <button type="button" class="page-tab active" data-section="mappings">Heading mappings</button>
-    <button type="button" class="page-tab" data-section="forecasts">Monthly amounts</button>
+    <button type="button" class="page-tab" data-section="forecasts">Monthly Budget</button>
   </div>
 
   <div class="section-panel" id="section-mappings">
@@ -577,6 +632,13 @@
           <button type="button" class="small" id="fill-from-sources-btn">Refresh from data sources</button>
         </div>
         {% endif %}
+      </div>
+
+      <div class="summary-wrap" id="summary-wrap">
+        <table class="summary-table" id="summary-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
       </div>
     </div>
     <p class="empty-state" id="load-error" hidden>Failed to load forecast data.</p>
@@ -1010,6 +1072,126 @@
       }).join('');
 
       savedSnapshot = collectForecastRows().map(r => JSON.stringify(r)).join('|');
+
+      renderProfitSummary();
+      bindSummaryScrollSync();
+    }
+
+    function computeMonthlySummary() {
+      if (!forecastData) return null;
+      const monthDefs = forecastData.month_labels || [];
+      const rows = forecastData.grid_rows || [];
+      const n = monthDefs.length;
+      if (!n) return null;
+
+      const monthIndex = new Map(monthDefs.map((m, i) => [m.forecast_month, i]));
+
+      // Read current values from the grid inputs (reflects live edits for the active farm).
+      const domValues = new Map();
+      document.querySelectorAll('#forecast-grid-body input.amount-input').forEach(inp => {
+        domValues.set(`${inp.dataset.mappingId}|${inp.dataset.month}`, parseAmountInput(inp.value));
+      });
+
+      const sales = Array(n).fill(0);
+      const valuation = Array(n).fill(0);
+      const otherPL = Array(n).fill(0);
+      const cash = Array(n).fill(0);
+      const litres = Array(n).fill(0);
+
+      rows.forEach(row => {
+        const itemType = row.item_type;
+        const band = row.band;
+        const heading = (row.heading || '').toLowerCase();
+        (row.months || []).forEach(month => {
+          const i = monthIndex.get(month.forecast_month);
+          if (i == null) return;
+          const key = `${row.mapping_id}|${month.forecast_month}`;
+          const raw = domValues.has(key) ? domValues.get(key) : month[activeFarm];
+          const val = Number(raw) || 0;
+          if (itemType === 'Profit & Loss') {
+            if (band === 'Sales') sales[i] += val;
+            else if (band === 'Valuation Change') valuation[i] += val;
+            else otherPL[i] += val;
+          } else if (itemType === 'Cash') {
+            cash[i] += val;
+          } else if (itemType === 'Data' && heading.includes('litre')) {
+            litres[i] += val;
+          }
+        });
+      });
+
+      const monthlyProfit = Array(n).fill(0);
+      const monthlyCashflow = Array(n).fill(0);
+      const cumProfit = Array(n).fill(0);
+      const cumCashflow = Array(n).fill(0);
+      const cumLitres = Array(n).fill(0);
+      let runP = 0, runC = 0, runL = 0;
+      for (let i = 0; i < n; i += 1) {
+        monthlyProfit[i] = sales[i] + valuation[i] - otherPL[i];
+        monthlyCashflow[i] = monthlyProfit[i] - cash[i];
+        runP += monthlyProfit[i];
+        runC += monthlyCashflow[i];
+        runL += litres[i];
+        cumProfit[i] = runP;
+        cumCashflow[i] = runC;
+        cumLitres[i] = runL;
+      }
+
+      return { monthDefs, litres, monthlyProfit, monthlyCashflow, cumProfit, cumCashflow, cumLitres };
+    }
+
+    function renderProfitSummary() {
+      const table = document.getElementById('summary-table');
+      if (!table) return;
+      const thead = table.querySelector('thead');
+      const tbody = table.querySelector('tbody');
+      const s = computeMonthlySummary();
+      if (!s) { thead.innerHTML = ''; tbody.innerHTML = ''; return; }
+
+      const moneyCell = v => {
+        const cls = (Number(v) || 0) < 0 ? 'month-col neg' : 'month-col';
+        return `<td class="${cls}">${esc(formatAmountDisplay(v, true))}</td>`;
+      };
+      const moneyCells = arr => arr.map(moneyCell).join('');
+      const pplCells = (num, den) => num.map((v, i) => {
+        const d = den[i];
+        if (!d) return '<td class="month-col">—</td>';
+        const ppl = (v * 100) / d;
+        const cls = ppl < 0 ? 'month-col neg' : 'month-col';
+        return `<td class="${cls}">${ppl.toFixed(2)}p</td>`;
+      }).join('');
+
+      thead.innerHTML = `<tr>
+        <th class="summary-label">Profit &amp; cashflow (${esc(activeFarm)})</th>
+        ${s.monthDefs.map(m => `<th class="month-col">${esc(m.month_label)}</th>`).join('')}
+      </tr>`;
+
+      tbody.innerHTML = [
+        `<tr><td class="summary-label">Monthly Profit</td>${moneyCells(s.monthlyProfit)}</tr>`,
+        `<tr class="ppl"><td class="summary-label">Monthly Profit PPL</td>${pplCells(s.monthlyProfit, s.litres)}</tr>`,
+        `<tr class="cumulative"><td class="summary-label">Cumulative Profit</td>${moneyCells(s.cumProfit)}</tr>`,
+        `<tr class="cumulative ppl"><td class="summary-label">Cumulative Profit PPL</td>${pplCells(s.cumProfit, s.cumLitres)}</tr>`,
+        `<tr><td class="summary-label">Monthly Cashflow</td>${moneyCells(s.monthlyCashflow)}</tr>`,
+        `<tr class="ppl"><td class="summary-label">Monthly Cashflow PPL</td>${pplCells(s.monthlyCashflow, s.litres)}</tr>`,
+        `<tr class="cumulative"><td class="summary-label">Cumulative Cashflow</td>${moneyCells(s.cumCashflow)}</tr>`,
+        `<tr class="cumulative ppl"><td class="summary-label">Cumulative Cashflow PPL</td>${pplCells(s.cumCashflow, s.cumLitres)}</tr>`,
+      ].join('');
+    }
+
+    function bindSummaryScrollSync() {
+      const grid = document.querySelector('.grid-table-wrap');
+      const summary = document.getElementById('summary-wrap');
+      if (!grid || !summary || summary.dataset.syncBound === '1') return;
+      summary.dataset.syncBound = '1';
+      let lock = false;
+      grid.addEventListener('scroll', () => {
+        if (lock) return;
+        lock = true; summary.scrollLeft = grid.scrollLeft; lock = false;
+      });
+      summary.addEventListener('scroll', () => {
+        if (lock) return;
+        lock = true; grid.scrollLeft = summary.scrollLeft; lock = false;
+      });
     }
 
     function collectForecastRows() {
@@ -1246,6 +1428,7 @@
       body.addEventListener('input', (e) => {
         if (!e.target.matches('input.amount-input') || e.target.disabled) return;
         scheduleAutosave();
+        renderProfitSummary();
       });
     }
 
