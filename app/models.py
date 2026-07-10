@@ -942,6 +942,39 @@ class FinancialForecastLine(Base):
     )
 
 
+class HpSchedule(Base):
+    """Hire purchase agreement for benchmarking HP Schedules."""
+
+    __tablename__ = "hp_schedules"
+    __table_args__ = (
+        UniqueConstraint("business", "name", name="uq_hp_schedule_business_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    business: Mapped[str] = mapped_column(String(8), index=True, default="CM")
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(String(255), default="")
+    monthly_capital: Mapped[float] = mapped_column(Float)
+    monthly_interest: Mapped[float] = mapped_column(Float)
+    months: Mapped[int] = mapped_column(Integer)
+    payment_day: Mapped[int] = mapped_column(Integer)  # 1–31, same day each month
+    start_month: Mapped[datetime.date] = mapped_column(Date, index=True)  # first payment month
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+
 RATION_INGREDIENT_CATEGORIES: tuple[str, ...] = ("concentrate", "forage", "straw")
 
 

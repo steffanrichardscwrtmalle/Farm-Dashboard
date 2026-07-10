@@ -51,6 +51,13 @@ from app.services.financial_forecasts import (
     save_financial_forecasts,
     update_financial_mapping,
 )
+from app.services.hp_schedules import (
+    build_hp_payment_chart,
+    create_hp_schedule,
+    deactivate_hp_schedule,
+    list_hp_schedules,
+    update_hp_schedule,
+)
 from app.services.milk_sales_forecasts import build_milk_sales_forecasts_report
 from app.services.stock_sales_purchases_forecasts import (
     build_stock_sales_purchases_forecasts_report,
@@ -734,5 +741,108 @@ def api_save_financial_forecasts(
             rows=[row.model_dump() for row in body.rows],
             user_id=user.id,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class HpScheduleBody(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    business: str = Field(default="CM", min_length=1, max_length=8)
+    description: str = Field(default="", max_length=255)
+    monthly_capital: float = Field(ge=0)
+    monthly_interest: float = Field(ge=0)
+    months: int = Field(ge=1, le=600)
+    payment_day: int = Field(ge=1, le=31)
+    start_month: dt.date
+
+
+@router.get("/hp-schedules")
+def api_list_hp_schedules(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    return {"schedules": list_hp_schedules(db)}
+
+
+@router.get("/hp-schedules/payment-chart")
+def api_hp_payment_chart(
+    business: str | None = Query(None),
+    from_month: dt.date | None = Query(None),
+    to_month: dt.date | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    try:
+        return build_hp_payment_chart(
+            db,
+            business=business,
+            from_month=from_month,
+            to_month=to_month,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/hp-schedules")
+def api_create_hp_schedule(
+    body: HpScheduleBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        return {
+            "schedule": create_hp_schedule(
+                db,
+                name=body.name,
+                business=body.business,
+                description=body.description,
+                monthly_capital=body.monthly_capital,
+                monthly_interest=body.monthly_interest,
+                months=body.months,
+                payment_day=body.payment_day,
+                start_month=body.start_month,
+                user_id=user.id,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/hp-schedules/{schedule_id}")
+def api_update_hp_schedule(
+    schedule_id: int,
+    body: HpScheduleBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        return {
+            "schedule": update_hp_schedule(
+                db,
+                schedule_id=schedule_id,
+                name=body.name,
+                business=body.business,
+                description=body.description,
+                monthly_capital=body.monthly_capital,
+                monthly_interest=body.monthly_interest,
+                months=body.months,
+                payment_day=body.payment_day,
+                start_month=body.start_month,
+                user_id=user.id,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/hp-schedules/{schedule_id}")
+def api_deactivate_hp_schedule(
+    schedule_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        deactivate_hp_schedule(db, schedule_id=schedule_id)
+        return {"ok": True}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

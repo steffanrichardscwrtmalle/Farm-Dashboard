@@ -128,3 +128,52 @@ def test_fill_milk_sales_revenue_into_mapped_heading(db: Session) -> None:
     )
     assert july_row["CM"] == expected_revenue
     assert july_row["GAD"] is None
+
+
+def test_fill_hp_schedule_capital_into_mapped_heading(db: Session) -> None:
+    from app.services.hp_schedules import create_hp_schedule
+
+    mapping = db.scalars(
+        select(FinancialForecastMapping).where(
+            FinancialForecastMapping.heading == "Budget Capital Repayment HP",
+        )
+    ).first()
+    assert mapping is not None
+
+    update_financial_mapping(
+        db,
+        mapping.id,
+        heading=mapping.heading,
+        item_type=mapping.item_type,
+        band=mapping.band,
+        group=mapping.group,
+        data_sources=["hp_schedules.monthly_capital"],
+    )
+    create_hp_schedule(
+        db,
+        name="Test Tractor",
+        business="CM",
+        description="HP autofill",
+        monthly_capital=1000,
+        monthly_interest=100,
+        months=12,
+        payment_day=18,
+        start_month="2026-04",
+    )
+
+    result = fill_financial_forecasts_from_data_sources(
+        db,
+        fiscal_year=FISCAL_YEAR,
+        today=TODAY,
+    )
+    assert result["updated"] > 0
+    assert result["mappings_filled"] == 1
+
+    forecast = list_financial_forecasts(db, fiscal_year=FISCAL_YEAR)
+    band = forecast["bands"]["Cash|Current Liabilities"]
+    heading_data = band["headings"][str(mapping.id)]
+    april_row = next(
+        row for row in heading_data["rows"] if row["forecast_month"] == "2026-04-01"
+    )
+    assert april_row["CM"] == 1000
+    assert april_row["GAD"] is None

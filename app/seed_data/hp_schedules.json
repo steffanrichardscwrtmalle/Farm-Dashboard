@@ -1,0 +1,442 @@
+[
+  {
+    "business": "CM",
+    "name": "CNH A1G55459 NH T7.230 CP25 HFK",
+    "description": "New Holland T7",
+    "monthly_capital": 2145.83,
+    "monthly_interest": 0.0,
+    "months": 17,
+    "payment_day": 1,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Shire 537099 Cow",
+    "description": "Cows",
+    "monthly_capital": 2735.35,
+    "monthly_interest": 459.23,
+    "months": 15,
+    "payment_day": 1,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Northridge 011100305090 Standby Generator",
+    "description": "Generator",
+    "monthly_capital": 164.36,
+    "monthly_interest": 50.05,
+    "months": 33,
+    "payment_day": 4,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Oxbury AF-52989 EX70 HNT NH T8-435",
+    "description": "New Holland T8 435",
+    "monthly_capital": 2093.07,
+    "monthly_interest": 416.03,
+    "months": 44,
+    "payment_day": 4,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Northridge 011100274977 R West Spreader",
+    "description": "West Spreader",
+    "monthly_capital": 875.0,
+    "monthly_interest": 148.83,
+    "months": 6,
+    "payment_day": 5,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Oxbury AF-51356 L200 Mitsubishi Warrior",
+    "description": "Mitsubishi L200",
+    "monthly_capital": 770.83,
+    "monthly_interest": 78.59,
+    "months": 1,
+    "payment_day": 5,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Northridge 011100302474 Storth Slurry Stirrer & Pump",
+    "description": "Storth Slurry Stirrer & Pump",
+    "monthly_capital": 447.71,
+    "monthly_interest": 117.64,
+    "months": 32,
+    "payment_day": 6,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "BNP A1G38793 Claas Xerion 4500 AY61BZK",
+    "description": "Claas Xerion",
+    "monthly_capital": 1333.33,
+    "monthly_interest": 323.97,
+    "months": 50,
+    "payment_day": 8,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "JCB TM420s",
+    "description": "JCB TM420s",
+    "monthly_capital": 2846.04,
+    "monthly_interest": 406.89,
+    "months": 45,
+    "payment_day": 9,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Norton 061 Volvo Lorry FMX460 SB20",
+    "description": "Volvo Lorry",
+    "monthly_capital": 1530.08,
+    "monthly_interest": 248.02,
+    "months": 17,
+    "payment_day": 10,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Novuna A000432482 Concrete Panels",
+    "description": "Concrete Panels",
+    "monthly_capital": 2832.48,
+    "monthly_interest": 167.71,
+    "months": 6,
+    "payment_day": 10,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "BNP A1G16501 \"G Wagon\"",
+    "description": "Mercedes G Wagon",
+    "monthly_capital": 1333.33,
+    "monthly_interest": 201.7,
+    "months": 23,
+    "payment_day": 11,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "JCB TM320S CV74NUW",
+    "description": "JCB TM320s Wernolau",
+    "monthly_capital": 2782.46,
+    "monthly_interest": 186.07,
+    "months": 22,
+    "payment_day": 11,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "JCB TM320S CV74YUB",
+    "description": "JCB TM320s Coomb",
+    "monthly_capital": 2491.83,
+    "monthly_interest": 136.38,
+    "months": 21,
+    "payment_day": 11,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "SG A096038764  Bobcat TL38.70",
+    "description": "Bobcat TL38.70",
+    "monthly_capital": 1516.54,
+    "monthly_interest": 129.98,
+    "months": 22,
+    "payment_day": 11,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "BNP A1F85004 Trailed Combi Cultivator & Sheargrab",
+    "description": "Trailed Cultivator & Sheargrab",
+    "monthly_capital": 1687.5,
+    "monthly_interest": 197.49,
+    "months": 15,
+    "payment_day": 12,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Northridge 335747 Houseman Sprayer Vraderstad Carrier",
+    "description": "Houseman Sprayer & Vaderstand Discs",
+    "monthly_capital": 984.72,
+    "monthly_interest": 142.58,
+    "months": 12,
+    "payment_day": 13,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Oxbury AF-50298 Glycol Chiller",
+    "description": "DeLaval Glycol Chiller",
+    "monthly_capital": 1612.2,
+    "monthly_interest": 395.8,
+    "months": 28,
+    "payment_day": 13,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Oxbury AF-51862",
+    "description": "Oxbury AF 51862",
+    "monthly_capital": 2455.52,
+    "monthly_interest": 505.62,
+    "months": 27,
+    "payment_day": 13,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Aldermore Slurry Pump",
+    "description": "CTL Slurry Pump",
+    "monthly_capital": 2288.29,
+    "monthly_interest": 223.78,
+    "months": 22,
+    "payment_day": 16,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "BNP A1F86371 Straights Shed",
+    "description": "Straights Shed",
+    "monthly_capital": 2777.78,
+    "monthly_interest": 444.36,
+    "months": 17,
+    "payment_day": 18,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "CNH A1G12181 CP74BMV NH T4.55",
+    "description": "New Holland T4 55",
+    "monthly_capital": 689.9,
+    "monthly_interest": 0.0,
+    "months": 18,
+    "payment_day": 18,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "CNH A1G16169 CP74JHO",
+    "description": "JHO??",
+    "monthly_capital": 2444.44,
+    "monthly_interest": 0.0,
+    "months": 19,
+    "payment_day": 18,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "CNH A1G35267 CV25PHN NH T5.90",
+    "description": "New Holland T5 90",
+    "monthly_capital": 1277.78,
+    "monthly_interest": 23.12,
+    "months": 22,
+    "payment_day": 18,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "CNHi NH CV24 PVN",
+    "description": "CV24 PVN",
+    "monthly_capital": 1890.41,
+    "monthly_interest": 94.02,
+    "months": 24,
+    "payment_day": 18,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "SG 9224020676 Steel Framed Building",
+    "description": "Steel Framed Building",
+    "monthly_capital": 1250.0,
+    "monthly_interest": 345.49,
+    "months": 38,
+    "payment_day": 18,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "JCB 94630038 CASE Puma 185 EX22 UXP",
+    "description": "Puma 185",
+    "monthly_capital": 2745.06,
+    "monthly_interest": 268.37,
+    "months": 3,
+    "payment_day": 19,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "UTB 20966 Volvo Lorry FH500 WK18 JPV",
+    "description": "Volvo Lorry 2",
+    "monthly_capital": 1660.13,
+    "monthly_interest": 157.0,
+    "months": 16,
+    "payment_day": 19,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Wynnstay Loan",
+    "description": "Wynnstay Loan",
+    "monthly_capital": 75000.0,
+    "monthly_interest": 0.0,
+    "months": 9,
+    "payment_day": 19,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "DLL 647091 FV24SZN NH T.260",
+    "description": "New Holland T260",
+    "monthly_capital": 2960.15,
+    "monthly_interest": 208.85,
+    "months": 21,
+    "payment_day": 20,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Oxbury 82928 Houseman Merlin Sprayer",
+    "description": "Houseman Merlin Sprayer",
+    "monthly_capital": 1297.39,
+    "monthly_interest": 225.29,
+    "months": 33,
+    "payment_day": 20,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Shire 535461 Cow Loan",
+    "description": "Cows",
+    "monthly_capital": 933.33,
+    "monthly_interest": 156.7,
+    "months": 13,
+    "payment_day": 20,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Shire Cow 534647",
+    "description": "Cows",
+    "monthly_capital": 4594.44,
+    "monthly_interest": 771.36,
+    "months": 12,
+    "payment_day": 20,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Novuna A386927 GEA Slurry Water Separator",
+    "description": "GEA Decanter Seperator",
+    "monthly_capital": 2333.33,
+    "monthly_interest": 611.53,
+    "months": 38,
+    "payment_day": 21,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "CNHi A1F28818 CP73EPV CP73EPW NH T&.245",
+    "description": "New Holland T245",
+    "monthly_capital": 4162.78,
+    "monthly_interest": 0.0,
+    "months": 8,
+    "payment_day": 22,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "DLL 99850613080 EA22JGV NH T7.315",
+    "description": "New Holland T7 315",
+    "monthly_capital": 3305.56,
+    "monthly_interest": 324.74,
+    "months": 25,
+    "payment_day": 26,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "UTB A017571 Cyriac Slurry Pump",
+    "description": "CTL Slurry Pump",
+    "monthly_capital": 3727.63,
+    "monthly_interest": 555.35,
+    "months": 25,
+    "payment_day": 26,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "BNP A1G28589 Skid Steer NHL218",
+    "description": "Skid Steer Carew",
+    "monthly_capital": 458.33,
+    "monthly_interest": 65.48,
+    "months": 23,
+    "payment_day": 27,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "BNP A1G29421 GEA",
+    "description": "GEA Decanter Seperator",
+    "monthly_capital": 2500.0,
+    "monthly_interest": 379.54,
+    "months": 24,
+    "payment_day": 27,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "BNP A1G35217 CU67AFV NH T7.190",
+    "description": "New Holland T7 190",
+    "monthly_capital": 1500.0,
+    "monthly_interest": 227.48,
+    "months": 25,
+    "payment_day": 27,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "CNHi A1F83763 FV23WXK Case IH Puma 220, 3 plus 33",
+    "description": "Puma 220",
+    "monthly_capital": 2722.22,
+    "monthly_interest": 0.0,
+    "months": 13,
+    "payment_day": 28,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Oxbury AF-50180 BVL v-Mix Diet Feeder",
+    "description": "BVL Feeder Wagon 36m3",
+    "monthly_capital": 1964.06,
+    "monthly_interest": 381.98,
+    "months": 14,
+    "payment_day": 28,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Propel PC122109 NH T7.225",
+    "description": "New Holland T7 225",
+    "monthly_capital": 979.17,
+    "monthly_interest": 162.16,
+    "months": 31,
+    "payment_day": 28,
+    "start_month": "2026-04-01"
+  },
+  {
+    "business": "CM",
+    "name": "Shire Leasing Scanner (Lease)",
+    "description": "Ultrasound Scanner",
+    "monthly_capital": 412.8,
+    "monthly_interest": 0.0,
+    "months": 13,
+    "payment_day": 28,
+    "start_month": "2026-04-01"
+  }
+]

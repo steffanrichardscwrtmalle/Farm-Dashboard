@@ -58,7 +58,61 @@ def init_db() -> None:
     _migrate_benchmarking_schema()
     _migrate_financial_forecasts_schema()
     _migrate_rations_schema()
+    _migrate_hp_schedules_schema()
     _seed_financial_forecasts()
+    _seed_hp_schedules()
+
+
+def _migrate_hp_schedules_schema() -> None:
+    """Ensure hp_schedules has monthly amounts, description, and business."""
+    from app.models import HERD_FARM_OPTIONS, HpSchedule
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "hp_schedules" not in tables:
+        HpSchedule.__table__.create(bind=engine, checkfirst=True)
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("hp_schedules")}
+    needs_rebuild = not (
+        "monthly_capital" in columns and "monthly_interest" in columns
+    )
+    if needs_rebuild:
+        cascade = "" if DATABASE_URL.startswith("sqlite") else " CASCADE"
+        with engine.begin() as conn:
+            conn.execute(text(f"DROP TABLE IF EXISTS hp_schedules{cascade}"))
+        HpSchedule.__table__.create(bind=engine, checkfirst=True)
+        return
+
+    with engine.begin() as conn:
+        if "description" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE hp_schedules ADD COLUMN description VARCHAR(255) DEFAULT ''"
+                )
+            )
+        if "business" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE hp_schedules ADD COLUMN business VARCHAR(8) DEFAULT 'CM'"
+                )
+            )
+            conn.execute(text("UPDATE hp_schedules SET business = 'CM' WHERE business IS NULL OR business = ''"))
+            # Best-effort index; unique (business, name) is enforced in app logic for legacy DBs.
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_hp_schedules_business ON hp_schedules (business)"
+                )
+            )
+        else:
+            # Keep any blank values on CM.
+            conn.execute(
+                text(
+                    "UPDATE hp_schedules SET business = 'CM' "
+                    "WHERE business IS NULL OR business = '' "
+                    f"OR business NOT IN ({', '.join(repr(v) for v in HERD_FARM_OPTIONS)})"
+                )
+            )
 
 
 def _migrate_financial_forecasts_schema() -> None:
@@ -116,6 +170,13 @@ def _seed_financial_forecasts() -> None:
 
     with SessionLocal() as db:
         seed_financial_forecasts_if_empty(db)
+
+
+def _seed_hp_schedules() -> None:
+    from app.services.hp_schedules import seed_hp_schedules_if_empty
+
+    with SessionLocal() as db:
+        seed_hp_schedules_if_empty(db)
 
 
 def _migrate_benchmarking_schema() -> None:

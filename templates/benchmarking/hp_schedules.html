@@ -1,0 +1,943 @@
+{% extends "base.html" %}
+
+{% block page_heading %}HP Schedules{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .hp-page {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      min-height: calc(100vh - 7.5rem);
+    }
+    .hp-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 1rem;
+      font-size: 0.82rem;
+    }
+    .hp-top .muted { margin: 0; }
+    .hp-form {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      gap: 0.5rem 0.75rem;
+      padding: 0.55rem 0.7rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      font-size: 0.82rem;
+    }
+    .hp-form label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      margin: 0;
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .hp-form input,
+    .hp-form select {
+      margin: 0;
+      padding: 0.25rem 0.4rem;
+      font-size: 0.85rem;
+      min-width: 0;
+    }
+    .hp-form #hp-name { width: 11rem; }
+    .hp-form #hp-business { width: 5rem; }
+    .hp-form #hp-description { width: 14rem; }
+    .hp-form #hp-capital,
+    .hp-form #hp-interest { width: 7rem; }
+    .hp-form #hp-months { width: 5rem; }
+    .hp-form #hp-payment-day { width: 4.5rem; }
+    .hp-form #hp-start-month { width: 8rem; }
+    .hp-form .form-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding-bottom: 0.05rem;
+    }
+    .hp-form button {
+      padding: 0.3rem 0.7rem;
+      font-size: 0.82rem;
+    }
+    .form-status { font-size: 0.8rem; color: var(--muted); }
+    .form-status.ok { color: #15803d; }
+    .form-status.err { color: #b91c1c; }
+    .hp-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.65rem;
+    }
+    .hp-panel h2 {
+      margin: 0 0 0.35rem;
+      font-size: 0.95rem;
+    }
+    .hp-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 0.85rem;
+      margin-bottom: 0.45rem;
+      font-size: 0.82rem;
+    }
+    .hp-toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin: 0;
+      font-weight: 500;
+      color: var(--muted);
+    }
+    .hp-toolbar input[type="search"],
+    .hp-toolbar select {
+      margin: 0;
+      padding: 0.22rem 0.4rem;
+      font-size: 0.82rem;
+    }
+    .hp-toolbar #hp-search { width: 14rem; }
+    .hp-toolbar #hp-sort { min-width: 10rem; }
+    .hp-toolbar #hp-business-filter { width: 5.5rem; }
+    .hp-toolbar .toggle-finished {
+      color: var(--text);
+      font-weight: 500;
+    }
+    .hp-table th.sortable {
+      cursor: pointer;
+      user-select: none;
+    }
+    .hp-table th.sortable:hover { background: #274b73; }
+    .hp-table th.sorted-asc::after { content: ' ▲'; font-size: 0.65rem; }
+    .hp-table th.sorted-desc::after { content: ' ▼'; font-size: 0.65rem; }
+    .table-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      border: 1px solid var(--border);
+    }
+    .hp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .hp-table th,
+    .hp-table td {
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      padding: 0.35rem 0.5rem;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .hp-table th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .hp-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .hp-table tbody tr:nth-child(even) td { background: #fafbfc; }
+    .hp-table tbody tr.is-complete td,
+    .hp-table tbody tr.is-complete:nth-child(even) td {
+      background: #ecfdf5;
+      color: #166534;
+    }
+    .hp-table tbody tr.is-complete td:first-child,
+    .hp-table tbody tr.is-complete:nth-child(even) td:first-child {
+      background: #d1fae5;
+    }
+    .hp-table .actions {
+      display: flex;
+      gap: 0.35rem;
+    }
+    .hp-table .actions button {
+      padding: 0.15rem 0.45rem;
+      font-size: 0.75rem;
+    }
+    .hp-table .btn-remove {
+      color: #b91c1c;
+      border-color: #fecaca;
+      background: #fef2f2;
+    }
+    .hp-totals {
+      margin-top: 0.45rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .empty-state {
+      padding: 1.25rem;
+      text-align: center;
+      color: var(--muted);
+    }
+    .page-tabs {
+      display: flex;
+      gap: 0.35rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0.15rem;
+    }
+    .page-tab {
+      border: 1px solid transparent;
+      border-bottom: none;
+      background: transparent;
+      padding: 0.4rem 0.85rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+      color: var(--muted);
+      border-radius: 6px 6px 0 0;
+    }
+    .page-tab.active {
+      background: var(--card);
+      border-color: var(--border);
+      color: var(--text);
+      font-weight: 600;
+    }
+    .section-panel[hidden] { display: none !important; }
+    .chart-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.65rem 0.85rem;
+      gap: 0.45rem;
+    }
+    .chart-panel h2 {
+      margin: 0;
+      font-size: 0.95rem;
+    }
+    .chart-meta {
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .chart-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 28rem;
+      max-height: calc(100vh - 14rem);
+    }
+    .payments-filters {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      gap: 0.5rem 0.85rem;
+      padding: 0.55rem 0.7rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      font-size: 0.82rem;
+    }
+    .payments-filters label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      margin: 0;
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .payments-filters select,
+    .payments-filters input[type="month"] {
+      margin: 0;
+      padding: 0.22rem 0.4rem;
+      font-size: 0.82rem;
+    }
+    .payments-filters #pay-business { width: 5.5rem; }
+    .payments-filters #pay-from,
+    .payments-filters #pay-to { width: 8.5rem; }
+    .payment-summary-table {
+      width: max-content;
+      max-width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .payment-summary-table th,
+    .payment-summary-table td {
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      padding: 0.35rem 0.5rem;
+      white-space: nowrap;
+    }
+    .payment-summary-table th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      text-align: center;
+    }
+    .payment-summary-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .payment-summary-table tbody tr:nth-child(even) td { background: #fafbfc; }
+    .payment-summary-table tfoot td {
+      font-weight: 700;
+      background: #f1f5f9;
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="hp-page">
+    <div class="page-tabs" role="tablist">
+      <button type="button" class="page-tab active" data-section="agreements">Agreements</button>
+      <button type="button" class="page-tab" data-section="chart">Payment chart</button>
+      <button type="button" class="page-tab" data-section="table">Payment table</button>
+    </div>
+
+    <div class="section-panel" id="section-agreements">
+    <div class="hp-top">
+      <span class="muted">Store hire purchase agreements and see monthly capital / interest and months remaining.</span>
+      {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
+    </div>
+
+    {% if can_edit %}
+    <form class="hp-form" id="hp-form" autocomplete="off">
+      <input type="hidden" id="hp-id" value="">
+      <label>Business
+        <select id="hp-business" required>
+          {% for farm in farm_options %}
+          <option value="{{ farm }}"{% if farm == 'CM' %} selected{% endif %}>{{ farm }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>HP name
+        <input type="text" id="hp-name" required maxlength="128" placeholder="e.g. Tractor HP">
+      </label>
+      <label>HP description
+        <input type="text" id="hp-description" maxlength="255" placeholder="e.g. New Holland T7">
+      </label>
+      <label>Monthly capital (£)
+        <input type="number" id="hp-capital" required min="0" step="0.01" placeholder="0.00">
+      </label>
+      <label>Monthly interest (£)
+        <input type="number" id="hp-interest" required min="0" step="0.01" placeholder="0.00">
+      </label>
+      <label>Months
+        <input type="number" id="hp-months" required min="1" max="600" step="1" placeholder="36">
+      </label>
+      <label>Payment day
+        <input type="number" id="hp-payment-day" required min="1" max="31" step="1" placeholder="18">
+      </label>
+      <label>First payment month
+        <input type="month" id="hp-start-month" required>
+      </label>
+      <div class="form-actions">
+        <button type="submit" class="small" id="hp-save-btn">Add HP</button>
+        <button type="button" class="small" id="hp-cancel-btn" hidden>Cancel</button>
+        <span class="form-status" id="form-status"></span>
+      </div>
+    </form>
+    {% endif %}
+
+    <div class="hp-panel">
+      <h2>Agreements</h2>
+      <div class="hp-toolbar">
+        <label>Search
+          <input type="search" id="hp-search" placeholder="Name or description…" autocomplete="off">
+        </label>
+        <label>Business
+          <select id="hp-business-filter">
+            <option value="">All</option>
+            {% for farm in farm_options %}
+            <option value="{{ farm }}">{{ farm }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Sort by
+          <select id="hp-sort">
+            <option value="payment_day">Payment day</option>
+            <option value="business">Business</option>
+            <option value="name">HP name</option>
+            <option value="description">Description</option>
+            <option value="monthly_capital">Capital / month</option>
+            <option value="monthly_interest">Interest / month</option>
+            <option value="monthly_payment">Payment / month</option>
+            <option value="months_remaining">Months left</option>
+            <option value="last_payment_date">Last payment</option>
+            <option value="capital_remaining">Capital left</option>
+            <option value="interest_remaining">Interest left</option>
+          </select>
+        </label>
+        <label>Order
+          <select id="hp-sort-dir">
+            <option value="asc">Ascending</option>
+            <option value="desc">Descending</option>
+          </select>
+        </label>
+        <label class="toggle-finished">
+          <input type="checkbox" id="hp-show-finished">
+          Show finished agreements
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table class="hp-table" id="hp-table">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="business">Business</th>
+              <th class="sortable" data-sort="name">HP name</th>
+              <th class="sortable" data-sort="description">Description</th>
+              <th class="sortable" data-sort="monthly_capital">Capital / month</th>
+              <th class="sortable" data-sort="monthly_interest">Interest / month</th>
+              <th class="sortable" data-sort="monthly_payment">Payment / month</th>
+              <th class="sortable" data-sort="months_remaining">Months left</th>
+              <th class="sortable" data-sort="last_payment_date">Last payment</th>
+              <th class="sortable" data-sort="payment_day">Payment day</th>
+              <th class="sortable" data-sort="capital_remaining">Capital left</th>
+              <th class="sortable" data-sort="interest_remaining">Interest left</th>
+              {% if can_edit %}<th></th>{% endif %}
+            </tr>
+          </thead>
+          <tbody id="hp-body">
+            <tr><td colspan="{% if can_edit %}12{% else %}11{% endif %}" class="empty-state">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="hp-totals" id="hp-totals"></div>
+    </div>
+    </div>
+
+    <div id="payments-filters" class="payments-filters" hidden>
+      <label>Business
+        <select id="pay-business">
+          <option value="">All</option>
+          {% for farm in farm_options %}
+          <option value="{{ farm }}">{{ farm }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>From
+        <input type="month" id="pay-from">
+      </label>
+      <label>To
+        <input type="month" id="pay-to">
+      </label>
+      <button type="button" class="small" id="pay-apply-btn">Apply</button>
+      <button type="button" class="small" id="pay-reset-btn">Reset range</button>
+    </div>
+
+    <div class="section-panel" id="section-chart" hidden>
+      <div class="chart-panel">
+        <h2>Monthly HP payments</h2>
+        <p class="chart-meta" id="chart-meta">Loading chart…</p>
+        <div class="chart-wrap">
+          <canvas id="hp-payment-chart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-panel" id="section-table" hidden>
+      <div class="hp-panel">
+        <h2>Monthly HP payments</h2>
+        <p class="chart-meta" id="table-meta">Loading table…</p>
+        <div class="table-wrap">
+          <table class="payment-summary-table" id="payment-summary-table">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Capital</th>
+                <th>Interest</th>
+                <th>Payment / month</th>
+              </tr>
+            </thead>
+            <tbody id="payment-summary-body">
+              <tr><td colspan="4" class="empty-state">Loading…</td></tr>
+            </tbody>
+            <tfoot id="payment-summary-foot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script>
+    const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+    let schedules = [];
+    let editingId = null;
+    let sortKey = 'payment_day';
+    let sortDir = 'asc';
+
+    function money(v) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '—';
+      return '£' + n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    function ordinal(day) {
+      const n = Number(day);
+      const j = n % 10, k = n % 100;
+      if (j === 1 && k !== 11) return n + 'st';
+      if (j === 2 && k !== 12) return n + 'nd';
+      if (j === 3 && k !== 13) return n + 'rd';
+      return n + 'th';
+    }
+
+    function setStatus(msg, ok) {
+      const el = document.getElementById('form-status');
+      if (!el) return;
+      el.textContent = msg || '';
+      el.className = 'form-status' + (msg ? (ok ? ' ok' : ' err') : '');
+    }
+
+    async function readResponse(res) {
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (_) {}
+      if (!res.ok) {
+        const detail = data?.detail;
+        const msg = typeof detail === 'string'
+          ? detail
+          : (Array.isArray(detail) ? detail.map(d => d.msg || JSON.stringify(d)).join('; ') : (text || res.statusText));
+        throw new Error(msg || 'Request failed');
+      }
+      return data;
+    }
+
+    function resetForm() {
+      editingId = null;
+      const form = document.getElementById('hp-form');
+      if (!form) return;
+      form.reset();
+      document.getElementById('hp-id').value = '';
+      document.getElementById('hp-save-btn').textContent = 'Add HP';
+      document.getElementById('hp-cancel-btn').hidden = true;
+      setStatus('');
+    }
+
+    function fillForm(row) {
+      editingId = row.id;
+      document.getElementById('hp-id').value = row.id;
+      document.getElementById('hp-business').value = row.business || 'CM';
+      document.getElementById('hp-name').value = row.name;
+      document.getElementById('hp-description').value = row.description || '';
+      document.getElementById('hp-capital').value = row.monthly_capital;
+      document.getElementById('hp-interest').value = row.monthly_interest;
+      document.getElementById('hp-months').value = row.months;
+      document.getElementById('hp-payment-day').value = row.payment_day;
+      document.getElementById('hp-start-month').value = String(row.start_month).slice(0, 7);
+      document.getElementById('hp-save-btn').textContent = 'Save changes';
+      document.getElementById('hp-cancel-btn').hidden = false;
+      setStatus('Editing ' + row.name, true);
+      document.getElementById('hp-name').focus();
+    }
+
+    function sortValue(row, key) {
+      const v = row[key];
+      if (key === 'name' || key === 'description' || key === 'last_payment_date' || key === 'start_month' || key === 'business') {
+        return String(v || '').toLowerCase();
+      }
+      return Number(v) || 0;
+    }
+
+    function filteredSchedules() {
+      const q = (document.getElementById('hp-search')?.value || '').trim().toLowerCase();
+      const businessFilter = (document.getElementById('hp-business-filter')?.value || '').trim();
+      const showFinished = !!document.getElementById('hp-show-finished')?.checked;
+      let rows = schedules.slice();
+      if (!showFinished) {
+        rows = rows.filter(r => Number(r.months_remaining) > 0);
+      }
+      if (businessFilter) {
+        rows = rows.filter(r => String(r.business || '') === businessFilter);
+      }
+      if (q) {
+        rows = rows.filter(r => {
+          const hay = `${r.business || ''} ${r.name || ''} ${r.description || ''}`.toLowerCase();
+          return hay.includes(q);
+        });
+      }
+      const dir = sortDir === 'desc' ? -1 : 1;
+      rows.sort((a, b) => {
+        const av = sortValue(a, sortKey);
+        const bv = sortValue(b, sortKey);
+        if (av < bv) return -1 * dir;
+        if (av > bv) return 1 * dir;
+        // Stable secondary: payment day then name
+        const day = (Number(a.payment_day) || 0) - (Number(b.payment_day) || 0);
+        if (day) return day;
+        return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+      });
+      return rows;
+    }
+
+    function updateSortHeaderMarks() {
+      document.querySelectorAll('#hp-table thead th.sortable').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        if (th.dataset.sort === sortKey) {
+          th.classList.add(sortDir === 'desc' ? 'sorted-desc' : 'sorted-asc');
+        }
+      });
+      const sortSel = document.getElementById('hp-sort');
+      const dirSel = document.getElementById('hp-sort-dir');
+      if (sortSel) sortSel.value = sortKey;
+      if (dirSel) dirSel.value = sortDir;
+    }
+
+    function renderTable() {
+      const body = document.getElementById('hp-body');
+      const cols = CAN_EDIT ? 12 : 11;
+      updateSortHeaderMarks();
+
+      if (!schedules.length) {
+        body.innerHTML = `<tr><td colspan="${cols}" class="empty-state">No HP agreements yet.</td></tr>`;
+        document.getElementById('hp-totals').textContent = '';
+        return;
+      }
+
+      const rows = filteredSchedules();
+      const finishedCount = schedules.filter(r => Number(r.months_remaining) === 0).length;
+      const showFinished = !!document.getElementById('hp-show-finished')?.checked;
+
+      if (!rows.length) {
+        const msg = (!showFinished && finishedCount && !(document.getElementById('hp-search')?.value || '').trim())
+          ? 'No active agreements. Turn on “Show finished agreements” to see completed ones.'
+          : 'No agreements match the current search/filters.';
+        body.innerHTML = `<tr><td colspan="${cols}" class="empty-state">${esc(msg)}</td></tr>`;
+      } else {
+        body.innerHTML = rows.map(row => {
+          const done = Number(row.months_remaining) === 0;
+          const actions = CAN_EDIT
+            ? `<td><div class="actions">
+                 <button type="button" class="small" data-edit="${row.id}">Edit</button>
+                 <button type="button" class="small btn-remove" data-remove="${row.id}">Remove</button>
+               </div></td>`
+            : '';
+          return `<tr class="${done ? 'is-complete' : ''}" data-id="${row.id}">
+            <td>${esc(row.business || 'CM')}</td>
+            <td>${esc(row.name)}</td>
+            <td>${esc(row.description || '')}</td>
+            <td class="num">${money(row.monthly_capital)}</td>
+            <td class="num">${money(row.monthly_interest)}</td>
+            <td class="num">${money(row.monthly_payment)}</td>
+            <td class="num">${row.months_remaining}</td>
+            <td>${esc(row.last_payment_label)}</td>
+            <td>${ordinal(row.payment_day)}</td>
+            <td class="num">${money(row.capital_remaining)}</td>
+            <td class="num">${money(row.interest_remaining)}</td>
+            ${actions}
+          </tr>`;
+        }).join('');
+      }
+
+      const sumCap = rows.reduce((s, r) => s + (Number(r.monthly_capital) || 0), 0);
+      const sumInt = rows.reduce((s, r) => s + (Number(r.monthly_interest) || 0), 0);
+      const sumPay = rows.reduce((s, r) => s + (Number(r.monthly_payment) || 0), 0);
+      const activeTotal = schedules.filter(r => Number(r.months_remaining) > 0).length;
+      const hiddenNote = (!showFinished && finishedCount)
+        ? ` · ${finishedCount} finished hidden`
+        : '';
+      document.getElementById('hp-totals').textContent =
+        `Showing ${rows.length} of ${schedules.length} · ${activeTotal} active${hiddenNote} · ` +
+        `Monthly capital ${money(sumCap)} · Monthly interest ${money(sumInt)} · Monthly total ${money(sumPay)}`;
+    }
+
+    async function loadSchedules() {
+      const res = await fetch('/api/benchmarking/hp-schedules');
+      const data = await readResponse(res);
+      schedules = data.schedules || [];
+      renderTable();
+    }
+
+    function readForm() {
+      const startMonth = document.getElementById('hp-start-month').value;
+      if (!startMonth) throw new Error('First payment month is required.');
+      return {
+        name: document.getElementById('hp-name').value.trim(),
+        business: document.getElementById('hp-business').value,
+        description: document.getElementById('hp-description').value.trim(),
+        monthly_capital: Number(document.getElementById('hp-capital').value),
+        monthly_interest: Number(document.getElementById('hp-interest').value),
+        months: Number(document.getElementById('hp-months').value),
+        payment_day: Number(document.getElementById('hp-payment-day').value),
+        start_month: startMonth + '-01',
+      };
+    }
+
+    document.getElementById('hp-search').addEventListener('input', renderTable);
+    document.getElementById('hp-business-filter').addEventListener('change', renderTable);
+    document.getElementById('hp-show-finished').addEventListener('change', renderTable);
+    document.getElementById('hp-sort').addEventListener('change', (e) => {
+      sortKey = e.target.value;
+      renderTable();
+    });
+    document.getElementById('hp-sort-dir').addEventListener('change', (e) => {
+      sortDir = e.target.value;
+      renderTable();
+    });
+    document.querySelectorAll('#hp-table thead th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.sort;
+        if (sortKey === key) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKey = key;
+          sortDir = key === 'name' || key === 'description' ? 'asc' : 'asc';
+        }
+        renderTable();
+      });
+    });
+
+    let paymentChart = null;
+    let paymentData = null;
+    let paymentFiltersReady = false;
+    let activePaymentsSection = null;
+
+    function toMonthInput(isoDate) {
+      return String(isoDate || '').slice(0, 7);
+    }
+
+    function paymentQueryParams({ includeRange = true } = {}) {
+      const params = new URLSearchParams();
+      const business = document.getElementById('pay-business')?.value || '';
+      if (business) params.set('business', business);
+      if (includeRange) {
+        const from = document.getElementById('pay-from')?.value || '';
+        const to = document.getElementById('pay-to')?.value || '';
+        if (from) params.set('from_month', from + '-01');
+        if (to) params.set('to_month', to + '-01');
+      }
+      return params;
+    }
+
+    function syncPaymentFilterBounds(data, { resetRange = false } = {}) {
+      const fromEl = document.getElementById('pay-from');
+      const toEl = document.getElementById('pay-to');
+      if (!fromEl || !toEl) return;
+      const availFrom = toMonthInput(data.available_from);
+      const availTo = toMonthInput(data.available_to);
+      fromEl.min = availFrom;
+      fromEl.max = availTo;
+      toEl.min = availFrom;
+      toEl.max = availTo;
+      if (resetRange || !fromEl.value) fromEl.value = toMonthInput(data.from_month) || availFrom;
+      if (resetRange || !toEl.value) toEl.value = toMonthInput(data.to_month) || availTo;
+      paymentFiltersReady = true;
+    }
+
+    function paymentMetaText(data) {
+      const months = data.months || [];
+      const biz = data.business ? ` · ${data.business}` : ' · All businesses';
+      if (!months.length) {
+        return `FY${data.fiscal_year}${biz} · No scheduled payments in this range.`;
+      }
+      return `FY${data.fiscal_year}${biz} · ${months[0].month_label} to ${months[months.length - 1].month_label} · ` +
+        `Total ${money(data.totals?.total)} (capital ${money(data.totals?.capital)} · interest ${money(data.totals?.interest)})`;
+    }
+
+    function renderPaymentTable(data) {
+      const body = document.getElementById('payment-summary-body');
+      const foot = document.getElementById('payment-summary-foot');
+      const meta = document.getElementById('table-meta');
+      const months = data.months || [];
+      meta.textContent = paymentMetaText(data);
+      if (!months.length) {
+        body.innerHTML = `<tr><td colspan="4" class="empty-state">No payments in this range.</td></tr>`;
+        foot.innerHTML = '';
+        return;
+      }
+      body.innerHTML = months.map(m => `<tr>
+        <td>${esc(m.month_label)}</td>
+        <td class="num">${money(m.capital)}</td>
+        <td class="num">${money(m.interest)}</td>
+        <td class="num">${money(m.total)}</td>
+      </tr>`).join('');
+      foot.innerHTML = `<tr>
+        <td>Total</td>
+        <td class="num">${money(data.totals?.capital)}</td>
+        <td class="num">${money(data.totals?.interest)}</td>
+        <td class="num">${money(data.totals?.total)}</td>
+      </tr>`;
+    }
+
+    function renderPaymentChart(data) {
+      const meta = document.getElementById('chart-meta');
+      const months = data.months || [];
+      meta.textContent = paymentMetaText(data);
+      const canvas = document.getElementById('hp-payment-chart');
+      if (typeof Chart === 'undefined') {
+        meta.textContent = 'Chart library failed to load.';
+        return;
+      }
+      if (paymentChart) {
+        paymentChart.destroy();
+        paymentChart = null;
+      }
+      paymentChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: months.map(m => m.month_label),
+          datasets: [
+            {
+              label: 'Capital',
+              data: months.map(m => m.capital),
+              backgroundColor: 'rgba(30, 58, 95, 0.85)',
+              stack: 'pay',
+            },
+            {
+              label: 'Interest',
+              data: months.map(m => m.interest),
+              backgroundColor: 'rgba(22, 163, 74, 0.75)',
+              stack: 'pay',
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'bottom' },
+            tooltip: {
+              callbacks: {
+                label: (item) => `${item.dataset.label}: ${money(item.raw)}`,
+                footer: (items) => {
+                  if (!items.length) return '';
+                  const idx = items[0].dataIndex;
+                  return `Total: ${money(months[idx]?.total)}`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              stacked: true,
+              title: { display: true, text: 'Month' },
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              title: { display: true, text: 'Payment / month (£)' },
+              ticks: {
+                callback: (v) => '£' + Number(v).toLocaleString('en-GB'),
+              },
+            },
+          },
+        },
+      });
+    }
+
+    async function loadPaymentViews({ resetRange = false } = {}) {
+      const chartMeta = document.getElementById('chart-meta');
+      const tableMeta = document.getElementById('table-meta');
+      try {
+        // First resolve available bounds for current business (no date clip),
+        // then fetch the filtered series.
+        if (!paymentFiltersReady || resetRange) {
+          const boundsRes = await fetch('/api/benchmarking/hp-schedules/payment-chart?' + paymentQueryParams({ includeRange: false }).toString());
+          const bounds = await readResponse(boundsRes);
+          syncPaymentFilterBounds(bounds, { resetRange: true });
+        }
+        const res = await fetch('/api/benchmarking/hp-schedules/payment-chart?' + paymentQueryParams().toString());
+        paymentData = await readResponse(res);
+        syncPaymentFilterBounds(paymentData);
+        renderPaymentChart(paymentData);
+        renderPaymentTable(paymentData);
+        if (paymentChart) paymentChart.resize();
+      } catch (err) {
+        const msg = 'Failed to load payments: ' + (err.message || String(err));
+        if (chartMeta) chartMeta.textContent = msg;
+        if (tableMeta) tableMeta.textContent = msg;
+      }
+    }
+
+    document.getElementById('pay-apply-btn').addEventListener('click', () => loadPaymentViews());
+    document.getElementById('pay-reset-btn').addEventListener('click', () => loadPaymentViews({ resetRange: true }));
+    document.getElementById('pay-business').addEventListener('change', () => loadPaymentViews({ resetRange: true }));
+
+    document.querySelectorAll('.page-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const section = tab.dataset.section;
+        activePaymentsSection = section;
+        document.getElementById('section-agreements').hidden = section !== 'agreements';
+        document.getElementById('section-chart').hidden = section !== 'chart';
+        document.getElementById('section-table').hidden = section !== 'table';
+        document.getElementById('payments-filters').hidden = !(section === 'chart' || section === 'table');
+        if (section === 'chart' || section === 'table') {
+          loadPaymentViews().then(() => {
+            if (section === 'chart' && paymentChart) paymentChart.resize();
+          });
+        }
+      });
+    });
+
+    if (CAN_EDIT) {
+      document.getElementById('hp-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          const body = readForm();
+          const editing = editingId;
+          const url = editing
+            ? `/api/benchmarking/hp-schedules/${editing}`
+            : '/api/benchmarking/hp-schedules';
+          const method = editing ? 'PUT' : 'POST';
+          setStatus(editing ? 'Saving…' : 'Adding…', true);
+          const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          await readResponse(res);
+          resetForm();
+          await loadSchedules();
+          paymentFiltersReady = false;
+          setStatus(editing ? 'Saved.' : 'Added.', true);
+        } catch (err) {
+          setStatus(err.message || String(err), false);
+        }
+      });
+
+      document.getElementById('hp-cancel-btn').addEventListener('click', resetForm);
+
+      document.getElementById('hp-body').addEventListener('click', async (e) => {
+        const editBtn = e.target.closest('[data-edit]');
+        const removeBtn = e.target.closest('[data-remove]');
+        if (editBtn) {
+          const row = schedules.find(s => String(s.id) === editBtn.dataset.edit);
+          if (row) fillForm(row);
+          return;
+        }
+        if (removeBtn) {
+          const id = removeBtn.dataset.remove;
+          const row = schedules.find(s => String(s.id) === id);
+          if (!row) return;
+          if (!confirm(`Remove HP agreement "${row.name}"?`)) return;
+          try {
+            const res = await fetch(`/api/benchmarking/hp-schedules/${id}`, { method: 'DELETE' });
+            await readResponse(res);
+            if (editingId === Number(id)) resetForm();
+            await loadSchedules();
+            paymentFiltersReady = false;
+            setStatus('Removed.', true);
+          } catch (err) {
+            setStatus(err.message || String(err), false);
+          }
+        }
+      });
+    }
+
+    loadSchedules().catch(err => {
+      document.getElementById('hp-body').innerHTML =
+        `<tr><td colspan="${CAN_EDIT ? 12 : 11}" class="empty-state">Failed to load: ${esc(err.message)}</td></tr>`;
+    });
+  </script>
+{% endblock %}

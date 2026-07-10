@@ -13,6 +13,7 @@ from app.models import HERD_FARM_OPTIONS, FinancialForecastLine, FinancialForeca
 from app.services.benchmarking import fiscal_year_months
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
 from app.services.financial_forecasts import list_financial_mappings
+from app.services.hp_schedules import build_hp_payment_index
 from app.services.milk_sales_forecasts import build_milk_sales_forecasts_report
 from app.services.stock_sales_purchases_forecasts import (
     FORECAST_METRICS,
@@ -25,6 +26,7 @@ class _DataSourceContext:
     milk: dict[tuple[str, dt.date], dict[str, float | None]]
     stock: dict[tuple[str, dt.date], dict[str, Any]]
     feed: dict[tuple[str, dt.date], dict[str, Any]]
+    hp: dict[tuple[str, dt.date], dict[str, float]]
 
 
 def _build_milk_index(report: dict[str, Any]) -> dict[tuple[str, dt.date], dict[str, float | None]]:
@@ -92,6 +94,7 @@ def _build_data_source_context(
         milk=_build_milk_index(milk_report),
         stock=_build_stock_index(stock_report),
         feed=_build_feed_index(feed_report),
+        hp=build_hp_payment_index(db, fiscal_year=fiscal_year),
     )
 
 
@@ -131,6 +134,13 @@ def resolve_data_source_value(
         if suffix.startswith("detail."):
             line_key = suffix.removeprefix("detail.")
             return cell.get("detail", {}).get(line_key)
+        return None
+
+    if source_key.startswith("hp_schedules."):
+        field = source_key.removeprefix("hp_schedules.")
+        cell = ctx.hp.get((farm, month.replace(day=1)), {})
+        if field in ("monthly_capital", "monthly_interest", "monthly_payment"):
+            return cell.get(field)
         return None
 
     return None

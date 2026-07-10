@@ -67,6 +67,16 @@ def _build_source_registry() -> tuple[list[dict[str, Any]], frozenset[str]]:
         feed_sources.append((f"feed_purchases.detail.{line_key}", f"Line item — {label}"))
     add("Feed Purchase Forecasts", "feed_purchases", feed_sources)
 
+    add(
+        "HP Schedules",
+        "hp_schedules",
+        [
+            ("hp_schedules.monthly_capital", "Monthly capital (£)"),
+            ("hp_schedules.monthly_interest", "Monthly interest (£)"),
+            ("hp_schedules.monthly_payment", "Monthly payment (£)"),
+        ],
+    )
+
     return pages, frozenset(keys)
 
 

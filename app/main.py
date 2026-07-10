@@ -1247,6 +1247,25 @@ def benchmarking_stock_forecasts_page(request: Request):
     )
 
 
+@app.get("/benchmarking/hp-schedules", response_class=HTMLResponse)
+def benchmarking_hp_schedules_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/hp_schedules.html",
+        _template_ctx(
+            request,
+            page_heading="HP Schedules",
+            can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_benchmarking_context("HP Schedules", "hp-schedules", "HP Schedules"),
+        ),
+    )
+
+
 @app.get("/benchmarking/feed-purchase-forecasts", response_class=HTMLResponse)
 def benchmarking_feed_purchase_forecasts_page(request: Request):
     if denied := _page_guard(request, PAGE_BENCHMARKING):
