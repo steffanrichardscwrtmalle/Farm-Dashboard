@@ -804,10 +804,12 @@
           <select id="farm-select">
             <option value="CM">CM</option>
             <option value="GAD">GAD</option>
+            <option value="Combined">Combined</option>
           </select>
         </label>
         {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
-        <span class="muted">Tab → next month · Enter ↓ next row</span>
+        <span class="muted" id="farm-edit-hint">Tab → next month · Enter ↓ next row</span>
+        <span class="muted" id="combined-view-hint" hidden>Combined = CM + GAD (view only)</span>
         {% if can_edit %}<span class="save-status" id="save-status"></span>{% endif %}
       </div>
       <p class="muted" style="margin:0;font-size:0.8rem">Changes save automatically. Rows linked to a data source on the <strong>Heading mappings</strong> tab are filled automatically and shown read-only. Drag across month cells to see Count, Sum and Average.</p>
@@ -882,6 +884,33 @@
     let forecastData = null;
     let activeFarm = 'CM';
     let savedSnapshot = '';
+
+    function isCombinedFarm(farm = activeFarm) {
+      return farm === 'Combined';
+    }
+
+    function farmMonthAmount(month, farm = activeFarm) {
+      if (!month) return null;
+      if (farm === 'Combined') {
+        const cm = month.CM;
+        const gad = month.GAD;
+        if ((cm == null || cm === '') && (gad == null || gad === '')) return null;
+        return (Number(cm) || 0) + (Number(gad) || 0);
+      }
+      const raw = month[farm];
+      if (raw == null || raw === '') return null;
+      return Number(raw) || 0;
+    }
+
+    function updateFarmViewHints() {
+      const editHint = document.getElementById('farm-edit-hint');
+      const combinedHint = document.getElementById('combined-view-hint');
+      const fillBtn = document.getElementById('fill-from-sources-btn');
+      const combined = isCombinedFarm();
+      if (editHint) editHint.hidden = combined;
+      if (combinedHint) combinedHint.hidden = !combined;
+      if (fillBtn) fillBtn.hidden = combined;
+    }
 
     function esc(s) {
       return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
@@ -1256,7 +1285,7 @@
     }
 
     function applyActiveFarmDomToForecastData() {
-      if (!forecastData) return;
+      if (!forecastData || isCombinedFarm()) return;
       document.querySelectorAll('#forecast-grid-body input.amount-input').forEach(input => {
         const mappingId = Number(input.dataset.mappingId);
         const monthKey = input.dataset.month;
@@ -1378,7 +1407,7 @@
           const input = document.querySelector(
             `#forecast-grid-body input.amount-input[data-mapping-id="${row.mapping_id}"][data-month="${month.forecast_month}"]`
           );
-          const raw = input ? parseAmountInput(input.value) : month[activeFarm];
+          const raw = input ? parseAmountInput(input.value) : farmMonthAmount(month);
           total += Number(raw) || 0;
         });
       });
@@ -1390,7 +1419,7 @@
         const input = document.querySelector(
           `#forecast-grid-body input.amount-input[data-mapping-id="${row.mapping_id}"][data-month="${month.forecast_month}"]`
         );
-        const raw = input ? parseAmountInput(input.value) : month[activeFarm];
+        const raw = input ? parseAmountInput(input.value) : farmMonthAmount(month);
         return Number(raw) || 0;
       });
     }
@@ -1505,9 +1534,12 @@
         const heading = (row.heading || '').toLowerCase();
         if (row.item_type !== 'Data' || !heading.includes('litre')) return;
         (row.months || []).forEach(month => {
-          litresTotal += Number(month[activeFarm]) || 0;
+          litresTotal += farmMonthAmount(month);
         });
       });
+
+      const combined = isCombinedFarm();
+      updateFarmViewHints();
 
       document.getElementById('forecast-grid-body').innerHTML = rows.map((row, rowIdx) => {
         const span = spans[rowIdx];
@@ -1528,14 +1560,16 @@
         const isCurrency = row.item_type !== 'Data';
         let rowTotal = 0;
         const monthCells = row.months.map((month, colIdx) => {
-          const val = month[activeFarm];
+          const val = farmMonthAmount(month);
           rowTotal += Number(val) || 0;
           const display = formatAmountDisplay(val, isCurrency);
-          const disabled = (!CAN_EDIT || isAuto) ? ' disabled' : '';
+          const disabled = (!CAN_EDIT || isAuto || combined) ? ' disabled' : '';
           const cellClass = rowPeriodClass(month.forecast_month);
-          const autoCellClass = isAuto ? ' auto-cell' : '';
-          const autoInputClass = isAuto ? ' auto-input' : '';
-          const autoTitle = isAuto ? ' title="Auto-filled from data sources"' : '';
+          const autoCellClass = (isAuto || combined) ? ' auto-cell' : '';
+          const autoInputClass = (isAuto || combined) ? ' auto-input' : '';
+          const autoTitle = combined
+            ? ' title="Combined CM + GAD (view only)"'
+            : (isAuto ? ' title="Auto-filled from data sources"' : '');
           return `<td class="month-col ${cellClass}${autoCellClass}">
             <input type="text" inputmode="decimal" class="amount-input${autoInputClass}"
               data-mapping-id="${row.mapping_id}"
@@ -1600,7 +1634,7 @@
           const i = monthIndex.get(month.forecast_month);
           if (i == null) return;
           const key = `${row.mapping_id}|${month.forecast_month}`;
-          const raw = domValues.has(key) ? domValues.get(key) : month[activeFarm];
+          const raw = domValues.has(key) ? domValues.get(key) : farmMonthAmount(month);
           const val = Number(raw) || 0;
           if (itemType === 'Profit & Loss') {
             if (band === 'Sales') {
@@ -1771,6 +1805,22 @@
     }
 
     function collectForecastRows() {
+      // Combined is display-only — never write summed values back to either farm.
+      if (isCombinedFarm()) {
+        const rows = [];
+        for (const row of forecastData?.grid_rows || []) {
+          for (const month of row.months || []) {
+            rows.push({
+              mapping_id: row.mapping_id,
+              forecast_month: month.forecast_month,
+              CM: month.CM,
+              GAD: month.GAD,
+            });
+          }
+        }
+        return rows;
+      }
+
       const byKey = new Map();
       document.querySelectorAll('#forecast-grid-body input.amount-input').forEach(input => {
         const value = parseAmountInput(input.value);
@@ -1968,7 +2018,7 @@
     let currentSave = Promise.resolve();
 
     async function doAutosave() {
-      if (!CAN_EDIT) return;
+      if (!CAN_EDIT || isCombinedFarm()) return;
       try {
         const res = await fetch('/api/benchmarking/financial-forecasts', {
           method: 'PUT',
@@ -1988,6 +2038,7 @@
     }
 
     function scheduleAutosave() {
+      if (isCombinedFarm()) return;
       setSaveStatus('Saving…');
       clearTimeout(autosaveTimer);
       autosaveTimer = setTimeout(() => {
@@ -1996,6 +2047,11 @@
     }
 
     async function flushAutosave() {
+      if (isCombinedFarm()) {
+        clearTimeout(autosaveTimer);
+        autosaveTimer = null;
+        return;
+      }
       clearTimeout(autosaveTimer);
       autosaveTimer = null;
       currentSave = currentSave.then(doAutosave);
@@ -2216,9 +2272,20 @@
       renderComparisonTable();
     });
     document.getElementById('farm-select').addEventListener('change', async (e) => {
-      if (CAN_EDIT) await flushAutosave();
+      if (!isCombinedFarm()) {
+        applyActiveFarmDomToForecastData();
+        if (CAN_EDIT) await flushAutosave();
+      }
       activeFarm = e.target.value;
-      await loadForecasts({ autoFill: false });
+      updateFarmViewHints();
+      if (forecastData) {
+        renderForecastGrid();
+        bindGridAmountFormatting();
+        bindGridKeyboard();
+        bindGridAutosave();
+      } else {
+        await loadForecasts({ autoFill: false });
+      }
     });
 
     async function init() {
