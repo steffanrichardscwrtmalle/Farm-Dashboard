@@ -42,7 +42,7 @@ def _month_start(value: dt.date) -> dt.date:
 
 
 def _round_money(value: float) -> float:
-    return round(value)
+    return round(value, 2)
 
 
 def _per_acre(total: float | None, farm_size: float | None) -> float | None:

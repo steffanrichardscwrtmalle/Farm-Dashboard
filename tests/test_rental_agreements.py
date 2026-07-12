@@ -217,6 +217,34 @@ def test_allows_zero_acre_buildings(db: Session) -> None:
     assert row["per_acre"] is None
 
 
+def test_rent_amounts_saved_to_two_decimal_places(db: Session) -> None:
+    agreement = create_rental_agreement(
+        db, business="CM", farm_name="Pence Field", farm_size=10
+    )
+    save_rental_payments(
+        db,
+        fiscal_year=FISCAL_YEAR,
+        rows=[
+            {
+                "agreement_id": agreement["id"],
+                "payment_month": "2026-04-01",
+                "amount": 1234.567,
+            },
+            {
+                "agreement_id": agreement["id"],
+                "payment_month": "2026-05-01",
+                "amount": 100.1,
+            },
+        ],
+    )
+    report = build_rental_agreements_report(db, fiscal_year=FISCAL_YEAR)
+    row = report["agreements"][0]
+    assert row["amounts"]["2026-04-01"] == 1234.57
+    assert row["amounts"]["2026-05-01"] == 100.10
+    assert row["total"] == 1334.67
+    assert report["business_totals"]["CM"]["amounts"]["2026-04-01"] == 1234.57
+
+
 def test_rejects_negative_farm_size(db: Session) -> None:
     with pytest.raises(ValueError, match="cannot be negative"):
         create_rental_agreement(db, business="CM", farm_name="Bad", farm_size=-1)

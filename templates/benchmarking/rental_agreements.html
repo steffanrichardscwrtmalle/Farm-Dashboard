@@ -352,7 +352,10 @@
     if (value == null || value === '') return '';
     const num = Number(value);
     if (!Number.isFinite(num)) return '';
-    return '£' + num.toLocaleString('en-GB', { maximumFractionDigits: 0 });
+    return '£' + num.toLocaleString('en-GB', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   }
 
   function formatPerAcre(value) {
@@ -365,18 +368,25 @@
     });
   }
 
+  function roundMoney(value) {
+    return Math.round(Number(value) * 100) / 100;
+  }
+
   function formatAmountInput(value) {
     if (value == null || value === '') return '';
     const num = Number(value);
     if (!Number.isFinite(num)) return '';
-    return num.toLocaleString('en-GB', { maximumFractionDigits: 0 });
+    return roundMoney(num).toLocaleString('en-GB', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   }
 
   function parseAmount(raw) {
     const text = String(raw ?? '').replace(/[£,\s]/g, '').trim();
     if (!text) return null;
     const num = Number(text);
-    return Number.isFinite(num) ? num : null;
+    return Number.isFinite(num) ? roundMoney(num) : null;
   }
 
   function perAcre(total, farmSize) {
@@ -594,7 +604,7 @@
           byBusiness[business][month] = (current == null ? 0 : current) + amount;
         }
       });
-      const yearTotal = hasAmount ? Math.round(total) : null;
+      const yearTotal = hasAmount ? roundMoney(total) : null;
       if (agreement) {
         agreement.business = business;
         agreement.farm_size = farmSize;
@@ -613,17 +623,17 @@
       const values = months.map(m => amounts[m]).filter(v => v != null);
       businessTotals[farm] = {
         amounts,
-        total: values.length ? Math.round(values.reduce((sum, v) => sum + v, 0)) : null,
+        total: values.length ? roundMoney(values.reduce((sum, v) => sum + v, 0)) : null,
       };
     });
     const totalAmounts = Object.fromEntries(months.map(month => {
       const values = FARM_OPTIONS.map(farm => byBusiness[farm][month]).filter(v => v != null);
-      return [month, values.length ? Math.round(values.reduce((sum, v) => sum + v, 0)) : null];
+      return [month, values.length ? roundMoney(values.reduce((sum, v) => sum + v, 0)) : null];
     }));
     const totalValues = months.map(m => totalAmounts[m]).filter(v => v != null);
     businessTotals.Total = {
       amounts: totalAmounts,
-      total: totalValues.length ? Math.round(totalValues.reduce((sum, v) => sum + v, 0)) : null,
+      total: totalValues.length ? roundMoney(totalValues.reduce((sum, v) => sum + v, 0)) : null,
     };
     reportData.business_totals = businessTotals;
     renderSummary();
