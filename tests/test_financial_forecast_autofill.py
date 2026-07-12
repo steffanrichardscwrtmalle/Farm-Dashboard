@@ -279,3 +279,60 @@ def test_fill_rents_into_mapped_rent_heading(db: Session) -> None:
     )
     assert april_row["CM"] == 1250
     assert april_row["GAD"] is None
+
+
+def test_fill_stock_valuation_change_into_mapped_heading(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services.financial_data_sources import FINANCIAL_DATA_SOURCE_KEYS
+
+    assert "stock_valuations.monthly_change" in FINANCIAL_DATA_SOURCE_KEYS
+
+    mapping = db.scalars(
+        select(FinancialForecastMapping).where(
+            FinancialForecastMapping.heading == "Stock Valuation Change",
+            FinancialForecastMapping.band == "Valuation Change",
+        )
+    ).first()
+    assert mapping is not None
+
+    sources = [
+        row.source_key
+        for row in db.scalars(
+            select(FinancialForecastMappingSource).where(
+                FinancialForecastMappingSource.mapping_id == mapping.id
+            )
+        ).all()
+    ]
+    assert sources == ["stock_valuations.monthly_change"]
+
+    july = dt.date(2026, 7, 1)
+
+    def fake_index(db_session, *, fiscal_year, today=None):
+        assert fiscal_year == FISCAL_YEAR
+        return {
+            ("CM", july): 4_250.0,
+            ("GAD", july): -1_100.0,
+        }
+
+    monkeypatch.setattr(
+        "app.services.financial_forecast_autofill.build_stock_valuation_change_index",
+        fake_index,
+    )
+
+    result = fill_financial_forecasts_from_data_sources(
+        db,
+        fiscal_year=FISCAL_YEAR,
+        today=TODAY,
+    )
+    assert result["updated"] > 0
+    assert result["mappings_filled"] >= 1
+
+    forecast = list_financial_forecasts(db, fiscal_year=FISCAL_YEAR)
+    band = forecast["bands"]["Profit & Loss|Valuation Change"]
+    heading_data = band["headings"][str(mapping.id)]
+    july_row = next(
+        row for row in heading_data["rows"] if row["forecast_month"] == "2026-07-01"
+    )
+    assert july_row["CM"] == 4250
+    assert july_row["GAD"] == -1100

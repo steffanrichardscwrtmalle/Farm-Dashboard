@@ -11,6 +11,8 @@ from app.services.stock_valuation_forecasts import (
     _farm_view_from_valuations,
     _merge_farm_views,
     _projected_category,
+    build_stock_valuation_change_index_from_report,
+    monthly_valuation_change_gbp,
 )
 
 LAST_ACTUAL = dt.date(2026, 6, 1)
@@ -165,3 +167,48 @@ def test_extract_fixed_rates_uses_latest_actual_month() -> None:
     for category in CATEGORY_DISPLAY_ORDER:
         assert category in fixed["CM"]
         assert category in fixed["GAD"]
+
+
+def test_monthly_valuation_change_is_closing_minus_opening() -> None:
+    view = {
+        "opening_grand_total_gbp": 100_000,
+        "closing_grand_total_gbp": 97_500,
+    }
+    assert monthly_valuation_change_gbp(view) == -2_500
+
+
+def test_valuation_change_index_per_farm_month() -> None:
+    report = {
+        "rows": [
+            {
+                "month_start": "2026-07-01",
+                "totals": {
+                    "CM": {
+                        "opening_grand_total_gbp": 200_000,
+                        "closing_grand_total_gbp": 205_000,
+                    },
+                    "GAD": {
+                        "opening_grand_total_gbp": 150_000,
+                        "closing_grand_total_gbp": 148_000,
+                    },
+                },
+            }
+        ]
+    }
+    index = build_stock_valuation_change_index_from_report(report)
+    assert index[("CM", dt.date(2026, 7, 1))] == 5_000
+    assert index[("GAD", dt.date(2026, 7, 1))] == -2_000
+    empty_report = {
+        "rows": [
+            {
+                "month_start": "2026-08-01",
+                "totals": {
+                    "CM": {
+                        "opening_grand_total_gbp": 0,
+                        "closing_grand_total_gbp": 0,
+                    },
+                },
+            }
+        ]
+    }
+    assert build_stock_valuation_change_index_from_report(empty_report) == {}

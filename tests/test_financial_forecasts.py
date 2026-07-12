@@ -40,6 +40,12 @@ def test_seed_creates_default_mappings(db: Session) -> None:
         m for m in mappings if m["heading"] == "Milk Deductions"
     )
     assert milk_deductions["data_sources"] == ["milk_sales.monthly_deductions"]
+    stock_valuation_change = next(
+        m for m in mappings if m["heading"] == "Stock Valuation Change"
+    )
+    assert stock_valuation_change["data_sources"] == [
+        "stock_valuations.monthly_change"
+    ]
 
 
 def test_duplicate_heading_allowed_in_different_groups(db: Session) -> None:

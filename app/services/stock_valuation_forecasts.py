@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.models import HERD_FARM_OPTIONS
 from app.services.benchmarking import available_fiscal_years
 from app.services.events_common import (
     _fiscal_year_calendar_bounds,
@@ -19,6 +20,50 @@ from app.services.stock_forecasts import build_stock_forecast_heads_index
 from app.services.stock_valuations import build_stock_valuations_report
 
 CATEGORY_DISPLAY_ORDER: tuple[str, ...] = ("Dairy", "Youngstock", "Beef")
+
+
+def monthly_valuation_change_gbp(farm_view: dict[str, Any]) -> float:
+    """Total valuation change for a farm/month: closing − opening grand total."""
+    opening = float(farm_view.get("opening_grand_total_gbp") or 0)
+    closing = float(farm_view.get("closing_grand_total_gbp") or 0)
+    return closing - opening
+
+
+def build_stock_valuation_change_index_from_report(
+    report: dict[str, Any],
+) -> dict[tuple[str, dt.date], float]:
+    """Index (farm, month_start) → total valuation change £ from a valuations report."""
+    index: dict[tuple[str, dt.date], float] = {}
+    for row in report.get("rows", []):
+        month = dt.date.fromisoformat(row["month_start"])
+        totals = row.get("totals") or {}
+        for farm in HERD_FARM_OPTIONS:
+            farm_view = totals.get(farm)
+            if not farm_view:
+                continue
+            opening = float(farm_view.get("opening_grand_total_gbp") or 0)
+            closing = float(farm_view.get("closing_grand_total_gbp") or 0)
+            # Skip months with no valuation footprint so autofill does not write zeros.
+            if opening == 0 and closing == 0:
+                continue
+            index[(farm, month)] = closing - opening
+    return index
+
+
+def build_stock_valuation_change_index(
+    db: Session,
+    *,
+    fiscal_year: int | None = None,
+    today: dt.date | None = None,
+) -> dict[tuple[str, dt.date], float]:
+    """Monthly total valuation change (£) per farm for financial forecast autofill."""
+    report = build_stock_valuation_forecasts_report(
+        db,
+        farms=list(HERD_FARM_OPTIONS),
+        fiscal_year=fiscal_year,
+        today=today,
+    )
+    return build_stock_valuation_change_index_from_report(report)
 
 
 def _subtract_month(value: dt.date) -> dt.date:

@@ -14,6 +14,7 @@ from app.services.benchmarking import fiscal_year_months
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
 from app.services.financial_forecasts import (
     ensure_milk_deductions_data_source,
+    ensure_stock_valuation_change_data_source,
     list_financial_mappings,
 )
 from app.services.hp_schedules import build_hp_payment_index
@@ -23,6 +24,7 @@ from app.services.stock_sales_purchases_forecasts import (
     FORECAST_METRICS,
     build_stock_sales_purchases_forecasts_report,
 )
+from app.services.stock_valuation_forecasts import build_stock_valuation_change_index
 
 
 @dataclass
@@ -32,6 +34,7 @@ class _DataSourceContext:
     feed: dict[tuple[str, dt.date], dict[str, Any]]
     hp: dict[tuple[str, dt.date], dict[str, float]]
     rents: dict[tuple[str, dt.date], float]
+    stock_valuations: dict[tuple[str, dt.date], float]
 
 def _build_milk_index(report: dict[str, Any]) -> dict[tuple[str, dt.date], dict[str, float | None]]:
     index: dict[tuple[str, dt.date], dict[str, float | None]] = {}
@@ -101,6 +104,9 @@ def _build_data_source_context(
         feed=_build_feed_index(feed_report),
         hp=build_hp_payment_index(db, fiscal_year=fiscal_year),
         rents=build_rental_payment_index(db, fiscal_year=fiscal_year),
+        stock_valuations=build_stock_valuation_change_index(
+            db, fiscal_year=fiscal_year, today=today
+        ),
     )
 
 
@@ -155,6 +161,12 @@ def resolve_data_source_value(
             return ctx.rents.get((farm, month.replace(day=1)))
         return None
 
+    if source_key.startswith("stock_valuations."):
+        field = source_key.removeprefix("stock_valuations.")
+        if field == "monthly_change":
+            return ctx.stock_valuations.get((farm, month.replace(day=1)))
+        return None
+
     return None
 
 
@@ -195,6 +207,7 @@ def fill_financial_forecasts_from_data_sources(
 
     months = fiscal_year_months(fiscal_year)
     ensure_milk_deductions_data_source(db)
+    ensure_stock_valuation_change_data_source(db)
     mappings = [row for row in list_financial_mappings(db) if row.get("data_sources")]
     if not mappings:
         return {"updated": 0, "mappings_filled": 0, "skipped": 0}

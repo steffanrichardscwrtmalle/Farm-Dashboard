@@ -151,7 +151,12 @@ def _ensure_option(db: Session, option_type: str, value: str, *, sort_order: int
 def seed_financial_forecasts_if_empty(db: Session) -> int:
     existing = db.scalars(select(FinancialForecastMapping).limit(1)).first()
     if existing is not None:
+        changed = False
         if ensure_milk_deductions_data_source(db):
+            changed = True
+        if ensure_stock_valuation_change_data_source(db):
+            changed = True
+        if changed:
             db.commit()
         return 0
 
@@ -173,11 +178,13 @@ def seed_financial_forecasts_if_empty(db: Session) -> int:
         added += 1
     db.flush()
     ensure_milk_deductions_data_source(db)
+    ensure_stock_valuation_change_data_source(db)
     db.commit()
     return added
 
 
 MILK_DEDUCTIONS_SOURCE_KEY = "milk_sales.monthly_deductions"
+STOCK_VALUATION_CHANGE_SOURCE_KEY = "stock_valuations.monthly_change"
 
 
 def list_financial_options(db: Session) -> dict[str, Any]:
@@ -350,6 +357,31 @@ def ensure_milk_deductions_data_source(db: Session) -> bool:
         return False
 
     _set_mapping_sources(db, mapping.id, [MILK_DEDUCTIONS_SOURCE_KEY])
+    return True
+
+
+def ensure_stock_valuation_change_data_source(db: Session) -> bool:
+    """Wire Stock Valuation Change heading to Stock Forecasts total change (£)."""
+    mapping = db.scalars(
+        select(FinancialForecastMapping).where(
+            FinancialForecastMapping.heading == "Stock Valuation Change",
+            FinancialForecastMapping.band == "Valuation Change",
+            FinancialForecastMapping.group == "Valuation Change",
+        )
+    ).first()
+    if mapping is None:
+        return False
+
+    existing = db.scalars(
+        select(FinancialForecastMappingSource).where(
+            FinancialForecastMappingSource.mapping_id == mapping.id
+        )
+    ).all()
+    current_keys = {row.source_key for row in existing}
+    if current_keys == {STOCK_VALUATION_CHANGE_SOURCE_KEY}:
+        return False
+
+    _set_mapping_sources(db, mapping.id, [STOCK_VALUATION_CHANGE_SOURCE_KEY])
     return True
 
 

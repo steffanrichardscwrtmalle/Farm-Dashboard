@@ -86,6 +86,17 @@ def _build_source_registry() -> tuple[list[dict[str, Any]], frozenset[str]]:
         ],
     )
 
+    add(
+        "Stock Forecasts",
+        "stock_valuations",
+        [
+            (
+                "stock_valuations.monthly_change",
+                "Monthly valuation change — total (£)",
+            ),
+        ],
+    )
+
     return pages, frozenset(keys)
 
 
