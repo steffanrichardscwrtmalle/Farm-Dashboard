@@ -119,6 +119,9 @@
       background: #9ec5e8;
       color: #1e3a5f;
     }
+    .parity-slicer.with-beef {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
     .slicer-btn[data-value="CM"].selected {
       background: #dceaf7;
       border-color: #5a9fd4;
@@ -458,8 +461,8 @@
         {% endif %}
         {% if show_parity_filter %}
         <div class="filter-section">
-          <span class="section-label">Parity</span>
-          <div class="slicer-group parity-slicer" role="group" aria-label="Parity">
+          <span class="section-label">{% if show_parity_beef %}Stock group{% else %}Parity{% endif %}</span>
+          <div class="slicer-group parity-slicer{% if show_parity_beef %} with-beef{% endif %}" role="group" aria-label="{% if show_parity_beef %}Stock group{% else %}Parity{% endif %}">
             <button
               type="button"
               class="slicer-btn"
@@ -478,6 +481,17 @@
               <span class="slicer-icon" aria-hidden="true">C</span>
               Cows
             </button>
+            {% if show_parity_beef %}
+            <button
+              type="button"
+              class="slicer-btn"
+              data-value="beef"
+              aria-pressed="false"
+            >
+              <span class="slicer-icon" aria-hidden="true">B</span>
+              Beef
+            </button>
+            {% endif %}
           </div>
         </div>
         {% endif %}
@@ -504,7 +518,7 @@
               <span class="slicer-icon" aria-hidden="true">D</span>
               Dairy
             </button>
-            <button type="button" class="slicer-btn selected" data-value="unknown" aria-pressed="true">
+            <button type="button" class="slicer-btn selected" data-value="unknown" aria-pressed="true" id="semen-unknown-slicer">
               <span class="slicer-icon" aria-hidden="true">?</span>
               Unknown
             </button>
@@ -622,6 +636,7 @@
     const SHOW_LACT_FILTER = {{ show_lact_filter | default(false) | tojson }};
     const SHOW_PARITY_FILTER = {{ show_parity_filter | default(false) | tojson }};
     const PARITY_EXCLUSIVE = {{ parity_exclusive | default(false) | tojson }};
+    const SHOW_PARITY_BEEF = {{ show_parity_beef | default(false) | tojson }};
     const SHOW_DISEASE_FILTER = {{ show_disease_filter | default(false) | tojson }};
     const SHOW_DISEASE_SCATTER = {{ show_disease_scatter | default(false) | tojson }};
     const SHOW_REASON_TABLE = {{ show_reason_table | default(false) | tojson }};
@@ -1103,14 +1118,45 @@
     function selectedSemenTypes() {
       if (!SHOW_BREEDINGS_SEMEN_CHART) return [];
       return [...document.querySelectorAll(".semen-slicer .slicer-btn.selected")]
+        .filter(btn => !btn.hidden)
         .map(btn => btn.dataset.value);
     }
 
     function resetSemenSlicers() {
       document.querySelectorAll(".semen-slicer .slicer-btn").forEach(btn => {
+        if (btn.hidden) {
+          btn.classList.remove("selected");
+          btn.setAttribute("aria-pressed", "false");
+          return;
+        }
         btn.classList.add("selected");
         btn.setAttribute("aria-pressed", "true");
       });
+    }
+
+    function updateUnknownSemenSlicerVisibility(data) {
+      if (!SHOW_BREEDINGS_SEMEN_CHART) return false;
+      const btn = document.getElementById("semen-unknown-slicer")
+        || document.querySelector('.semen-slicer .slicer-btn[data-value="unknown"]');
+      if (!btn) return false;
+      const availableUnknown = data?.breedings_semen_summary?.available?.unknown
+        ?? data?.breedings_semen_summary?.total?.unknown
+        ?? 0;
+      const show = Number(availableUnknown) > 0;
+      const wasHidden = btn.hidden;
+      btn.hidden = !show;
+      if (!show) {
+        btn.classList.remove("selected");
+        btn.setAttribute("aria-pressed", "false");
+        return false;
+      }
+      if (wasHidden) {
+        // Newly available again — select by default and refetch so it is included.
+        btn.classList.add("selected");
+        btn.setAttribute("aria-pressed", "true");
+        return true;
+      }
+      return false;
     }
 
     function bindSemenSlicers() {
@@ -1333,8 +1379,12 @@
       } else if (SHOW_BREEDINGS_SEMEN_TABLE && data.breedings_semen_rows) {
         const tableRows = data.breedings_semen_rows;
         let semenTypes = data.breedings_semen_types || BREEDINGS_TABLE_SEMEN_ORDER;
-        const unknownTotal = data.breedings_semen_summary?.total?.unknown ?? 0;
-        if (unknownTotal === 0) {
+        const unknownAvailable = data.breedings_semen_summary?.available?.unknown
+          ?? data.breedings_semen_summary?.total?.unknown
+          ?? 0;
+        if (unknownAvailable === 0) {
+          semenTypes = semenTypes.filter(semenType => semenType !== "unknown");
+        } else if (!selectedSemenTypes().includes("unknown")) {
           semenTypes = semenTypes.filter(semenType => semenType !== "unknown");
         }
         const showCombinedTotal = farms.length > 1;
@@ -1669,6 +1719,7 @@
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
+        updateUnknownSemenSlicerVisibility(null);
         return;
       }
 
@@ -1704,7 +1755,9 @@
 
       if (SHOW_PARITY_FILTER && !PARITY_EXCLUSIVE && !parityGroups.length) {
         empty.style.display = "";
-        empty.textContent = "Please select Cows and/or Youngstock.";
+        empty.textContent = SHOW_PARITY_BEEF
+          ? "Please select Cows, Youngstock and/or Beef."
+          : "Please select Cows and/or Youngstock.";
         graphView.style.display = "none";
         tableView.style.display = "none";
         meta.textContent = "";
@@ -1749,6 +1802,11 @@
       }
 
       const data = await res.json();
+      const shouldRefetchForUnknown = updateUnknownSemenSlicerVisibility(data);
+      if (shouldRefetchForUnknown) {
+        loadReport();
+        return;
+      }
 
       if (data.fiscal_year_options) {
         renderFiscalYearOptions(data.fiscal_year_options);

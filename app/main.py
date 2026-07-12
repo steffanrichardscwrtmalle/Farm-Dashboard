@@ -709,6 +709,7 @@ def _events_page_response(
     show_lact_filter: bool = False,
     show_parity_filter: bool = False,
     parity_exclusive: bool = False,
+    show_parity_beef: bool = False,
     show_disease_filter: bool = False,
     show_disease_scatter: bool = False,
     show_reason_table: bool = False,
@@ -741,6 +742,7 @@ def _events_page_response(
             show_lact_filter=show_lact_filter,
             show_parity_filter=show_parity_filter,
             parity_exclusive=parity_exclusive,
+            show_parity_beef=show_parity_beef,
             show_disease_filter=show_disease_filter,
             show_disease_scatter=show_disease_scatter,
             disease_options=disease_options,
@@ -772,6 +774,7 @@ def events_sales_page(request: Request):
         title="Sales",
         chart_title="Sales by Month — Stacked by Farm",
         show_parity_filter=True,
+        show_parity_beef=True,
         show_reason_table=True,
     )
 

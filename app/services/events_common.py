@@ -5,11 +5,12 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from sqlalchemy import case, func, literal, or_, select
+from sqlalchemy import and_, case, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import HERD_FARM_OPTIONS, CowEvent, HerdBirth
 from app.services.breeding_sires import classify_semen_type, load_sire_overrides
+from app.services.herd_import_utils import BEEF_CBREED_MIN
 
 EVENT_PAGE_TYPES: dict[str, tuple[str, ...]] = {
     "calvings": ("FRESH",),
@@ -42,7 +43,7 @@ DISEASE_EPISODE_GAP_DAYS: dict[str, int] = {
 }
 
 LACTATION_GROUPS: tuple[str, ...] = ("1", "2", "3+")
-PARITY_GROUPS: tuple[str, ...] = ("primiparous", "multiparous")
+PARITY_GROUPS: tuple[str, ...] = ("primiparous", "multiparous", "beef")
 PAGES_WITH_PARITY_FILTER: frozenset[str] = frozenset({"sales", "deaths", "disease", "breedings"})
 SALES_REASON_ORDER: tuple[str, ...] = ("OFS", "TB", "Beef", "Dairy", "CULL")
 SALES_TABLE_REASON_ORDER: tuple[str, ...] = ("CULL", "TB", "OFS", "Beef", "Dairy")
@@ -120,9 +121,39 @@ def resolve_page_event_types(page_slug: str, disease: str | None = None) -> tupl
     return event_types
 
 
-def _apply_parity_groups(query, parity_groups: list[str] | None):
+def _apply_parity_groups(query, parity_groups: list[str] | None, *, split_beef: bool = False):
     if not parity_groups:
         return query
+
+    if split_beef:
+        # Sales page: Cows / dairy Youngstock / Beef (aligned with Stock Accruals).
+        conditions = []
+        if "multiparous" in parity_groups:
+            conditions.append(and_(CowEvent.lact.isnot(None), CowEvent.lact > 0))
+        if "primiparous" in parity_groups:
+            conditions.append(
+                and_(
+                    CowEvent.lact == 0,
+                    func.upper(func.coalesce(CowEvent.gndr, "")) == "F",
+                    CowEvent.cbrd.isnot(None),
+                    CowEvent.cbrd < BEEF_CBREED_MIN,
+                )
+            )
+        if "beef" in parity_groups:
+            conditions.append(
+                and_(
+                    CowEvent.lact == 0,
+                    or_(
+                        func.upper(func.coalesce(CowEvent.gndr, "")) != "F",
+                        CowEvent.cbrd.is_(None),
+                        CowEvent.cbrd >= BEEF_CBREED_MIN,
+                    ),
+                )
+            )
+        if not conditions:
+            return query
+        return query.where(or_(*conditions))
+
     conditions = []
     if "primiparous" in parity_groups:
         conditions.append(CowEvent.lact == 0)
@@ -246,7 +277,7 @@ def _build_sales_table_rows(
         .where(CowEvent.event_date >= effective_from)
         .where(CowEvent.event_date <= effective_to)
     )
-    counts_query = _apply_parity_groups(counts_query, selected_parity_groups)
+    counts_query = _apply_parity_groups(counts_query, selected_parity_groups, split_beef=True)
     counts_query = _apply_fiscal_year(counts_query, fiscal_year)
     counts = db.execute(
         counts_query.group_by(CowEvent.month_label, reason_expr, CowEvent.farm).order_by(
@@ -295,6 +326,8 @@ def _get_date_bounds(
     db: Session,
     event_types: tuple[str, ...],
     selected_farms: list[str],
+    *,
+    today: dt.date | None = None,
 ) -> tuple[dt.date | None, dt.date | None]:
     row = db.execute(
         select(
@@ -313,6 +346,11 @@ def _get_date_bounds(
         min_date = min_date.date()
     if hasattr(max_date, "date"):
         max_date = max_date.date()
+    # Keep the axis open through the current month even when no events have
+    # happened yet (e.g. no DAs in July so far).
+    reference = today or dt.date.today()
+    if max_date < reference:
+        max_date = reference
     return min_date, max_date
 
 
@@ -832,6 +870,7 @@ def _build_standard_event_pivot(
     selected_lact_groups: list[str] | None,
     selected_parity_groups: list[str] | None,
     fiscal_year: int | None,
+    split_beef: bool = False,
 ) -> dict[str, dict[str, int]]:
     counts_query = (
         select(
@@ -846,7 +885,9 @@ def _build_standard_event_pivot(
         .where(CowEvent.event_date <= effective_to)
     )
     counts_query = _apply_lact_groups(counts_query, selected_lact_groups)
-    counts_query = _apply_parity_groups(counts_query, selected_parity_groups)
+    counts_query = _apply_parity_groups(
+        counts_query, selected_parity_groups, split_beef=split_beef
+    )
     counts_query = _apply_fiscal_year(counts_query, fiscal_year)
     counts = db.execute(
         counts_query.group_by(CowEvent.month_label, CowEvent.farm).order_by(
@@ -993,9 +1034,15 @@ def _build_breedings_bundle(
     semen_farm_totals = {
         farm: {name: 0 for name in BREEDINGS_SEMEN_ORDER} for farm in selected_farms
     }
+    # Unfiltered counts for slicer visibility (independent of selected semen types).
+    available_farm_totals = {
+        farm: {name: 0 for name in BREEDINGS_SEMEN_ORDER} for farm in selected_farms
+    }
 
     for month_label, farm, remark, event_date in records:
         semen_type = classify_semen_type(remark, overrides)
+        if farm in available_farm_totals and semen_type in available_farm_totals[farm]:
+            available_farm_totals[farm][semen_type] += 1
         if semen_type not in allowed_semen:
             continue
 
@@ -1049,6 +1096,10 @@ def _build_breedings_bundle(
 
     month_count = _month_count_inclusive(effective_from, effective_to)
     semen_summary = _build_breedings_semen_summary(semen_farm_totals, selected_farms, month_count)
+    available_summary = _build_breedings_semen_summary(
+        available_farm_totals, selected_farms, month_count
+    )
+    semen_summary["available"] = available_summary["total"]
     return farm_pivot, table_rows, chart_rows, semen_summary
 
 
@@ -1069,12 +1120,16 @@ def build_events_report(
     apply_death_exclusions: bool = False,
     y_min: int | None = None,
     y_max: int | None = None,
+    bounds_event_types: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     selected_lact_groups = normalize_lact_groups(lact_groups)
     selected_parity_groups = normalize_parity_groups(parity_groups)
     selected_semen_types = normalize_semen_types(semen_types) if include_breedings_semen_breakdown else None
     latest_import = db.scalar(select(func.max(CowEvent.import_timestamp)))
+    # Date slider / axis use the page's full event set (not a single disease
+    # filter), so switching to DA does not shrink the range to the last DA.
+    bound_types = bounds_event_types or event_types
 
     empty_result: dict[str, Any] = {
         "rows": [],
@@ -1093,6 +1148,9 @@ def build_events_report(
             selected_farms,
             0,
         )
+        empty_result["breedings_semen_summary"]["available"] = {
+            name: 0 for name in BREEDINGS_SEMEN_ORDER
+        }
     if use_disease_episode_counting:
         empty_result["disease_scatter"] = {
             "points": [],
@@ -1112,10 +1170,10 @@ def build_events_report(
     if not selected_farms:
         return empty_result
 
-    fiscal_year_options = _get_fiscal_year_options(db, event_types, selected_farms)
+    fiscal_year_options = _get_fiscal_year_options(db, bound_types, selected_farms)
     empty_result["fiscal_year_options"] = fiscal_year_options
 
-    bounds_min, bounds_max = _get_date_bounds(db, event_types, selected_farms)
+    bounds_min, bounds_max = _get_date_bounds(db, bound_types, selected_farms)
     if bounds_min is None or bounds_max is None:
         empty_result["date_bounds"] = None
         return empty_result
@@ -1185,6 +1243,7 @@ def build_events_report(
             selected_lact_groups=selected_lact_groups,
             selected_parity_groups=selected_parity_groups,
             fiscal_year=fiscal_year,
+            split_beef=include_sales_reason_breakdown,
         )
 
     rows = _zero_fill_rows(pivot, effective_from, effective_to)
@@ -1243,6 +1302,10 @@ def build_events_report(
             selected_farms,
             month_count,
         )
+        if "available" not in result["breedings_semen_summary"]:
+            result["breedings_semen_summary"]["available"] = {
+                name: 0 for name in BREEDINGS_SEMEN_ORDER
+            }
         result["breedings_semen_types"] = list(BREEDINGS_SEMEN_ORDER)
     return result
 
@@ -1263,6 +1326,7 @@ def build_events_page_report(
     y_max: int | None = None,
 ) -> dict[str, Any]:
     event_types = resolve_page_event_types(page_slug, disease)
+    page_event_types = EVENT_PAGE_TYPES.get(page_slug, event_types)
     return build_events_report(
         db,
         event_types=event_types,
@@ -1279,4 +1343,5 @@ def build_events_page_report(
         apply_death_exclusions=page_slug == "deaths",
         y_min=y_min if page_slug == "disease" else None,
         y_max=y_max if page_slug == "disease" else None,
+        bounds_event_types=page_event_types,
     )
