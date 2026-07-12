@@ -167,7 +167,7 @@ def _compute_month_category(
         ),
         "pre_bullers": _line_cost(
             average_heads=avg_young_beef,
-            factor=0.3333,
+            factor=0.3333 * 0.18,
             rate=rate_milkers,
             days=days,
         ),

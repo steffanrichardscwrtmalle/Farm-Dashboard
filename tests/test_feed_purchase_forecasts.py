@@ -98,7 +98,7 @@ def test_compute_month_category_dairy_concentrate_formula() -> None:
     expected_far_off = avg_cows * dry * 0.5 * 1.0 * days
     expected_close_up = avg_cows * dry * 0.5 * 1.5 * days
     expected_calf = avg_yb * 0.125 * 2.0 * days
-    expected_pre_bullers = avg_yb * 0.3333 * 2.0 * days
+    expected_pre_bullers = avg_yb * 0.3333 * 0.18 * 2.0 * days
     expected_bullers = avg_yb * 0.15 * 0.5 * days
     expected_pregnant = avg_yb * 0.15 * 0.75 * 1.0 * days
 
@@ -171,7 +171,7 @@ def test_compute_month_category_forage_rollup_sums_available_rations() -> None:
     dry = 0.1
     expected_milkers = round(avg_cows * (1 - dry) * 1.0 * days)
     expected_calf = round(avg_yb * 0.125 * 1.0 * days)
-    expected_pre_bullers = round(avg_yb * 0.3333 * 1.0 * days)
+    expected_pre_bullers = round(avg_yb * 0.3333 * 0.18 * 1.0 * days)
 
     assert result["detail"]["milkers"] == expected_milkers
     assert result["detail"]["far_off"] is None
