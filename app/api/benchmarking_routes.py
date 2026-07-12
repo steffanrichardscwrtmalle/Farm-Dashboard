@@ -50,6 +50,7 @@ from app.services.financial_forecasts import (
     list_financial_options,
     save_financial_forecasts,
     update_financial_mapping,
+    update_financial_option,
 )
 from app.services.hp_schedules import (
     build_hp_payment_chart,
@@ -527,6 +528,10 @@ class FinancialOptionBody(BaseModel):
     value: str = Field(min_length=1, max_length=255)
 
 
+class FinancialOptionUpdateBody(BaseModel):
+    value: str = Field(min_length=1, max_length=255)
+
+
 class FinancialMappingBody(BaseModel):
     heading: str = Field(min_length=1, max_length=255)
     item_type: str = Field(min_length=1, max_length=64)
@@ -570,6 +575,20 @@ def api_add_financial_forecast_option(
 ):
     try:
         option = add_financial_option(db, body.option_type, body.value)
+        return {"id": option.id, "option_type": option.option_type, "value": option.value}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/financial-forecasts/options/{option_id}")
+def api_update_financial_forecast_option(
+    option_id: int,
+    body: FinancialOptionUpdateBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        option = update_financial_option(db, option_id, body.value)
         return {"id": option.id, "option_type": option.option_type, "value": option.value}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

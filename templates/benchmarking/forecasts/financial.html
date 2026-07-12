@@ -42,6 +42,24 @@
       padding: 0.35rem 0.5rem;
       font-size: 0.85rem;
     }
+    .option-actions {
+      display: flex;
+      gap: 0.25rem;
+      justify-content: flex-end;
+      white-space: nowrap;
+    }
+    .option-actions .small { margin: 0; }
+    .option-edit-row {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
+    }
+    .option-edit-row input {
+      flex: 1;
+      margin: 0;
+      min-width: 0;
+      font-size: 0.82rem;
+    }
     .grid-4 {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -455,6 +473,17 @@
       border: 1px solid var(--border);
       border-radius: 6px;
     }
+    .summary-wrap + .summary-wrap {
+      margin-top: 0.75rem;
+    }
+    #cashflow-summary-wrap {
+      margin-top: 0.75rem;
+    }
+    .summary-note {
+      margin: 0.35rem 0 0;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
     .summary-table {
       border-collapse: separate;
       border-spacing: 0;
@@ -480,6 +509,9 @@
       font-weight: 600;
       text-align: center;
     }
+    #cashflow-summary-table thead th {
+      background: #1e3a5f;
+    }
     .summary-table .summary-label {
       position: sticky;
       left: 0;
@@ -501,6 +533,9 @@
       z-index: 5;
       background: #14532d;
       color: #fff;
+    }
+    #cashflow-summary-table thead .summary-label {
+      background: #1e3a5f;
     }
     .summary-table .month-col {
       min-width: 5rem;
@@ -525,6 +560,10 @@
       background: #14532d;
       color: #fff;
       text-align: center;
+    }
+    #cashflow-summary-table thead .total-col,
+    #cashflow-summary-table thead .ppl-col {
+      background: #1e3a5f;
     }
     .summary-table tr.cumulative td.total-col,
     .summary-table tr.cumulative td.ppl-col { background: #dbe4ee; }
@@ -669,7 +708,7 @@
         <span class="muted">Tab → next month · Enter ↓ next row</span>
         {% if can_edit %}<span class="save-status" id="save-status"></span>{% endif %}
       </div>
-      <p class="muted" style="margin:0;font-size:0.8rem">Changes save automatically. Rows linked to a data source on the <strong>Heading mappings</strong> tab are filled automatically and shown read-only.</p>
+      <p class="muted" style="margin:0;font-size:0.8rem">Changes save automatically. Rows linked to a data source on the <strong>Heading mappings</strong> tab are filled automatically and shown read-only. Drag across month cells to see Count, Sum and Average.</p>
 
       <div class="grid-panel">
         <div class="grid-table-wrap">
@@ -685,16 +724,26 @@
         {% endif %}
       </div>
 
-      <div class="summary-wrap" id="summary-wrap">
-        <table class="summary-table" id="summary-table">
+      <div class="summary-wrap" id="profit-summary-wrap">
+        <table class="summary-table" id="profit-summary-table">
           <thead></thead>
           <tbody></tbody>
         </table>
       </div>
+      <p class="summary-note">Profit ex Depreciation excludes any heading whose name contains “Depreciation”.</p>
+
+      <div class="summary-wrap" id="cashflow-summary-wrap">
+        <table class="summary-table" id="cashflow-summary-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="summary-note">Cashflow always excludes headings whose names contain “Depreciation” or “Valuation Change”.</p>
     </div>
     <p class="empty-state" id="load-error" hidden>Failed to load forecast data.</p>
   </div>
 
+  <script src="/static/js/table-selection-stats.js"></script>
   <script>
     const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
 
@@ -918,10 +967,18 @@
       }
       body.innerHTML = filtered.map(value => {
         const row = optionRows.find(r => r.option_type === optionType && r.value === value);
-        const del = CAN_EDIT && row
-          ? `<button class="small danger" data-delete-option="${row.id}">Del</button>`
-          : '';
-        return `<tr><td>${esc(value)}</td>${CAN_EDIT ? `<td>${del}</td>` : ''}</tr>`;
+        if (!CAN_EDIT || !row) {
+          return `<tr><td>${esc(value)}</td>${CAN_EDIT ? '<td></td>' : ''}</tr>`;
+        }
+        return `<tr data-option-id="${row.id}" data-option-type="${esc(optionType)}">
+          <td class="option-value-cell">${esc(value)}</td>
+          <td>
+            <div class="option-actions">
+              <button type="button" class="small" data-edit-option="${row.id}">Edit</button>
+              <button type="button" class="small danger" data-delete-option="${row.id}">Del</button>
+            </div>
+          </td>
+        </tr>`;
       }).join('');
     }
 
@@ -1136,8 +1193,8 @@
         left += w;
       });
 
-      // Match summary label column to the combined sticky label width so months line up.
-      document.querySelectorAll('#summary-table .summary-label').forEach(el => {
+      // Match summary label columns to the combined sticky label width so months line up.
+      document.querySelectorAll('.summary-table .summary-label').forEach(el => {
         el.style.width = `${left}px`;
         el.style.minWidth = `${left}px`;
         el.style.maxWidth = `${left}px`;
@@ -1285,6 +1342,9 @@
       const sales = Array(n).fill(0);
       const valuation = Array(n).fill(0);
       const otherPL = Array(n).fill(0);
+      const otherPLExDep = Array(n).fill(0);
+      const salesForCash = Array(n).fill(0);
+      const otherPLForCash = Array(n).fill(0);
       const cash = Array(n).fill(0);
       const litres = Array(n).fill(0);
 
@@ -1292,6 +1352,8 @@
         const itemType = row.item_type;
         const band = row.band;
         const heading = (row.heading || '').toLowerCase();
+        const isDepreciation = heading.includes('depreciation');
+        const isValuationChange = heading.includes('valuation change') || band === 'Valuation Change';
         (row.months || []).forEach(month => {
           const i = monthIndex.get(month.forecast_month);
           if (i == null) return;
@@ -1299,11 +1361,24 @@
           const raw = domValues.has(key) ? domValues.get(key) : month[activeFarm];
           const val = Number(raw) || 0;
           if (itemType === 'Profit & Loss') {
-            if (band === 'Sales') sales[i] += val;
-            else if (band === 'Valuation Change') valuation[i] += val;
-            else otherPL[i] += val;
+            if (band === 'Sales') {
+              sales[i] += val;
+              salesForCash[i] += val;
+            } else if (band === 'Valuation Change' || isValuationChange) {
+              valuation[i] += val;
+              // Cashflow always excludes valuation change headings.
+            } else if (isDepreciation) {
+              otherPL[i] += val;
+              // Excluded from profit-ex-dep and from cashflow.
+            } else {
+              otherPL[i] += val;
+              otherPLExDep[i] += val;
+              otherPLForCash[i] += val;
+            }
           } else if (itemType === 'Cash') {
-            cash[i] += val;
+            if (!isDepreciation && !isValuationChange) {
+              cash[i] += val;
+            }
           } else if (itemType === 'Data' && heading.includes('litre')) {
             litres[i] += val;
           }
@@ -1311,32 +1386,70 @@
       });
 
       const monthlyProfit = Array(n).fill(0);
+      const monthlyProfitExDep = Array(n).fill(0);
       const monthlyCashflow = Array(n).fill(0);
       const cumProfit = Array(n).fill(0);
+      const cumProfitExDep = Array(n).fill(0);
       const cumCashflow = Array(n).fill(0);
       const cumLitres = Array(n).fill(0);
-      let runP = 0, runC = 0, runL = 0;
+      let runP = 0;
+      let runPEx = 0;
+      let runC = 0;
+      let runL = 0;
       for (let i = 0; i < n; i += 1) {
         monthlyProfit[i] = sales[i] + valuation[i] - otherPL[i];
-        monthlyCashflow[i] = monthlyProfit[i] - cash[i];
+        monthlyProfitExDep[i] = sales[i] + valuation[i] - otherPLExDep[i];
+        monthlyCashflow[i] = salesForCash[i] - otherPLForCash[i] - cash[i];
         runP += monthlyProfit[i];
+        runPEx += monthlyProfitExDep[i];
         runC += monthlyCashflow[i];
         runL += litres[i];
         cumProfit[i] = runP;
+        cumProfitExDep[i] = runPEx;
         cumCashflow[i] = runC;
         cumLitres[i] = runL;
       }
 
-      return { monthDefs, litres, monthlyProfit, monthlyCashflow, cumProfit, cumCashflow, cumLitres };
+      return {
+        monthDefs,
+        litres,
+        monthlyProfit,
+        monthlyProfitExDep,
+        monthlyCashflow,
+        cumProfit,
+        cumProfitExDep,
+        cumCashflow,
+        cumLitres,
+      };
     }
 
-    function renderProfitSummary() {
-      const table = document.getElementById('summary-table');
+    function renderSummaryTable(table, title, rowsHtml, monthDefs) {
       if (!table) return;
       const thead = table.querySelector('thead');
       const tbody = table.querySelector('tbody');
+      if (!monthDefs) {
+        thead.innerHTML = '';
+        tbody.innerHTML = '';
+        return;
+      }
+      thead.innerHTML = `<tr>
+        <th class="summary-label">${title} (${esc(activeFarm)})</th>
+        ${monthDefs.map(m => `<th class="month-col">${esc(m.month_label)}</th>`).join('')}
+        <th class="total-col">Total</th>
+        <th class="ppl-col">PPL</th>
+      </tr>`;
+      tbody.innerHTML = rowsHtml;
+    }
+
+    function renderProfitSummary() {
+      const profitTable = document.getElementById('profit-summary-table');
+      const cashflowTable = document.getElementById('cashflow-summary-table');
       const s = computeMonthlySummary();
-      if (!s) { thead.innerHTML = ''; tbody.innerHTML = ''; return; }
+      if (!s) {
+        renderSummaryTable(profitTable, 'Profit', '', null);
+        renderSummaryTable(cashflowTable, 'Cashflow', '', null);
+        return;
+      }
 
       const moneyCell = v => {
         const cls = (Number(v) || 0) < 0 ? 'month-col neg' : 'month-col';
@@ -1362,13 +1475,6 @@
       const sum = arr => arr.reduce((a, b) => a + (Number(b) || 0), 0);
       const litresTotal = sum(s.litres);
 
-      thead.innerHTML = `<tr>
-        <th class="summary-label">Profit &amp; cashflow (${esc(activeFarm)})</th>
-        ${s.monthDefs.map(m => `<th class="month-col">${esc(m.month_label)}</th>`).join('')}
-        <th class="total-col">Total</th>
-        <th class="ppl-col">PPL</th>
-      </tr>`;
-
       const moneyRow = (label, values, extraClass = '', useLastAsTotal = false) => {
         const total = useLastAsTotal ? (values[values.length - 1] || 0) : sum(values);
         const den = useLastAsTotal ? (s.cumLitres[s.cumLitres.length - 1] || 0) : litresTotal;
@@ -1380,32 +1486,46 @@
         return `<tr class="ppl ${extraClass}"><td class="summary-label">${label}</td>${pplCells(values, dens)}<td class="total-col">—</td>${totalPplCell(totalAmount, totalDen)}</tr>`;
       };
 
-      tbody.innerHTML = [
+      renderSummaryTable(profitTable, 'Profit', [
         moneyRow('Monthly Profit', s.monthlyProfit),
         pplRow('Monthly Profit PPL', s.monthlyProfit, s.litres),
         moneyRow('Cumulative Profit', s.cumProfit, 'cumulative', true),
         pplRow('Cumulative Profit PPL', s.cumProfit, s.cumLitres, 'cumulative', true),
+        moneyRow('Monthly Profit ex Depreciation', s.monthlyProfitExDep),
+        pplRow('Monthly Profit ex Depreciation PPL', s.monthlyProfitExDep, s.litres),
+        moneyRow('Cumulative Profit ex Depreciation', s.cumProfitExDep, 'cumulative', true),
+        pplRow('Cumulative Profit ex Depreciation PPL', s.cumProfitExDep, s.cumLitres, 'cumulative', true),
+      ].join(''), s.monthDefs);
+
+      renderSummaryTable(cashflowTable, 'Cashflow', [
         moneyRow('Monthly Cashflow', s.monthlyCashflow),
         pplRow('Monthly Cashflow PPL', s.monthlyCashflow, s.litres),
         moneyRow('Cumulative Cashflow', s.cumCashflow, 'cumulative', true),
         pplRow('Cumulative Cashflow PPL', s.cumCashflow, s.cumLitres, 'cumulative', true),
-      ].join('');
+      ].join(''), s.monthDefs);
     }
 
     function bindSummaryScrollSync() {
       const grid = document.querySelector('.grid-table-wrap');
-      const summary = document.getElementById('summary-wrap');
-      if (!grid || !summary || summary.dataset.syncBound === '1') return;
-      summary.dataset.syncBound = '1';
+      const summaries = [
+        document.getElementById('profit-summary-wrap'),
+        document.getElementById('cashflow-summary-wrap'),
+      ].filter(Boolean);
+      if (!grid || !summaries.length || grid.dataset.summarySyncBound === '1') return;
+      grid.dataset.summarySyncBound = '1';
       let lock = false;
-      grid.addEventListener('scroll', () => {
+      const syncFrom = (source) => {
         if (lock) return;
-        lock = true; summary.scrollLeft = grid.scrollLeft; lock = false;
-      });
-      summary.addEventListener('scroll', () => {
-        if (lock) return;
-        lock = true; grid.scrollLeft = summary.scrollLeft; lock = false;
-      });
+        lock = true;
+        const left = source.scrollLeft;
+        if (source !== grid) grid.scrollLeft = left;
+        summaries.forEach(s => {
+          if (s !== source) s.scrollLeft = left;
+        });
+        lock = false;
+      };
+      grid.addEventListener('scroll', () => syncFrom(grid));
+      summaries.forEach(s => s.addEventListener('scroll', () => syncFrom(s)));
     }
 
     function collectForecastRows() {
@@ -1531,6 +1651,11 @@
       bindGridAmountFormatting();
       bindGridKeyboard();
       bindGridAutosave();
+      if (typeof enableTableSelectionStats === 'function') {
+        enableTableSelectionStats(document.getElementById('forecast-grid'), {
+          cellSelector: 'td.month-col',
+        });
+      }
     }
 
     async function loadForecasts({ autoFill = true } = {}) {
@@ -1683,6 +1808,61 @@
       });
 
       document.querySelector('.options-grid').addEventListener('click', async (e) => {
+        const editBtn = e.target.closest('button[data-edit-option]');
+        if (editBtn) {
+          const tr = editBtn.closest('tr[data-option-id]');
+          if (!tr || tr.classList.contains('is-editing')) return;
+          const valueCell = tr.querySelector('.option-value-cell');
+          const actions = tr.querySelector('.option-actions');
+          const current = valueCell?.textContent || '';
+          tr.classList.add('is-editing');
+          valueCell.innerHTML = `<div class="option-edit-row">
+            <input type="text" class="option-edit-input" value="${attrEsc(current)}" maxlength="255">
+          </div>`;
+          actions.innerHTML = `
+            <button type="button" class="small" data-save-option="${tr.dataset.optionId}">Save</button>
+            <button type="button" class="small" data-cancel-edit-option>Cancel</button>
+          `;
+          const input = valueCell.querySelector('.option-edit-input');
+          input?.focus();
+          input?.select();
+          return;
+        }
+
+        const cancelBtn = e.target.closest('button[data-cancel-edit-option]');
+        if (cancelBtn) {
+          await loadOptions();
+          return;
+        }
+
+        const saveBtn = e.target.closest('button[data-save-option]');
+        if (saveBtn) {
+          const tr = saveBtn.closest('tr[data-option-id]');
+          const input = tr?.querySelector('.option-edit-input');
+          const value = (input?.value || '').trim();
+          if (!value) {
+            showMsg('options-message', 'Enter a value to save.', false);
+            return;
+          }
+          saveBtn.disabled = true;
+          const res = await fetch(`/api/benchmarking/financial-forecasts/options/${saveBtn.dataset.saveOption}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value }),
+          });
+          const data = await readResponse(res);
+          if (!res.ok) {
+            showMsg('options-message', data.detail || 'Update failed', false);
+            saveBtn.disabled = false;
+            return;
+          }
+          showMsg('options-message', 'Option updated. Existing mappings were renamed to match.', true);
+          await loadOptions();
+          await loadMappings();
+          forecastData = null;
+          return;
+        }
+
         const btn = e.target.closest('button[data-delete-option]');
         if (!btn) return;
         if (!confirm('Delete this option?')) return;
@@ -1690,6 +1870,17 @@
         const data = await res.json();
         if (!res.ok) { showMsg('options-message', data.detail || 'Delete failed', false); return; }
         await loadOptions();
+      });
+
+      document.querySelector('.options-grid').addEventListener('keydown', async (e) => {
+        if (!e.target.matches('.option-edit-input')) return;
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.target.closest('tr')?.querySelector('button[data-save-option]')?.click();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          await loadOptions();
+        }
       });
 
       document.getElementById('add-mapping-btn').addEventListener('click', async () => {

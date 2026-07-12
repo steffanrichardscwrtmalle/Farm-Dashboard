@@ -303,7 +303,7 @@
     <div class="grid-panel-header">
       <h3>Rental schedule</h3>
     </div>
-    <p class="muted" style="margin:0 0 0.45rem">Press <strong>Edit</strong> on a row to change it. Only one row can be edited at a time. Changes autosave.</p>
+    <p class="muted" style="margin:0 0 0.45rem">Press <strong>Edit</strong> on a row to change it. Only one row can be edited at a time. Changes autosave. Drag across month cells to see Count, Sum and Average.</p>
     <div class="grid-table-wrap">
       <table class="grid-table" id="rents-grid">
         <thead id="rents-grid-head"></thead>
@@ -326,6 +326,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/table-selection-stats.js"></script>
 <script>
   const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
   const FARM_OPTIONS = {{ farm_options | tojson }};
@@ -878,6 +879,15 @@
     const deleteBtn = event.target.closest('.delete-btn');
     if (deleteBtn) removeAgreement(Number(deleteBtn.dataset.agreementId));
   });
+
+  if (typeof enableTableSelectionStats === 'function') {
+    enableTableSelectionStats(document.getElementById('rents-grid'), {
+      cellSelector: 'td.month-col',
+    });
+    enableTableSelectionStats(document.getElementById('summary-grid'), {
+      cellSelector: 'td.month-col',
+    });
+  }
 
   loadReport();
 </script>

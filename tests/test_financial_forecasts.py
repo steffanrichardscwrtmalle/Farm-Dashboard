@@ -20,6 +20,7 @@ from app.services.financial_forecasts import (
     save_financial_forecasts,
     seed_financial_forecasts_if_empty,
     update_financial_mapping,
+    update_financial_option,
 )
 
 
@@ -105,6 +106,30 @@ def test_update_mapping_keeps_same_data_source(db: Session) -> None:
         "milk_sales.monthly_litres",
         "milk_sales.monthly_revenue",
     ]
+
+
+def test_update_option_renames_mappings(db: Session) -> None:
+    add_financial_option(db, "heading", "Old Heading")
+    add_financial_option(db, "group", "Edit Group")
+    option = add_financial_option(db, "heading", "Old Heading")
+    mapping = create_financial_mapping(
+        db,
+        heading="Old Heading",
+        item_type="Profit & Loss",
+        band="Sales",
+        group="Edit Group",
+    )
+    updated = update_financial_option(db, option.id, "New Heading")
+    assert updated.value == "New Heading"
+    db.refresh(mapping)
+    assert mapping.heading == "New Heading"
+
+
+def test_update_option_rejects_duplicate(db: Session) -> None:
+    first = add_financial_option(db, "band", "Alpha Band")
+    add_financial_option(db, "band", "Beta Band")
+    with pytest.raises(ValueError, match="already exists"):
+        update_financial_option(db, first.id, "Beta Band")
 
 
 def test_create_update_delete_mapping(db: Session) -> None:

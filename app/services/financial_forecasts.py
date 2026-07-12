@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -239,6 +239,55 @@ def add_financial_option(db: Session, option_type: str, value: str) -> Financial
         return existing
     option = FinancialForecastOption(option_type=option_type, value=normalized)
     db.add(option)
+    db.commit()
+    db.refresh(option)
+    return option
+
+
+def _mapping_field_for_option_type(option_type: str) -> str:
+    if option_type == FINANCIAL_OPTION_HEADING:
+        return "heading"
+    if option_type == FINANCIAL_OPTION_ITEM_TYPE:
+        return "item_type"
+    if option_type == FINANCIAL_OPTION_BAND:
+        return "band"
+    if option_type == FINANCIAL_OPTION_GROUP:
+        return "group"
+    raise ValueError(f"Unknown option_type: {option_type}")
+
+
+def update_financial_option(
+    db: Session, option_id: int, value: str
+) -> FinancialForecastOption:
+    """Rename a category option and cascade the change to heading mappings."""
+    option = db.get(FinancialForecastOption, option_id)
+    if option is None:
+        raise ValueError("Option not found")
+
+    normalized = _normalize(value)
+    if not normalized:
+        raise ValueError("Value is required")
+    if normalized == option.value:
+        return option
+
+    conflict = db.scalars(
+        select(FinancialForecastOption).where(
+            FinancialForecastOption.option_type == option.option_type,
+            func.lower(FinancialForecastOption.value) == normalized.lower(),
+            FinancialForecastOption.id != option.id,
+        )
+    ).first()
+    if conflict is not None:
+        raise ValueError("That value already exists")
+
+    old_value = option.value
+    field = _mapping_field_for_option_type(option.option_type)
+    option.value = normalized
+    db.execute(
+        update(FinancialForecastMapping)
+        .where(getattr(FinancialForecastMapping, field) == old_value)
+        .values(**{field: normalized})
+    )
     db.commit()
     db.refresh(option)
     return option
