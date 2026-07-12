@@ -79,6 +79,15 @@
     return store[key] || null;
   }
 
+  function clearPageCache() {
+    try {
+      sessionStorage.removeItem(PAGE_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    pageInflight = null;
+  }
+
   const StockForecastsPageCache = {
     get(fiscalYear, stockGroup, farmList) {
       return getPageCache(fiscalYear, stockGroup, farmList);
@@ -86,6 +95,10 @@
 
     set(fiscalYear, stockGroup, farmList, pageData) {
       setPageCache(fiscalYear, stockGroup, farmList, pageData);
+    },
+
+    clear() {
+      clearPageCache();
     },
 
     getInflight() {

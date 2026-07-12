@@ -310,6 +310,14 @@
             {% endfor %}
           </select>
         </div>
+        <div class="filter-section">
+          <button type="button" class="small" id="refresh-forecasts-btn" style="width:100%">
+            Refresh from livestock forecasts
+          </button>
+          <p class="muted" style="margin:0.4rem 0 0;font-size:0.75rem">
+            Clears cached numbers and recalculates projected months from the latest saved livestock forecasts.
+          </p>
+        </div>
       </aside>
       <div class="summary-panel" id="summary-panel" style="display:none;">
         <h3>Average stock</h3>
@@ -1112,10 +1120,11 @@
       }
     }
 
-    async function loadReport() {
+    async function loadReport({ force = false } = {}) {
       const meta = document.getElementById("meta-line");
       const empty = document.getElementById("empty-state");
       const wrap = document.getElementById("table-wrap");
+      const refreshBtn = document.getElementById("refresh-forecasts-btn");
       const farms = selectedFarms();
       if (!farms.length) {
         meta.textContent = "";
@@ -1133,34 +1142,39 @@
       const fiscalYear = document.getElementById("fiscal-year-select").value;
       const stockGroup = selectedStockGroup();
 
-      const sessionCached = window.StockForecastsPageCache?.get(
-        fiscalYear,
-        stockGroup,
-        farms
-      );
-      if (sessionCached) {
-        applyPageData(sessionCached, farms);
-        return;
-      }
-
-      const pendingPage = window.StockForecastsPageCache?.getInflight?.();
-      if (pendingPage) {
-        meta.classList.add("is-loading");
-        meta.textContent = "Loading stock forecasts…";
-        const pageData = await pendingPage;
-        if (
-          pageData
-          && String(pageData.stock_forecasts?.selected_fiscal_year) === String(fiscalYear)
-          && pageData.stock_forecasts?.stock_group === stockGroup
-        ) {
-          applyPageData(pageData, farms);
-          meta.classList.remove("is-loading");
+      if (force) {
+        window.StockForecastsPageCache?.clear?.();
+      } else {
+        const sessionCached = window.StockForecastsPageCache?.get(
+          fiscalYear,
+          stockGroup,
+          farms
+        );
+        if (sessionCached) {
+          applyPageData(sessionCached, farms);
           return;
+        }
+
+        const pendingPage = window.StockForecastsPageCache?.getInflight?.();
+        if (pendingPage) {
+          meta.classList.add("is-loading");
+          meta.textContent = "Loading stock forecasts…";
+          const pageData = await pendingPage;
+          if (
+            pageData
+            && String(pageData.stock_forecasts?.selected_fiscal_year) === String(fiscalYear)
+            && pageData.stock_forecasts?.stock_group === stockGroup
+          ) {
+            applyPageData(pageData, farms);
+            meta.classList.remove("is-loading");
+            return;
+          }
         }
       }
 
       meta.classList.add("is-loading");
-      meta.textContent = "Loading stock forecasts…";
+      meta.textContent = force ? "Refreshing stock forecasts…" : "Loading stock forecasts…";
+      if (refreshBtn) refreshBtn.disabled = true;
       try {
         const res = await fetch(`/api/benchmarking/stock-forecasts-page?${buildParams()}`);
         if (!res.ok) throw new Error("load failed");
@@ -1178,13 +1192,17 @@
         hideValuationChangeTable("Failed to load valuation change forecast.");
       } finally {
         meta.classList.remove("is-loading");
+        if (refreshBtn) refreshBtn.disabled = false;
       }
     }
 
     bindFarmSlicers();
     bindExclusiveSlicers(".stock-group-slicer");
     bindSalesToggle();
-    document.getElementById("fiscal-year-select").addEventListener("change", loadReport);
+    document.getElementById("fiscal-year-select").addEventListener("change", () => loadReport());
+    document.getElementById("refresh-forecasts-btn")?.addEventListener("click", () => {
+      loadReport({ force: true });
+    });
     loadReport();
   </script>
 {% endblock %}

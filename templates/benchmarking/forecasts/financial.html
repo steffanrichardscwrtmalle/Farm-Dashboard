@@ -581,12 +581,104 @@
     .summary-table tr.cumulative td.summary-label { background: #e8eef5; }
     .summary-table tr.ppl td { color: #475569; font-style: italic; }
     .summary-table td.neg { color: #b91c1c; }
+
+    .comparison-page {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .comparison-table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      max-height: calc(100vh - 12rem);
+    }
+    .comparison-table {
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.78rem;
+      width: max-content;
+      min-width: 100%;
+    }
+    .comparison-table th,
+    .comparison-table td {
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 0.28rem 0.45rem;
+      white-space: nowrap;
+      background: #fff;
+    }
+    .comparison-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      text-align: center;
+    }
+    .comparison-table .sticky-col {
+      position: sticky;
+      z-index: 2;
+      background: #fff;
+      text-align: left;
+    }
+    .comparison-table thead .sticky-col {
+      z-index: 5;
+      background: #1e3a5f;
+      color: #fff;
+    }
+    .comparison-table .col-item-type { left: 0; min-width: 5rem; }
+    .comparison-table .col-band { left: 5rem; min-width: 6rem; }
+    .comparison-table .col-group { left: 11rem; min-width: 6rem; }
+    .comparison-table .col-heading {
+      left: 17rem;
+      min-width: 9rem;
+      border-right: 2px solid #94a3b8;
+    }
+    .comparison-table thead .col-heading { border-right-color: #64748b; }
+    .comparison-table .ppl-col {
+      min-width: 4.5rem;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .comparison-table .diff-col {
+      min-width: 5rem;
+      text-align: right;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      background: #f8fafc;
+    }
+    .comparison-table thead .diff-col { background: #1e3a5f; }
+    .comparison-table tbody tr:nth-child(even) td { background: #fafbfc; }
+    .comparison-table tbody tr:nth-child(even) td.diff-col { background: #f1f5f9; }
+    .comparison-table tbody tr:nth-child(even) .sticky-col { background: #fafbfc; }
+    .comparison-table .span-item-type {
+      background: #eff6ff;
+      color: #1e3a8a;
+      font-weight: 600;
+      vertical-align: middle;
+    }
+    .comparison-table .span-band {
+      background: #f8fafc;
+      color: #334155;
+      font-weight: 500;
+      vertical-align: middle;
+    }
+    .comparison-table .span-group {
+      background: #fff;
+      color: #475569;
+      vertical-align: middle;
+    }
+    .comparison-table td.neg { color: #b91c1c; }
+    .comparison-table td.pos { color: #15803d; }
 {% endblock %}
 
 {% block content %}
   <div class="page-tabs" role="tablist">
     <button type="button" class="page-tab active" data-section="mappings">Heading mappings</button>
     <button type="button" class="page-tab" data-section="forecasts">Monthly Budget</button>
+    <button type="button" class="page-tab" data-section="comparison">Farm Comparison</button>
   </div>
 
   <div class="section-panel" id="section-mappings">
@@ -751,6 +843,29 @@
       <p class="summary-note">Cashflow always excludes headings whose names contain “Depreciation” or “Valuation Change”.</p>
     </div>
     <p class="empty-state" id="load-error" hidden>Failed to load forecast data.</p>
+  </div>
+
+  <div class="section-panel" id="section-comparison" hidden>
+    <div class="comparison-page">
+      <div class="grid-toolbar">
+        <label>
+          FY
+          <select id="comparison-fy-select">
+            {% for fy in fiscal_year_options %}
+            <option value="{{ fy }}">FY {{ fy }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <span class="muted">Total PPL for each budget row — CM vs GAD</span>
+      </div>
+      <div class="comparison-table-wrap">
+        <table class="comparison-table" id="comparison-table">
+          <thead id="comparison-table-head"></thead>
+          <tbody id="comparison-table-body"></tbody>
+        </table>
+      </div>
+      <p class="empty-state" id="comparison-error" hidden>Failed to load comparison data.</p>
+    </div>
   </div>
 
   <script src="/static/js/table-selection-stats.js"></script>
@@ -1133,6 +1248,123 @@
       const ppl = (Number(amount) * 100) / Number(litres);
       if (!Number.isFinite(ppl)) return '—';
       return ppl.toFixed(2) + 'p';
+    }
+
+    function formatPplValue(ppl) {
+      if (ppl == null || !Number.isFinite(ppl)) return '—';
+      return ppl.toFixed(2) + 'p';
+    }
+
+    function applyActiveFarmDomToForecastData() {
+      if (!forecastData) return;
+      document.querySelectorAll('#forecast-grid-body input.amount-input').forEach(input => {
+        const mappingId = Number(input.dataset.mappingId);
+        const monthKey = input.dataset.month;
+        const row = (forecastData.grid_rows || []).find(r => r.mapping_id === mappingId);
+        if (!row) return;
+        const month = (row.months || []).find(m => m.forecast_month === monthKey);
+        if (!month) return;
+        month[activeFarm] = parseAmountInput(input.value);
+      });
+    }
+
+    function getFarmYearTotal(row, farm) {
+      return (row.months || []).reduce((sum, month) => sum + (Number(month[farm]) || 0), 0);
+    }
+
+    function getFarmLitresSoldTotal(farm) {
+      if (!forecastData) return 0;
+      let total = 0;
+      for (const row of forecastData.grid_rows || []) {
+        const heading = (row.heading || '').toLowerCase();
+        if (row.item_type !== 'Data' || !heading.includes('litre')) continue;
+        total += getFarmYearTotal(row, farm);
+      }
+      return total;
+    }
+
+    function pplForAmount(amount, litres) {
+      if (!litres) return null;
+      const ppl = (Number(amount) * 100) / Number(litres);
+      return Number.isFinite(ppl) ? ppl : null;
+    }
+
+    function renderComparisonTable() {
+      const head = document.getElementById('comparison-table-head');
+      const body = document.getElementById('comparison-table-body');
+      if (!head || !body) return;
+      if (!forecastData) {
+        head.innerHTML = '';
+        body.innerHTML = '';
+        return;
+      }
+
+      applyActiveFarmDomToForecastData();
+      const rows = forecastData.grid_rows || [];
+      const spans = computeGridRowSpans(rows);
+      const litresCM = getFarmLitresSoldTotal('CM');
+      const litresGAD = getFarmLitresSoldTotal('GAD');
+
+      head.innerHTML = `<tr>
+        <th class="sticky-col col-item-type">Item type</th>
+        <th class="sticky-col col-band">Band</th>
+        <th class="sticky-col col-group">Group</th>
+        <th class="sticky-col col-heading">Heading</th>
+        <th class="ppl-col">CM PPL</th>
+        <th class="ppl-col">GAD PPL</th>
+        <th class="diff-col">Diff (CM − GAD)</th>
+      </tr>`;
+
+      body.innerHTML = rows.map((row, rowIdx) => {
+        const meta = spans[rowIdx];
+        let labelCells = '';
+        if (meta.showItemType) {
+          labelCells += `<td class="sticky-col col-item-type span-item-type" rowspan="${meta.item_type}">${esc(row.item_type)}</td>`;
+        }
+        if (meta.showBand) {
+          labelCells += `<td class="sticky-col col-band span-band" rowspan="${meta.band}">${esc(row.band)}</td>`;
+        }
+        if (meta.showGroup) {
+          labelCells += `<td class="sticky-col col-group span-group" rowspan="${meta.group}">${esc(row.group)}</td>`;
+        }
+        labelCells += `<td class="sticky-col col-heading">${esc(row.heading)}</td>`;
+
+        const isLitresRow = row.item_type === 'Data' && (row.heading || '').toLowerCase().includes('litre');
+        if (isLitresRow) {
+          return `<tr>${labelCells}<td class="ppl-col">—</td><td class="ppl-col">—</td><td class="diff-col">—</td></tr>`;
+        }
+
+        const totalCM = getFarmYearTotal(row, 'CM');
+        const totalGAD = getFarmYearTotal(row, 'GAD');
+        const pplCM = pplForAmount(totalCM, litresCM);
+        const pplGAD = pplForAmount(totalGAD, litresGAD);
+        const diff = (pplCM != null && pplGAD != null) ? (pplCM - pplGAD) : null;
+
+        const cmNeg = pplCM != null && pplCM < 0 ? ' neg' : '';
+        const gadNeg = pplGAD != null && pplGAD < 0 ? ' neg' : '';
+        let diffClass = 'diff-col';
+        if (diff != null && diff < 0) diffClass += ' neg';
+        else if (diff != null && diff > 0) diffClass += ' pos';
+
+        return `<tr>${labelCells}<td class="ppl-col${cmNeg}">${esc(formatPplValue(pplCM))}</td><td class="ppl-col${gadNeg}">${esc(formatPplValue(pplGAD))}</td><td class="${diffClass}">${esc(formatPplValue(diff))}</td></tr>`;
+      }).join('');
+    }
+
+    async function loadComparison() {
+      document.getElementById('comparison-error').hidden = true;
+      const fySelect = document.getElementById('fiscal-year-select');
+      const cmpSelect = document.getElementById('comparison-fy-select');
+      if (cmpSelect && fySelect) cmpSelect.value = fySelect.value;
+      try {
+        const hasGridEdits = !!document.querySelector('#forecast-grid-body input.amount-input');
+        if (CAN_EDIT && forecastData && hasGridEdits) await flushAutosave();
+        if (!forecastData) {
+          await fetchAndRenderForecasts();
+        }
+        renderComparisonTable();
+      } catch (_) {
+        document.getElementById('comparison-error').hidden = false;
+      }
     }
 
     function getLitresSoldTotal() {
@@ -1784,13 +2016,15 @@
     }
 
     document.querySelectorAll('.page-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
+      tab.addEventListener('click', async () => {
         document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         const section = tab.dataset.section;
         document.getElementById('section-mappings').hidden = section !== 'mappings';
         document.getElementById('section-forecasts').hidden = section !== 'forecasts';
+        document.getElementById('section-comparison').hidden = section !== 'comparison';
         if (section === 'forecasts' && !forecastData) loadForecasts();
+        if (section === 'comparison') await loadComparison();
       });
     });
 
@@ -1969,8 +2203,17 @@
     }
 
     document.getElementById('fiscal-year-select').addEventListener('change', async () => {
+      const cmpSelect = document.getElementById('comparison-fy-select');
+      if (cmpSelect) cmpSelect.value = document.getElementById('fiscal-year-select').value;
       if (CAN_EDIT) await flushAutosave();
       await loadForecasts();
+      if (!document.getElementById('section-comparison').hidden) renderComparisonTable();
+    });
+    document.getElementById('comparison-fy-select').addEventListener('change', async () => {
+      document.getElementById('fiscal-year-select').value = document.getElementById('comparison-fy-select').value;
+      if (CAN_EDIT) await flushAutosave();
+      await loadForecasts({ autoFill: false });
+      renderComparisonTable();
     });
     document.getElementById('farm-select').addEventListener('change', async (e) => {
       if (CAN_EDIT) await flushAutosave();

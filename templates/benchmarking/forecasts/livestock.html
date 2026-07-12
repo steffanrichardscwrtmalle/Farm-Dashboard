@@ -298,6 +298,7 @@
       <div class="panel-actions">
         <button type="button" id="save-btn">Save this table</button>
         <span class="save-status" id="save-status"></span>
+        <span class="muted" style="font-size:0.8rem">Changes save automatically.</span>
       </div>
       {% endif %}
     </div>
@@ -320,6 +321,9 @@
     let activeMetric = null;
     let savedSnapshots = new Map();
     let projectedFromMonth = null;
+    let autosaveTimer = null;
+    let saveInFlight = false;
+    let pendingSave = false;
 
     function parseMonthStart(iso) {
       const [y, m] = iso.split('-').map(Number);
@@ -451,13 +455,13 @@
     }
 
     async function confirmLeaveCurrentTable() {
+      if (!CAN_EDIT) return true;
+      await flushAutosave();
       if (!isCurrentTableDirty()) return true;
-      if (window.confirm('You have unsaved changes. Save before leaving this table?')) {
-        await saveCurrentMetric({ reloadAfterSave: false });
-        if (!isCurrentTableDirty()) return true;
-        return false;
+      if (window.confirm('Some changes could not be saved. Leave anyway?')) {
+        return true;
       }
-      return window.confirm('Leave without saving your changes?');
+      return false;
     }
 
     function renderTabs() {
@@ -592,7 +596,9 @@
       if (tbody.dataset.inputsBound === '1') return;
       tbody.dataset.inputsBound = '1';
       tbody.addEventListener('input', (e) => {
-        if (e.target.matches('input')) updateUnsavedIndicators();
+        if (!e.target.matches('input') || e.target.disabled) return;
+        updateUnsavedIndicators();
+        scheduleAutosave();
       });
     }
 
@@ -622,6 +628,48 @@
         byKey.set(key, entry);
       });
       return [...byKey.values()];
+    }
+
+    function syncForecastDataFromDom() {
+      if (!forecastData || !activeMetric) return;
+      const meta = metricById(activeMetric);
+      if (!meta) return;
+      const byKey = new Map();
+      collectRows().forEach(row => {
+        byKey.set(`${row.forecast_month}|${row.farm}`, row);
+      });
+      const rows = forecastData.metrics[activeMetric]?.rows || [];
+      rows.forEach(row => {
+        FARMS.forEach(farm => {
+          const entry = byKey.get(`${row.forecast_month}|${farm}`);
+          if (!entry) return;
+          row[farm] = row[farm] || {};
+          if (meta.has_births) row[farm].births = entry.births;
+          if (meta.has_quantity) row[farm].quantity = entry.quantity;
+          if (meta.has_price) row[farm].unit_price = entry.unit_price;
+        });
+      });
+    }
+
+    function scheduleAutosave() {
+      if (!CAN_EDIT || !activeMetric) return;
+      const statusEl = document.getElementById('save-status');
+      if (statusEl) {
+        statusEl.textContent = 'Saving…';
+        statusEl.className = 'save-status';
+      }
+      clearTimeout(autosaveTimer);
+      autosaveTimer = setTimeout(() => {
+        saveCurrentMetric({ reloadAfterSave: false, fromAutosave: true });
+      }, 600);
+    }
+
+    async function flushAutosave() {
+      if (!CAN_EDIT) return true;
+      clearTimeout(autosaveTimer);
+      autosaveTimer = null;
+      if (!isCurrentTableDirty() && !saveInFlight && !pendingSave) return true;
+      return saveCurrentMetric({ reloadAfterSave: false, fromAutosave: true });
     }
 
     function bindTableKeyboard() {
@@ -679,14 +727,24 @@
     }
 
     async function saveCurrentMetric(options = {}) {
-      const { reloadAfterSave = true } = options;
+      const { reloadAfterSave = true, fromAutosave = false } = options;
       if (!CAN_EDIT || !activeMetric) return false;
+
+      if (saveInFlight) {
+        pendingSave = true;
+        return false;
+      }
+
       const statusEl = document.getElementById('save-status');
       const fy = Number(document.getElementById('fiscal-year-select').value);
       const btn = document.getElementById('save-btn');
-      btn.disabled = true;
-      statusEl.textContent = 'Saving…';
-      statusEl.className = 'save-status';
+      saveInFlight = true;
+      pendingSave = false;
+      if (btn) btn.disabled = true;
+      if (statusEl) {
+        statusEl.textContent = 'Saving…';
+        statusEl.className = 'save-status';
+      }
       let ok = false;
       try {
         const res = await fetch('/api/benchmarking/forecasts', {
@@ -706,19 +764,30 @@
             : (detail || 'Save failed');
           throw new Error(message);
         }
-        statusEl.textContent = 'Saved.';
-        statusEl.className = 'save-status ok';
+        if (statusEl) {
+          statusEl.textContent = fromAutosave ? 'Saved ✓' : 'Saved.';
+          statusEl.className = 'save-status ok';
+        }
         ok = true;
+        syncForecastDataFromDom();
+        window.StockForecastsPageCache?.clear?.();
         if (reloadAfterSave) {
           await loadForecasts({ skipLeaveCheck: true });
         } else {
           captureSnapshot();
         }
       } catch (err) {
-        statusEl.textContent = err.message || 'Save failed.';
-        statusEl.className = 'save-status err';
+        if (statusEl) {
+          statusEl.textContent = err.message || 'Save failed.';
+          statusEl.className = 'save-status err';
+        }
       } finally {
-        btn.disabled = false;
+        saveInFlight = false;
+        if (btn) btn.disabled = false;
+        if (pendingSave) {
+          pendingSave = false;
+          scheduleAutosave();
+        }
       }
       return ok;
     }
@@ -737,11 +806,18 @@
         return;
       }
 
-      document.getElementById('fiscal-year-select').addEventListener('change', () => loadForecasts());
+      document.getElementById('fiscal-year-select').addEventListener('change', async () => {
+        if (CAN_EDIT) await flushAutosave();
+        await loadForecasts();
+      });
       if (CAN_EDIT) {
-        document.getElementById('save-btn').addEventListener('click', () => saveCurrentMetric());
+        document.getElementById('save-btn').addEventListener('click', () => {
+          clearTimeout(autosaveTimer);
+          autosaveTimer = null;
+          saveCurrentMetric({ reloadAfterSave: false });
+        });
         window.addEventListener('beforeunload', (e) => {
-          if (isCurrentTableDirty()) {
+          if (isCurrentTableDirty() || saveInFlight || pendingSave || autosaveTimer) {
             e.preventDefault();
             e.returnValue = '';
           }
