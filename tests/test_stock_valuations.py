@@ -28,6 +28,7 @@ from app.services.stock_valuations import (
     animal_key,
     build_stock_valuations_report,
     compare_valuations_to_accruals,
+    jv_beef_counts_by_farm,
     rebuild_stock_valuation_snapshots,
 )
 
@@ -1001,3 +1002,58 @@ def test_compare_valuations_to_accruals_game_then_sold(db: Session) -> None:
     assert len(beef_rows) == 2
     assert all(row["matched"] for row in beef_rows)
     assert comparison["mismatches"] == 0
+
+
+def test_jv_beef_counts_by_farm_lightweight(db: Session) -> None:
+    """Page-load JV counts must not require full herd profile rebuild."""
+    db.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="500",
+            etag="UK500",
+            event="PATHWAY",
+            event_date=dt.date(2025, 5, 15),
+            lact=0,
+            cbrd=121,
+            gndr="M",
+            bdat=dt.date(2024, 1, 1),
+        )
+    )
+    db.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="501",
+            etag="UK501",
+            event="GAME",
+            event_date=dt.date(2025, 4, 15),
+            lact=0,
+            cbrd=121,
+            gndr="M",
+            bdat=dt.date(2024, 1, 1),
+        )
+    )
+    db.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="501",
+            etag="UK501",
+            event="SOLD",
+            event_date=dt.date(2025, 5, 20),
+            lact=0,
+            cbrd=121,
+            gndr="M",
+            bdat=dt.date(2024, 1, 1),
+        )
+    )
+    db.commit()
+
+    may = jv_beef_counts_by_farm(
+        db, farms=["GAD", "CM"], close_date=dt.date(2025, 5, 31)
+    )
+    assert may["GAD"] == 1  # UK500 still on farm; UK501 sold in May
+    assert may["CM"] == 0
+
+    april = jv_beef_counts_by_farm(
+        db, farms=["GAD"], close_date=dt.date(2025, 4, 30)
+    )
+    assert april["GAD"] == 1  # only UK501 had JV by end of April

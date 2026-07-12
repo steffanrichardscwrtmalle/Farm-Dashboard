@@ -2,6 +2,9 @@
 
 Run on Render after deploy (or locally) to populate snapshot tables:
   python scripts/rebuild_stock_snapshots.py
+
+Tip: pause traffic or run when the site is quiet — this shares the web
+service's 512MB RAM. Rebuilds one farm at a time to reduce peak memory.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ def main() -> int:
     init_db()
     db = SessionLocal()
     try:
-        print("Rebuilding stock valuation snapshots…", flush=True)
+        print("Rebuilding stock valuation snapshots (one farm at a time)…", flush=True)
         valuation_stats = rebuild_stock_valuation_snapshots(db)
         print(
             f"  {valuation_stats['rows_written']:,} rows "
@@ -33,7 +36,7 @@ def main() -> int:
         gc.collect()
         db = SessionLocal()
 
-        print("Rebuilding stock accrual snapshots…", flush=True)
+        print("Rebuilding stock accrual snapshots (farm × group)…", flush=True)
         accrual_stats = rebuild_stock_accrual_snapshots(db)
         print(
             f"  {accrual_stats['rows_written']:,} rows "

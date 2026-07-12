@@ -570,7 +570,11 @@ def _rows_from_snapshots(
 
 
 def rebuild_stock_accrual_snapshots(db: Session) -> dict[str, Any]:
-    """Recompute and persist stock accrual rows for all farms and stock groups."""
+    """Recompute and persist stock accrual rows for all farms and stock groups.
+
+    Rebuilds farm-by-farm (and group-by-group) so a mid-run OOM does not wipe
+    every existing snapshot on small Render instances.
+    """
     anchor_ts = _accrual_anchor_ts(db)
     if anchor_ts is None:
         db.execute(delete(StockAccrualSnapshot))
@@ -588,13 +592,18 @@ def rebuild_stock_accrual_snapshots(db: Session) -> dict[str, Any]:
             if candidate_month > bounds_max:
                 bounds_max = candidate_month
 
-    db.execute(delete(StockAccrualSnapshot))
-    db.commit()
     rows_written = 0
     for farm in farms:
         for stock_group in stock_groups:
             baseline = _get_baseline(db, farm, stock_group)
             if baseline is None:
+                db.execute(
+                    delete(StockAccrualSnapshot).where(
+                        StockAccrualSnapshot.farm == farm,
+                        StockAccrualSnapshot.stock_group == stock_group,
+                    )
+                )
+                db.commit()
                 continue
             baseline_month = _month_start(baseline.month_start)
             farm_rows = _compute_farm_rows(
@@ -603,6 +612,12 @@ def rebuild_stock_accrual_snapshots(db: Session) -> dict[str, Any]:
                 stock_group=stock_group,
                 display_from=baseline_month,
                 display_to=bounds_max,
+            )
+            db.execute(
+                delete(StockAccrualSnapshot).where(
+                    StockAccrualSnapshot.farm == farm,
+                    StockAccrualSnapshot.stock_group == stock_group,
+                )
             )
             for row in farm_rows:
                 db.add(
@@ -614,9 +629,18 @@ def rebuild_stock_accrual_snapshots(db: Session) -> dict[str, Any]:
                     )
                 )
                 rows_written += 1
-        db.commit()
-        db.expire_all()
-        gc.collect()
+            db.commit()
+            db.expire_all()
+            gc.collect()
+
+    # Drop any leftover rows from a previous inventory import anchor.
+    db.execute(
+        delete(StockAccrualSnapshot).where(
+            StockAccrualSnapshot.anchor_import_timestamp != anchor_ts
+        )
+    )
+    db.commit()
+    gc.collect()
     return {
         "anchor_import_timestamp": anchor_ts.isoformat(timespec="seconds"),
         "rows_written": rows_written,

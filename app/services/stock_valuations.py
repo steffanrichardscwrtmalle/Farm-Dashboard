@@ -868,21 +868,79 @@ def jv_beef_counts_by_farm(
     farms: list[str],
     close_date: dt.date,
 ) -> dict[str, int]:
-    """JV beef on farm at month-end — excluded from valuations and stock projections."""
-    anchor_ts = db.scalar(select(func.max(HerdInventory.import_timestamp)))
-    if anchor_ts is None:
-        return {farm: 0 for farm in farms}
-    _, profiles, _, exit_keys, _, jv_keys = _build_profiles(
-        db,
-        selected_farms=list(HERD_FARM_OPTIONS),
-        anchor_ts=anchor_ts,
-    )
-    return {
-        farm: _jv_beef_still_on_farm_count(
-            profiles, jv_keys, exit_keys, close_date, farm
+    """JV beef on farm at month-end — excluded from valuations and stock projections.
+
+    Uses a lightweight query (JV + exit events only) so Stock Forecasts page loads
+    do not pull the full herd event history into memory on small Render instances.
+    """
+    counts = {farm: 0 for farm in farms}
+    if not farms:
+        return counts
+
+    jv_rows = db.execute(
+        select(
+            CowEvent.farm,
+            CowEvent.etag,
+            CowEvent.cow_id,
+            CowEvent.event_date,
+            CowEvent.lact,
+            CowEvent.cbrd,
+            CowEvent.gndr,
         )
-        for farm in farms
-    }
+        .where(CowEvent.farm.in_(farms))
+        .where(CowEvent.event.in_(_JV_EVENTS))
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.event_date <= close_date)
+        .order_by(CowEvent.event_date.asc(), CowEvent.id.asc())
+    ).all()
+    if not jv_rows:
+        return counts
+
+    earliest_jv: dict[tuple[str, str], tuple[dt.date, int | None, int | None, str | None]] = {}
+    for farm, etag, cow_id, event_date, lact, cbrd, gndr in jv_rows:
+        if event_date is None:
+            continue
+        key = animal_key(farm, etag, cow_id)
+        if key in earliest_jv:
+            continue
+        earliest_jv[key] = (
+            event_date,
+            int(lact) if lact is not None else None,
+            int(cbrd) if cbrd is not None else None,
+            gndr,
+        )
+
+    exit_rows = db.execute(
+        select(
+            CowEvent.farm,
+            CowEvent.etag,
+            CowEvent.cow_id,
+            CowEvent.event_date,
+        )
+        .where(CowEvent.farm.in_(farms))
+        .where(CowEvent.event.in_(_EXIT_EVENTS))
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.event_date <= close_date)
+        .order_by(CowEvent.event_date.asc(), CowEvent.id.asc())
+    ).all()
+    earliest_exit: dict[tuple[str, str], dt.date] = {}
+    for farm, etag, cow_id, event_date in exit_rows:
+        if event_date is None:
+            continue
+        key = animal_key(farm, etag, cow_id)
+        if key not in earliest_exit:
+            earliest_exit[key] = event_date
+
+    for key, (jv_date, lact, cbrd, gndr) in earliest_jv.items():
+        exit_date = earliest_exit.get(key)
+        if exit_date is not None and exit_date <= close_date:
+            continue
+        farm = key[0]
+        if farm not in counts:
+            continue
+        if stock_group_from_event_fields(lact, cbrd, gndr) == STOCK_GROUP_BEEF:
+            counts[farm] += 1
+    return counts
 
 
 def _accruals_closing_for_month(
@@ -1279,7 +1337,10 @@ def _compute_stock_valuations_report(
 
 
 def rebuild_stock_valuation_snapshots(db: Session) -> dict[str, Any]:
-    """Recompute and persist month-end valuations for all farms and fiscal years."""
+    """Recompute and persist month-end valuations for all farms and fiscal years.
+
+    Builds profiles one farm at a time to stay within small Render memory limits.
+    """
     anchor_ts = db.scalar(select(func.max(HerdInventory.import_timestamp)))
     if anchor_ts is None:
         db.execute(delete(StockValuationSnapshot))
@@ -1287,35 +1348,39 @@ def rebuild_stock_valuation_snapshots(db: Session) -> dict[str, Any]:
         return {"anchor_import_timestamp": None, "rows_written": 0, "fiscal_years": []}
 
     farms = list(HERD_FARM_OPTIONS)
-    anchor_date, profiles, inventory_keys, exit_keys, entry_keys, jv_keys = _build_profiles(
-        db,
-        selected_farms=farms,
-        anchor_ts=anchor_ts,
-    )
     fiscal_years = _fiscal_year_options(db, farms)
-
-    db.execute(delete(StockValuationSnapshot))
     rows_written = 0
-    for fiscal_year in fiscal_years:
-        fy_start, fy_end = _fiscal_year_calendar_bounds(fiscal_year)
-        available_end = min(fy_end, anchor_date)
-        for month_start in _iter_month_starts(fy_start, available_end):
-            close_date = min(_month_end(month_start), anchor_date)
-            if close_date < month_start:
-                continue
-            keys = _on_farm_keys(
-                close_date,
-                anchor_date,
-                inventory_keys,
-                exit_keys,
-                entry_keys,
-                jv_keys,
-                profiles,
+
+    for farm in farms:
+        anchor_date, profiles, inventory_keys, exit_keys, entry_keys, jv_keys = (
+            _build_profiles(
+                db,
+                selected_farms=[farm],
+                anchor_ts=anchor_ts,
             )
-            farm_agg, farm_meta = _aggregate_animals(
-                profiles, keys, close_date, anchor_date=anchor_date
-            )
-            for farm in farms:
+        )
+        db.execute(
+            delete(StockValuationSnapshot).where(StockValuationSnapshot.farm == farm)
+        )
+        for fiscal_year in fiscal_years:
+            fy_start, fy_end = _fiscal_year_calendar_bounds(fiscal_year)
+            available_end = min(fy_end, anchor_date)
+            for month_start in _iter_month_starts(fy_start, available_end):
+                close_date = min(_month_end(month_start), anchor_date)
+                if close_date < month_start:
+                    continue
+                keys = _on_farm_keys(
+                    close_date,
+                    anchor_date,
+                    inventory_keys,
+                    exit_keys,
+                    entry_keys,
+                    jv_keys,
+                    profiles,
+                )
+                farm_agg, farm_meta = _aggregate_animals(
+                    profiles, keys, close_date, anchor_date=anchor_date
+                )
                 db.add(
                     _snapshot_from_farm_month(
                         anchor_ts=anchor_ts,
@@ -1327,7 +1392,16 @@ def rebuild_stock_valuation_snapshots(db: Session) -> dict[str, Any]:
                     )
                 )
                 rows_written += 1
+        db.commit()
+        db.expire_all()
+        del profiles, inventory_keys, exit_keys, entry_keys, jv_keys
+        gc.collect()
 
+    db.execute(
+        delete(StockValuationSnapshot).where(
+            StockValuationSnapshot.anchor_import_timestamp != anchor_ts
+        )
+    )
     db.commit()
     gc.collect()
     return {
