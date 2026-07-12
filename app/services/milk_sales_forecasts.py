@@ -15,6 +15,8 @@ from app.services.stock_forecasts import build_stock_forecast_heads_index
 
 MILK_YIELD_METRIC = "milk_yield"
 MILK_PRICE_METRIC = "milk_price"
+# Fixed levy / deduction rate applied to projected litres sold (pence per litre).
+MILK_DEDUCTION_PPL = 0.08
 
 
 def _month_start(value: dt.date) -> dt.date:
@@ -96,6 +98,13 @@ def _compute_milk_revenue(
     return round(monthly_litres * milk_price_ppl / 100.0)
 
 
+def _compute_milk_deductions(monthly_litres: float | None) -> float | None:
+    """Milk deductions in £: projected litres × 0.08 ppl (£0.0008/litre)."""
+    if monthly_litres is None:
+        return None
+    return round(monthly_litres * MILK_DEDUCTION_PPL / 100.0)
+
+
 def _average_cows(
     heads: dict[str, dict[str, dict[str, dict[str, int]]]],
     farm: str,
@@ -127,6 +136,9 @@ def _combined_cells(
         ),
         "monthly_revenue": _sum_available(
             *(farm_cells[farm]["monthly_revenue"] for farm in farms)
+        ),
+        "monthly_deductions": _sum_available(
+            *(farm_cells[farm]["monthly_deductions"] for farm in farms)
         ),
     }
 
@@ -183,8 +195,10 @@ def build_milk_sales_forecasts_report(
     rows: list[dict[str, Any]] = []
     monthly_totals: dict[str, float] = {farm: 0.0 for farm in farms}
     revenue_totals: dict[str, float] = {farm: 0.0 for farm in farms}
+    deduction_totals: dict[str, float] = {farm: 0.0 for farm in farms}
     has_monthly: dict[str, bool] = {farm: False for farm in farms}
     has_revenue: dict[str, bool] = {farm: False for farm in farms}
+    has_deductions: dict[str, bool] = {farm: False for farm in farms}
 
     for month_start in months:
         month_iso = month_start.isoformat()
@@ -209,6 +223,7 @@ def build_milk_sales_forecasts_report(
                 "monthly_litres": monthly_litres,
                 "daily_litres": daily_litres,
                 "monthly_revenue": _compute_milk_revenue(monthly_litres, milk_price_ppl),
+                "monthly_deductions": _compute_milk_deductions(monthly_litres),
             }
             if monthly_litres is not None:
                 monthly_totals[farm] += monthly_litres
@@ -217,6 +232,10 @@ def build_milk_sales_forecasts_report(
             if revenue is not None:
                 revenue_totals[farm] += revenue
                 has_revenue[farm] = True
+            deductions = farm_cells[farm]["monthly_deductions"]
+            if deductions is not None:
+                deduction_totals[farm] += deductions
+                has_deductions[farm] = True
 
         farm_cells["Total"] = _combined_cells(farm_cells, farms)
 
@@ -239,6 +258,9 @@ def build_milk_sales_forecasts_report(
             "monthly_litres": total_monthly,
             "daily_litres": avg_daily,
             "monthly_revenue": round(revenue_totals[farm]) if has_revenue[farm] else None,
+            "monthly_deductions": (
+                round(deduction_totals[farm]) if has_deductions[farm] else None
+            ),
         }
 
     totals["Total"] = _combined_cells(totals, farms)

@@ -975,6 +975,66 @@ class HpSchedule(Base):
     )
 
 
+class RentalAgreement(Base):
+    """Land rental agreement for benchmarking rental schedules."""
+
+    __tablename__ = "rental_agreements"
+    __table_args__ = (
+        UniqueConstraint("business", "farm_name", name="uq_rental_agreement_business_farm"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    business: Mapped[str] = mapped_column(String(8), index=True, default="CM")
+    farm_name: Mapped[str] = mapped_column(String(128))
+    farm_size: Mapped[float] = mapped_column(Float)  # acres
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+    payments: Mapped[list[RentalAgreementPayment]] = relationship(
+        back_populates="agreement", cascade="all, delete-orphan"
+    )
+
+
+class RentalAgreementPayment(Base):
+    """Monthly rent amount due for a rental agreement."""
+
+    __tablename__ = "rental_agreement_payments"
+    __table_args__ = (
+        UniqueConstraint(
+            "agreement_id",
+            "payment_month",
+            name="uq_rental_agreement_payment_month",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    agreement_id: Mapped[int] = mapped_column(
+        ForeignKey("rental_agreements.id", ondelete="CASCADE"), index=True
+    )
+    payment_month: Mapped[datetime.date] = mapped_column(Date, index=True)
+    amount: Mapped[float] = mapped_column(Float)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+    agreement: Mapped[RentalAgreement] = relationship(back_populates="payments")
+
+
 RATION_INGREDIENT_CATEGORIES: tuple[str, ...] = ("concentrate", "forage", "straw")
 
 

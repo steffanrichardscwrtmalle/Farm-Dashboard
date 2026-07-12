@@ -12,6 +12,7 @@ from app.models import (
     Base,
     BenchmarkForecastLine,
     FinancialForecastMapping,
+    FinancialForecastMappingSource,
     HerdInventory,
     StockOpeningBaseline,
 )
@@ -118,7 +119,7 @@ def test_fill_milk_sales_revenue_into_mapped_heading(db: Session) -> None:
         today=TODAY,
     )
     assert result["updated"] > 0
-    assert result["mappings_filled"] == 1
+    assert result["mappings_filled"] >= 1
 
     forecast = list_financial_forecasts(db, fiscal_year=FISCAL_YEAR)
     band = forecast["bands"]["Profit & Loss|Sales"]
@@ -127,6 +128,54 @@ def test_fill_milk_sales_revenue_into_mapped_heading(db: Session) -> None:
         row for row in heading_data["rows"] if row["forecast_month"] == "2026-07-01"
     )
     assert july_row["CM"] == expected_revenue
+    assert july_row["GAD"] is None
+
+
+def test_fill_milk_deductions_from_projected_litres(db: Session) -> None:
+    mapping = db.scalars(
+        select(FinancialForecastMapping).where(
+            FinancialForecastMapping.heading == "Milk Deductions",
+            FinancialForecastMapping.band == "Purchases",
+        )
+    ).first()
+    assert mapping is not None
+
+    _seed_milk_sales_inputs(db)
+
+    milk_report = build_milk_sales_forecasts_report(
+        db, fiscal_year=FISCAL_YEAR, today=TODAY
+    )
+    july = next(row for row in milk_report["rows"] if row["month_start"] == "2026-07-01")
+    litres = july["farms"]["CM"]["monthly_litres"]
+    assert litres is not None
+    expected_deductions = july["farms"]["CM"]["monthly_deductions"]
+    assert expected_deductions == round(litres * 0.08 / 100.0)
+
+    result = fill_financial_forecasts_from_data_sources(
+        db,
+        fiscal_year=FISCAL_YEAR,
+        today=TODAY,
+    )
+    assert result["updated"] > 0
+    assert result["mappings_filled"] >= 1
+
+    sources = [
+        row.source_key
+        for row in db.scalars(
+            select(FinancialForecastMappingSource).where(
+                FinancialForecastMappingSource.mapping_id == mapping.id
+            )
+        ).all()
+    ]
+    assert sources == ["milk_sales.monthly_deductions"]
+
+    forecast = list_financial_forecasts(db, fiscal_year=FISCAL_YEAR)
+    band = forecast["bands"]["Profit & Loss|Purchases"]
+    heading_data = band["headings"][str(mapping.id)]
+    july_row = next(
+        row for row in heading_data["rows"] if row["forecast_month"] == "2026-07-01"
+    )
+    assert july_row["CM"] == expected_deductions
     assert july_row["GAD"] is None
 
 
@@ -176,4 +225,57 @@ def test_fill_hp_schedule_capital_into_mapped_heading(db: Session) -> None:
         row for row in heading_data["rows"] if row["forecast_month"] == "2026-04-01"
     )
     assert april_row["CM"] == 1000
+    assert april_row["GAD"] is None
+
+
+def test_fill_rents_into_mapped_rent_heading(db: Session) -> None:
+    from app.services.rental_agreements import create_rental_agreement, save_rental_payments
+
+    mapping = db.scalars(
+        select(FinancialForecastMapping).where(
+            FinancialForecastMapping.heading == "Rent",
+            FinancialForecastMapping.group == "Rent",
+        )
+    ).first()
+    assert mapping is not None
+
+    update_financial_mapping(
+        db,
+        mapping.id,
+        heading=mapping.heading,
+        item_type=mapping.item_type,
+        band=mapping.band,
+        group=mapping.group,
+        data_sources=["rents.monthly_total"],
+    )
+    agreement = create_rental_agreement(
+        db, business="CM", farm_name="Rent Farm", farm_size=80
+    )
+    save_rental_payments(
+        db,
+        fiscal_year=FISCAL_YEAR,
+        rows=[
+            {
+                "agreement_id": agreement["id"],
+                "payment_month": "2026-04-01",
+                "amount": 1250,
+            }
+        ],
+    )
+
+    result = fill_financial_forecasts_from_data_sources(
+        db,
+        fiscal_year=FISCAL_YEAR,
+        today=TODAY,
+    )
+    assert result["updated"] > 0
+    assert result["mappings_filled"] >= 1
+
+    forecast = list_financial_forecasts(db, fiscal_year=FISCAL_YEAR)
+    band = forecast["bands"]["Profit & Loss|Overhead Expenses"]
+    heading_data = band["headings"][str(mapping.id)]
+    april_row = next(
+        row for row in heading_data["rows"] if row["forecast_month"] == "2026-04-01"
+    )
+    assert april_row["CM"] == 1250
     assert april_row["GAD"] is None

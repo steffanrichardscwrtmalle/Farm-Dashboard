@@ -15,6 +15,7 @@ from app.models import (
     StockOpeningBaseline,
 )
 from app.services.milk_sales_forecasts import (
+    _compute_milk_deductions,
     _compute_milk_litres,
     _compute_milk_revenue,
     _fiscal_year_days,
@@ -53,6 +54,12 @@ def test_compute_milk_litres_formula() -> None:
 def test_compute_milk_revenue_from_litres_and_ppl() -> None:
     assert _compute_milk_revenue(100_000, 40.0) == 40_000
     assert _compute_milk_revenue(None, 40.0) is None
+
+
+def test_compute_milk_deductions_at_008_ppl() -> None:
+    # 0.08 ppl = £0.0008/litre → 100_000 L × 0.0008 = £80
+    assert _compute_milk_deductions(100_000) == 80
+    assert _compute_milk_deductions(None) is None
 
 
 def test_compute_milk_litres_null_without_yield() -> None:

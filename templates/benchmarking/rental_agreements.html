@@ -1,0 +1,874 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Rental Agreements{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .rents-page {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      min-height: calc(100vh - 7.5rem);
+    }
+    .benchmark-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 0.75rem;
+      font-size: 0.82rem;
+    }
+    .benchmark-toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin: 0;
+    }
+    .benchmark-toolbar select,
+    .benchmark-toolbar input {
+      min-width: 0;
+      margin: 0;
+      padding: 0.2rem 0.35rem;
+      font-size: 0.82rem;
+    }
+    .benchmark-toolbar select { width: 5.5rem; }
+    .add-land-form {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 0.5rem 0.75rem;
+      padding: 0.65rem 0.75rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.82rem;
+    }
+    .add-land-form .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .add-land-form label {
+      margin: 0;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--muted, #666);
+    }
+    .add-land-form input,
+    .add-land-form select {
+      margin: 0;
+      padding: 0.3rem 0.4rem;
+      font-size: 0.82rem;
+      min-width: 7rem;
+    }
+    .add-land-form input[name="farm_name"] { min-width: 12rem; }
+    .add-land-form button { margin: 0; }
+    .save-status {
+      font-size: 0.85rem;
+      color: var(--muted, #666);
+      min-height: 1.2rem;
+      padding: 0.15rem 0.55rem;
+      border-radius: 4px;
+    }
+    .save-status.ok {
+      color: #166534;
+      background: #dcfce7;
+      font-weight: 700;
+    }
+    .save-status.err {
+      color: #991b1b;
+      background: #fee2e2;
+      font-weight: 700;
+    }
+    .save-status.busy {
+      color: #92400e;
+      background: #fef3c7;
+      font-weight: 600;
+    }
+    .grid-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.65rem;
+    }
+    .grid-panel h3 {
+      margin: 0 0 0.45rem;
+      font-size: 0.9rem;
+    }
+    .grid-panel-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.35rem;
+    }
+    .grid-panel-header h3 { margin: 0; }
+    .grid-table-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 16rem);
+      border: 1px solid var(--border);
+    }
+    .summary-wrap { max-height: none; }
+    .grid-table {
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.72rem;
+      width: max-content;
+      min-width: max-content;
+    }
+    .grid-table th,
+    .grid-table td {
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 0.04rem 0.22rem;
+      vertical-align: middle;
+      background: #fff;
+      line-height: 1.15;
+    }
+    .grid-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      text-align: center;
+      white-space: nowrap;
+      padding: 0.22rem 0.3rem;
+      font-size: 0.7rem;
+    }
+    .grid-table .sticky-col {
+      position: sticky;
+      z-index: 3;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .grid-table thead .sticky-col {
+      z-index: 5;
+      background: #1e3a5f;
+      color: #fff;
+    }
+    .grid-table .col-business { left: 0; width: 3.5rem; min-width: 3.5rem; max-width: 3.5rem; }
+    .grid-table .col-farm {
+      left: 3.5rem;
+      width: 9rem;
+      min-width: 9rem;
+      max-width: 9rem;
+    }
+    .grid-table .col-size {
+      left: 12.5rem;
+      width: 4.5rem;
+      min-width: 4.5rem;
+      max-width: 4.5rem;
+      border-right: 2px solid #94a3b8;
+      text-align: right;
+    }
+    .grid-table thead .col-size { border-right-color: #64748b; }
+    .grid-table .month-col {
+      min-width: 5rem;
+      max-width: 5rem;
+      text-align: center;
+      padding: 0.02rem 0.1rem;
+    }
+    .grid-table .total-col,
+    .grid-table .per-acre-col {
+      min-width: 5rem;
+      max-width: 5rem;
+      width: 5rem;
+      text-align: right;
+      font-weight: 600;
+      white-space: nowrap;
+      padding: 0.06rem 0.28rem;
+      background: #f1f5f9;
+      box-sizing: border-box;
+    }
+    .grid-table thead .total-col,
+    .grid-table thead .per-acre-col {
+      background: #1e3a5f;
+      color: #fff;
+      text-align: center;
+    }
+    .grid-table .col-actions {
+      min-width: 7.5rem;
+      max-width: 7.5rem;
+      text-align: center;
+      background: #f8fafc;
+      white-space: nowrap;
+    }
+    .grid-table thead .col-actions { background: #1e3a5f; color: #fff; }
+    .grid-table tbody tr.row-editing td,
+    .grid-table tbody tr.row-editing .sticky-col {
+      background: #fffbeb;
+    }
+    .grid-table tbody tr.row-editing td.total-col,
+    .grid-table tbody tr.row-editing td.per-acre-col {
+      background: #fef3c7;
+    }
+    .row-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      align-items: stretch;
+      padding: 0.15rem 0;
+    }
+    .row-actions .row-btn { width: 100%; }
+    .row-saved-badge {
+      display: none;
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: #15803d;
+      line-height: 1.1;
+    }
+    .row-saved-badge.is-visible { display: block; }
+    .grid-table tbody tr:nth-child(even) td { background: #fafbfc; }
+    .grid-table tbody tr:nth-child(even) td.total-col,
+    .grid-table tbody tr:nth-child(even) td.per-acre-col { background: #e8eef5; }
+    .grid-table tbody .sticky-col { background: #fff; }
+    .grid-table tbody tr:nth-child(even) .sticky-col { background: #fafbfc; }
+    .grid-table tbody tr.row-editing:nth-child(even) td,
+    .grid-table tbody tr.row-editing:nth-child(even) .sticky-col {
+      background: #fffbeb;
+    }
+    .grid-table input {
+      width: 100%;
+      min-width: 0;
+      margin: 0;
+      padding: 0.06rem 0.12rem;
+      font-size: 0.72rem;
+      line-height: 1.1;
+      text-align: right;
+      border: 1px solid transparent;
+      background: transparent;
+    }
+    .grid-table input:focus {
+      border-color: var(--accent);
+      background: #fff;
+      outline: none;
+    }
+    .grid-table input.meta-input { text-align: left; }
+    .grid-table input.size-input { text-align: right; }
+    .grid-table .row-btn {
+      margin: 0;
+      padding: 0.1rem 0.35rem;
+      font-size: 0.68rem;
+      line-height: 1.2;
+    }
+    .grid-table tbody tr.totals-row td {
+      background: #eef2ff;
+      font-weight: 600;
+    }
+    .muted { color: var(--muted, #666); font-size: 0.8rem; }
+    #load-error { color: #b91c1c; }
+{% endblock %}
+
+{% block content %}
+<div class="rents-page">
+  <div class="benchmark-toolbar">
+    <label>Fiscal year
+      <select id="fiscal-year-select">
+        {% for fy in fiscal_year_options %}
+        <option value="{{ fy }}"{% if loop.first %} selected{% endif %}>{{ fy }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <span class="save-status" id="save-status"></span>
+  </div>
+
+  {% if can_edit %}
+  <form class="add-land-form" id="add-land-form">
+    <div class="field">
+      <label for="add-business">Business</label>
+      <select id="add-business" name="business" required>
+        {% for farm in farm_options %}
+        <option value="{{ farm }}">{{ farm }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="add-farm-name">Farm name</label>
+      <input id="add-farm-name" name="farm_name" type="text" maxlength="128" required placeholder="e.g. Home Farm">
+    </div>
+    <div class="field">
+      <label for="add-farm-size">Farm size (acres)</label>
+      <input id="add-farm-size" name="farm_size" type="number" min="0" step="0.01" required placeholder="0">
+      <span class="muted" style="font-size:0.68rem">Use 0 for buildings / houses</span>
+    </div>
+    <button type="submit">Add land</button>
+  </form>
+  {% endif %}
+
+  <p id="load-error" class="muted" hidden>Could not load rental agreements.</p>
+
+  <div class="grid-panel">
+    <div class="grid-panel-header">
+      <h3>Rental schedule</h3>
+    </div>
+    <p class="muted" style="margin:0 0 0.45rem">Press <strong>Edit</strong> on a row to change it. Only one row can be edited at a time. Changes autosave.</p>
+    <div class="grid-table-wrap">
+      <table class="grid-table" id="rents-grid">
+        <thead id="rents-grid-head"></thead>
+        <tbody id="rents-grid-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="grid-panel">
+    <h3>Business totals</h3>
+    <p class="muted" style="margin:0 0 0.45rem">Monthly rent sums by business — available to map into Monthly Budget Rent.</p>
+    <div class="grid-table-wrap summary-wrap">
+      <table class="grid-table" id="summary-grid">
+        <thead id="summary-grid-head"></thead>
+        <tbody id="summary-grid-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+  const FARM_OPTIONS = {{ farm_options | tojson }};
+  let reportData = null;
+  let autosaveTimer = null;
+  let saveInFlight = false;
+  let pendingSave = false;
+  let editingId = null;
+  let rowSavedTimer = null;
+
+  function isRowEditing(agreementId) {
+    return CAN_EDIT && editingId != null && Number(agreementId) === Number(editingId);
+  }
+
+  function esc(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function formatMoney(value) {
+    if (value == null || value === '') return '';
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '';
+    return '£' + num.toLocaleString('en-GB', { maximumFractionDigits: 0 });
+  }
+
+  function formatPerAcre(value) {
+    if (value == null || value === '') return '—';
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '—';
+    return '£' + num.toLocaleString('en-GB', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  function formatAmountInput(value) {
+    if (value == null || value === '') return '';
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '';
+    return num.toLocaleString('en-GB', { maximumFractionDigits: 0 });
+  }
+
+  function parseAmount(raw) {
+    const text = String(raw ?? '').replace(/[£,\s]/g, '').trim();
+    if (!text) return null;
+    const num = Number(text);
+    return Number.isFinite(num) ? num : null;
+  }
+
+  function perAcre(total, farmSize) {
+    if (total == null || farmSize == null || !(farmSize > 0)) return null;
+    return Math.round((total / farmSize) * 100) / 100;
+  }
+
+  function setSaveStatus(text, kind = '') {
+    const el = document.getElementById('save-status');
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'save-status' + (kind ? ' ' + kind : '');
+  }
+
+  function showRowSaved(agreementId) {
+    document.querySelectorAll('.row-saved-badge').forEach(el => el.classList.remove('is-visible'));
+    const badge = document.querySelector(
+      `#rents-grid-body tr[data-agreement-id="${agreementId}"] .row-saved-badge`
+    );
+    if (badge) badge.classList.add('is-visible');
+    clearTimeout(rowSavedTimer);
+    rowSavedTimer = setTimeout(() => {
+      badge?.classList.remove('is-visible');
+    }, 2500);
+  }
+
+  function monthHeaders(labels) {
+    return labels.map(label => `<th class="month-col">${esc(label)}</th>`).join('');
+  }
+
+  function renderHeads() {
+    const labels = reportData.month_labels || [];
+    const actionCol = CAN_EDIT ? '<th class="col-actions">Actions</th>' : '';
+    document.getElementById('rents-grid-head').innerHTML = `
+      <tr>
+        <th class="sticky-col col-business">Business</th>
+        <th class="sticky-col col-farm">Farm name</th>
+        <th class="sticky-col col-size">Acres</th>
+        ${monthHeaders(labels)}
+        <th class="total-col">Total</th>
+        <th class="per-acre-col">£/acre</th>
+        ${actionCol}
+      </tr>`;
+    document.getElementById('summary-grid-head').innerHTML = `
+      <tr>
+        <th class="sticky-col col-business">Business</th>
+        ${monthHeaders(labels)}
+        <th class="total-col">Total</th>
+      </tr>`;
+  }
+
+  function amountCell(agreementId, month, value) {
+    if (!isRowEditing(agreementId)) {
+      return `<td class="month-col">${esc(formatMoney(value))}</td>`;
+    }
+    return `<td class="month-col">
+      <input class="amount-input" type="text" inputmode="decimal"
+        data-agreement-id="${agreementId}" data-month="${esc(month)}"
+        value="${esc(formatAmountInput(value))}" aria-label="Rent amount">
+    </td>`;
+  }
+
+  function metaInputs(row) {
+    if (!isRowEditing(row.id)) {
+      return `
+        <td class="sticky-col col-business">${esc(row.business)}</td>
+        <td class="sticky-col col-farm">${esc(row.farm_name)}</td>
+        <td class="sticky-col col-size">${esc(row.farm_size)}</td>`;
+    }
+    const businessOptions = FARM_OPTIONS.map(farm =>
+      `<option value="${esc(farm)}"${farm === row.business ? ' selected' : ''}>${esc(farm)}</option>`
+    ).join('');
+    return `
+      <td class="sticky-col col-business">
+        <select class="meta-business" data-agreement-id="${row.id}">${businessOptions}</select>
+      </td>
+      <td class="sticky-col col-farm">
+        <input class="meta-input meta-farm-name" type="text" maxlength="128"
+          data-agreement-id="${row.id}" value="${esc(row.farm_name)}">
+      </td>
+      <td class="sticky-col col-size">
+        <input class="size-input meta-farm-size" type="number" min="0" step="0.01"
+          data-agreement-id="${row.id}" value="${esc(row.farm_size)}">
+      </td>`;
+  }
+
+  function actionCell(row) {
+    if (!CAN_EDIT) return '';
+    if (isRowEditing(row.id)) {
+      return `<td class="col-actions">
+        <div class="row-actions">
+          <button type="button" class="row-btn done-btn" data-agreement-id="${row.id}">Done</button>
+          <button type="button" class="row-btn delete-btn" data-agreement-id="${row.id}">Remove</button>
+          <span class="row-saved-badge">Saved ✓</span>
+        </div>
+      </td>`;
+    }
+    return `<td class="col-actions">
+      <div class="row-actions">
+        <button type="button" class="row-btn edit-btn" data-agreement-id="${row.id}">Edit</button>
+        <span class="row-saved-badge">Saved ✓</span>
+      </div>
+    </td>`;
+  }
+
+  function renderAgreements() {
+    const months = reportData.months || [];
+    const body = document.getElementById('rents-grid-body');
+    if (!(reportData.agreements || []).length) {
+      const cols = 3 + months.length + 2 + (CAN_EDIT ? 1 : 0);
+      body.innerHTML = `<tr><td colspan="${cols}" class="muted" style="padding:0.6rem">No rental agreements yet. Add land above.</td></tr>`;
+      return;
+    }
+    body.innerHTML = reportData.agreements.map(row => {
+      const monthCells = months.map(month => amountCell(row.id, month, row.amounts?.[month])).join('');
+      const editingClass = isRowEditing(row.id) ? ' class="row-editing"' : '';
+      return `<tr data-agreement-id="${row.id}"${editingClass}>
+        ${metaInputs(row)}
+        ${monthCells}
+        <td class="total-col">${esc(formatMoney(row.total))}</td>
+        <td class="per-acre-col">${esc(formatPerAcre(row.per_acre))}</td>
+        ${actionCell(row)}
+      </tr>`;
+    }).join('');
+  }
+
+  function renderSummary() {
+    const months = reportData.months || [];
+    const totals = reportData.business_totals || {};
+    const order = [...FARM_OPTIONS, 'Total'];
+    const body = document.getElementById('summary-grid-body');
+    body.innerHTML = order.map(key => {
+      const row = totals[key] || { amounts: {}, total: null };
+      const monthCells = months.map(month =>
+        `<td class="month-col">${esc(formatMoney(row.amounts?.[month]))}</td>`
+      ).join('');
+      const rowClass = key === 'Total' ? ' class="totals-row"' : '';
+      return `<tr${rowClass}>
+        <td class="sticky-col col-business">${esc(key)}</td>
+        ${monthCells}
+        <td class="total-col">${esc(formatMoney(row.total))}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderAll() {
+    renderHeads();
+    renderAgreements();
+    renderSummary();
+  }
+
+  async function loadReport() {
+    document.getElementById('load-error').hidden = true;
+    const fy = document.getElementById('fiscal-year-select').value;
+    try {
+      const res = await fetch(`/api/benchmarking/rental-agreements?fiscal_year=${encodeURIComponent(fy)}`);
+      if (!res.ok) throw new Error('load failed');
+      reportData = await res.json();
+      const select = document.getElementById('fiscal-year-select');
+      const options = reportData.fiscal_year_options || [];
+      if (options.length) {
+        select.innerHTML = options.map(fyOpt =>
+          `<option value="${fyOpt}"${Number(fyOpt) === Number(reportData.fiscal_year) ? ' selected' : ''}>${fyOpt}</option>`
+        ).join('');
+      }
+      if (
+        editingId != null
+        && !(reportData.agreements || []).some(row => Number(row.id) === Number(editingId))
+      ) {
+        editingId = null;
+      }
+      renderAll();
+    } catch (_) {
+      document.getElementById('load-error').hidden = false;
+    }
+  }
+
+  function collectPaymentRows() {
+    if (editingId == null) return [];
+    return [...document.querySelectorAll(
+      `#rents-grid-body tr[data-agreement-id="${editingId}"] input.amount-input`
+    )].map(input => ({
+      agreement_id: Number(input.dataset.agreementId),
+      payment_month: input.dataset.month,
+      amount: parseAmount(input.value),
+    }));
+  }
+
+  function refreshComputedFromDom() {
+    if (!reportData) return;
+    const months = reportData.months || [];
+    const byBusiness = Object.fromEntries(
+      FARM_OPTIONS.map(farm => [farm, Object.fromEntries(months.map(m => [m, null]))])
+    );
+
+    document.querySelectorAll('#rents-grid-body tr[data-agreement-id]').forEach(tr => {
+      const agreementId = Number(tr.dataset.agreementId);
+      const agreement = (reportData.agreements || []).find(row => row.id === agreementId);
+      const business = tr.querySelector('.meta-business')?.value
+        || agreement?.business
+        || 'CM';
+      const farmSize = Number(tr.querySelector('.meta-farm-size')?.value ?? agreement?.farm_size ?? 0);
+      let total = 0;
+      let hasAmount = false;
+      months.forEach(month => {
+        const input = tr.querySelector(`.amount-input[data-month="${month}"]`);
+        const amount = input
+          ? parseAmount(input.value)
+          : (agreement?.amounts?.[month] ?? null);
+        if (agreement) agreement.amounts[month] = amount;
+        if (amount != null) {
+          total += amount;
+          hasAmount = true;
+          const current = byBusiness[business]?.[month];
+          byBusiness[business][month] = (current == null ? 0 : current) + amount;
+        }
+      });
+      const yearTotal = hasAmount ? Math.round(total) : null;
+      if (agreement) {
+        agreement.business = business;
+        agreement.farm_size = farmSize;
+        agreement.total = yearTotal;
+        agreement.per_acre = perAcre(yearTotal, farmSize);
+      }
+      const totalCell = tr.querySelector('.total-col');
+      const perAcreCell = tr.querySelector('.per-acre-col');
+      if (totalCell) totalCell.textContent = formatMoney(yearTotal);
+      if (perAcreCell) perAcreCell.textContent = formatPerAcre(perAcre(yearTotal, farmSize));
+    });
+
+    const businessTotals = {};
+    FARM_OPTIONS.forEach(farm => {
+      const amounts = byBusiness[farm];
+      const values = months.map(m => amounts[m]).filter(v => v != null);
+      businessTotals[farm] = {
+        amounts,
+        total: values.length ? Math.round(values.reduce((sum, v) => sum + v, 0)) : null,
+      };
+    });
+    const totalAmounts = Object.fromEntries(months.map(month => {
+      const values = FARM_OPTIONS.map(farm => byBusiness[farm][month]).filter(v => v != null);
+      return [month, values.length ? Math.round(values.reduce((sum, v) => sum + v, 0)) : null];
+    }));
+    const totalValues = months.map(m => totalAmounts[m]).filter(v => v != null);
+    businessTotals.Total = {
+      amounts: totalAmounts,
+      total: totalValues.length ? Math.round(totalValues.reduce((sum, v) => sum + v, 0)) : null,
+    };
+    reportData.business_totals = businessTotals;
+    renderSummary();
+  }
+
+  async function flushAutosave() {
+    if (!CAN_EDIT || !reportData || editingId == null) return;
+    if (!document.querySelector(
+      `#rents-grid-body tr[data-agreement-id="${editingId}"] input.amount-input`
+    )) return;
+    if (saveInFlight) {
+      pendingSave = true;
+      return;
+    }
+    const savedId = editingId;
+    saveInFlight = true;
+    setSaveStatus('Saving…', 'busy');
+    try {
+      const res = await fetch('/api/benchmarking/rental-agreements/payments', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fiscal_year: Number(document.getElementById('fiscal-year-select').value),
+          rows: collectPaymentRows(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail;
+        const message = typeof detail === 'string'
+          ? detail
+          : (Array.isArray(detail) ? detail.map(d => d.msg || d).join('; ') : 'Save failed');
+        throw new Error(message);
+      }
+      refreshComputedFromDom();
+      setSaveStatus('Saved ✓', 'ok');
+      showRowSaved(savedId);
+    } catch (err) {
+      setSaveStatus(err.message || 'Save failed', 'err');
+    } finally {
+      saveInFlight = false;
+      if (pendingSave) {
+        pendingSave = false;
+        scheduleAutosave();
+      }
+    }
+  }
+
+  function scheduleAutosave() {
+    if (editingId == null) return;
+    clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(flushAutosave, 800);
+    setSaveStatus('Saving…', 'busy');
+    refreshComputedFromDom();
+  }
+
+  async function saveAgreementMeta(agreementId) {
+    if (!isRowEditing(agreementId)) return;
+    const row = document.querySelector(`#rents-grid-body tr[data-agreement-id="${agreementId}"]`);
+    if (!row) return;
+    const business = row.querySelector('.meta-business')?.value;
+    const farmName = row.querySelector('.meta-farm-name')?.value?.trim();
+    const farmSizeRaw = row.querySelector('.meta-farm-size')?.value;
+    const farmSize = farmSizeRaw === '' || farmSizeRaw == null ? null : Number(farmSizeRaw);
+    if (!farmName) {
+      setSaveStatus('Farm name is required', 'err');
+      return;
+    }
+    if (farmSize == null || !Number.isFinite(farmSize) || farmSize < 0) {
+      setSaveStatus('Farm size cannot be negative', 'err');
+      return;
+    }
+    setSaveStatus('Saving…', 'busy');
+    try {
+      const res = await fetch(`/api/benchmarking/rental-agreements/${agreementId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          business,
+          farm_name: farmName,
+          farm_size: farmSize,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail;
+        const message = typeof detail === 'string'
+          ? detail
+          : (Array.isArray(detail) ? detail.map(d => d.msg || d).join('; ') : 'Update failed');
+        throw new Error(message);
+      }
+      const agreement = (reportData.agreements || []).find(row => row.id === agreementId);
+      if (agreement) {
+        agreement.business = business;
+        agreement.farm_name = farmName;
+        agreement.farm_size = farmSize;
+      }
+      refreshComputedFromDom();
+      setSaveStatus('Saved ✓', 'ok');
+      showRowSaved(agreementId);
+    } catch (err) {
+      setSaveStatus(err.message || 'Update failed', 'err');
+    }
+  }
+
+  async function startEditing(agreementId) {
+    if (!CAN_EDIT) return;
+    if (editingId != null && Number(editingId) !== Number(agreementId)) {
+      clearTimeout(autosaveTimer);
+      pendingSave = false;
+      await flushAutosave();
+    }
+    editingId = Number(agreementId);
+    renderAll();
+    setSaveStatus('Editing row — changes autosave', 'busy');
+    const firstInput = document.querySelector(
+      `#rents-grid-body tr[data-agreement-id="${editingId}"] input.amount-input`
+    );
+    firstInput?.focus();
+  }
+
+  async function stopEditing() {
+    if (editingId == null) return;
+    const savedId = editingId;
+    clearTimeout(autosaveTimer);
+    pendingSave = false;
+    await flushAutosave();
+    editingId = null;
+    renderAll();
+    setSaveStatus('Saved ✓', 'ok');
+    showRowSaved(savedId);
+  }
+
+  async function addLand(event) {
+    event.preventDefault();
+    if (!CAN_EDIT) return;
+    if (editingId != null) await stopEditing();
+    const form = event.target;
+    const body = {
+      business: form.business.value,
+      farm_name: form.farm_name.value.trim(),
+      farm_size: Number(form.farm_size.value),
+    };
+    setSaveStatus('Adding…', 'busy');
+    try {
+      const res = await fetch('/api/benchmarking/rental-agreements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail;
+        const message = typeof detail === 'string'
+          ? detail
+          : (Array.isArray(detail) ? detail.map(d => d.msg || d).join('; ') : 'Could not add land');
+        throw new Error(message);
+      }
+      form.reset();
+      form.business.value = FARM_OPTIONS[0] || 'CM';
+      form.farm_size.value = '0';
+      editingId = data.agreement?.id ?? null;
+      await loadReport();
+      setSaveStatus(editingId ? 'Land added — enter monthly amounts' : 'Land added', 'ok');
+      if (editingId) {
+        const firstInput = document.querySelector(
+          `#rents-grid-body tr[data-agreement-id="${editingId}"] input.amount-input`
+        );
+        firstInput?.focus();
+      }
+    } catch (err) {
+      setSaveStatus(err.message || 'Could not add land', 'err');
+    }
+  }
+
+  async function removeAgreement(agreementId) {
+    if (!CAN_EDIT || !isRowEditing(agreementId)) return;
+    if (!confirm('Remove this rental agreement?')) return;
+    setSaveStatus('Removing…', 'busy');
+    try {
+      const res = await fetch(`/api/benchmarking/rental-agreements/${agreementId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Remove failed');
+      editingId = null;
+      await loadReport();
+      setSaveStatus('Removed', 'ok');
+    } catch (err) {
+      setSaveStatus(err.message || 'Remove failed', 'err');
+    }
+  }
+
+  document.getElementById('fiscal-year-select').addEventListener('change', async () => {
+    if (editingId != null) await stopEditing();
+    setSaveStatus('');
+    await loadReport();
+  });
+
+  document.getElementById('add-land-form')?.addEventListener('submit', addLand);
+
+  document.getElementById('rents-grid-body').addEventListener('input', (event) => {
+    if (!event.target.matches('.amount-input')) return;
+    if (!isRowEditing(event.target.dataset.agreementId)) return;
+    scheduleAutosave();
+  });
+
+  document.getElementById('rents-grid-body').addEventListener('focusin', (event) => {
+    if (!event.target.matches('.amount-input')) return;
+    if (!isRowEditing(event.target.dataset.agreementId)) return;
+    const amount = parseAmount(event.target.value);
+    event.target.value = amount == null ? '' : String(amount);
+    event.target.select();
+  });
+
+  document.getElementById('rents-grid-body').addEventListener('focusout', (event) => {
+    if (!event.target.matches('.amount-input')) return;
+    if (!isRowEditing(event.target.dataset.agreementId)) return;
+    const amount = parseAmount(event.target.value);
+    event.target.value = formatAmountInput(amount);
+    refreshComputedFromDom();
+  });
+
+  document.getElementById('rents-grid-body').addEventListener('change', (event) => {
+    const target = event.target;
+    if (!target.matches('.meta-business, .meta-farm-name, .meta-farm-size')) return;
+    if (!isRowEditing(target.dataset.agreementId)) return;
+    saveAgreementMeta(Number(target.dataset.agreementId));
+  });
+
+  document.getElementById('rents-grid-body').addEventListener('click', (event) => {
+    const editBtn = event.target.closest('.edit-btn');
+    if (editBtn) {
+      startEditing(Number(editBtn.dataset.agreementId));
+      return;
+    }
+    const doneBtn = event.target.closest('.done-btn');
+    if (doneBtn) {
+      stopEditing();
+      return;
+    }
+    const deleteBtn = event.target.closest('.delete-btn');
+    if (deleteBtn) removeAgreement(Number(deleteBtn.dataset.agreementId));
+  });
+
+  loadReport();
+</script>
+{% endblock %}

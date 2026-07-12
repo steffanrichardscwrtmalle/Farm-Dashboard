@@ -59,6 +59,13 @@ from app.services.hp_schedules import (
     update_hp_schedule,
 )
 from app.services.milk_sales_forecasts import build_milk_sales_forecasts_report
+from app.services.rental_agreements import (
+    build_rental_agreements_report,
+    create_rental_agreement,
+    deactivate_rental_agreement,
+    save_rental_payments,
+    update_rental_agreement,
+)
 from app.services.stock_sales_purchases_forecasts import (
     build_stock_sales_purchases_forecasts_report,
 )
@@ -843,6 +850,108 @@ def api_deactivate_hp_schedule(
 ):
     try:
         deactivate_hp_schedule(db, schedule_id=schedule_id)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class RentalAgreementBody(BaseModel):
+    business: str = Field(default="CM", min_length=1, max_length=8)
+    farm_name: str = Field(min_length=1, max_length=128)
+    farm_size: float = Field(ge=0)
+
+
+class RentalPaymentRowBody(BaseModel):
+    agreement_id: int
+    payment_month: dt.date
+    amount: float | None = None
+
+
+class SaveRentalPaymentsBody(BaseModel):
+    fiscal_year: int
+    rows: list[RentalPaymentRowBody] = Field(default_factory=list)
+
+
+@router.get("/rental-agreements")
+def api_rental_agreements_report(
+    fiscal_year: int | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    fy = fiscal_year if fiscal_year is not None else available_fiscal_years()[0]
+    try:
+        return build_rental_agreements_report(db, fiscal_year=fy)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/rental-agreements")
+def api_create_rental_agreement(
+    body: RentalAgreementBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        return {
+            "agreement": create_rental_agreement(
+                db,
+                business=body.business,
+                farm_name=body.farm_name,
+                farm_size=body.farm_size,
+                user_id=user.id,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/rental-agreements/payments")
+def api_save_rental_payments(
+    body: SaveRentalPaymentsBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        return save_rental_payments(
+            db,
+            fiscal_year=body.fiscal_year,
+            rows=[row.model_dump() for row in body.rows],
+            user_id=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/rental-agreements/{agreement_id}")
+def api_update_rental_agreement(
+    agreement_id: int,
+    body: RentalAgreementBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        return {
+            "agreement": update_rental_agreement(
+                db,
+                agreement_id=agreement_id,
+                business=body.business,
+                farm_name=body.farm_name,
+                farm_size=body.farm_size,
+                user_id=user.id,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/rental-agreements/{agreement_id}")
+def api_deactivate_rental_agreement(
+    agreement_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        deactivate_rental_agreement(db, agreement_id=agreement_id)
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

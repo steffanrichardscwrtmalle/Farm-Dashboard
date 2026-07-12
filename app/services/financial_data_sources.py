@@ -32,6 +32,7 @@ def _build_source_registry() -> tuple[list[dict[str, Any]], frozenset[str]]:
             ("milk_sales.monthly_litres", "Monthly litres"),
             ("milk_sales.daily_litres", "Daily litres"),
             ("milk_sales.monthly_revenue", "Monthly revenue (£)"),
+            ("milk_sales.monthly_deductions", "Monthly deductions (£)"),
         ],
     )
 
@@ -74,6 +75,14 @@ def _build_source_registry() -> tuple[list[dict[str, Any]], frozenset[str]]:
             ("hp_schedules.monthly_capital", "Monthly capital (£)"),
             ("hp_schedules.monthly_interest", "Monthly interest (£)"),
             ("hp_schedules.monthly_payment", "Monthly payment (£)"),
+        ],
+    )
+
+    add(
+        "Rental Agreements",
+        "rents",
+        [
+            ("rents.monthly_total", "Monthly rent total (£)"),
         ],
     )
 

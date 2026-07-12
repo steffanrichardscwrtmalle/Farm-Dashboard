@@ -36,6 +36,10 @@ def db() -> Session:
 def test_seed_creates_default_mappings(db: Session) -> None:
     mappings = list_financial_mappings(db)
     assert len(mappings) == len(DEFAULT_FINANCIAL_MAPPINGS)
+    milk_deductions = next(
+        m for m in mappings if m["heading"] == "Milk Deductions"
+    )
+    assert milk_deductions["data_sources"] == ["milk_sales.monthly_deductions"]
 
 
 def test_duplicate_heading_allowed_in_different_groups(db: Session) -> None:

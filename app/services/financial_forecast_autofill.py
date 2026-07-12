@@ -12,9 +12,13 @@ from sqlalchemy.orm import Session
 from app.models import HERD_FARM_OPTIONS, FinancialForecastLine, FinancialForecastMapping
 from app.services.benchmarking import fiscal_year_months
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
-from app.services.financial_forecasts import list_financial_mappings
+from app.services.financial_forecasts import (
+    ensure_milk_deductions_data_source,
+    list_financial_mappings,
+)
 from app.services.hp_schedules import build_hp_payment_index
 from app.services.milk_sales_forecasts import build_milk_sales_forecasts_report
+from app.services.rental_agreements import build_rental_payment_index
 from app.services.stock_sales_purchases_forecasts import (
     FORECAST_METRICS,
     build_stock_sales_purchases_forecasts_report,
@@ -27,7 +31,7 @@ class _DataSourceContext:
     stock: dict[tuple[str, dt.date], dict[str, Any]]
     feed: dict[tuple[str, dt.date], dict[str, Any]]
     hp: dict[tuple[str, dt.date], dict[str, float]]
-
+    rents: dict[tuple[str, dt.date], float]
 
 def _build_milk_index(report: dict[str, Any]) -> dict[tuple[str, dt.date], dict[str, float | None]]:
     index: dict[tuple[str, dt.date], dict[str, float | None]] = {}
@@ -39,6 +43,7 @@ def _build_milk_index(report: dict[str, Any]) -> dict[tuple[str, dt.date], dict[
                 "monthly_litres": cells.get("monthly_litres"),
                 "daily_litres": cells.get("daily_litres"),
                 "monthly_revenue": cells.get("monthly_revenue"),
+                "monthly_deductions": cells.get("monthly_deductions"),
             }
     return index
 
@@ -95,6 +100,7 @@ def _build_data_source_context(
         stock=_build_stock_index(stock_report),
         feed=_build_feed_index(feed_report),
         hp=build_hp_payment_index(db, fiscal_year=fiscal_year),
+        rents=build_rental_payment_index(db, fiscal_year=fiscal_year),
     )
 
 
@@ -143,6 +149,12 @@ def resolve_data_source_value(
             return cell.get(field)
         return None
 
+    if source_key.startswith("rents."):
+        field = source_key.removeprefix("rents.")
+        if field == "monthly_total":
+            return ctx.rents.get((farm, month.replace(day=1)))
+        return None
+
     return None
 
 
@@ -182,6 +194,7 @@ def fill_financial_forecasts_from_data_sources(
             raise ValueError(f"Unknown farm: {farm}")
 
     months = fiscal_year_months(fiscal_year)
+    ensure_milk_deductions_data_source(db)
     mappings = [row for row in list_financial_mappings(db) if row.get("data_sources")]
     if not mappings:
         return {"updated": 0, "mappings_filled": 0, "skipped": 0}

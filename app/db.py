@@ -59,8 +59,21 @@ def init_db() -> None:
     _migrate_financial_forecasts_schema()
     _migrate_rations_schema()
     _migrate_hp_schedules_schema()
+    _migrate_rental_agreements_schema()
     _seed_financial_forecasts()
     _seed_hp_schedules()
+
+
+def _migrate_rental_agreements_schema() -> None:
+    """Ensure rental agreement tables exist."""
+    from app.models import RentalAgreement, RentalAgreementPayment
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "rental_agreements" not in tables:
+        RentalAgreement.__table__.create(bind=engine, checkfirst=True)
+    if "rental_agreement_payments" not in tables:
+        RentalAgreementPayment.__table__.create(bind=engine, checkfirst=True)
 
 
 def _migrate_hp_schedules_schema() -> None:

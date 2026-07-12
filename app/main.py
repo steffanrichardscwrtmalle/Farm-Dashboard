@@ -1266,6 +1266,31 @@ def benchmarking_hp_schedules_page(request: Request):
     )
 
 
+@app.get("/benchmarking/rental-agreements", response_class=HTMLResponse)
+def benchmarking_rental_agreements_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    from app.services.benchmarking import available_fiscal_years
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/rental_agreements.html",
+        _template_ctx(
+            request,
+            page_heading="Rental Agreements",
+            can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
+            fiscal_year_options=available_fiscal_years(),
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_benchmarking_context(
+                "Rental Agreements",
+                "rental-agreements",
+                "Rental Agreements",
+            ),
+        ),
+    )
+
+
 @app.get("/benchmarking/feed-purchase-forecasts", response_class=HTMLResponse)
 def benchmarking_feed_purchase_forecasts_page(request: Request):
     if denied := _page_guard(request, PAGE_BENCHMARKING):
