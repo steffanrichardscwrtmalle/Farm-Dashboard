@@ -38,7 +38,6 @@ from app.services.stock_accruals import (
 )
 from app.services.stock_purchases import normalize_stock_group
 from app.services.stock_group import VALUATION_CATEGORY_BY_STOCK_GROUP
-from app.services.stock_valuations import jv_beef_counts_by_farm
 
 _ZERO_SALES = {reason: 0 for reason in SALES_TABLE_REASON_ORDER}
 
@@ -312,7 +311,6 @@ class _ForecastSharedContext:
     projected_month_starts: list[dt.date]
     forecast_index: dict[tuple[str, str, dt.date], int]
     heifers_due_index: dict[tuple[str, dt.date], int]
-    jv_beef_by_farm: dict[str, int]
     today: dt.date
     accrual_seed_cache: dict[tuple[str, str], dict[str, Any]] = field(
         default_factory=dict
@@ -372,11 +370,6 @@ def _build_forecast_shared_context(
         heifers_due_index=_build_heifers_due_index(
             db, farms=farms, month_starts=projected_month_starts
         ),
-        jv_beef_by_farm=jv_beef_counts_by_farm(
-            db,
-            farms=farms,
-            close_date=_last_day_of_month(last_actual_month),
-        ),
         today=today,
     )
 
@@ -417,10 +410,10 @@ def _build_stock_forecast_rows(
     if opening is None and actual_rows:
         opening = actual_rows[-1]["closing"]
 
-    jv_beef_total = 0
-    if group == STOCK_GROUP_BEEF:
-        jv_beef_total = sum(shared.jv_beef_by_farm.get(farm, 0) for farm in farms)
-
+    # Projected months continue from accrual closing so opening always equals the
+    # prior month's closing. JV beef is excluded in valuations, not here — stripping
+    # it at the actual→projected boundary created a large false cliff (and the
+    # lightweight JV counter could over-count PATHWAY/GAME animals as beef).
     projected_rows: list[dict[str, Any]] = []
     rolling_opening = opening if opening is not None else 0
     if (
@@ -435,8 +428,6 @@ def _build_stock_forecast_rows(
             )
             if prior_closing is not None:
                 rolling_opening = prior_closing
-    if group == STOCK_GROUP_BEEF:
-        rolling_opening = max(0, rolling_opening - jv_beef_total)
 
     for month_start in shared.projected_month_starts:
         row = _build_projected_row(
@@ -450,8 +441,6 @@ def _build_stock_forecast_rows(
             forecast_index=shared.forecast_index,
             heifers_due_index=shared.heifers_due_index,
         )
-        # JV beef was already removed from the seed opening above; keep projected
-        # months on that basis so closing chains into the next opening unchanged.
         projected_rows.append(row)
         rolling_opening = row["closing"]
 

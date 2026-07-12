@@ -311,7 +311,8 @@ def test_beef_forecast_sales_mapping(db: Session) -> None:
     assert july["closing"] == 48
 
 
-def test_beef_projections_exclude_jv_animals(db: Session) -> None:
+def test_beef_projections_keep_jv_animals_in_accrual_chain(db: Session) -> None:
+    """Stock forecasts follow accruals; JV exclusion is handled in valuations only."""
     anchor_ts = dt.datetime(2026, 6, 30, 12, 0, 0)
     db.add(
         StockOpeningBaseline(
@@ -360,8 +361,8 @@ def test_beef_projections_exclude_jv_animals(db: Session) -> None:
     assert june["source"] == "actual"
     assert june["closing"] == 1
     assert july["source"] == "projected"
-    assert july["opening"] == 0
-    assert july["closing"] == 0
+    assert july["opening"] == june["closing"]
+    assert july["closing"] == 1
 
 
 def test_beef_july_opening_equals_june_closing_without_jv(db: Session) -> None:
@@ -374,22 +375,27 @@ def test_beef_july_opening_equals_june_closing_without_jv(db: Session) -> None:
     assert july["opening"] == june["closing"]
 
 
-def test_beef_projected_opening_subtracts_jv_only_once(db: Session) -> None:
-    """First projected month must be accrual closing − JV once, then chain cleanly."""
-    _seed_beef_baseline(db, opening=5)
-    db.add(
-        CowEvent(
-            farm="CM",
-            cow_id="jv1",
-            etag="UKJV1",
-            event="PATHWAY",
-            event_date=dt.date(2026, 5, 15),
-            lact=0,
-            cbrd=121,
-            gndr="M",
-            bdat=dt.date(2024, 1, 1),
+def test_beef_projected_opening_follows_june_closing_with_pathway_events(
+    db: Session,
+) -> None:
+    """PATHWAY/GAME animals must not create a cliff between actual and projected."""
+    _seed_beef_baseline(db, opening=591)
+    # Many PATHWAY rows with sparse event fields used to be miscounted as JV beef
+    # and subtracted from July opening (e.g. 591 → 169).
+    for idx in range(422):
+        db.add(
+            CowEvent(
+                farm="CM",
+                cow_id=f"jv{idx}",
+                etag=f"UKJV{idx}",
+                event="PATHWAY",
+                event_date=dt.date(2026, 5, 15),
+                lact=0,
+                cbrd=None,
+                gndr=None,
+                bdat=dt.date(2024, 1, 1),
+            )
         )
-    )
     db.add(
         BenchmarkForecastLine(
             fiscal_year=FISCAL_YEAR,
@@ -407,10 +413,10 @@ def test_beef_projected_opening_subtracts_jv_only_once(db: Session) -> None:
     august = next(r for r in rows if r["month_start"] == "2026-08-01")
 
     assert june["source"] == "actual"
-    assert june["closing"] == 5
+    assert june["closing"] == 591
     assert july["source"] == "projected"
-    assert july["opening"] == 4  # 5 − 1 JV once (not 3)
-    assert july["closing"] == 3  # 4 − 1 sale
+    assert july["opening"] == 591
+    assert july["closing"] == 590
     assert august["opening"] == july["closing"]
 
 
