@@ -364,6 +364,56 @@ def test_beef_projections_exclude_jv_animals(db: Session) -> None:
     assert july["closing"] == 0
 
 
+def test_beef_july_opening_equals_june_closing_without_jv(db: Session) -> None:
+    _seed_beef_baseline(db, opening=50)
+    rows = _report(db, stock_group="beef")["rows"]
+    june = next(r for r in rows if r["month_start"] == "2026-06-01")
+    july = next(r for r in rows if r["month_start"] == "2026-07-01")
+    assert june["source"] == "actual"
+    assert july["source"] == "projected"
+    assert july["opening"] == june["closing"]
+
+
+def test_beef_projected_opening_subtracts_jv_only_once(db: Session) -> None:
+    """First projected month must be accrual closing − JV once, then chain cleanly."""
+    _seed_beef_baseline(db, opening=5)
+    db.add(
+        CowEvent(
+            farm="CM",
+            cow_id="jv1",
+            etag="UKJV1",
+            event="PATHWAY",
+            event_date=dt.date(2026, 5, 15),
+            lact=0,
+            cbrd=121,
+            gndr="M",
+            bdat=dt.date(2024, 1, 1),
+        )
+    )
+    db.add(
+        BenchmarkForecastLine(
+            fiscal_year=FISCAL_YEAR,
+            forecast_month=dt.date(2026, 7, 1),
+            metric="beef_cattle_sale",
+            farm="CM",
+            quantity=1,
+        )
+    )
+    db.commit()
+
+    rows = _report(db, stock_group="beef")["rows"]
+    june = next(r for r in rows if r["month_start"] == "2026-06-01")
+    july = next(r for r in rows if r["month_start"] == "2026-07-01")
+    august = next(r for r in rows if r["month_start"] == "2026-08-01")
+
+    assert june["source"] == "actual"
+    assert june["closing"] == 5
+    assert july["source"] == "projected"
+    assert july["opening"] == 4  # 5 − 1 JV once (not 3)
+    assert july["closing"] == 3  # 4 − 1 sale
+    assert august["opening"] == july["closing"]
+
+
 def test_projected_rows_update_when_manual_forecasts_change(db: Session) -> None:
     _seed_cows_baseline(db, opening=100)
     db.add(

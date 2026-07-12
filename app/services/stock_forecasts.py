@@ -450,9 +450,8 @@ def _build_stock_forecast_rows(
             forecast_index=shared.forecast_index,
             heifers_due_index=shared.heifers_due_index,
         )
-        if group == STOCK_GROUP_BEEF:
-            row["opening"] = max(0, row["opening"] - jv_beef_total)
-            row["closing"] = max(0, row["closing"] - jv_beef_total)
+        # JV beef was already removed from the seed opening above; keep projected
+        # months on that basis so closing chains into the next opening unchanged.
         projected_rows.append(row)
         rolling_opening = row["closing"]
 
