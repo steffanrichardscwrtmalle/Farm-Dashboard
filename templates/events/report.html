@@ -465,9 +465,9 @@
           <div class="slicer-group parity-slicer{% if show_parity_beef %} with-beef{% endif %}" role="group" aria-label="{% if show_parity_beef %}Stock group{% else %}Parity{% endif %}">
             <button
               type="button"
-              class="slicer-btn"
+              class="slicer-btn{% if parity_default_both %} selected{% endif %}"
               data-value="primiparous"
-              aria-pressed="false"
+              aria-pressed="{{ 'true' if parity_default_both else 'false' }}"
             >
               <span class="slicer-icon" aria-hidden="true">Y</span>
               Youngstock
@@ -637,6 +637,7 @@
     const SHOW_PARITY_FILTER = {{ show_parity_filter | default(false) | tojson }};
     const PARITY_EXCLUSIVE = {{ parity_exclusive | default(false) | tojson }};
     const SHOW_PARITY_BEEF = {{ show_parity_beef | default(false) | tojson }};
+    const PARITY_DEFAULT_BOTH = {{ parity_default_both | default(false) | tojson }};
     const SHOW_DISEASE_FILTER = {{ show_disease_filter | default(false) | tojson }};
     const SHOW_DISEASE_SCATTER = {{ show_disease_scatter | default(false) | tojson }};
     const SHOW_REASON_TABLE = {{ show_reason_table | default(false) | tojson }};
@@ -745,8 +746,36 @@
       return { minIdx, maxIdx };
     }
 
+    function monthStartIso(isoDate) {
+      if (!isoDate) return null;
+      return `${String(isoDate).slice(0, 7)}-01`;
+    }
+
+    function findMonthIndex(isoDate) {
+      const target = monthStartIso(isoDate);
+      if (!target) return -1;
+      return monthList.findIndex(month => toIsoDate(month) === target);
+    }
+
     function syncDateControls(dateBounds, resetValues, useLastTwelveMonths = false) {
       if (!dateBounds?.min || !dateBounds?.max) return;
+
+      // Remember the currently selected months by calendar date before rebuilding
+      // the slider list. Farm toggles change date_bounds length, and index-based
+      // clamping would otherwise jump the range to the wrong months.
+      let preserveFrom = null;
+      let preserveTo = null;
+      if (!resetValues && monthList.length) {
+        try {
+          const current = currentDateRangeParams();
+          preserveFrom = current.event_from;
+          preserveTo = current.event_to;
+        } catch (_) {
+          preserveFrom = null;
+          preserveTo = null;
+        }
+      }
+
       monthList = buildMonthList(dateBounds.min, dateBounds.max);
       const maxIdx = Math.max(0, monthList.length - 1);
       const minRange = document.getElementById("min-date-range");
@@ -764,6 +793,14 @@
           minRange.value = 0;
           maxRange.value = maxIdx;
         }
+      } else if (preserveFrom && preserveTo) {
+        let lo = findMonthIndex(preserveFrom);
+        let hi = findMonthIndex(preserveTo);
+        if (lo < 0) lo = 0;
+        if (hi < 0) hi = maxIdx;
+        if (lo > hi) [lo, hi] = [hi, lo];
+        minRange.value = lo;
+        maxRange.value = hi;
       } else {
         minRange.value = Math.min(parseInt(minRange.value, 10) || 0, maxIdx);
         maxRange.value = Math.min(parseInt(maxRange.value, 10) || maxIdx, maxIdx);
@@ -1063,7 +1100,8 @@
 
     function resetParitySlicers() {
       document.querySelectorAll(".parity-slicer .slicer-btn").forEach(btn => {
-        const selected = btn.dataset.value === "multiparous";
+        const selected = btn.dataset.value === "multiparous"
+          || (PARITY_DEFAULT_BOTH && btn.dataset.value === "primiparous");
         btn.classList.toggle("selected", selected);
         btn.setAttribute("aria-pressed", selected ? "true" : "false");
       });
@@ -1817,20 +1855,22 @@
         if (!fiscalYear) {
           storedFullDateBounds = data.date_bounds;
         }
-        const currentDisease = SHOW_DISEASE_FILTER ? (selectedDisease() || "") : null;
-        const diseaseChanged = SHOW_DISEASE_FILTER && currentDisease !== lastAppliedDisease;
-        if (!dateBoundsInitialized || diseaseChanged) {
+        if (!dateBoundsInitialized) {
           syncDateControls(data.date_bounds, true, !fiscalYear);
           dateBoundsInitialized = true;
           if (SHOW_DISEASE_FILTER) {
-            lastAppliedDisease = currentDisease;
+            lastAppliedDisease = selectedDisease() || "";
           }
           if (!fiscalYear) {
             loadReport();
             return;
           }
         } else {
+          // Preserve the user's selected months when farms / disease filters change.
           syncDateControls(data.date_bounds, false);
+          if (SHOW_DISEASE_FILTER) {
+            lastAppliedDisease = selectedDisease() || "";
+          }
         }
       }
 
@@ -1869,11 +1909,16 @@
           yRangeLabel.textContent = `${yLabel} range`;
         }
         const newMax = Number(data.disease_scatter.y_bounds?.max) || 0;
-        const resetY = !yBoundsInitialized || newMax !== storedYBoundsMax;
-        syncYControls(data.disease_scatter.y_bounds || { min: 0, max: 0 }, resetY);
+        const firstY = !yBoundsInitialized;
+        // Only reset DIM inputs on first load. Farm toggles change the max but
+        // should keep the user's selected range (and avoid a second refetch).
+        syncYControls(
+          { min: 0, max: Math.max(newMax, storedYBoundsMax || 0) },
+          firstY
+        );
         yBoundsInitialized = true;
-        storedYBoundsMax = newMax;
-        if (resetY) {
+        storedYBoundsMax = Math.max(storedYBoundsMax || 0, newMax);
+        if (firstY) {
           loadReport();
           return;
         }

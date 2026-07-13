@@ -77,6 +77,10 @@ def test_list_fallen_stock_returns_only_died_events(db: Session) -> None:
     etags = {row["etag"] for row in result["rows"]}
     assert etags == {"UK752261100001", "UK752261200001"}
     assert result["total"] == 2
+    gad = next(row for row in result["rows"] if row["etag"] == "UK752261100001")
+    assert gad["bdat"] == "2023-01-01"
+    assert gad["age_days"] == (dt.date(2025, 6, 1) - dt.date(2023, 1, 1)).days
+    assert gad["age_months"] == gad["age_days"] // 30
 
 
 def test_confirm_and_unarchive_round_trip(db: Session) -> None:

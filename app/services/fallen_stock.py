@@ -36,6 +36,15 @@ def _age_months_at_death(bdat: dt.date | None, event_date: dt.date) -> int | Non
     return days // 30
 
 
+def _age_days_at_death(bdat: dt.date | None, event_date: dt.date) -> int | None:
+    if bdat is None:
+        return None
+    days = (event_date - bdat).days
+    if days < 0:
+        return None
+    return days
+
+
 def _format_remark(remark: str | None) -> str:
     value = (remark or "").strip()
     return value if value else "—"
@@ -99,12 +108,15 @@ def _row_to_dict(
     normalized_etag = _normalize_key_part(etag)
     gender = _format_gender(gndr)
     age_months = _age_months_at_death(bdat, event_date)
+    age_days = _age_days_at_death(bdat, event_date)
     return {
         "farm": farm,
         "cow_id": normalized_cow_id,
         "etag": normalized_etag,
         "gender": gender,
         "age_months": age_months,
+        "age_days": age_days,
+        "bdat": bdat.isoformat() if bdat else None,
         "dest": dest or "",
         "event_date": event_date.isoformat(),
         "remark": _format_remark(remark),

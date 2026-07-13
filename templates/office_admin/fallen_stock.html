@@ -171,6 +171,21 @@
       top: 0;
       z-index: 1;
     }
+    #fallen-stock-table thead th.sortable {
+      cursor: pointer;
+      user-select: none;
+    }
+    #fallen-stock-table thead th.sortable:hover {
+      background: #274b73;
+    }
+    #fallen-stock-table thead th.sortable .sort-ind {
+      margin-left: 0.25rem;
+      opacity: 0.45;
+      font-weight: 400;
+    }
+    #fallen-stock-table thead th.sortable.sorted .sort-ind {
+      opacity: 1;
+    }
     #fallen-stock-table tbody tr.row-selected {
       background: #dcfce7;
     }
@@ -282,6 +297,21 @@
     let loadController = null;
     let dateLoadTimer = null;
     let loadingCount = 0;
+    let sortKey = null;
+    let sortDir = "asc";
+
+    const SORTABLE_COLUMNS = [
+      { key: "cow_id", label: "ID" },
+      { key: "farm", label: "Farm" },
+      { key: "etag", label: "ETAG" },
+      { key: "age_months", label: "Age (mo)" },
+      { key: "age_days", label: "Age (days)" },
+      { key: "gender", label: "Gender" },
+      { key: "bdat", label: "Date of birth" },
+      { key: "event_date", label: "Date died" },
+      { key: "dest", label: "DEST" },
+      { key: "remark", label: "Remark" },
+    ];
 
     function rowKey(row) {
       return JSON.stringify(row.record_key);
@@ -561,29 +591,66 @@
       }
     }
 
+    function sortIndicator(key) {
+      if (sortKey !== key) return `<span class="sort-ind" aria-hidden="true">↕</span>`;
+      return `<span class="sort-ind" aria-hidden="true">${sortDir === "asc" ? "▲" : "▼"}</span>`;
+    }
+
+    function sortableHeader(key, label) {
+      const sortedClass = sortKey === key ? " sorted" : "";
+      return `<th class="sortable${sortedClass}" data-sort-key="${key}" title="Sort by ${label}">${label}${sortIndicator(key)}</th>`;
+    }
+
+    function compareSortValues(a, b) {
+      const aEmpty = a == null || a === "";
+      const bEmpty = b == null || b === "";
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (typeof a === "number" && typeof b === "number") return a - b;
+      return String(a).localeCompare(String(b), "en-GB", { numeric: true, sensitivity: "base" });
+    }
+
+    function getDisplayRows() {
+      if (!sortKey) return rows;
+      const keyed = sortKey;
+      const direction = sortDir === "desc" ? -1 : 1;
+      return [...rows].sort((left, right) => {
+        const cmp = compareSortValues(left[keyed], right[keyed]);
+        return cmp * direction;
+      });
+    }
+
+    function onSortHeaderClick(key) {
+      if (sortKey === key) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortKey = key;
+        sortDir = "asc";
+      }
+      renderTable();
+    }
+
     function renderTableHead() {
       const head = document.getElementById("table-head");
       const selectCol = CAN_EDIT
         ? `<th><input type="checkbox" id="select-all" aria-label="Select all visible rows"></th>`
         : "";
       const collectedCol = currentStatus === "active" && CAN_EDIT ? "<th>Collected?</th>" : "";
+      const dataCols = SORTABLE_COLUMNS.map(col => sortableHeader(col.key, col.label)).join("");
       head.innerHTML = `
         <tr>
           ${selectCol}
-          <th>ID</th>
-          <th>Farm</th>
-          <th>ETAG</th>
-          <th>Age (mo)</th>
-          <th>Gender</th>
-          <th>Date died</th>
-          <th>DEST</th>
-          <th>Remark</th>
+          ${dataCols}
           ${collectedCol}
         </tr>
       `;
       if (CAN_EDIT) {
         document.getElementById("select-all")?.addEventListener("change", onSelectAllChange);
       }
+      head.querySelectorAll("th.sortable").forEach(th => {
+        th.addEventListener("click", () => onSortHeaderClick(th.dataset.sortKey));
+      });
     }
 
     function onSelectAllChange(event) {
@@ -622,7 +689,8 @@
     function renderTableBody() {
       const body = document.getElementById("table-body");
       const showCollectedCol = currentStatus === "active" && CAN_EDIT;
-      body.innerHTML = rows.map(row => {
+      const displayRows = getDisplayRows();
+      body.innerHTML = displayRows.map(row => {
         const key = rowKey(row);
         const selected = selectedKeys.has(key);
         const selectCell = CAN_EDIT
@@ -638,7 +706,9 @@
             <td>${row.farm || "—"}</td>
             <td>${row.etag || "—"}</td>
             <td>${row.age_months != null ? row.age_months : "—"}</td>
+            <td>${row.age_days != null ? row.age_days : "—"}</td>
             <td>${row.gender || "—"}</td>
+            <td>${fmtDate(row.bdat)}</td>
             <td>${fmtDate(row.event_date)}</td>
             <td>${row.dest || "—"}</td>
             <td>${row.remark || "—"}</td>
@@ -661,6 +731,8 @@
 
       rows = data.rows || [];
       selectedKeys.clear();
+      sortKey = null;
+      sortDir = "asc";
       rebuildRowIndex();
 
       const label = currentStatus === "active" ? "Pending fallen stock" : "Archived fallen stock";
