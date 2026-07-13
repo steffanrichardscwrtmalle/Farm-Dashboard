@@ -48,6 +48,8 @@ def test_normalize_etag_strips_foreign_country_leading_zeros():
     assert normalize_etag("FR000987654321") == "FR987654321"
     assert normalize_etag("IE0001234567") == "IE1234567"
     assert normalize_etag("be 000214283270") == "BE214283270"
+    # Eurofarm PDFs often insert a space mid-number for foreign tags.
+    assert normalize_etag("BE21428 3270") == "BE214283270"
     # UK tags without mid-padding stay unchanged.
     assert normalize_etag("UK740651125211") == "UK740651125211"
 
@@ -232,6 +234,75 @@ def test_parse_misaligned_continuation_table_row():
     assert more_lines[0]["kill_date"] == dt.date(2026, 6, 4)
 
 
+def test_parse_foreign_etag_with_space_and_qas_no():
+    """Eurofarm prints BE tags with a mid-number space; QAS may be NO."""
+    table_header = [
+        [
+            "Carcass",
+            "Tag Number",
+            "Dress",
+            "Breed",
+            "Cat",
+            "Grade",
+            "Grader",
+            "Kill Date",
+            "Age",
+            "QAS",
+            "Cold Weight KG",
+            "Reject Kgs",
+            "Price",
+            "Amount",
+        ]
+    ]
+    table_body = [
+        [
+            "256",
+            None,
+            "BE21428 3270",
+            "UK",
+            None,
+            "HO",
+            "D",
+            "P+3",
+            None,
+            "",
+            "02/07/2026",
+            "79",
+            "NO",
+            "318.9",
+            "0.000",
+            None,
+            "5.20",
+            "1658.24",
+        ]
+    ]
+    warnings: list[str] = []
+    lines, header = _parse_table_rows(table_header, warnings)
+    assert header is not None
+    more_lines, _ = _parse_table_rows(table_body, warnings, shared_header=header)
+    assert len(more_lines) == 1
+    assert more_lines[0]["etag"] == "BE214283270"
+    assert more_lines[0]["cold_weight_kg"] == 318.9
+    assert more_lines[0]["amount_gbp"] == 1658.24
+    assert more_lines[0]["kill_date"] == dt.date(2026, 7, 2)
+
+
+def test_parse_real_cwrt_malle_sample_pdf():
+    from pathlib import Path
+
+    path = Path("Cheque Payment Report CWRT MALLE 02.07.26.pdf")
+    if not path.is_file():
+        return
+    result = parse_cattle_sale_pdf(path.read_bytes(), mailbox_farm="CM")
+    assert result["sale_date"] == dt.date(2026, 7, 6)
+    foreign = [line for line in result["lines"] if line["etag"].startswith("BE")]
+    assert len(foreign) == 1
+    assert foreign[0]["etag"] == "BE214283270"
+    assert foreign[0]["cold_weight_kg"] == 318.9
+    assert foreign[0]["amount_gbp"] == 1658.24
+    assert foreign[0]["kill_date"] == dt.date(2026, 7, 2)
+
+
 def test_parse_real_gad_sample_pdf():
     from pathlib import Path
 
@@ -282,6 +353,47 @@ def test_list_cattle_sales_matches_sold_event_when_herd_etag_lacks_uk_prefix() -
     assert row["event_matched"] is True
     assert row["cow_id"] == "724069"
     assert row["event_date"] == "2026-06-18"
+
+    session.close()
+
+
+def test_list_cattle_sales_matches_dairycomp_zero_padded_foreign_etag() -> None:
+    """DairyComp stores BE000…; Eurofarm remittance stores BE21428… after normalize."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="214283",
+            etag="BE000214283270",
+            event="SOLD",
+            event_date=dt.date(2026, 7, 2),
+            dest="EUROFARM",
+            remark="CAR16",
+            gndr="F",
+            bdat=dt.date(2019, 1, 1),
+            lact=3,
+            cbrd=1,
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="BE214283270",
+            sale_date=dt.date(2026, 7, 2),
+            cold_weight_kg=318.9,
+            amount_gbp=1658.24,
+        )
+    )
+    session.commit()
+
+    result = list_cattle_sales(session, farms=["CM"])
+    assert result["total"] == 1
+    row = result["rows"][0]
+    assert row["event_matched"] is True
+    assert row["cow_id"] == "214283"
+    assert row["amount_gbp"] == 1658.24
 
     session.close()
 

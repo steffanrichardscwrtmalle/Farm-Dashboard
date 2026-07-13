@@ -25,7 +25,18 @@ _EUROFARM_MARKERS = (
     "payment report",
     "livestock purchase remittance",
 )
-_TAG_RE = re.compile(r"[A-Z]{2}\s*\d{6,18}", re.IGNORECASE)
+# UK tags are usually contiguous. Foreign tags (BE/DE/FR/IE/…) are often printed
+# with a space mid-number in Eurofarm PDFs, e.g. "BE21428 3270".
+_TAG_RE = re.compile(
+    r"(?:"
+    r"UK\s*\d{10,15}"
+    r"|"
+    r"[A-Z]{2}\s*\d{2,}(?:\s+\d{2,})+"
+    r"|"
+    r"[A-Z]{2}\s*\d{6,18}"
+    r")",
+    re.IGNORECASE,
+)
 _DATE_PATTERNS = (
     re.compile(
         r"(?:cheque|payment|sale|kill|slaughter)\s*date\s*[:\-]?\s*(\d{1,2}/\d{1,2}/\d{2,4})",
@@ -39,8 +50,9 @@ def normalize_etag(value: str | None) -> str:
     """Normalize ear tags for matching herd events and Eurofarm remittances.
 
     DairyComp often zero-pads after the country letters (e.g. BE000214283270)
-    while Eurofarm drops those zeros (BE214283270). Strip leading zeros in the
-    numeric section so both forms match. Bare numeric UK tags get a UK prefix.
+    while Eurofarm drops those zeros and may insert spaces (BE21428 3270).
+    Strip spaces and leading zeros in the numeric section so both forms match.
+    Bare numeric UK tags get a UK prefix.
     """
     raw = re.sub(r"\s+", "", (value or "").strip()).upper()
     if not raw:
@@ -95,6 +107,11 @@ def _extract_tables(content: bytes) -> list[list[list[str | None]]]:
 
 def _cell_text(value: str | None) -> str:
     return (value or "").strip()
+
+
+def _is_qas_cell(value: str | None) -> bool:
+    """Eurofarm QAS column is YES or NO (both rows still have weight/amount)."""
+    return _cell_text(value).upper() in {"YES", "NO"}
 
 
 _MIN_CARCASS_KG = 50.0
@@ -207,7 +224,7 @@ def _parse_row_numbers_from_cells(
 ) -> tuple[float | None, float | None, float | None]:
     """Recover weight, amount, and reject kgs when header columns are missing or wrong."""
     for idx, cell in enumerate(row):
-        if _cell_text(cell).upper() == "YES":
+        if _is_qas_cell(cell):
             nums = [
                 v
                 for c in row[idx + 1 :]
@@ -267,12 +284,12 @@ def _parse_kill_date_from_row(
         parsed = _parse_short_date(_cell_text(row[kill_idx]))
         if parsed:
             return parsed
-    # Eurofarm continuation rows often shift columns; kill date sits before YES.
-    yes_idx = next(
-        (idx for idx, cell in enumerate(row) if _cell_text(cell).upper() == "YES"),
+    # Eurofarm continuation rows often shift columns; kill date sits before QAS.
+    qas_idx = next(
+        (idx for idx, cell in enumerate(row) if _is_qas_cell(cell)),
         None,
     )
-    scan = row[:yes_idx] if yes_idx is not None else row
+    scan = row[:qas_idx] if qas_idx is not None else row
     for cell in reversed(scan):
         parsed = _parse_short_date(_cell_text(cell))
         if parsed:
@@ -309,20 +326,21 @@ def _parse_data_row(
     tag_idx, etag = tag_hit
     row_header = {**header, "tag": tag_idx}
 
-    reject_kg = None
-    if header.get("reject") is not None and header["reject"] < len(row):
-        reject_kg = _to_float(_cell_text(row[header["reject"]]))
-
-    weight = None
-    amount = None
-    if header.get("weight") is not None and header["weight"] < len(row):
-        weight = _to_float(_cell_text(row[header["weight"]]))
-    if header.get("amount") is not None and header["amount"] < len(row):
-        amount = _to_float(_cell_text(row[header["amount"]]))
+    # Prefer QAS-anchored numbers: continuation tables often shift columns so
+    # Age/QAS land under Cold Weight / Amount and look "plausible" (e.g. 79 kg).
+    weight, amount, reject_kg = _parse_row_numbers_from_cells(
+        row, row_header, etag, warnings
+    )
     if not is_acceptable_sale_line(weight, reject_kg, amount):
-        weight, amount, reject_kg = _parse_row_numbers_from_cells(
-            row, row_header, etag, warnings
-        )
+        reject_kg = None
+        if header.get("reject") is not None and header["reject"] < len(row):
+            reject_kg = _to_float(_cell_text(row[header["reject"]]))
+        weight = None
+        amount = None
+        if header.get("weight") is not None and header["weight"] < len(row):
+            weight = _to_float(_cell_text(row[header["weight"]]))
+        if header.get("amount") is not None and header["amount"] < len(row):
+            amount = _to_float(_cell_text(row[header["amount"]]))
     if weight is None or amount is None or not is_acceptable_sale_line(weight, reject_kg, amount):
         warnings.append(f"Skipped implausible row for {etag}")
         return None
@@ -361,12 +379,13 @@ def _parse_table_rows(
 def _parse_text_lines(text: str, warnings: list[str]) -> list[dict[str, Any]]:
     """Fallback: scan text lines for tag, cold weight, and amount.
 
-    Eurofarm remittance lines end with: YES <weight> <reject> <price/kg> <amount>.
+    Eurofarm remittance lines end with: YES|NO <weight> <reject> <price/kg> <amount>.
     """
     lines: list[dict[str, Any]] = []
     seen: set[str] = set()
     row_re = re.compile(
-        r"[A-Z]{2}\s*\d{6,18}.*?YES\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+[\d,]+\.?\d*\s+([\d,]+\.?\d*)",
+        r"(?:UK\s*\d{10,15}|[A-Z]{2}\s*\d{2,}(?:\s+\d{2,})+|[A-Z]{2}\s*\d{6,18})"
+        r".*?(?:YES|NO)\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+[\d,]+\.?\d*\s+([\d,]+\.?\d*)",
         re.IGNORECASE,
     )
     for raw_line in text.splitlines():
@@ -402,7 +421,7 @@ def _parse_text_lines(text: str, warnings: list[str]) -> list[dict[str, Any]]:
             continue
         kill_date = None
         kill_match = re.search(
-            r"(\d{1,2}/\d{1,2}/\d{2,4})\s+\d+\s+YES\b",
+            r"(\d{1,2}/\d{1,2}/\d{2,4})\s+\d+\s+(?:YES|NO)\b",
             raw_line,
             re.IGNORECASE,
         )
