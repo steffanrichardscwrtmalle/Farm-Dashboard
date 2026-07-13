@@ -25,7 +25,7 @@ _EUROFARM_MARKERS = (
     "payment report",
     "livestock purchase remittance",
 )
-_TAG_RE = re.compile(r"UK\s*\d{10,15}", re.IGNORECASE)
+_TAG_RE = re.compile(r"[A-Z]{2}\s*\d{6,18}", re.IGNORECASE)
 _DATE_PATTERNS = (
     re.compile(
         r"(?:cheque|payment|sale|kill|slaughter)\s*date\s*[:\-]?\s*(\d{1,2}/\d{1,2}/\d{2,4})",
@@ -36,12 +36,20 @@ _DATE_PATTERNS = (
 
 
 def normalize_etag(value: str | None) -> str:
-    """Normalize ear tags for matching herd events."""
+    """Normalize ear tags for matching herd events and Eurofarm remittances.
+
+    DairyComp often zero-pads after the country letters (e.g. BE000214283270)
+    while Eurofarm drops those zeros (BE214283270). Strip leading zeros in the
+    numeric section so both forms match. Bare numeric UK tags get a UK prefix.
+    """
     raw = re.sub(r"\s+", "", (value or "").strip()).upper()
     if not raw:
         return ""
-    if not raw.startswith("UK") and raw.isdigit() and len(raw) >= 10:
-        return f"UK{raw}"
+    if not re.match(r"^[A-Z]{2}", raw) and raw.isdigit() and len(raw) >= 10:
+        raw = f"UK{raw}"
+    match = re.match(r"^([A-Z]{2})0*(\d+)$", raw)
+    if match:
+        return f"{match.group(1)}{match.group(2)}"
     return raw
 
 
@@ -358,7 +366,7 @@ def _parse_text_lines(text: str, warnings: list[str]) -> list[dict[str, Any]]:
     lines: list[dict[str, Any]] = []
     seen: set[str] = set()
     row_re = re.compile(
-        r"UK\s*\d{10,15}.*?YES\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+[\d,]+\.?\d*\s+([\d,]+\.?\d*)",
+        r"[A-Z]{2}\s*\d{6,18}.*?YES\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+[\d,]+\.?\d*\s+([\d,]+\.?\d*)",
         re.IGNORECASE,
     )
     for raw_line in text.splitlines():

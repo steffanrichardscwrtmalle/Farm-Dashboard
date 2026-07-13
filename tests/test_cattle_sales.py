@@ -40,6 +40,18 @@ def test_normalize_etag_adds_uk_prefix():
     assert normalize_etag("UK752261609397") == "UK752261609397"
 
 
+def test_normalize_etag_strips_foreign_country_leading_zeros():
+    # DairyComp zero-pads after country letters; Eurofarm does not.
+    assert normalize_etag("BE000214283270") == "BE214283270"
+    assert normalize_etag("BE214283270") == "BE214283270"
+    assert normalize_etag("DE000123456789") == "DE123456789"
+    assert normalize_etag("FR000987654321") == "FR987654321"
+    assert normalize_etag("IE0001234567") == "IE1234567"
+    assert normalize_etag("be 000214283270") == "BE214283270"
+    # UK tags without mid-padding stay unchanged.
+    assert normalize_etag("UK740651125211") == "UK740651125211"
+
+
 def test_format_age_years_months():
     assert format_age_years_months(800) == "2y 2m"
     assert format_age_years_months(400) == "1y 1m"

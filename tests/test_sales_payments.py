@@ -150,3 +150,36 @@ def test_list_sales_payments_includes_rejected_sale(db: Session) -> None:
     assert row["sale_rejected"] is True
     assert row["has_sale_amount"] is True
     assert row["amount_gbp"] == 0.0
+
+
+def test_list_sales_payments_matches_foreign_etag_zero_padding(db: Session) -> None:
+    # DairyComp keeps leading zeros after country letters; Eurofarm drops them.
+    db.add(
+        CowEvent(
+            farm="CM",
+            cow_id="214283270",
+            etag="BE000214283270",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 8),
+            dest="EUROFARM",
+            remark="CAR16",
+            gndr="M",
+            bdat=dt.date(2024, 1, 15),
+        )
+    )
+    db.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="BE214283270",
+            sale_date=dt.date(2026, 6, 9),
+            cold_weight_kg=310.0,
+            reject_kg=0.0,
+            amount_gbp=888.0,
+        )
+    )
+    db.commit()
+
+    result = list_sales_payments(db, farms=["CM"])
+    row = next(r for r in result["rows"] if r["etag"] == "BE000214283270")
+    assert row["amount_gbp"] == 888.0
+    assert row["has_sale_amount"] is True
