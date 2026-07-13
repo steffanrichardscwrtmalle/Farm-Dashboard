@@ -27,8 +27,6 @@ from app.config import (
 from app.models import CattleSaleLine
 from app.services.cattle_sale_pdf import (
     is_acceptable_sale_line,
-    is_plausible_carcass_row,
-    is_rejected_sale,
     parse_cattle_sale_pdf,
 )
 from app.services.graph_mail import iter_attachments
@@ -176,28 +174,23 @@ def _is_newer(candidate: dt.datetime | None, current: dt.datetime | None) -> boo
     return candidate >= current
 
 
-def _skip_message_ids(db: Session) -> frozenset[str]:
-    """Skip already-imported emails unless stored weights look corrupt."""
-    imported = {
-        mid
-        for mid in db.scalars(
-            select(CattleSaleLine.source_message_id).where(
-                CattleSaleLine.source_message_id.isnot(None)
-            )
-        ).all()
-        if mid and mid != "manual-upload"
-    }
-    corrupt = {
-        mid
-        for mid in db.scalars(
-            select(CattleSaleLine.source_message_id).where(
-                CattleSaleLine.source_message_id.isnot(None),
-                CattleSaleLine.cold_weight_kg < 50,
-            ).distinct()
-        ).all()
-        if mid
-    }
-    return frozenset(imported - corrupt)
+def _sale_values_match(row: CattleSaleLine, record: dict[str, Any]) -> bool:
+    """True when stored line already matches the freshly parsed values."""
+    if abs((row.cold_weight_kg or 0.0) - float(record["cold_weight_kg"] or 0.0)) >= 0.005:
+        return False
+    if abs((row.amount_gbp or 0.0) - float(record["amount_gbp"] or 0.0)) >= 0.005:
+        return False
+    row_reject = row.reject_kg
+    new_reject = record.get("reject_kg")
+    if row_reject is None and new_reject is None:
+        pass
+    elif row_reject is None or new_reject is None:
+        return False
+    elif abs(float(row_reject) - float(new_reject)) >= 0.005:
+        return False
+    if row.kill_date != record.get("kill_date"):
+        return False
+    return is_acceptable_sale_line(row.cold_weight_kg, row.reject_kg, row.amount_gbp)
 
 
 def _ingest_one_pdf(
@@ -314,15 +307,9 @@ def _upsert(
             db.add(CattleSaleLine(**record))
             inserted += 1
             continue
-        incoming = record.get("source_received")
-        existing_ok = is_acceptable_sale_line(
-            row.cold_weight_kg, row.reject_kg, row.amount_gbp
-        )
-        if (
-            incoming is not None
-            and not _is_newer(incoming, row.source_received)
-            and existing_ok
-        ):
+        # Always apply corrected parses (e.g. after PDF-parser fixes). Skip only
+        # when the stored line already matches and looks acceptable.
+        if _sale_values_match(row, record):
             continue
         for field in (
             "cold_weight_kg",
@@ -360,8 +347,8 @@ def import_cattle_sales(
             days=CATTLE_SALES_LOOKBACK_DAYS
         )
 
-    skip_message_ids = _skip_message_ids(db)
-
+    # Always re-scan matching emails in the window. Skipping by message id hid
+    # parser fixes (foreign tags / QAS=NO) after a first partial import.
     files_processed = 0
     files_skipped = 0
     inserted = 0
@@ -380,7 +367,7 @@ def import_cattle_sales(
         updated += upd
         batch = {}
 
-    for source in _iter_sources(warnings, since, skip_message_ids):
+    for source in _iter_sources(warnings, since, frozenset()):
         if _ingest_one_pdf(
             source["content"],
             source_file=source.get("source_file") or "unknown",
@@ -398,6 +385,17 @@ def import_cattle_sales(
             flush()
 
     flush()
+
+    if (
+        files_processed == 0
+        and files_skipped == 0
+        and not warnings
+        and not skipped_files
+    ):
+        warnings.append(
+            "No Eurofarm cheque PDFs found in the mailboxes for this date range. "
+            "Try a longer Range, or Upload PDFs."
+        )
 
     return _import_result(
         files_processed=files_processed,
@@ -504,7 +502,13 @@ def run_import_in_background(
         )
         message = (
             f"Imported {result['rows_total']} line(s) "
-            f"({result['rows_inserted']} new, {result['rows_updated']} updated)."
+            f"({result['rows_inserted']} new, {result['rows_updated']} updated) "
+            f"from {result['files_processed']} PDF(s)"
+            + (
+                f", skipped {result['files_skipped']}."
+                if result.get("files_skipped")
+                else "."
+            )
         )
         _set_import_status(status="complete", message=message, result=result)
     except Exception as exc:  # noqa: BLE001
