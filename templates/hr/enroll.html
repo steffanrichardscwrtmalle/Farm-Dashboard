@@ -82,6 +82,30 @@
       flex-wrap: wrap;
       align-items: center;
     }
+    .settings-card { margin-top: 1.5rem; }
+    .settings-card h2 { margin: 0 0 0.35rem; font-size: 1.1rem; }
+    .settings-card .settings-help { margin: 0 0 1rem; color: var(--muted); font-size: 0.875rem; }
+    .job-title-list { list-style: none; margin: 0 0 0.75rem; padding: 0; }
+    .job-title-list li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.45rem 0.6rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 0.4rem;
+      background: #fafafa;
+    }
+    .job-title-list li span { font-weight: 600; }
+    .job-title-add {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .job-title-add input { flex: 1 1 12rem; margin: 0; min-width: 10rem; }
+    #job-title-settings-message { margin-top: 0.75rem; }
 {% endblock %}
 
 {% block content %}
@@ -263,6 +287,18 @@
         </div>
       </form>
       <div id="enroll-message" class="message"></div>
+    </div>
+
+    <div class="card settings-card" id="job-title-settings">
+      <h2>Settings</h2>
+      <p class="settings-help">Manage job titles available on the enrollment form.</p>
+      <h3 style="margin:0 0 0.5rem;font-size:0.95rem;">Job titles</h3>
+      <ul class="job-title-list" id="job-title-list"></ul>
+      <div class="job-title-add">
+        <input type="text" id="new-job-title" maxlength="128" placeholder="e.g. Herdsman" autocomplete="off">
+        <button type="button" id="add-job-title-btn" class="secondary">Add job title</button>
+      </div>
+      <div id="job-title-settings-message" class="message"></div>
     </div>
 {% endblock %}
 
@@ -507,6 +543,109 @@
     }
   });
 
+  // --- Job title settings ---
+  const roleTitleSelect = document.getElementById('role_title');
+  const jobTitleListEl = document.getElementById('job-title-list');
+  const newJobTitleInput = document.getElementById('new-job-title');
+  const jobTitleMsgEl = document.getElementById('job-title-settings-message');
+
+  function showJobTitleMessage(text, isError) {
+    jobTitleMsgEl.textContent = text || '';
+    jobTitleMsgEl.className = 'message' + (isError ? ' err' : text ? ' ok' : '');
+  }
+
+  function fillRoleTitleSelect(titles, preferred) {
+    const current = preferred || roleTitleSelect.value;
+    roleTitleSelect.innerHTML = (titles || []).map(function (t) {
+      return '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>';
+    }).join('');
+    if (current) {
+      const has = [...roleTitleSelect.options].some(function (o) { return o.value === current; });
+      if (!has) {
+        const opt = document.createElement('option');
+        opt.value = current;
+        opt.textContent = current;
+        roleTitleSelect.appendChild(opt);
+      }
+      roleTitleSelect.value = current;
+    }
+  }
+
+  function renderJobTitleList(titles) {
+    if (!titles.length) {
+      jobTitleListEl.innerHTML = '<li><span class="muted">No job titles yet.</span></li>';
+      return;
+    }
+    jobTitleListEl.innerHTML = titles.map(function (t) {
+      return '<li><span>' + escapeHtml(t) + '</span>' +
+        '<button type="button" class="secondary small" data-remove-title="' +
+        escapeHtml(t) + '">Remove</button></li>';
+    }).join('');
+  }
+
+  async function refreshJobTitles(preferred) {
+    const res = await fetch('/api/hr/job-titles');
+    const data = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error(data.detail || 'Could not load job titles');
+    const titles = data.titles || [];
+    fillRoleTitleSelect(titles, preferred);
+    renderJobTitleList(titles);
+    return titles;
+  }
+
+  document.getElementById('add-job-title-btn').addEventListener('click', async function () {
+    const title = (newJobTitleInput.value || '').trim();
+    if (!title) {
+      showJobTitleMessage('Enter a job title to add.', true);
+      return;
+    }
+    showJobTitleMessage('Adding…');
+    try {
+      const res = await fetch('/api/hr/job-titles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title }),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.detail || 'Could not add job title');
+      newJobTitleInput.value = '';
+      fillRoleTitleSelect(data.titles || [], title);
+      renderJobTitleList(data.titles || []);
+      showJobTitleMessage('Added "' + title + '".', false);
+    } catch (err) {
+      showJobTitleMessage(err.message, true);
+    }
+  });
+
+  newJobTitleInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      document.getElementById('add-job-title-btn').click();
+    }
+  });
+
+  jobTitleListEl.addEventListener('click', async function (e) {
+    const btn = e.target.closest('[data-remove-title]');
+    if (!btn) return;
+    const title = btn.dataset.removeTitle;
+    if (!window.confirm('Remove job title "' + title + '"?')) return;
+    showJobTitleMessage('Removing…');
+    try {
+      const res = await fetch('/api/hr/job-titles', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title }),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.detail || 'Could not remove job title');
+      fillRoleTitleSelect(data.titles || []);
+      renderJobTitleList(data.titles || []);
+      showJobTitleMessage('Removed "' + title + '".', false);
+    } catch (err) {
+      showJobTitleMessage(err.message, true);
+    }
+  });
+
   // --- Edit-mode prefill ---
   function setVal(id, value) {
     const el = document.getElementById(id);
@@ -540,6 +679,7 @@
       setVal('phone', emp.phone);
       setVal('dob', emp.dob);
       setVal('address', emp.address);
+      await refreshJobTitles(emp.role_title || '');
       setVal('role_title', emp.role_title);
       setVal('start_date', emp.start_date);
       setVal('pay_type', emp.pay_type || 'hourly');
@@ -572,7 +712,9 @@
     prefill();
   }
 
-  loadTemplates().then(function () {
+  Promise.all([loadTemplates(), refreshJobTitles().catch(function (err) {
+    showJobTitleMessage(err.message, true);
+  })]).then(function () {
     if (EDIT_ID) enterEditMode();
   });
 })();

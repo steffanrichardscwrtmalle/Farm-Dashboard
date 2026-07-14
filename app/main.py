@@ -1514,7 +1514,12 @@ def hr_enroll_page(request: Request):
             ),
             status_code=403,
         )
-    from app.models import HR_BUSINESS_OPTIONS, JOB_TITLE_OPTIONS, TITLE_OPTIONS
+    from app.db import SessionLocal
+    from app.models import HR_BUSINESS_OPTIONS, TITLE_OPTIONS
+    from app.services.hr_service import list_job_titles
+
+    with SessionLocal() as db:
+        job_titles = list_job_titles(db)
 
     return templates.TemplateResponse(
         request,
@@ -1524,7 +1529,7 @@ def hr_enroll_page(request: Request):
             page_heading="Enroll New Staff",
             business_options=list(HR_BUSINESS_OPTIONS),
             title_options=list(TITLE_OPTIONS),
-            job_title_options=list(JOB_TITLE_OPTIONS),
+            job_title_options=job_titles,
             edit_employee_id=None,
             can_view_sensitive=has_action(request.state.user, ACTION_HR_VIEW_SENSITIVE),
             **_hr_context("Enroll New Staff", "enroll", "Enroll"),
@@ -1552,7 +1557,12 @@ def hr_edit_staff_page(request: Request, employee_id: int):
             status_code=403,
         )
 
-    from app.models import HR_BUSINESS_OPTIONS, JOB_TITLE_OPTIONS, TITLE_OPTIONS
+    from app.db import SessionLocal
+    from app.models import HR_BUSINESS_OPTIONS, TITLE_OPTIONS
+    from app.services.hr_service import list_job_titles
+
+    with SessionLocal() as db:
+        job_titles = list_job_titles(db)
 
     return templates.TemplateResponse(
         request,
@@ -1562,7 +1572,7 @@ def hr_edit_staff_page(request: Request, employee_id: int):
             page_heading="Edit Draft Staff",
             business_options=list(HR_BUSINESS_OPTIONS),
             title_options=list(TITLE_OPTIONS),
-            job_title_options=list(JOB_TITLE_OPTIONS),
+            job_title_options=job_titles,
             edit_employee_id=employee_id,
             can_view_sensitive=has_action(user, ACTION_HR_VIEW_SENSITIVE),
             **_hr_context("Edit Draft Staff", "staff-directory", "Edit"),

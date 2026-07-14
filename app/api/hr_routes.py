@@ -33,6 +33,7 @@ from app.services.docuseal_api import verify_webhook_secret
 from app.services.hr_service import (
     HRServiceError,
     add_employee_document,
+    add_job_title,
     delete_employee_document,
     enroll_employee,
     get_contract_for_download,
@@ -41,8 +42,10 @@ from app.services.hr_service import (
     handle_webhook,
     list_employee_contracts,
     list_employee_documents,
+    list_job_titles,
     list_staff,
     list_templates,
+    remove_job_title,
     save_draft,
     send_existing_employee,
     set_employee_archived,
@@ -112,6 +115,42 @@ class DraftStaffBody(BaseModel):
 
 class SendStaffBody(BaseModel):
     template_id: int | None = None
+
+
+class JobTitleBody(BaseModel):
+    title: str = Field(min_length=1, max_length=128)
+
+
+@router.get("/job-titles")
+def api_list_job_titles(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_HR)),
+):
+    return {"titles": list_job_titles(db)}
+
+
+@router.post("/job-titles")
+def api_add_job_title(
+    body: JobTitleBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_HR_ENROLL)),
+):
+    try:
+        return {"titles": add_job_title(db, body.title)}
+    except HRServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/job-titles")
+def api_remove_job_title(
+    body: JobTitleBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_HR_ENROLL)),
+):
+    try:
+        return {"titles": remove_job_title(db, body.title)}
+    except HRServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/staff")

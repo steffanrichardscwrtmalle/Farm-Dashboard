@@ -1211,8 +1211,9 @@ PAY_TYPES: tuple[str, ...] = (PAY_TYPE_HOURLY, PAY_TYPE_SALARY)
 HR_BUSINESS_OPTIONS: tuple[str, ...] = ("Cwrt Malle Ltd", "Green Acre Dairy Ltd")
 # Personal title options for the new-starter form.
 TITLE_OPTIONS: tuple[str, ...] = ("Mr", "Mrs", "Miss", "Ms", "Dr")
-# Job titles (single option for now; more can be added later).
+# Job titles: defaults seeded into AppSetting; manage via Enroll page Settings.
 JOB_TITLE_OPTIONS: tuple[str, ...] = ("Farm Worker",)
+HR_JOB_TITLES_SETTING_KEY = "hr.job_titles"
 # Document categories that can be attached to a staff profile.
 DOCUMENT_TYPE_OPTIONS: tuple[str, ...] = (
     "Passport",

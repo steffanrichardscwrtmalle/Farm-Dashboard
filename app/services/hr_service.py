@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import os
 from typing import Any
@@ -19,7 +20,10 @@ from app.models import (
     EMPLOYEE_STATUS_ARCHIVED,
     EMPLOYEE_STATUS_ONBOARDING,
     EMPLOYEE_STATUS_PENDING_SIGNATURE,
+    HR_JOB_TITLES_SETTING_KEY,
+    JOB_TITLE_OPTIONS,
     PAY_TYPES,
+    AppSetting,
     ContractTemplate,
     Employee,
     EmployeeContract,
@@ -40,6 +44,66 @@ class HRServiceError(Exception):
 def parse_hr_team_emails(business: str | None = None) -> list[str]:
     raw = hr_team_emails_for(business)
     return [e.strip() for e in raw.split(",") if e.strip()]
+
+
+def list_job_titles(db: Session) -> list[str]:
+    """Return configured job titles, seeding the default list on first use."""
+    row = db.scalar(
+        select(AppSetting).where(AppSetting.key == HR_JOB_TITLES_SETTING_KEY)
+    )
+    if row is None or not (row.value or "").strip():
+        titles = list(JOB_TITLE_OPTIONS)
+        _save_job_titles(db, titles)
+        return titles
+    try:
+        parsed = json.loads(row.value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return list(JOB_TITLE_OPTIONS)
+    if not isinstance(parsed, list):
+        return list(JOB_TITLE_OPTIONS)
+    titles = [str(item).strip() for item in parsed if str(item).strip()]
+    return titles or list(JOB_TITLE_OPTIONS)
+
+
+def _save_job_titles(db: Session, titles: list[str]) -> None:
+    row = db.scalar(
+        select(AppSetting).where(AppSetting.key == HR_JOB_TITLES_SETTING_KEY)
+    )
+    payload = json.dumps(titles, ensure_ascii=False)
+    if row is None:
+        db.add(AppSetting(key=HR_JOB_TITLES_SETTING_KEY, value=payload))
+    else:
+        row.value = payload
+    db.commit()
+
+
+def add_job_title(db: Session, title: str) -> list[str]:
+    cleaned = (title or "").strip()
+    if not cleaned:
+        raise HRServiceError("Job title cannot be empty.")
+    if len(cleaned) > 128:
+        raise HRServiceError("Job title is too long.")
+    titles = list_job_titles(db)
+    if any(existing.casefold() == cleaned.casefold() for existing in titles):
+        raise HRServiceError(f'Job title "{cleaned}" already exists.')
+    titles.append(cleaned)
+    titles.sort(key=str.casefold)
+    _save_job_titles(db, titles)
+    return titles
+
+
+def remove_job_title(db: Session, title: str) -> list[str]:
+    cleaned = (title or "").strip()
+    if not cleaned:
+        raise HRServiceError("Job title cannot be empty.")
+    titles = list_job_titles(db)
+    remaining = [t for t in titles if t.casefold() != cleaned.casefold()]
+    if len(remaining) == len(titles):
+        raise HRServiceError(f'Job title "{cleaned}" was not found.')
+    if not remaining:
+        raise HRServiceError("At least one job title must remain.")
+    _save_job_titles(db, remaining)
+    return remaining
 
 
 def list_templates(db: Session, *, active_only: bool = True) -> list[ContractTemplate]:
