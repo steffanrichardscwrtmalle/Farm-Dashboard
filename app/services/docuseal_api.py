@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import re
 from typing import Any
@@ -39,6 +40,7 @@ def _build_field_values(employee_data: dict[str, Any]) -> dict[str, str]:
     """Map employee fields to DocuSeal template field names."""
     pay_rate = employee_data.get("pay_rate") or ""
     pay_type = employee_data.get("pay_type") or ""
+    date_today = employee_data.get("date_today") or ""
     return {
         "business": employee_data.get("business") or "",
         "title": employee_data.get("title") or "",
@@ -57,7 +59,9 @@ def _build_field_values(employee_data: dict[str, Any]) -> dict[str, str]:
         "working_days_per_week": employee_data.get("working_days_per_week") or "",
         "working_hours_per_day": employee_data.get("working_hours_per_day") or "",
         "weekly_hours": employee_data.get("weekly_hours") or "",
-        "date_today": employee_data.get("date_today") or "",
+        "date_today": date_today,
+        # Some templates use DocuSeal's default "Date" label.
+        "Date": date_today,
         "driving_license_number": employee_data.get("driving_license_number") or "",
         "license_points": employee_data.get("license_points") or "",
         "right_to_work_share_code": employee_data.get("right_to_work_share_code") or "",
@@ -73,11 +77,24 @@ def _build_field_values(employee_data: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def get_template_field_names(template_id: int) -> set[str]:
-    """Return the set of field names defined on a DocuSeal template.
+def _uk_date_to_iso(value: str) -> str:
+    """Convert DD/MM/YYYY (or DD/MM/YY) to YYYY-MM-DD for DocuSeal date fields."""
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    for fmt in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
+        try:
+            return dt.datetime.strptime(raw, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return raw
 
-    Used to avoid 422 'Unknown field' errors by only prefilling fields the
-    template actually defines. Returns an empty set if it can't be fetched.
+
+def get_template_fields(template_id: int) -> dict[str, dict[str, Any]]:
+    """Return template fields keyed by name: ``{name: {types, readonly}}``.
+
+    Used to avoid 422 'Unknown field' errors and to format/lock values correctly.
+    Returns an empty dict if the template can't be fetched.
     """
     try:
         with httpx.Client(timeout=30.0) as client:
@@ -87,7 +104,7 @@ def get_template_field_names(template_id: int) -> set[str]:
             )
     except httpx.HTTPError as exc:
         logger.warning("Could not fetch template %s fields: %s", template_id, exc)
-        return set()
+        return {}
     if response.status_code >= 400:
         logger.warning(
             "Could not fetch template %s fields (%s): %s",
@@ -95,14 +112,58 @@ def get_template_field_names(template_id: int) -> set[str]:
             response.status_code,
             response.text[:200],
         )
-        return set()
+        return {}
     data = response.json()
-    names: set[str] = set()
+    fields: dict[str, dict[str, Any]] = {}
     for field in data.get("fields") or []:
         name = field.get("name")
-        if name:
-            names.add(name)
-    return names
+        if not name:
+            continue
+        entry = fields.setdefault(name, {"types": set(), "readonly": False})
+        field_type = field.get("type")
+        if field_type:
+            entry["types"].add(str(field_type).lower())
+        if field.get("readonly") is True:
+            entry["readonly"] = True
+    return fields
+
+
+def get_template_field_names(template_id: int) -> set[str]:
+    """Return the set of field names defined on a DocuSeal template."""
+    return set(get_template_fields(template_id))
+
+
+def build_submitter_fields(
+    employee_data: dict[str, Any],
+    template_fields: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Build DocuSeal submitter field prefills.
+
+    Prefills are always sent as ``readonly: true`` so the employee cannot edit
+    values collected on the enroll form — even if the DocuSeal template itself
+    left those fields editable (as on the Green Acre copy).
+    """
+    values = _build_field_values(employee_data)
+    known = set(template_fields or {})
+    fields: list[dict[str, Any]] = []
+    for key, val in values.items():
+        if not val:
+            continue
+        if known and key not in known:
+            continue
+        out_val: str = val
+        meta = (template_fields or {}).get(key) or {}
+        types = meta.get("types") or set()
+        if "date" in types:
+            out_val = _uk_date_to_iso(val)
+        fields.append(
+            {
+                "name": key,
+                "default_value": out_val,
+                "readonly": True,
+            }
+        )
+    return fields
 
 
 def _unknown_field_from_response(response: httpx.Response) -> str | None:
@@ -128,19 +189,8 @@ def create_submission(
     business: str | None = None,
 ) -> int:
     """Create a sequential DocuSeal submission; returns submission id."""
-    values = _build_field_values(employee_data)
-    known = get_template_field_names(template_id)
-    if known:
-        fields = [
-            {"name": key, "default_value": val}
-            for key, val in values.items()
-            if val and key in known
-        ]
-    else:
-        # Fallback: couldn't read the template; send all non-empty values.
-        fields = [
-            {"name": key, "default_value": val} for key, val in values.items() if val
-        ]
+    template_fields = get_template_fields(template_id)
+    fields = build_submitter_fields(employee_data, template_fields or None)
 
     submitters: list[dict[str, Any]] = [
         {
