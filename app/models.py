@@ -747,7 +747,7 @@ class MilkCollection(Base):
 
 
 class CattleSaleLine(Base):
-    """Per-animal line from Eurofarm Wales cheque payment report PDFs."""
+    """Per-animal line from cattle-sale remittance PDFs (Eurofarm / Pathway)."""
 
     __tablename__ = "cattle_sale_lines"
     __table_args__ = (

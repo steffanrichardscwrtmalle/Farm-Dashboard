@@ -68,8 +68,9 @@ def normalize_etag(value: str | None) -> str:
 def _to_float(value: str | None) -> float | None:
     if not value:
         return None
-    cleaned = str(value).replace("£", "").replace(",", "").strip()
-    if not cleaned:
+    # Strip currency symbols / letters so "£ 460.00" and mojibake pounds parse.
+    cleaned = re.sub(r"[^\d.\-]+", "", str(value).replace(",", ""))
+    if not cleaned or cleaned in {".", "-", "-."}:
         return None
     try:
         return float(cleaned)
@@ -118,6 +119,11 @@ _MIN_CARCASS_KG = 50.0
 _MAX_CARCASS_KG = 900.0
 _MIN_PRICE_PER_KG = 1.0
 _MAX_PRICE_PER_KG = 15.0
+# Pathway (and similar) calf liveweights are lighter and £/kg is higher.
+_MIN_CALF_KG = 20.0
+_MAX_CALF_KG = 200.0
+_MIN_CALF_PRICE_PER_KG = 1.0
+_MAX_CALF_PRICE_PER_KG = 30.0
 
 
 def is_plausible_carcass_row(weight: float | None, amount: float | None) -> bool:
@@ -128,6 +134,20 @@ def is_plausible_carcass_row(weight: float | None, amount: float | None) -> bool
         return False
     price_per_kg = amount / weight
     return _MIN_PRICE_PER_KG <= price_per_kg <= _MAX_PRICE_PER_KG
+
+
+def is_plausible_calf_row(weight: float | None, amount: float | None) -> bool:
+    """Liveweight calf sales (e.g. Pathway Farming remittances)."""
+    if weight is None or amount is None:
+        return False
+    if weight < _MIN_CALF_KG or weight > _MAX_CALF_KG:
+        return False
+    if amount < 0:
+        return False
+    if abs(amount) <= 0.005:
+        return True
+    price_per_kg = amount / weight
+    return _MIN_CALF_PRICE_PER_KG <= price_per_kg <= _MAX_CALF_PRICE_PER_KG
 
 
 def _weights_match(a: float, b: float, tolerance: float = 0.05) -> bool:
@@ -154,8 +174,10 @@ def is_acceptable_sale_line(
     reject_kg: float | None,
     amount_gbp: float | None,
 ) -> bool:
-    return is_plausible_carcass_row(cold_weight_kg, amount_gbp) or is_rejected_sale(
-        cold_weight_kg, reject_kg, amount_gbp
+    return (
+        is_plausible_carcass_row(cold_weight_kg, amount_gbp)
+        or is_plausible_calf_row(cold_weight_kg, amount_gbp)
+        or is_rejected_sale(cold_weight_kg, reject_kg, amount_gbp)
     )
 
 

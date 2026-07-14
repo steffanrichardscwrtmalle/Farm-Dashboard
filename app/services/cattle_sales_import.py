@@ -1,4 +1,7 @@
-"""Import Eurofarm Wales cheque payment PDFs from email into the database."""
+"""Import cattle-sale remittance PDFs from email into the database.
+
+Supports Eurofarm Wales cheque reports and Pathway Farming calf remittances.
+"""
 
 from __future__ import annotations
 
@@ -26,11 +29,16 @@ from app.config import (
 )
 from app.models import CattleSaleLine
 from app.services.cattle_sale_pdf import (
+    _extract_text,
     is_acceptable_sale_line,
     parse_cattle_sale_pdf,
 )
 from app.services.graph_mail import iter_attachments
 from app.services.graph_onedrive import get_access_token_for, graph_is_configured
+from app.services.pathway_farming_pdf import (
+    looks_like_pathway_pdf,
+    parse_pathway_farming_pdf,
+)
 
 _EPOCH = dt.datetime(2000, 1, 1, tzinfo=dt.timezone.utc)
 
@@ -87,6 +95,35 @@ def _mailbox_error_message(farm: str, mailbox: str, exc: Exception) -> str:
     return f"{farm} ({mailbox}): {type(exc).__name__}: {exc}"
 
 
+def _sender_domains() -> tuple[str, ...]:
+    return tuple(
+        part.strip().lstrip("@").lower()
+        for part in CATTLE_SALES_SENDER_DOMAIN.split(",")
+        if part.strip()
+    )
+
+
+def _parse_sale_pdf(
+    content: bytes,
+    *,
+    mailbox_farm: str | None,
+    source_file: str | None,
+) -> dict[str, Any]:
+    """Dispatch Eurofarm vs Pathway remittances by PDF content."""
+    text = _extract_text(content)
+    if looks_like_pathway_pdf(text):
+        return parse_pathway_farming_pdf(
+            content,
+            mailbox_farm=mailbox_farm,
+            source_file=source_file,
+        )
+    return parse_cattle_sale_pdf(
+        content,
+        mailbox_farm=mailbox_farm,
+        source_file=source_file,
+    )
+
+
 def _progress_callback(phase: str, messages: int, pdfs: int) -> None:
     with _lock:
         if _import_status.get("status") != "running":
@@ -137,33 +174,34 @@ def _iter_sources(
         (CATTLE_SALES_MAILBOX_GAD, "GAD", None),
         (CATTLE_SALES_MAILBOX_CM, "CM", cm_token),
     ]
-    domain = CATTLE_SALES_SENDER_DOMAIN.lstrip("@").lower()
+    domains = _sender_domains()
     for mailbox, farm, token in mailboxes:
         if not mailbox:
             continue
         if farm == "CM" and cm_token_error is not None:
             warnings.append(_mailbox_error_message(farm, mailbox, cm_token_error))
             continue
-        try:
-            for attachment in iter_attachments(
-                mailbox,
-                sender_domain=domain,
-                skip_message_ids=skip_message_ids,
-                since=since,
-                extensions=(".pdf",),
-                content_types=("application/pdf",),
-                token=token,
-                on_progress=_progress_callback,
-            ):
-                yield {
-                    "content": attachment["content"],
-                    "source_file": attachment["filename"],
-                    "message_id": attachment["message_id"],
-                    "mailbox_farm": farm,
-                    "received": attachment.get("received"),
-                }
-        except Exception as exc:  # noqa: BLE001
-            warnings.append(_mailbox_error_message(farm, mailbox, exc))
+        for domain in domains:
+            try:
+                for attachment in iter_attachments(
+                    mailbox,
+                    sender_domain=domain,
+                    skip_message_ids=skip_message_ids,
+                    since=since,
+                    extensions=(".pdf",),
+                    content_types=("application/pdf",),
+                    token=token,
+                    on_progress=_progress_callback,
+                ):
+                    yield {
+                        "content": attachment["content"],
+                        "source_file": attachment["filename"],
+                        "message_id": attachment["message_id"],
+                        "mailbox_farm": farm,
+                        "received": attachment.get("received"),
+                    }
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(_mailbox_error_message(farm, mailbox, exc))
 
 
 def _is_newer(candidate: dt.datetime | None, current: dt.datetime | None) -> bool:
@@ -206,7 +244,7 @@ def _ingest_one_pdf(
 ) -> bool:
     received = _parse_received(source_received)
     try:
-        result = parse_cattle_sale_pdf(
+        result = _parse_sale_pdf(
             content,
             mailbox_farm=mailbox_farm,
             source_file=source_file,
@@ -393,8 +431,8 @@ def import_cattle_sales(
         and not skipped_files
     ):
         warnings.append(
-            "No Eurofarm cheque PDFs found in the mailboxes for this date range. "
-            "Try a longer Range, or Upload PDFs."
+            "No cattle-sale PDFs found in the mailboxes for this date range "
+            "(Eurofarm / Pathway Farming). Try a longer Range, or Upload PDFs."
         )
 
     return _import_result(

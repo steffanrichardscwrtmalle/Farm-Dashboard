@@ -436,3 +436,62 @@ def test_list_cattle_sales_matches_using_kill_date_when_cheque_date_is_later() -
     assert result["rows"][0]["event_date"] == "2026-06-16"
 
     session.close()
+
+
+def test_parse_pathway_farming_pdf_sample():
+    from pathlib import Path
+
+    from app.services.pathway_farming_pdf import parse_pathway_farming_pdf
+
+    path = Path("pathway.pdf")
+    if not path.is_file():
+        return
+    result = parse_pathway_farming_pdf(path.read_bytes(), source_file="pathway.pdf")
+    assert result["farm"] == "CM"
+    assert result["sale_date"] == dt.date(2026, 6, 29)
+    assert len(result["lines"]) == 50
+    assert abs(sum(line["amount_gbp"] for line in result["lines"]) - 21680.0) < 0.01
+    first = next(line for line in result["lines"] if line["etag"] == "UK740651135074")
+    assert first["cold_weight_kg"] == 64.0
+    assert first["amount_gbp"] == 460.0
+    assert first["kill_date"] == dt.date(2026, 6, 29)
+
+
+def test_list_cattle_sales_matches_pathway_calf_line() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="135074",
+            etag="UK740651135074",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 29),
+            dest="PATHWAY",
+            gndr="M",
+            bdat=dt.date(2026, 5, 1),
+            lact=0,
+            cbrd=1,
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651135074",
+            sale_date=dt.date(2026, 6, 29),
+            kill_date=dt.date(2026, 6, 29),
+            cold_weight_kg=64.0,
+            amount_gbp=460.0,
+        )
+    )
+    session.commit()
+
+    result = list_cattle_sales(session, farms=["CM"])
+    assert result["total"] == 1
+    row = result["rows"][0]
+    assert row["event_matched"] is True
+    assert row["amount_gbp"] == 460.0
+    assert row["cold_weight_kg"] == 64.0
+
+    session.close()

@@ -183,3 +183,34 @@ def test_list_sales_payments_matches_foreign_etag_zero_padding(db: Session) -> N
     row = next(r for r in result["rows"] if r["etag"] == "BE000214283270")
     assert row["amount_gbp"] == 888.0
     assert row["has_sale_amount"] is True
+
+
+def test_list_sales_payments_matches_pathway_calf_amount(db: Session) -> None:
+    db.add(
+        CowEvent(
+            farm="CM",
+            cow_id="135074",
+            etag="UK740651135074",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 29),
+            dest="PATHWAY",
+            gndr="M",
+            bdat=dt.date(2026, 5, 1),
+        )
+    )
+    db.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651135074",
+            sale_date=dt.date(2026, 6, 29),
+            kill_date=dt.date(2026, 6, 29),
+            cold_weight_kg=64.0,
+            amount_gbp=460.0,
+        )
+    )
+    db.commit()
+
+    result = list_sales_payments(db, farms=["CM"], has_amount=True)
+    row = next(r for r in result["rows"] if r["etag"] == "UK740651135074")
+    assert row["amount_gbp"] == 460.0
+    assert row["has_sale_amount"] is True
