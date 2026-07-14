@@ -82,30 +82,68 @@
       flex-wrap: wrap;
       align-items: center;
     }
-    .settings-card { margin-top: 1.5rem; }
-    .settings-card h2 { margin: 0 0 0.35rem; font-size: 1.1rem; }
-    .settings-card .settings-help { margin: 0 0 1rem; color: var(--muted); font-size: 0.875rem; }
+    .job-title-field-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .job-title-gear {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.75rem;
+      height: 1.75rem;
+      padding: 0;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .job-title-gear:hover,
+    .job-title-gear[aria-expanded="true"] {
+      color: var(--text, #1f2937);
+      background: #f3f4f6;
+      border-color: var(--border);
+    }
+    .job-title-gear svg { width: 1rem; height: 1rem; display: block; }
+    .job-title-settings-panel {
+      display: none;
+      margin-top: 0.5rem;
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fafafa;
+    }
+    .job-title-settings-panel.open { display: block; }
+    .job-title-settings-panel h4 {
+      margin: 0 0 0.5rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
     .job-title-list { list-style: none; margin: 0 0 0.75rem; padding: 0; }
     .job-title-list li {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 0.75rem;
-      padding: 0.45rem 0.6rem;
+      padding: 0.4rem 0.5rem;
       border: 1px solid var(--border);
       border-radius: 6px;
-      margin-bottom: 0.4rem;
-      background: #fafafa;
+      margin-bottom: 0.35rem;
+      background: #fff;
     }
-    .job-title-list li span { font-weight: 600; }
+    .job-title-list li span { font-weight: 600; font-size: 0.875rem; }
     .job-title-add {
       display: flex;
       gap: 0.5rem;
       flex-wrap: wrap;
       align-items: center;
     }
-    .job-title-add input { flex: 1 1 12rem; margin: 0; min-width: 10rem; }
-    #job-title-settings-message { margin-top: 0.75rem; }
+    .job-title-add input { flex: 1 1 10rem; margin: 0; min-width: 8rem; }
+    #job-title-settings-message { margin-top: 0.6rem; }
 {% endblock %}
 
 {% block content %}
@@ -137,12 +175,32 @@
           <legend>Role &amp; personal details</legend>
           <div class="form-grid">
             <label>
-              Job title *
+              <span class="job-title-field-head">
+                <span>Job title *</span>
+                <button type="button" class="job-title-gear" id="job-title-settings-toggle"
+                  aria-expanded="false" aria-controls="job-title-settings-panel"
+                  title="Manage job titles">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                  </svg>
+                </button>
+              </span>
               <select id="role_title" required>
                 {% for jt in job_title_options %}
                 <option value="{{ jt }}">{{ jt }}</option>
                 {% endfor %}
               </select>
+              <div class="job-title-settings-panel" id="job-title-settings-panel" hidden>
+                <h4>Manage job titles</h4>
+                <ul class="job-title-list" id="job-title-list"></ul>
+                <div class="job-title-add">
+                  <input type="text" id="new-job-title" maxlength="128" placeholder="e.g. Herdsman" autocomplete="off">
+                  <button type="button" id="add-job-title-btn" class="secondary small">Add</button>
+                </div>
+                <div id="job-title-settings-message" class="message"></div>
+              </div>
             </label>
             <label>
               Title
@@ -287,18 +345,6 @@
         </div>
       </form>
       <div id="enroll-message" class="message"></div>
-    </div>
-
-    <div class="card settings-card" id="job-title-settings">
-      <h2>Settings</h2>
-      <p class="settings-help">Manage job titles available on the enrollment form.</p>
-      <h3 style="margin:0 0 0.5rem;font-size:0.95rem;">Job titles</h3>
-      <ul class="job-title-list" id="job-title-list"></ul>
-      <div class="job-title-add">
-        <input type="text" id="new-job-title" maxlength="128" placeholder="e.g. Herdsman" autocomplete="off">
-        <button type="button" id="add-job-title-btn" class="secondary">Add job title</button>
-      </div>
-      <div id="job-title-settings-message" class="message"></div>
     </div>
 {% endblock %}
 
@@ -548,11 +594,24 @@
   const jobTitleListEl = document.getElementById('job-title-list');
   const newJobTitleInput = document.getElementById('new-job-title');
   const jobTitleMsgEl = document.getElementById('job-title-settings-message');
+  const jobTitleToggle = document.getElementById('job-title-settings-toggle');
+  const jobTitlePanel = document.getElementById('job-title-settings-panel');
 
   function showJobTitleMessage(text, isError) {
     jobTitleMsgEl.textContent = text || '';
     jobTitleMsgEl.className = 'message' + (isError ? ' err' : text ? ' ok' : '');
   }
+
+  function setJobTitlePanelOpen(open) {
+    jobTitlePanel.classList.toggle('open', open);
+    jobTitlePanel.hidden = !open;
+    jobTitleToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  jobTitleToggle.addEventListener('click', function (e) {
+    e.preventDefault();
+    setJobTitlePanelOpen(!jobTitlePanel.classList.contains('open'));
+  });
 
   function fillRoleTitleSelect(titles, preferred) {
     const current = preferred || roleTitleSelect.value;
