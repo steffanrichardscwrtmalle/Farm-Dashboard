@@ -53,6 +53,7 @@
     .date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
     .date-row label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
     .date-row select { margin: 0; width: 100%; }
+    #buyer-filter { width: 100%; margin: 0; }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
     .meta-line.is-loading { font-style: italic; }
     .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
@@ -127,9 +128,15 @@
           <span class="section-label">Category</span>
           <div class="slicer-group category-slicer" role="group" aria-label="Category">
             <button type="button" class="slicer-btn selected" data-value="Dairy" aria-pressed="true">Dairy</button>
-            <button type="button" class="slicer-btn selected" data-value="Youngstock" aria-pressed="true">Youngstock</button>
-            <button type="button" class="slicer-btn selected" data-value="Beef" aria-pressed="true">Beef</button>
+            <button type="button" class="slicer-btn" data-value="Youngstock" aria-pressed="false">Youngstock</button>
+            <button type="button" class="slicer-btn" data-value="Beef" aria-pressed="false">Beef</button>
           </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Buyer</span>
+          <select id="buyer-filter" title="Filter by cattle buyer">
+            <option value="" selected>Any</option>
+          </select>
         </div>
         <div class="filter-section">
           <span class="section-label">Sale date range</span>
@@ -361,8 +368,27 @@
       const params = new URLSearchParams();
       selectedValues('.farm-slicer').forEach(f => params.append('farm', f));
       selectedValues('.category-slicer').forEach(c => params.append('category', c));
+      const buyer = document.getElementById('buyer-filter')?.value || '';
+      if (buyer) params.append('buyer', buyer);
       params.set('include_unmatched', 'true');
       return params;
+    }
+
+    function populateBuyerFilter(buyers) {
+      const sel = document.getElementById('buyer-filter');
+      if (!sel) return;
+      const current = sel.value || '';
+      const options = ['<option value="">Any</option>'].concat(
+        (buyers || []).map(b =>
+          `<option value="${escapeHtml(b)}"${b === current ? ' selected' : ''}>${escapeHtml(b)}</option>`
+        )
+      );
+      sel.innerHTML = options.join('');
+      if (current && [...sel.options].some(o => o.value === current)) {
+        sel.value = current;
+      } else {
+        sel.value = '';
+      }
     }
 
     function fmtNum(v, dp = 2) {
@@ -790,6 +816,7 @@
         if (!res.ok) throw new Error('Failed to load');
         const payload = await res.json();
         allRows = payload.rows || [];
+        populateBuyerFilter(payload.buyers || []);
         populateMonthSelects(payload.date_bounds, { resetRange: isInitialCattleSalesLoad });
         isInitialCattleSalesLoad = false;
         refreshView();
@@ -882,6 +909,7 @@
 
     document.getElementById('date-from').addEventListener('change', refreshView);
     document.getElementById('date-to').addEventListener('change', refreshView);
+    document.getElementById('buyer-filter')?.addEventListener('change', fetchData);
 
     bindSlicers('.farm-slicer');
     bindSlicers('.category-slicer');

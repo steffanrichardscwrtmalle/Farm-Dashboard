@@ -33,6 +33,7 @@ from app.services.cattle_sale_pdf import (
     is_acceptable_sale_line,
     parse_cattle_sale_pdf,
 )
+from app.services.cattle_sales import BUYER_EUROFARM, BUYER_PATHWAY
 from app.services.graph_mail import iter_attachments
 from app.services.graph_onedrive import get_access_token_for, graph_is_configured
 from app.services.pathway_farming_pdf import (
@@ -112,16 +113,20 @@ def _parse_sale_pdf(
     """Dispatch Eurofarm vs Pathway remittances by PDF content."""
     text = _extract_text(content)
     if looks_like_pathway_pdf(text):
-        return parse_pathway_farming_pdf(
+        result = parse_pathway_farming_pdf(
             content,
             mailbox_farm=mailbox_farm,
             source_file=source_file,
         )
-    return parse_cattle_sale_pdf(
+        result["buyer"] = BUYER_PATHWAY
+        return result
+    result = parse_cattle_sale_pdf(
         content,
         mailbox_farm=mailbox_farm,
         source_file=source_file,
     )
+    result["buyer"] = BUYER_EUROFARM
+    return result
 
 
 def _progress_callback(phase: str, messages: int, pdfs: int) -> None:
@@ -286,6 +291,7 @@ def _ingest_one_pdf(
             "reject_kg": line.get("reject_kg"),
             "kill_date": kill_date,
             "amount_gbp": line["amount_gbp"],
+            "buyer": result.get("buyer"),
             "source_message_id": source_message_id,
             "source_file": source_file,
             "source_received": received,
@@ -348,12 +354,15 @@ def _upsert(
         # Always apply corrected parses (e.g. after PDF-parser fixes). Skip only
         # when the stored line already matches and looks acceptable.
         if _sale_values_match(row, record):
+            if record.get("buyer") and row.buyer != record.get("buyer"):
+                row.buyer = record.get("buyer")
             continue
         for field in (
             "cold_weight_kg",
             "reject_kg",
             "kill_date",
             "amount_gbp",
+            "buyer",
             "source_message_id",
             "source_file",
             "source_received",

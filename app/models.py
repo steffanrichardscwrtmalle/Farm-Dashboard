@@ -767,6 +767,7 @@ class CattleSaleLine(Base):
     reject_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
     kill_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     amount_gbp: Mapped[float] = mapped_column(Float)
+    buyer: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     source_message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     source_file: Mapped[str | None] = mapped_column(String(256), nullable=True)
     source_received: Mapped[datetime.datetime | None] = mapped_column(

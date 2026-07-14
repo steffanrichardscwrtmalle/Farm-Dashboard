@@ -457,6 +457,46 @@ def test_parse_pathway_farming_pdf_sample():
     assert first["kill_date"] == dt.date(2026, 6, 29)
 
 
+def test_list_cattle_sales_filters_by_buyer() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651135074",
+            sale_date=dt.date(2026, 6, 29),
+            cold_weight_kg=64.0,
+            amount_gbp=460.0,
+            buyer="Pathway",
+            source_file="pathway.pdf",
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651724069",
+            sale_date=dt.date(2026, 6, 16),
+            cold_weight_kg=263.6,
+            amount_gbp=1159.93,
+            buyer="Euro Farm Wales",
+            source_file="Cheque Payment Report.pdf",
+        )
+    )
+    session.commit()
+
+    all_rows = list_cattle_sales(session, farms=["CM"])
+    assert all_rows["total"] == 2
+    assert set(all_rows["buyers"]) == {"Euro Farm Wales", "Pathway"}
+
+    pathway = list_cattle_sales(session, farms=["CM"], buyers=["Pathway"])
+    assert pathway["total"] == 1
+    assert pathway["rows"][0]["buyer"] == "Pathway"
+    assert pathway["buyers"] == ["Euro Farm Wales", "Pathway"]
+
+    session.close()
+
+
 def test_list_cattle_sales_matches_pathway_calf_line() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
@@ -483,6 +523,7 @@ def test_list_cattle_sales_matches_pathway_calf_line() -> None:
             kill_date=dt.date(2026, 6, 29),
             cold_weight_kg=64.0,
             amount_gbp=460.0,
+            buyer="Pathway",
         )
     )
     session.commit()
@@ -493,5 +534,6 @@ def test_list_cattle_sales_matches_pathway_calf_line() -> None:
     assert row["event_matched"] is True
     assert row["amount_gbp"] == 460.0
     assert row["cold_weight_kg"] == 64.0
+    assert row["buyer"] == "Pathway"
 
     session.close()

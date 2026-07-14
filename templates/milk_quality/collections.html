@@ -93,7 +93,10 @@
     #coll-table { width: 100%; border-collapse: collapse; }
     #coll-table th, #coll-table td { padding: 0.4rem 0.55rem; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
     #coll-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-    #coll-table thead th { background: #1e3a5f; color: #fff; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+    #coll-table thead th {
+      background: #1e3a5f; color: #fff; font-weight: 600;
+      position: sticky; top: 0; z-index: 1; cursor: pointer; user-select: none;
+    }
     #coll-table tbody tr.fail td { background: #fff1f2; }
     #coll-table tbody tr.unmatched td { color: var(--muted); }
     .empty-state { padding: 1.5rem; color: var(--muted); }
@@ -247,22 +250,22 @@
         <table id="coll-table">
           <thead>
             <tr>
-              <th>Farm</th>
-              <th>Date</th>
-              <th>Sample</th>
-              <th>Driver</th>
-              <th>Vehicle</th>
-              <th>Arrival</th>
-              <th>Depart</th>
-              <th>Volume (L)</th>
-              <th>Temp °C</th>
-              <th>Butterfat %</th>
-              <th>Protein %</th>
-              <th>SCC</th>
-              <th>BactoScan</th>
-              <th>Urea %</th>
-              <th>A/B</th>
-              <th>NML</th>
+              <th data-sort="farm">Farm</th>
+              <th data-sort="collection_date">Date</th>
+              <th data-sort="sample_id">Sample</th>
+              <th data-sort="driver">Driver</th>
+              <th data-sort="vehicle_reg">Vehicle</th>
+              <th data-sort="arrival_time">Arrival</th>
+              <th data-sort="depart_time">Depart</th>
+              <th data-sort="volume_litres">Volume (L)</th>
+              <th data-sort="temp_c">Temp °C</th>
+              <th data-sort="butterfat_pct">Butterfat %</th>
+              <th data-sort="protein_pct">Protein %</th>
+              <th data-sort="scc">SCC</th>
+              <th data-sort="bactoscan">BactoScan</th>
+              <th data-sort="urea_pct">Urea %</th>
+              <th data-sort="antibiotic_pass">A/B</th>
+              <th data-sort="matched">NML</th>
             </tr>
           </thead>
           <tbody id="table-body">
@@ -283,6 +286,8 @@
     const FARM_COLORS = { CM: '#1e3a5f', GAD: '#b45309' };
     let rows = [];
     let trend = {};
+    let sortKey = 'collection_date';
+    let sortDir = -1;
     const charts = {};
 
     function showMessage(text, isError) {
@@ -816,13 +821,35 @@
         : '<span class="pill no">—</span>';
     }
 
+    function sortRows(data) {
+      return [...data].sort((a, b) => {
+        let av = a[sortKey];
+        let bv = b[sortKey];
+        if (sortKey === 'collection_date' || sortKey === 'arrival_time' || sortKey === 'depart_time') {
+          av = av || '';
+          bv = bv || '';
+        } else if (typeof av === 'boolean' || typeof bv === 'boolean') {
+          av = av === true ? 1 : av === false ? 0 : -1;
+          bv = bv === true ? 1 : bv === false ? 0 : -1;
+        } else if (typeof av === 'string' || typeof bv === 'string') {
+          av = (av == null ? '' : String(av)).toLowerCase();
+          bv = (bv == null ? '' : String(bv)).toLowerCase();
+        }
+        if (av == null || av === '') return 1;
+        if (bv == null || bv === '') return -1;
+        if (av < bv) return -1 * sortDir;
+        if (av > bv) return sortDir;
+        return 0;
+      });
+    }
+
     function renderTable() {
       const tbody = document.getElementById('table-body');
       if (!rows.length) {
         tbody.innerHTML = '<tr><td colspan="16" class="empty-state">No collections match the current filters.</td></tr>';
         return;
       }
-      tbody.innerHTML = rows.map(row => {
+      tbody.innerHTML = sortRows(rows).map(row => {
         const cls = row.antibiotic_pass === false ? ' class="fail"' : (row.matched ? '' : ' class="unmatched"');
         return '<tr' + cls + '>' +
           '<td>' + escapeHtml(row.farm) + '</td>' +
@@ -883,6 +910,14 @@
       window.location.href = '/api/haulier/collections/export.xlsx?' + buildQuery();
     });
 
+    document.querySelectorAll('#coll-table thead th[data-sort]').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.sort;
+        if (sortKey === key) sortDir *= -1;
+        else { sortKey = key; sortDir = 1; }
+        renderTable();
+      });
+    });
     let dateTimer = null;
     ['date-from', 'date-to'].forEach(id => {
       document.getElementById(id).addEventListener('change', () => {

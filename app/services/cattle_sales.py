@@ -19,6 +19,27 @@ from app.services.stock_group import (
 SOLD_EVENT = "SOLD"
 EVENT_MATCH_WINDOW_DAYS = 14
 CATTLE_CATEGORIES: tuple[str, ...] = ("Dairy", "Youngstock", "Beef")
+BUYER_EUROFARM = "Euro Farm Wales"
+BUYER_PATHWAY = "Pathway"
+KNOWN_BUYERS: tuple[str, ...] = (BUYER_EUROFARM, BUYER_PATHWAY)
+
+
+def infer_cattle_sale_buyer(
+    *,
+    buyer: str | None = None,
+    source_file: str | None = None,
+) -> str | None:
+    """Resolve display buyer from stored value or remittance filename."""
+    if buyer and buyer.strip():
+        return buyer.strip()
+    name = (source_file or "").lower()
+    if not name:
+        return None
+    if "pathway" in name or name.startswith("pwa") or " pwa" in name:
+        return BUYER_PATHWAY
+    if "cheque" in name or "eurofarm" in name or "euro farm" in name:
+        return BUYER_EUROFARM
+    return None
 
 
 def format_age_years_months(age_days: int | None) -> str | None:
@@ -149,11 +170,19 @@ def normalize_categories(categories: list[str] | None) -> list[str] | None:
     return selected or None
 
 
+def normalize_buyers(buyers: list[str] | None) -> list[str] | None:
+    if not buyers:
+        return None
+    selected = [b.strip() for b in buyers if b and b.strip()]
+    return selected or None
+
+
 def list_cattle_sales(
     db: Session,
     *,
     farms: list[str] | None = None,
     categories: list[str] | None = None,
+    buyers: list[str] | None = None,
     date_from: dt.date | None = None,
     date_to: dt.date | None = None,
     include_unmatched: bool = True,
@@ -161,11 +190,13 @@ def list_cattle_sales(
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     selected_categories = normalize_categories(categories)
+    selected_buyers = normalize_buyers(buyers)
     if not selected_farms:
         return {
             "rows": [],
             "total": 0,
             "date_bounds": None,
+            "buyers": [],
             "charts": {"cold_weight_vs_date": [], "amount_vs_date": [], "amount_vs_dim": []},
         }
 
@@ -180,6 +211,14 @@ def list_cattle_sales(
         CattleSaleLine.etag.asc(),
     )
     sale_lines = list(db.scalars(query).all())
+
+    available_buyers = sorted(
+        {
+            infer_cattle_sale_buyer(buyer=line.buyer, source_file=line.source_file)
+            for line in sale_lines
+        }
+        - {None}
+    )
 
     date_bounds = None
     if include_date_bounds:
@@ -198,6 +237,7 @@ def list_cattle_sales(
             "rows": [],
             "total": 0,
             "date_bounds": date_bounds,
+            "buyers": available_buyers,
             "charts": {"cold_weight_vs_date": [], "amount_vs_date": [], "amount_vs_dim": []},
         }
 
@@ -213,6 +253,10 @@ def list_cattle_sales(
 
     rows: list[dict[str, Any]] = []
     for line in sale_lines:
+        buyer = infer_cattle_sale_buyer(buyer=line.buyer, source_file=line.source_file)
+        if selected_buyers and (buyer is None or buyer not in selected_buyers):
+            continue
+
         norm_etag = normalize_etag(line.etag)
         match = _best_sold_match(
             sold_by_key.get((line.farm, norm_etag), []),
@@ -266,6 +310,7 @@ def list_cattle_sales(
                 "dim": dim_value,
                 "lact": lact,
                 "category": category,
+                "buyer": buyer,
                 "cold_weight_kg": line.cold_weight_kg,
                 "reject_kg": line.reject_kg,
                 "kill_date": line.kill_date.isoformat() if line.kill_date else None,
@@ -302,6 +347,7 @@ def list_cattle_sales(
         "rows": rows,
         "total": len(rows),
         "date_bounds": date_bounds,
+        "buyers": available_buyers,
         "charts": charts,
         "categories": list(CATTLE_CATEGORIES),
         "farms": list(HERD_FARM_OPTIONS),

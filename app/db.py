@@ -514,11 +514,37 @@ def _migrate_cattle_sales_schema() -> None:
             conn.execute(text("ALTER TABLE cattle_sale_lines ADD COLUMN reject_kg FLOAT"))
         if "kill_date" not in columns:
             conn.execute(text("ALTER TABLE cattle_sale_lines ADD COLUMN kill_date DATE"))
+        if "buyer" not in columns:
+            conn.execute(text("ALTER TABLE cattle_sale_lines ADD COLUMN buyer VARCHAR(64)"))
+            # Backfill from known remittance filenames.
+            conn.execute(
+                text(
+                    "UPDATE cattle_sale_lines SET buyer = 'Pathway' "
+                    "WHERE buyer IS NULL AND ("
+                    "lower(coalesce(source_file, '')) LIKE '%pathway%' "
+                    "OR lower(coalesce(source_file, '')) LIKE 'pwa%' "
+                    "OR lower(coalesce(source_file, '')) LIKE '% pwa%' "
+                    "OR lower(coalesce(source_file, '')) LIKE 'pwa%.pdf'"
+                    ")"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE cattle_sale_lines SET buyer = 'Euro Farm Wales' "
+                    "WHERE buyer IS NULL"
+                )
+            )
         if DATABASE_URL.startswith("sqlite"):
             conn.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_cattle_sale_farm_date "
                     "ON cattle_sale_lines (farm, sale_date)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_cattle_sale_buyer "
+                    "ON cattle_sale_lines (buyer)"
                 )
             )
 
