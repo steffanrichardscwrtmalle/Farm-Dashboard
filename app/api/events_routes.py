@@ -77,6 +77,8 @@ def _events_report(
 
     semen: list[str] | None = None,
 
+    protocol: list[str] | None = None,
+
     y_min: int | None = None,
 
     y_max: int | None = None,
@@ -110,6 +112,8 @@ def _events_report(
         disease=disease,
 
         semen_types=semen,
+
+        lame_protocols=protocol,
 
         y_min=y_min,
 
@@ -259,6 +263,30 @@ def api_disease(
 
         y_max=y_max,
 
+    )
+
+
+
+
+
+@router.get("/hooftrimming")
+def api_hooftrimming(
+    farm: list[str] = Query(default=[]),
+    protocol: list[str] = Query(default=[]),
+    fiscal_year: int | None = Query(default=None),
+    event_from: dt.date | None = Query(default=None),
+    event_to: dt.date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_EVENTS)),
+):
+    return _events_report(
+        "hooftrimming",
+        farm,
+        event_from,
+        event_to,
+        db,
+        fiscal_year=fiscal_year,
+        protocol=protocol or None,
     )
 
 

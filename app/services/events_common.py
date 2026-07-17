@@ -18,6 +18,7 @@ EVENT_PAGE_TYPES: dict[str, tuple[str, ...]] = {
     "deaths": ("DIED",),
     "breedings": ("BRED",),
     "disease": ("ILL", "SCOURS", "LAME", "MAST", "METR", "RESP", "INJURY", "ABORT", "DA"),
+    "hooftrimming": ("FOOTRIM", "LAME"),
 }
 
 DISEASE_EVENT_LABELS: dict[str, str] = {
@@ -54,9 +55,9 @@ BREEDINGS_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy", "unknown")
 BREEDINGS_CHART_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy")
 
 # Deaths report: for youngstock (lact == 0) exclude very-early deaths and
-# deaths recorded with a generic "OTHER" reason so they don't skew the report.
+# deaths recorded with generic/unwanted reasons so they don't skew the report.
 DEATHS_YOUNGSTOCK_MIN_AGE_DAYS = 4
-DEATHS_YOUNGSTOCK_EXCLUDED_REMARKS: tuple[str, ...] = ("OTHER",)
+DEATHS_YOUNGSTOCK_EXCLUDED_REMARKS: tuple[str, ...] = ("OTHER", "SMALL", "BVD")
 
 
 def normalize_farms(farms: list[str] | None) -> list[str]:
@@ -797,7 +798,7 @@ def _exclude_youngstock_death(
 ) -> bool:
     """Whether a lact==0 (youngstock) death should be excluded from the report.
 
-    Excludes deaths recorded with a generic "OTHER" remark, and deaths that
+    Excludes deaths recorded with remarks OTHER / SMALL / BVD, and deaths that
     occur under DEATHS_YOUNGSTOCK_MIN_AGE_DAYS days old (age = event date - birth
     date). Records with no birth date can't be aged, so they're kept unless the
     remark rule applies.
@@ -825,8 +826,8 @@ def _build_deaths_pivot(
     """Month/farm pivot of DIED events with youngstock exclusions applied.
 
     For lact == 0 animals, drops deaths under DEATHS_YOUNGSTOCK_MIN_AGE_DAYS days
-    old and deaths with a remark of "OTHER". Counts are built in Python to keep
-    age math portable across SQLite and PostgreSQL.
+    old and deaths with remarks OTHER / SMALL / BVD. Counts are built in Python to
+    keep age math portable across SQLite and PostgreSQL.
     """
     query = (
         select(
@@ -984,6 +985,357 @@ def _fetch_breeding_records(
     return result
 
 
+HOOF_DIM_BIN_SIZE = 30
+HOOF_DIM_MAX_BIN_START = 570
+
+
+def _normalize_lame_protocol(raw: str | None) -> str:
+    value = (raw or "").strip()
+    return value if value else "Unknown"
+
+
+def _dim_bin_start(dim: float) -> int:
+    bin_start = int(dim // HOOF_DIM_BIN_SIZE) * HOOF_DIM_BIN_SIZE
+    return min(bin_start, HOOF_DIM_MAX_BIN_START)
+
+
+def _dim_bin_label(bin_start: int) -> str:
+    if bin_start >= HOOF_DIM_MAX_BIN_START:
+        return f"{HOOF_DIM_MAX_BIN_START}+"
+    return f"{bin_start} to {bin_start + HOOF_DIM_BIN_SIZE - 1}"
+
+
+def normalize_lame_protocols(protocols: list[str] | None) -> list[str] | None:
+    """None / empty = all protocols (no filter). Otherwise the selected list."""
+    if not protocols:
+        return None
+    cleaned = [_normalize_lame_protocol(value) for value in protocols if value is not None]
+    # Preserve order while de-duplicating.
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in cleaned:
+        if value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered or None
+
+
+def _lame_protocol_match_condition(selected_protocols: set[str]):
+    named = sorted(p for p in selected_protocols if p != "Unknown")
+    include_unknown = "Unknown" in selected_protocols
+    conditions = []
+    if named:
+        conditions.append(func.trim(func.coalesce(CowEvent.protocols, "")).in_(named))
+    if include_unknown:
+        conditions.append(
+            or_(
+                CowEvent.protocols.is_(None),
+                func.trim(CowEvent.protocols) == "",
+            )
+        )
+    if not conditions:
+        return literal(False)
+    if len(conditions) == 1:
+        return conditions[0]
+    return or_(*conditions)
+
+
+def _apply_lame_protocol_filter(query, selected_protocols: set[str] | None):
+    if selected_protocols is None:
+        return query
+    return query.where(_lame_protocol_match_condition(selected_protocols))
+
+
+def _list_available_lame_protocols(
+    db: Session,
+    *,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    fiscal_year: int | None,
+) -> list[str]:
+    query = (
+        select(CowEvent.protocols, func.count())
+        .where(CowEvent.event == "LAME")
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+        .where(CowEvent.event_date >= effective_from)
+        .where(CowEvent.event_date <= effective_to)
+    )
+    query = _apply_fiscal_year(query, fiscal_year)
+    rows = db.execute(query.group_by(CowEvent.protocols)).all()
+    totals: dict[str, int] = {}
+    for protocols, count in rows:
+        protocol = _normalize_lame_protocol(protocols)
+        totals[protocol] = totals.get(protocol, 0) + int(count)
+    return [
+        protocol
+        for protocol, _ in sorted(
+            totals.items(), key=lambda item: (-item[1], item[0].lower())
+        )
+    ]
+
+
+def _build_lame_month_pivot(
+    db: Session,
+    *,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    fiscal_year: int | None,
+    selected_protocols: set[str] | None,
+) -> dict[str, dict[str, int]]:
+    query = (
+        select(
+            CowEvent.month_label,
+            CowEvent.farm,
+            func.count(),
+        )
+        .where(CowEvent.event == "LAME")
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+        .where(CowEvent.event_date >= effective_from)
+        .where(CowEvent.event_date <= effective_to)
+    )
+    query = _apply_fiscal_year(query, fiscal_year)
+    query = _apply_lame_protocol_filter(query, selected_protocols)
+    counts = db.execute(query.group_by(CowEvent.month_label, CowEvent.farm)).all()
+
+    pivot: dict[str, dict[str, int]] = {}
+    for month_label, farm, count in counts:
+        if not month_label or farm not in selected_farms:
+            continue
+        key = str(month_label)
+        pivot.setdefault(key, {"CM": 0, "GAD": 0})
+        pivot[key][farm] = int(count)
+    return pivot
+
+
+def _build_hoof_main_pivot(
+    db: Session,
+    *,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    fiscal_year: int | None,
+    selected_protocols: set[str] | None,
+) -> dict[str, dict[str, int]]:
+    """FOOTRIM (all) + LAME (optionally protocol-filtered)."""
+    footrim_pivot = _build_standard_event_pivot(
+        db,
+        event_types=("FOOTRIM",),
+        selected_farms=selected_farms,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        selected_lact_groups=None,
+        selected_parity_groups=None,
+        fiscal_year=fiscal_year,
+    )
+    lame_pivot = _build_lame_month_pivot(
+        db,
+        selected_farms=selected_farms,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        fiscal_year=fiscal_year,
+        selected_protocols=selected_protocols,
+    )
+    pivot: dict[str, dict[str, int]] = {}
+    for source in (footrim_pivot, lame_pivot):
+        for month_label, counts in source.items():
+            pivot.setdefault(month_label, {"CM": 0, "GAD": 0})
+            for farm in selected_farms:
+                pivot[month_label][farm] = pivot[month_label].get(farm, 0) + int(
+                    counts.get(farm, 0)
+                )
+    return pivot
+
+
+def _build_lame_protocol_rows(
+    db: Session,
+    *,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    fiscal_year: int | None,
+    selected_protocols: set[str] | None,
+) -> list[dict[str, Any]]:
+    query = (
+        select(
+            CowEvent.protocols,
+            CowEvent.farm,
+            func.count(),
+        )
+        .where(CowEvent.event == "LAME")
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+        .where(CowEvent.event_date >= effective_from)
+        .where(CowEvent.event_date <= effective_to)
+    )
+    query = _apply_fiscal_year(query, fiscal_year)
+    query = _apply_lame_protocol_filter(query, selected_protocols)
+    rows = db.execute(query.group_by(CowEvent.protocols, CowEvent.farm)).all()
+
+    pivot: dict[str, dict[str, int]] = {}
+    for protocols, farm, count in rows:
+        if farm not in selected_farms:
+            continue
+        protocol = _normalize_lame_protocol(protocols)
+        pivot.setdefault(protocol, {"CM": 0, "GAD": 0})
+        pivot[protocol][farm] = int(count)
+
+    result: list[dict[str, Any]] = []
+    for protocol, counts in pivot.items():
+        cm = int(counts.get("CM", 0))
+        gad = int(counts.get("GAD", 0))
+        result.append(
+            {
+                "protocol": protocol,
+                "CM": cm,
+                "GAD": gad,
+                "total": cm + gad,
+            }
+        )
+    result.sort(key=lambda row: (-row["total"], row["protocol"].lower()))
+    return result
+
+
+def _build_lame_dim_rows(
+    db: Session,
+    *,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    fiscal_year: int | None,
+    selected_protocols: set[str] | None,
+) -> list[dict[str, Any]]:
+    query = (
+        select(
+            CowEvent.dim,
+            CowEvent.farm,
+        )
+        .where(CowEvent.event == "LAME")
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.dim.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+        .where(CowEvent.event_date >= effective_from)
+        .where(CowEvent.event_date <= effective_to)
+    )
+    query = _apply_fiscal_year(query, fiscal_year)
+    query = _apply_lame_protocol_filter(query, selected_protocols)
+    rows = db.execute(query).all()
+
+    pivot: dict[int, dict[str, int]] = {}
+    for dim, farm in rows:
+        if farm not in selected_farms or dim is None:
+            continue
+        bin_start = _dim_bin_start(float(dim))
+        pivot.setdefault(bin_start, {"CM": 0, "GAD": 0})
+        pivot[bin_start][farm] = pivot[bin_start].get(farm, 0) + 1
+
+    if not pivot:
+        return []
+
+    result: list[dict[str, Any]] = []
+    bin_end = min(max(pivot), HOOF_DIM_MAX_BIN_START)
+    for bin_start in range(min(pivot), bin_end + 1, HOOF_DIM_BIN_SIZE):
+        counts = pivot.get(bin_start, {"CM": 0, "GAD": 0})
+        cm = int(counts.get("CM", 0))
+        gad = int(counts.get("GAD", 0))
+        result.append(
+            {
+                "bin_start": bin_start,
+                "bin_label": _dim_bin_label(bin_start),
+                "CM": cm,
+                "GAD": gad,
+                "total": cm + gad,
+            }
+        )
+    return result
+
+
+def _resolve_hoof_protocol_selection(
+    available_protocols: list[str],
+    requested_protocols: list[str] | None,
+) -> set[str] | None:
+    """Return None for all protocols, otherwise the selected set."""
+    if requested_protocols is None:
+        return None
+    available = set(available_protocols)
+    selected = {p for p in requested_protocols if p in available}
+    if not available:
+        return set()
+    if selected and selected == available:
+        return None
+    return selected
+
+
+def _build_hooftrimming_bundle(
+    db: Session,
+    *,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+    fiscal_year: int | None,
+    requested_protocols: list[str] | None,
+) -> tuple[
+    dict[str, dict[str, int]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[str],
+]:
+    available_protocols = _list_available_lame_protocols(
+        db,
+        selected_farms=selected_farms,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        fiscal_year=fiscal_year,
+    )
+    selected_protocols = _resolve_hoof_protocol_selection(
+        available_protocols, requested_protocols
+    )
+
+    main_pivot = _build_hoof_main_pivot(
+        db,
+        selected_farms=selected_farms,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        fiscal_year=fiscal_year,
+        selected_protocols=selected_protocols,
+    )
+    lame_rows = _zero_fill_rows(
+        _build_lame_month_pivot(
+            db,
+            selected_farms=selected_farms,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            fiscal_year=fiscal_year,
+            selected_protocols=selected_protocols,
+        ),
+        effective_from,
+        effective_to,
+    )
+    protocol_rows = _build_lame_protocol_rows(
+        db,
+        selected_farms=selected_farms,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        fiscal_year=fiscal_year,
+        selected_protocols=selected_protocols,
+    )
+    dim_rows = _build_lame_dim_rows(
+        db,
+        selected_farms=selected_farms,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        fiscal_year=fiscal_year,
+        selected_protocols=selected_protocols,
+    )
+    return main_pivot, lame_rows, protocol_rows, dim_rows, available_protocols
+
+
+
 def _build_breedings_semen_summary(
     farm_totals: dict[str, dict[str, int]],
     selected_farms: list[str],
@@ -1115,7 +1467,9 @@ def build_events_report(
     fiscal_year: int | None = None,
     include_sales_reason_breakdown: bool = False,
     include_breedings_semen_breakdown: bool = False,
+    include_hooftrimming_breakdown: bool = False,
     semen_types: list[str] | None = None,
+    lame_protocols: list[str] | None = None,
     use_disease_episode_counting: bool = False,
     apply_death_exclusions: bool = False,
     y_min: int | None = None,
@@ -1126,6 +1480,9 @@ def build_events_report(
     selected_lact_groups = normalize_lact_groups(lact_groups)
     selected_parity_groups = normalize_parity_groups(parity_groups)
     selected_semen_types = normalize_semen_types(semen_types) if include_breedings_semen_breakdown else None
+    requested_lame_protocols = (
+        normalize_lame_protocols(lame_protocols) if include_hooftrimming_breakdown else None
+    )
     latest_import = db.scalar(select(func.max(CowEvent.import_timestamp)))
     # Date slider / axis use the page's full event set (not a single disease
     # filter), so switching to DA does not shrink the range to the last DA.
@@ -1151,6 +1508,11 @@ def build_events_report(
         empty_result["breedings_semen_summary"]["available"] = {
             name: 0 for name in BREEDINGS_SEMEN_ORDER
         }
+    if include_hooftrimming_breakdown:
+        empty_result["lame_rows"] = []
+        empty_result["lame_protocol_rows"] = []
+        empty_result["lame_dim_rows"] = []
+        empty_result["available_protocols"] = []
     if use_disease_episode_counting:
         empty_result["disease_scatter"] = {
             "points": [],
@@ -1200,6 +1562,10 @@ def build_events_report(
     breedings_semen_summary: dict[str, Any] | None = None
     breedings_semen_rows: list[dict[str, Any]] | None = None
     breedings_semen_chart_rows: list[dict[str, Any]] | None = None
+    lame_rows: list[dict[str, Any]] | None = None
+    lame_protocol_rows: list[dict[str, Any]] | None = None
+    lame_dim_rows: list[dict[str, Any]] | None = None
+    available_protocols: list[str] | None = None
     if use_disease_episode_counting:
         pivot, disease_scatter, disease_incidence = _build_disease_episode_bundle(
             db,
@@ -1223,6 +1589,21 @@ def build_events_report(
                 fiscal_year=fiscal_year,
                 selected_semen_types=selected_semen_types,
             )
+        )
+    elif include_hooftrimming_breakdown:
+        (
+            pivot,
+            lame_rows,
+            lame_protocol_rows,
+            lame_dim_rows,
+            available_protocols,
+        ) = _build_hooftrimming_bundle(
+            db,
+            selected_farms=selected_farms,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            fiscal_year=fiscal_year,
+            requested_protocols=requested_lame_protocols,
         )
     elif apply_death_exclusions:
         pivot = _build_deaths_pivot(
@@ -1307,6 +1688,11 @@ def build_events_report(
                 name: 0 for name in BREEDINGS_SEMEN_ORDER
             }
         result["breedings_semen_types"] = list(BREEDINGS_SEMEN_ORDER)
+    if include_hooftrimming_breakdown:
+        result["lame_rows"] = lame_rows or []
+        result["lame_protocol_rows"] = lame_protocol_rows or []
+        result["lame_dim_rows"] = lame_dim_rows or []
+        result["available_protocols"] = available_protocols or []
     return result
 
 
@@ -1322,6 +1708,7 @@ def build_events_page_report(
     fiscal_year: int | None = None,
     disease: str | None = None,
     semen_types: list[str] | None = None,
+    lame_protocols: list[str] | None = None,
     y_min: int | None = None,
     y_max: int | None = None,
 ) -> dict[str, Any]:
@@ -1338,7 +1725,9 @@ def build_events_page_report(
         fiscal_year=fiscal_year,
         include_sales_reason_breakdown=page_slug == "sales",
         include_breedings_semen_breakdown=page_slug == "breedings",
+        include_hooftrimming_breakdown=page_slug == "hooftrimming",
         semen_types=semen_types if page_slug == "breedings" else None,
+        lame_protocols=lame_protocols if page_slug == "hooftrimming" else None,
         use_disease_episode_counting=page_slug == "disease",
         apply_death_exclusions=page_slug == "deaths",
         y_min=y_min if page_slug == "disease" else None,

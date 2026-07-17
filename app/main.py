@@ -717,6 +717,7 @@ def _events_page_response(
     show_breedings_semen_chart: bool = False,
     show_breedings_semen_table: bool = False,
     show_breedings_sire_settings: bool = False,
+    show_hooftrimming_charts: bool = False,
 ):
     from app.models import HERD_FARM_OPTIONS
     from app.services.events_common import DISEASE_EVENT_LABELS, DISEASE_FILTER_OPTIONS
@@ -752,6 +753,7 @@ def _events_page_response(
             show_breedings_semen_chart=show_breedings_semen_chart,
             show_breedings_semen_table=show_breedings_semen_table,
             show_breedings_sire_settings=show_breedings_sire_settings,
+            show_hooftrimming_charts=show_hooftrimming_charts,
             **_events_context(title, slug, title),
         ),
     )
@@ -803,6 +805,17 @@ def events_disease_page(request: Request):
         parity_exclusive=True,
         show_disease_filter=True,
         show_disease_scatter=True,
+    )
+
+
+@app.get("/events/hooftrimming", response_class=HTMLResponse)
+def events_hooftrimming_page(request: Request):
+    return _events_page_response(
+        request,
+        slug="hooftrimming",
+        title="Hoof Trimming",
+        chart_title="Footrim & Lame Events by Month — Stacked by Farm",
+        show_hooftrimming_charts=True,
     )
 
 

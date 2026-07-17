@@ -282,6 +282,80 @@
       height: 420px;
       margin-top: 1.5rem;
     }
+    .chart-wrap-secondary {
+      margin-top: 1.5rem;
+    }
+    .chart-wrap-protocols {
+      height: 520px;
+      margin-top: 1.5rem;
+    }
+    .protocol-dropdown {
+      position: relative;
+      width: 100%;
+    }
+    .protocol-trigger {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem;
+      margin: 0;
+      padding: 0.45rem 0.6rem;
+      font-size: 0.875rem;
+      text-align: left;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .protocol-trigger-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .protocol-chevron {
+      flex-shrink: 0;
+      font-size: 0.7rem;
+      opacity: 0.7;
+    }
+    .protocol-panel {
+      position: absolute;
+      z-index: 40;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 16rem;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+      padding: 0.35rem 0;
+    }
+    .protocol-option {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.3rem 0.65rem;
+      font-size: 0.8125rem;
+      cursor: pointer;
+      margin: 0;
+    }
+    .protocol-option:hover {
+      background: rgba(0, 0, 0, 0.04);
+    }
+    .protocol-option input {
+      margin: 0;
+      flex-shrink: 0;
+    }
+    .protocol-option-all {
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.45rem;
+      margin-bottom: 0.2rem;
+    }
     #events-table {
       width: auto;
       table-layout: auto;
@@ -331,6 +405,43 @@
       font-weight: 600;
     }
     #events-table tbody tr.grand-total td {
+      background: #eef2f6;
+      font-weight: 700;
+      border-top: 2px solid var(--border);
+    }
+    .table-section-title {
+      margin: 0 0 0.5rem;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .table-wrap {
+      overflow: visible;
+      max-height: none;
+    }
+    .table-wrap-secondary {
+      margin-top: 1.75rem;
+    }
+    .events-data-table {
+      width: auto;
+      table-layout: auto;
+    }
+    .events-data-table th,
+    .events-data-table td {
+      text-align: right;
+      white-space: nowrap;
+      padding: 0.45rem 0.75rem;
+    }
+    .events-data-table th:first-child,
+    .events-data-table td:first-child {
+      text-align: left;
+    }
+    .events-data-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+    }
+    .events-data-table tbody tr.grand-total td {
       background: #eef2f6;
       font-weight: 700;
       border-top: 2px solid var(--border);
@@ -525,6 +636,20 @@
           </div>
         </div>
         {% endif %}
+        {% if show_hooftrimming_charts %}
+        <div class="filter-section">
+          <span class="section-label">Protocol</span>
+          <div class="protocol-dropdown" id="protocol-dropdown">
+            <button type="button" class="protocol-trigger" id="protocol-trigger" aria-expanded="false" aria-haspopup="listbox">
+              <span class="protocol-trigger-label" id="protocol-trigger-label">All</span>
+              <span class="protocol-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="protocol-panel" id="protocol-panel" hidden>
+              <p class="meta-line" style="padding:0.35rem 0.65rem;margin:0;">Loading protocols…</p>
+            </div>
+          </div>
+        </div>
+        {% endif %}
         <div class="filter-section">
           <span class="section-label">Fiscal year</span>
           <select id="fiscal-year-select" class="filter-select">
@@ -592,8 +717,19 @@
           <canvas id="events-chart"></canvas>
         </div>
         {% if show_breedings_semen_chart %}
-        <div class="chart-wrap">
+        <div class="chart-wrap chart-wrap-secondary">
           <canvas id="breedings-semen-chart"></canvas>
+        </div>
+        {% endif %}
+        {% if show_hooftrimming_charts %}
+        <div class="chart-wrap chart-wrap-secondary">
+          <canvas id="lame-events-chart"></canvas>
+        </div>
+        <div class="chart-wrap chart-wrap-secondary">
+          <canvas id="lame-dim-chart"></canvas>
+        </div>
+        <div class="chart-wrap chart-wrap-protocols">
+          <canvas id="lame-protocols-chart"></canvas>
         </div>
         {% endif %}
         {% if show_disease_scatter %}
@@ -607,7 +743,10 @@
       </div>
       <div id="table-view" style="display:none;">
         <div class="table-wrap">
-          <table id="events-table">
+          {% if show_hooftrimming_charts %}
+          <h3 class="table-section-title" id="main-table-title"></h3>
+          {% endif %}
+          <table id="events-table" class="events-data-table">
             <thead id="events-table-head">
               <tr>
                 <th>Event Month</th>
@@ -619,6 +758,50 @@
             <tbody id="events-body"></tbody>
           </table>
         </div>
+        {% if show_hooftrimming_charts %}
+        <div class="table-wrap table-wrap-secondary">
+          <h3 class="table-section-title" id="lame-events-table-title"></h3>
+          <table id="lame-events-table" class="events-data-table">
+            <thead>
+              <tr>
+                <th>Event Month</th>
+                <th>CM</th>
+                <th>GAD</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="lame-events-body"></tbody>
+          </table>
+        </div>
+        <div class="table-wrap table-wrap-secondary">
+          <h3 class="table-section-title" id="lame-dim-table-title"></h3>
+          <table id="lame-dim-table" class="events-data-table">
+            <thead>
+              <tr>
+                <th>DIM bin</th>
+                <th>CM</th>
+                <th>GAD</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="lame-dim-body"></tbody>
+          </table>
+        </div>
+        <div class="table-wrap table-wrap-secondary">
+          <h3 class="table-section-title" id="lame-protocols-table-title"></h3>
+          <table id="lame-protocols-table" class="events-data-table">
+            <thead>
+              <tr>
+                <th>Protocol</th>
+                <th>CM</th>
+                <th>GAD</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="lame-protocols-body"></tbody>
+          </table>
+        </div>
+        {% endif %}
       </div>
       <div id="empty-state" class="empty-state" style="display:none;"></div>
     </section>
@@ -644,15 +827,25 @@
     const SHOW_BREEDINGS_SEMEN_CHART = {{ show_breedings_semen_chart | default(false) | tojson }};
     const SHOW_BREEDINGS_SEMEN_TABLE = {{ show_breedings_semen_table | default(false) | tojson }};
     const SHOW_BREEDINGS_SIRE_SETTINGS = {{ show_breedings_sire_settings | default(false) | tojson }};
+    const SHOW_HOOFTRIMMING_CHARTS = {{ show_hooftrimming_charts | default(false) | tojson }};
     const CAN_EDIT_SIRES = {{ can_edit_sires | default(false) | tojson }};
     const FARM_COLORS = { CM: "#1f77b4", GAD: "#ff7f0e" };
     const SEMEN_COLORS = { beef: "#8B4513", dairy: "#2ca02c", unknown: "#e91e8c" };
     const BREEDINGS_SEMEN_CHART_TITLE = "Breedings by Month — Beef vs Dairy";
+    const LAME_EVENTS_CHART_TITLE = "Lame Events by Month — Stacked by Farm";
+    const LAME_PROTOCOLS_CHART_TITLE = "Lame Event Protocols";
+    const LAME_DIM_CHART_TITLE = "Lame Events by DIM (30-day bins)";
     let eventsChart = null;
     let breedingsSemenChart = null;
+    let lameEventsChart = null;
+    let lameProtocolsChart = null;
+    let lameDimChart = null;
     let diseaseScatterChart = null;
     let diseaseIncidenceChart = null;
     let lastReportData = null;
+    let protocolOptions = [];
+    let selectedProtocolSet = null; // null = all; Set = selected
+    let protocolDropdownBound = false;
     let monthList = [];
     let dateBoundsInitialized = false;
     let storedDateBounds = null;
@@ -676,6 +869,9 @@
       }
       if (SHOW_BREEDINGS_SEMEN_CHART) {
         resetSemenSlicers();
+      }
+      if (SHOW_HOOFTRIMMING_CHARTS) {
+        resetProtocolFilter();
       }
       document.getElementById("fiscal-year-select").value = "";
       lastFiscalYear = null;
@@ -1216,6 +1412,161 @@
       return params;
     }
 
+    function escHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function selectedProtocols() {
+      if (!SHOW_HOOFTRIMMING_CHARTS) return [];
+      if (selectedProtocolSet === null) return protocolOptions.slice();
+      return protocolOptions.filter(protocol => selectedProtocolSet.has(protocol));
+    }
+
+    function allProtocolsSelected() {
+      return selectedProtocolSet === null
+        || (protocolOptions.length > 0 && selectedProtocolSet.size === protocolOptions.length);
+    }
+
+    function updateProtocolTriggerLabel() {
+      const label = document.getElementById("protocol-trigger-label");
+      if (!label) return;
+      if (!protocolOptions.length) {
+        label.textContent = "No protocols";
+        return;
+      }
+      const selected = selectedProtocols();
+      if (!selected.length) {
+        label.textContent = "None selected";
+        return;
+      }
+      if (allProtocolsSelected()) {
+        label.textContent = "All";
+        return;
+      }
+      if (selected.length === 1) {
+        label.textContent = selected[0];
+        return;
+      }
+      label.textContent = `${selected.length} selected`;
+    }
+
+    function resetProtocolFilter() {
+      selectedProtocolSet = null;
+      renderProtocolDropdownOptions();
+      updateProtocolTriggerLabel();
+    }
+
+    function renderProtocolDropdownOptions() {
+      const panel = document.getElementById("protocol-panel");
+      if (!panel) return;
+      if (!protocolOptions.length) {
+        panel.innerHTML = '<p class="meta-line" style="padding:0.35rem 0.65rem;margin:0;">No protocols in range</p>';
+        updateProtocolTriggerLabel();
+        return;
+      }
+      const allChecked = allProtocolsSelected();
+      const optionsHtml = protocolOptions.map(protocol => {
+        const checked = selectedProtocolSet === null || selectedProtocolSet.has(protocol);
+        return `
+          <label class="protocol-option">
+            <input type="checkbox" class="protocol-cb" value="${escHtml(protocol)}" ${checked ? "checked" : ""}>
+            <span>${escHtml(protocol)}</span>
+          </label>
+        `;
+      }).join("");
+      panel.innerHTML = `
+        <label class="protocol-option protocol-option-all">
+          <input type="checkbox" id="protocol-all-cb" ${allChecked ? "checked" : ""}>
+          <span>All</span>
+        </label>
+        ${optionsHtml}
+      `;
+      updateProtocolTriggerLabel();
+    }
+
+    function syncProtocolOptionsFromData(data) {
+      if (!SHOW_HOOFTRIMMING_CHARTS) return;
+      const nextOptions = Array.isArray(data.available_protocols)
+        ? data.available_protocols.slice()
+        : [];
+      const prevSelected = selectedProtocols();
+      protocolOptions = nextOptions;
+      if (!protocolOptions.length) {
+        selectedProtocolSet = new Set();
+      } else if (selectedProtocolSet === null) {
+        // Keep all selected.
+      } else {
+        const nextSelected = protocolOptions.filter(protocol => prevSelected.includes(protocol));
+        if (!nextSelected.length || nextSelected.length === protocolOptions.length) {
+          selectedProtocolSet = null;
+        } else {
+          selectedProtocolSet = new Set(nextSelected);
+        }
+      }
+      renderProtocolDropdownOptions();
+    }
+
+    function setProtocolDropdownOpen(open) {
+      const trigger = document.getElementById("protocol-trigger");
+      const panel = document.getElementById("protocol-panel");
+      if (!trigger || !panel) return;
+      panel.hidden = !open;
+      trigger.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+
+    function bindProtocolDropdown() {
+      if (!SHOW_HOOFTRIMMING_CHARTS || protocolDropdownBound) return;
+      const dropdown = document.getElementById("protocol-dropdown");
+      const trigger = document.getElementById("protocol-trigger");
+      const panel = document.getElementById("protocol-panel");
+      if (!dropdown || !trigger || !panel) return;
+      protocolDropdownBound = true;
+
+      trigger.addEventListener("click", () => {
+        setProtocolDropdownOpen(panel.hidden);
+      });
+
+      panel.addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+
+        if (target.id === "protocol-all-cb") {
+          selectedProtocolSet = target.checked ? null : new Set();
+          renderProtocolDropdownOptions();
+          loadReport();
+          return;
+        }
+
+        if (!target.classList.contains("protocol-cb")) return;
+        const checked = [...panel.querySelectorAll(".protocol-cb:checked")].map(cb => cb.value);
+        if (!checked.length) {
+          selectedProtocolSet = new Set();
+        } else if (checked.length === protocolOptions.length) {
+          selectedProtocolSet = null;
+        } else {
+          selectedProtocolSet = new Set(checked);
+        }
+        renderProtocolDropdownOptions();
+        loadReport();
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!dropdown.contains(event.target)) {
+          setProtocolDropdownOpen(false);
+        }
+      });
+    }
+
+    function appendProtocolParams(params) {
+      if (!SHOW_HOOFTRIMMING_CHARTS) return params;
+      if (allProtocolsSelected()) return params;
+      selectedProtocols().forEach(value => params.append("protocol", value));
+      return params;
+    }
+
     function selectedFiscalYear() {
       const value = document.getElementById("fiscal-year-select").value;
       return value ? value : null;
@@ -1360,7 +1711,120 @@
       `;
     }
 
+    function farmCountsForRow(row, farms) {
+      const counts = {};
+      let total = 0;
+      farms.forEach(farm => {
+        const value = Number(row[farm] ?? 0);
+        counts[farm] = value;
+        total += value;
+      });
+      counts.total = total;
+      return counts;
+    }
+
+    function renderSimpleFarmTableBody(rows, labelKey, farms) {
+      if (!rows.length) return "";
+      const totals = Object.fromEntries(farms.map(farm => [farm, 0]));
+      totals.total = 0;
+      let html = rows.map(row => {
+        const counts = farmCountsForRow(row, farms);
+        farms.forEach(farm => { totals[farm] += counts[farm]; });
+        totals.total += counts.total;
+        const farmCells = farms.map(farm => `<td>${counts[farm]}</td>`).join("");
+        return `
+          <tr>
+            <td>${escHtml(row[labelKey] ?? "")}</td>
+            ${farmCells}
+            <td>${counts.total}</td>
+          </tr>
+        `;
+      }).join("");
+      const totalCells = farms.map(farm => `<td>${totals[farm]}</td>`).join("");
+      html += `
+        <tr class="grand-total">
+          <td>Grand Total</td>
+          ${totalCells}
+          <td>${totals.total}</td>
+        </tr>
+      `;
+      return html;
+    }
+
+    function renderSimpleFarmTableHeader(headEl, firstLabel, farms) {
+      if (!headEl) return;
+      const farmHeaders = farms.map(farm => `<th>${escHtml(farm)}</th>`).join("");
+      headEl.innerHTML = `
+        <tr>
+          <th>${escHtml(firstLabel)}</th>
+          ${farmHeaders}
+          <th>Total</th>
+        </tr>
+      `;
+    }
+
+    function renderHooftrimmingTables(data) {
+      const farms = selectedFarms().length ? selectedFarms() : ["CM", "GAD"];
+      const mainTitle = document.getElementById("main-table-title");
+      if (mainTitle) mainTitle.textContent = CHART_TITLE;
+      const lameTitle = document.getElementById("lame-events-table-title");
+      if (lameTitle) lameTitle.textContent = LAME_EVENTS_CHART_TITLE;
+      const dimTitle = document.getElementById("lame-dim-table-title");
+      if (dimTitle) dimTitle.textContent = LAME_DIM_CHART_TITLE;
+      const protocolTitle = document.getElementById("lame-protocols-table-title");
+      if (protocolTitle) protocolTitle.textContent = LAME_PROTOCOLS_CHART_TITLE;
+
+      renderSimpleFarmTableHeader(
+        document.getElementById("events-table-head"),
+        "Event Month",
+        farms
+      );
+      document.getElementById("events-body").innerHTML = renderSimpleFarmTableBody(
+        data.rows || [],
+        "event_month",
+        farms
+      );
+
+      renderSimpleFarmTableHeader(
+        document.querySelector("#lame-events-table thead"),
+        "Event Month",
+        farms
+      );
+      document.getElementById("lame-events-body").innerHTML = renderSimpleFarmTableBody(
+        data.lame_rows || [],
+        "event_month",
+        farms
+      );
+
+      renderSimpleFarmTableHeader(
+        document.querySelector("#lame-dim-table thead"),
+        "DIM bin",
+        farms
+      );
+      document.getElementById("lame-dim-body").innerHTML = renderSimpleFarmTableBody(
+        data.lame_dim_rows || [],
+        "bin_label",
+        farms
+      );
+
+      renderSimpleFarmTableHeader(
+        document.querySelector("#lame-protocols-table thead"),
+        "Protocol",
+        farms
+      );
+      document.getElementById("lame-protocols-body").innerHTML = renderSimpleFarmTableBody(
+        data.lame_protocol_rows || [],
+        "protocol",
+        farms
+      );
+    }
+
     function renderTable(data) {
+      if (SHOW_HOOFTRIMMING_CHARTS) {
+        renderHooftrimmingTables(data);
+        return;
+      }
+
       const body = document.getElementById("events-body");
       const rows = data.rows || [];
       if (!rows.length) {
@@ -1589,6 +2053,169 @@
       });
     }
 
+    function destroyLameEventsChart() {
+      if (lameEventsChart) {
+        lameEventsChart.destroy();
+        lameEventsChart = null;
+      }
+    }
+
+    function destroyLameProtocolsChart() {
+      if (lameProtocolsChart) {
+        lameProtocolsChart.destroy();
+        lameProtocolsChart = null;
+      }
+    }
+
+    function destroyLameDimChart() {
+      if (lameDimChart) {
+        lameDimChart.destroy();
+        lameDimChart = null;
+      }
+    }
+
+    function renderLameEventsChart(data) {
+      if (!SHOW_HOOFTRIMMING_CHARTS) return;
+      const canvas = document.getElementById("lame-events-chart");
+      if (!canvas) return;
+
+      destroyLameEventsChart();
+
+      const rows = data.lame_rows || [];
+      if (!rows.length) return;
+
+      const labels = rows.map(r => r.event_month);
+      const farms = selectedFarms().length ? selectedFarms() : ["CM", "GAD"];
+      const datasets = farms.map(farm => ({
+        label: farm,
+        data: rows.map(r => r[farm] ?? 0),
+        backgroundColor: FARM_COLORS[farm] || "#888",
+        stack: "lame",
+      }));
+
+      lameEventsChart = new Chart(canvas, {
+        type: "bar",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: {
+              display: true,
+              text: LAME_EVENTS_CHART_TITLE,
+            },
+            legend: { title: { display: true, text: "Farm" } },
+          },
+          scales: {
+            x: {
+              stacked: true,
+              title: { display: true, text: "Event Month" },
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              title: { display: true, text: "Number of Lame Events" },
+            },
+          },
+        },
+      });
+    }
+
+    function renderLameProtocolsChart(data) {
+      if (!SHOW_HOOFTRIMMING_CHARTS) return;
+      const canvas = document.getElementById("lame-protocols-chart");
+      if (!canvas) return;
+
+      destroyLameProtocolsChart();
+
+      const rows = data.lame_protocol_rows || [];
+      if (!rows.length) return;
+
+      const labels = rows.map(r => r.protocol);
+      const farms = selectedFarms().length ? selectedFarms() : ["CM", "GAD"];
+      const datasets = farms.map(farm => ({
+        label: farm,
+        data: rows.map(r => r[farm] ?? 0),
+        backgroundColor: FARM_COLORS[farm] || "#888",
+        stack: "protocols",
+      }));
+
+      lameProtocolsChart = new Chart(canvas, {
+        type: "bar",
+        data: { labels, datasets },
+        options: {
+          indexAxis: "y",
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: {
+              display: true,
+              text: LAME_PROTOCOLS_CHART_TITLE,
+            },
+            legend: { title: { display: true, text: "Farm" } },
+          },
+          scales: {
+            x: {
+              stacked: true,
+              beginAtZero: true,
+              title: { display: true, text: "Number of Lame Events" },
+            },
+            y: {
+              stacked: true,
+              title: { display: true, text: "Protocol" },
+            },
+          },
+        },
+      });
+    }
+
+    function renderLameDimChart(data) {
+      if (!SHOW_HOOFTRIMMING_CHARTS) return;
+      const canvas = document.getElementById("lame-dim-chart");
+      if (!canvas) return;
+
+      destroyLameDimChart();
+
+      const rows = data.lame_dim_rows || [];
+      if (!rows.length) return;
+
+      const labels = rows.map(r => r.bin_label);
+      const farms = selectedFarms().length ? selectedFarms() : ["CM", "GAD"];
+      const datasets = farms.map(farm => ({
+        label: farm,
+        data: rows.map(r => r[farm] ?? 0),
+        backgroundColor: FARM_COLORS[farm] || "#888",
+        stack: "dim",
+      }));
+
+      lameDimChart = new Chart(canvas, {
+        type: "bar",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: {
+              display: true,
+              text: LAME_DIM_CHART_TITLE,
+            },
+            legend: { title: { display: true, text: "Farm" } },
+          },
+          scales: {
+            x: {
+              stacked: true,
+              title: { display: true, text: "DIM bin" },
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              title: { display: true, text: "Number of Lame Events" },
+            },
+          },
+        },
+      });
+    }
+
     function destroyDiseaseScatterChart() {
       if (diseaseScatterChart) {
         diseaseScatterChart.destroy();
@@ -1754,6 +2381,9 @@
         document.getElementById("summary-panel").style.display = "none";
         if (eventsChart) { eventsChart.destroy(); eventsChart = null; }
         destroyBreedingsSemenChart();
+        destroyLameEventsChart();
+        destroyLameProtocolsChart();
+        destroyLameDimChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -1770,6 +2400,27 @@
         document.getElementById("summary-panel").style.display = "none";
         if (eventsChart) { eventsChart.destroy(); eventsChart = null; }
         destroyBreedingsSemenChart();
+        destroyLameEventsChart();
+        destroyLameProtocolsChart();
+        destroyLameDimChart();
+        destroyDiseaseScatterChart();
+        destroyDiseaseIncidenceChart();
+        lastReportData = null;
+        return;
+      }
+
+      if (SHOW_HOOFTRIMMING_CHARTS && protocolOptions.length && !selectedProtocols().length) {
+        empty.style.display = "";
+        empty.textContent = "Please select at least one protocol.";
+        graphView.style.display = "none";
+        tableView.style.display = "none";
+        meta.textContent = "";
+        document.getElementById("summary-panel").style.display = "none";
+        if (eventsChart) { eventsChart.destroy(); eventsChart = null; }
+        destroyBreedingsSemenChart();
+        destroyLameEventsChart();
+        destroyLameProtocolsChart();
+        destroyLameDimChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -1785,6 +2436,9 @@
         document.getElementById("summary-panel").style.display = "none";
         if (eventsChart) { eventsChart.destroy(); eventsChart = null; }
         destroyBreedingsSemenChart();
+        destroyLameEventsChart();
+        destroyLameProtocolsChart();
+        destroyLameDimChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -1802,6 +2456,9 @@
         document.getElementById("summary-panel").style.display = "none";
         if (eventsChart) { eventsChart.destroy(); eventsChart = null; }
         destroyBreedingsSemenChart();
+        destroyLameEventsChart();
+        destroyLameProtocolsChart();
+        destroyLameDimChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -1819,9 +2476,11 @@
       }
 
       const params = appendYParams(appendFiscalYearParam(
-        appendDiseaseParams(
-          appendSemenParams(
-            appendParityParams(appendLactParams(appendDateParams(appendFarmParams(new URLSearchParams()))))
+        appendProtocolParams(
+          appendDiseaseParams(
+            appendSemenParams(
+              appendParityParams(appendLactParams(appendDateParams(appendFarmParams(new URLSearchParams()))))
+            )
           )
         )
       ));
@@ -1833,6 +2492,9 @@
         graphView.style.display = "none";
         tableView.style.display = "none";
         destroyBreedingsSemenChart();
+        destroyLameEventsChart();
+        destroyLameProtocolsChart();
+        destroyLameDimChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -1845,6 +2507,7 @@
         loadReport();
         return;
       }
+      syncProtocolOptionsFromData(data);
 
       if (data.fiscal_year_options) {
         renderFiscalYearOptions(data.fiscal_year_options);
@@ -1894,6 +2557,9 @@
         document.getElementById("summary-panel").style.display = "none";
         if (eventsChart) { eventsChart.destroy(); eventsChart = null; }
         destroyBreedingsSemenChart();
+        destroyLameEventsChart();
+        destroyLameProtocolsChart();
+        destroyLameDimChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -1929,10 +2595,16 @@
       if (viewMode() === "graph") {
         renderChart(data);
         renderBreedingsSemenChart(data);
+        renderLameEventsChart(data);
+        renderLameProtocolsChart(data);
+        renderLameDimChart(data);
         renderDiseaseScatterChart(data);
         renderDiseaseIncidenceChart(data);
       } else {
         destroyBreedingsSemenChart();
+        destroyLameEventsChart();
+        destroyLameProtocolsChart();
+        destroyLameDimChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
       }
@@ -2061,6 +2733,9 @@
     }
     if (SHOW_BREEDINGS_SEMEN_CHART) {
       bindSemenSlicers();
+    }
+    if (SHOW_HOOFTRIMMING_CHARTS) {
+      bindProtocolDropdown();
     }
     if (SHOW_DISEASE_FILTER) {
       document.getElementById("disease-select").addEventListener("change", loadReport);
