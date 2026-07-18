@@ -1,0 +1,1279 @@
+{
+  "version": 1,
+  "organisations": [
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "tenant_name": "H & S Forage",
+      "tenant_type": "ORGANISATION",
+      "dashboard_business": "H&S Forage",
+      "is_active": true
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "tenant_name": "Cwrt Malle Limited",
+      "tenant_type": "ORGANISATION",
+      "dashboard_business": "Cwrt Malle",
+      "is_active": true
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "tenant_name": "Green Acre Dairy",
+      "tenant_type": "ORGANISATION",
+      "dashboard_business": "Green Acre Dairy",
+      "is_active": true
+    }
+  ],
+  "budget_mappings": [
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "e71bf543-2089-4dfb-b455-6cec00d7b160",
+      "account_code": "5001",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Milk Sales",
+      "heading": "Milk Sales"
+    },
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "account_id": "36adcc18-200f-4e66-ade7-5f3e25c8176e",
+      "account_code": "5001",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Forage Sales",
+      "heading": "Forage Sales"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "9299b07c-3533-4445-9e3f-cb5fa0fbb1b1",
+      "account_code": "5003",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Forage Sales",
+      "heading": "Forage Sales"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "929d4980-4f64-4286-9f5f-a903c1d764a3",
+      "account_code": "205",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Forage Sales",
+      "heading": "Forage Sales"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "db547bc0-22bf-49da-89ca-77ebc6a72377",
+      "account_code": "5001.1",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Milk Deductions",
+      "heading": "Milk Deductions"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "93476399-d1c0-4b9e-bab7-e54b8ccef37b",
+      "account_code": "377",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Milk Deductions",
+      "heading": "Milk Deductions"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "96f30659-dbe1-4782-8b98-0c5627ae9bc2",
+      "account_code": "5002.1",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Livestock Sales",
+      "heading": "Breeding Stock"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "6ff46e50-a539-48fb-b845-2c84e909d4b5",
+      "account_code": "5002.4",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Livestock Sales",
+      "heading": "Beef Sales"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "c772d78e-bda8-48c2-83e5-df015da5bf7b",
+      "account_code": "202",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Livestock Sales",
+      "heading": "Beef Sales"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "0b9e2f13-70eb-44b9-a707-b1c092183f4c",
+      "account_code": "5002.5",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Livestock Sales",
+      "heading": "Beef Calves"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "c4caa861-d0cc-4728-822e-64448bc6936d",
+      "account_code": "5002.7",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Livestock Sales",
+      "heading": "Breeding Stock"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "3fd71166-c074-4250-9e6a-5a0392d03974",
+      "account_code": "5002.8",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Livestock Sales",
+      "heading": "Breeding Stock"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "96e54b23-d1e2-40fd-9439-c4461207dd2f",
+      "account_code": "5004",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Subsidies",
+      "heading": "Basic Payment Scheme"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "bb6f26cc-cfcf-4e18-bb45-0135df1161f4",
+      "account_code": "5005",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Misc Revenue",
+      "heading": "Misc Revenue"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "9bcde4ac-0802-4765-adce-f1ca6f2988e8",
+      "account_code": "260",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Misc Revenue",
+      "heading": "Misc Revenue"
+    },
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "account_id": "6eaa413c-3c04-42dd-ae4f-55087123b1a3",
+      "account_code": "5901",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Misc Revenue",
+      "heading": "Misc Revenue"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "5e77b8e0-bec1-4c7a-b8e8-3541c2699c21",
+      "account_code": "6011.2",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Feed",
+      "heading": "Dairy Concentrates"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "25ce4251-5e11-4457-a38d-a3ff1f92e7c8",
+      "account_code": "6022.1",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Feed",
+      "heading": "Youngstock Concentrates"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "8f7c57ea-1e05-4841-ac54-bb22d524af4b",
+      "account_code": "6022.2",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Feed",
+      "heading": "Minerals"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "a666a962-28a8-4236-b27f-25f1d2febc23",
+      "account_code": "391",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Feed",
+      "heading": "Minerals"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "fc8e50b0-0c5e-44ba-b06f-7fd17e95fcaf",
+      "account_code": "2002.2",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Feed",
+      "heading": "Minerals"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "9061052f-f173-46f2-b1ab-646c331285e6",
+      "account_code": "6022.3",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Feed",
+      "heading": "Straw Feed"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "5bec283c-a8d9-420f-bab3-92eaac913e21",
+      "account_code": "393",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Feed",
+      "heading": "Straw Feed"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "6bd71940-6180-4652-afea-8b2ca432efcd",
+      "account_code": "6023.1",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Seeds",
+      "heading": "Seeds"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "d649f399-3ae9-4f29-a9eb-41e4c625de81",
+      "account_code": "6023.2",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Fertiliser",
+      "heading": "Fertiliser"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "16ed6dea-b053-4697-919d-6fed78c4a952",
+      "account_code": "376",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Seeds",
+      "heading": "Seeds"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "3d7fb623-a19d-4597-bd14-1f446f1a3635",
+      "account_code": "381",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Fertiliser",
+      "heading": "Fertiliser"
+    },
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "account_id": "ab6d8601-979b-4317-83f5-7012416bef6b",
+      "account_code": "6041",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Seeds",
+      "heading": "Seeds"
+    },
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "account_id": "c7fd2515-921f-4df4-9a85-5dfdb54d3236",
+      "account_code": "6051",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Fertiliser",
+      "heading": "Fertiliser"
+    },
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "account_id": "8488a148-9106-44fb-aa03-8dc56a904887",
+      "account_code": "2003.3",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Seeds",
+      "heading": "Seeds"
+    },
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "account_id": "792773d9-876c-49bb-866c-5c992df2add1",
+      "account_code": "2003.2",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Fertiliser",
+      "heading": "Fertiliser"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "8fc8c438-cfbf-428e-b085-e6b9b0249df5",
+      "account_code": "6065",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Labour",
+      "heading": "Labour"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "9705cc2c-c730-4935-84d3-0ca0cdb2cba1",
+      "account_code": "385",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Labour",
+      "heading": "Labour"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "8350ce80-c942-410d-81bd-a3c1018160da",
+      "account_code": "6060",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Auctioneers Fees",
+      "heading": "Auctioneers Fees"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "62113d52-d458-4d54-b618-b159760d35de",
+      "account_code": "6073",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Haulage",
+      "heading": "Haulage"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "e33bba55-396a-47ff-a409-72ce9a1ed3ff",
+      "account_code": "378",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Haulage",
+      "heading": "Haulage"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "c5a754e1-1d77-4143-9078-19aefb237362",
+      "account_code": "6074",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Fallen Stock",
+      "heading": "Fallen Stock"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "13294902-7d17-435f-b4d9-d49f1a8caec9",
+      "account_code": "382",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Fallen Stock",
+      "heading": "Fallen Stock"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "9d969618-f71e-4c00-ace1-d493d7eb569f",
+      "account_code": "6075",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Sundry",
+      "heading": "Sundry"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "268b40c4-f203-494f-8c59-1c2db4be89fc",
+      "account_code": "374",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Sundry",
+      "heading": "Sundry"
+    },
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "account_id": "0835d539-14ef-4327-803a-6330de748355",
+      "account_code": "6071",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Sundry",
+      "heading": "Sundry"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "80c71321-1375-4817-bfc0-c20dd47fdb13",
+      "account_code": "6081.1",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bedding",
+      "heading": "Bedding Sawdust"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "408cc9c1-d7da-4f60-a8a9-b55bb2e399f5",
+      "account_code": "375",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bedding",
+      "heading": "Bedding Sawdust"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "849be092-9a1f-4dac-981f-9838524b3937",
+      "account_code": "6081.2",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bedding",
+      "heading": "Bedding Sand"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "d8db7ed0-e01c-45c0-a4b8-757e5777e5df",
+      "account_code": "6082",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Contract Rearing",
+      "heading": "Contract Rearing"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "16477e38-daf1-47ab-ae95-2b49da068df0",
+      "account_code": "384",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Contract Rearing",
+      "heading": "Contract Rearing"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "0b9336dc-29bd-4335-9063-6f4cb94ebb8f",
+      "account_code": "6057.2",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Dairy Chemicals",
+      "heading": "Dairy Chemicals"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "50d172da-d35b-419e-8e92-335c90369fd1",
+      "account_code": "6058",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Vet & Med",
+      "heading": "Vet & Med"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "ee166d17-d44e-4927-86e5-168f791a9e6e",
+      "account_code": "372",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Vet & Med",
+      "heading": "Vet & Med"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "944405a2-5924-45b9-82fd-70117b7f32ad",
+      "account_code": "6058.1",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Foot Trimming",
+      "heading": "Foot Trim"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "61cf8a72-0eec-4174-8b60-c5dc9f8d9d1b",
+      "account_code": "6059",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "AI Fees",
+      "heading": "AI Fees"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "55706df6-2e9e-4be0-8e0b-1c3929f14760",
+      "account_code": "408",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "AI Fees",
+      "heading": "AI Fees"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "b62b36c9-ecd2-4bc4-91c1-b5df096be2e7",
+      "account_code": "6059.1",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "AI Fees",
+      "heading": "AI Fees"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "3d41990e-e9d1-410d-8994-6bc34d5266e6",
+      "account_code": "8101.1",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Red Diesel"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "20eccea6-1b9b-4cc5-966e-ca83167a696a",
+      "account_code": "453",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Red Diesel"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "cf79070c-acaf-4a9f-815e-717c180d3ea1",
+      "account_code": "8101.2",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Vehicle Repairs"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "ae2fdb7e-9668-4e9b-8aa2-2908989f638c",
+      "account_code": "8101.3",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Veh' Tax & Ins"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "525cdae5-ced9-43b5-90fe-848917b72ba8",
+      "account_code": "8101.4",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Vehicle Fuel"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "4091d50f-df3f-4182-99e8-d1749f581a7e",
+      "account_code": "8101.5",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Oils & Greases"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "ed4d4b27-3d9e-45c6-bda9-8e66cc64ebe0",
+      "account_code": "451",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Oils & Greases"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "fd7404b2-0991-407c-80b9-6d949787bd4a",
+      "account_code": "8104",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Contracting"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "fd7f6f20-5be5-4c6f-b85e-9d2f9ba160c4",
+      "account_code": "449",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Contracting"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "02165e7a-f306-4d1a-be36-5ca9fefe05c7",
+      "account_code": "8221",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "Telephone"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "f5a9c0ee-6ad3-4873-8fff-2de61ccef86f",
+      "account_code": "8231",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "General Insurance"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "56195411-f013-4ee4-959d-0c3264e1f2f4",
+      "account_code": "429",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "General Insurance"
+    },
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "account_id": "cd39de69-22ad-429f-867a-af05b79f5839",
+      "account_code": "9101.1",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "General Insurance"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "d580bc12-0e06-429f-9280-5d26ac41b41f",
+      "account_code": "8241",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "Subscriptions"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "24eb0b80-e59b-45a4-8803-61b9ba37a92b",
+      "account_code": "485",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "Subscriptions"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "f8167634-4988-4f9e-9315-8e9e1837166f",
+      "account_code": "8251",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "Professional Fees"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "6b0a6a5a-f497-485f-b421-346d8d0c65bd",
+      "account_code": "441",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "Professional Fees"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "17e07ff4-47e2-42d2-8427-aa085a8f82af",
+      "account_code": "8252",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "Auditor Fees"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "72109c61-8199-40bb-9f4f-867cf4ec18c8",
+      "account_code": "8301",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Rent",
+      "heading": "Rent"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "6df57be4-f1fd-47c5-a317-9c2e30d14540",
+      "account_code": "466",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Rent",
+      "heading": "Rent"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "57ce12f9-2ed0-4fab-9b73-dcd881019727",
+      "account_code": "8311",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Property",
+      "heading": "Council Tax"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "7f2e687d-7ba3-4aa3-ba14-6ec6dafe66e7",
+      "account_code": "464",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Property",
+      "heading": "Council Tax"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "626e9eca-c89d-4f8d-bca5-eb56ffe8d5f9",
+      "account_code": "8321",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Property",
+      "heading": "Water Charges"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "062ac80f-8260-433f-9f13-a17edc0d77b9",
+      "account_code": "465",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Property",
+      "heading": "Water Charges"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "9c220335-8881-47a2-a990-a7360ad60a6a",
+      "account_code": "8331",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Electricity"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "acc91a2e-2f50-4fec-9afe-e47ba857387b",
+      "account_code": "8331.1",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Heating"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "6cdd7973-3a88-4690-bc84-32d83be84095",
+      "account_code": "8351",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "General Insurance"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "e0a9e100-9164-4807-a3c4-85da4db0e1e3",
+      "account_code": "8401.1",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Property",
+      "heading": "Building Repairs"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "92c6263d-7ad9-4fcb-a2ce-f9e703770b11",
+      "account_code": "473",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Property",
+      "heading": "Building Repairs"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "525a00df-3f5e-4e56-9918-16899bb07b30",
+      "account_code": "8401",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Machinery Reps"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "6aaa3d9a-80ea-4f2b-8ebb-5d2245d167aa",
+      "account_code": "8401.2",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Property",
+      "heading": "Fences & Yards"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "bb4ac7cd-3e9b-4e42-bd35-5e7e59216cff",
+      "account_code": "467",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Property",
+      "heading": "Fences & Yards"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "5fd178a2-56ef-4a7a-9bb5-e9bad88c73b6",
+      "account_code": "8401.3",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Property",
+      "heading": "Farmhouse Reps"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "673920a3-2747-40b2-9bb5-306c538fe1e4",
+      "account_code": "8402",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Parlour Maintenance"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "1c2fe472-c116-4565-97c3-4e9d8c7c2506",
+      "account_code": "452",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Parlour Maintenance"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "c784c198-330b-4931-b237-069b1a1c96a7",
+      "account_code": "9403",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Finance Costs",
+      "heading": "Loan Account Interest"
+    },
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "account_id": "5ebb0416-5b3a-4acb-bced-b7c66a6f1ec2",
+      "account_code": "9002",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Finance Costs",
+      "heading": "Loan Account Interest"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "9b150a48-28a6-4017-8d70-e744654e209e",
+      "account_code": "200",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Milk Sales",
+      "heading": "Milk Sales"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "82a36e5e-dbbf-4fee-88e8-e8b3a1512cfe",
+      "account_code": "201",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Livestock Sales",
+      "heading": "Beef Calves"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "e05cd425-a917-419d-bbef-3e6471abb7d0",
+      "account_code": "203",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Livestock Sales",
+      "heading": "Breeding Stock"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "86bd9cde-7480-4be8-a678-edfba1cca1de",
+      "account_code": "206",
+      "item_type": "Profit & Loss",
+      "band": "Sales",
+      "group": "Subsidies",
+      "heading": "Basic Payment Scheme"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "420230ce-b0ad-4a7c-aa43-6c0154f721c3",
+      "account_code": "379",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Forage Chemicals",
+      "heading": "Forage Chemicals"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "fb7c5e5f-b6f7-48e5-b291-7cb8094cb369",
+      "account_code": "380",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Foot Trimming",
+      "heading": "Foot Trim"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "314a74d7-5f8a-4a21-8a9c-25a28add646a",
+      "account_code": "383",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Dairy Chemicals",
+      "heading": "Dairy Chemicals"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "99a22b4d-2204-4a43-9d06-9b2a6215d499",
+      "account_code": "387",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Stock",
+      "heading": "Bought Stock"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "efe480f5-484d-4a69-b33b-64f0c9d59a67",
+      "account_code": "388",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Feed",
+      "heading": "Bulky Feed"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "182233fc-1ccf-4cb8-bb3a-d6985efe3f74",
+      "account_code": "394",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Feed",
+      "heading": "Dairy Concentrates"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "8671b8b3-7d98-4d03-b4f1-21e3f62259c8",
+      "account_code": "395",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Feed",
+      "heading": "Youngstock Concentrates"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "4a8109ca-676d-4112-bed4-467c70593ac9",
+      "account_code": "396",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bedding",
+      "heading": "Bedding Sawdust"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "973c473c-0311-41f4-979c-b321c3c81de0",
+      "account_code": "397",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bedding",
+      "heading": "Bedding Straw"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "79601b13-0af4-4361-ac7a-7defe30e8e9c",
+      "account_code": "399",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Auctioneers Fees",
+      "heading": "Auctioneers Fees"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "797772a2-077e-4593-9374-7c5213cf3734",
+      "account_code": "404",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Finance Costs",
+      "heading": "Current Account Charges"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "d66dcb30-8a91-43c9-ba13-218f307f3583",
+      "account_code": "409",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "AI Fees",
+      "heading": "AI Fees"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "f018056b-1279-4abd-91a0-385207a53309",
+      "account_code": "439",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Finance Costs",
+      "heading": "Loan Account Interest"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "c3a1915e-f2e3-4054-8db3-2125dea88070",
+      "account_code": "445",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Electricity"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "72c8f43d-edb3-4593-96a4-bf0b4153319c",
+      "account_code": "450",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Machinery Reps"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "e14cc75e-a0bb-45e2-a19f-2f04ac83cc0e",
+      "account_code": "454",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Vehicle Fuel"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "5b48ec9d-5468-4b67-b6f0-090b5d721331",
+      "account_code": "455",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Vehicle Repairs"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "fb1272b4-54f4-461e-86cf-94346fec78d7",
+      "account_code": "456",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Power & Machinery",
+      "heading": "Veh' Tax & Ins"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "8a542dc9-f917-4a30-a74b-e2c7cdddba15",
+      "account_code": "469",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Rent",
+      "heading": "Rent"
+    },
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "account_id": "25b956d6-7862-45b8-8340-a4ecedf09d30",
+      "account_code": "7090",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Rent",
+      "heading": "Rent"
+    },
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "account_id": "13880f45-5fcc-4aad-b363-3cbf950bd0a7",
+      "account_code": "6061",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Forage Chemicals",
+      "heading": "Forage Chemicals"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "c8a73c39-45bc-442b-8606-064ba7a9c3b2",
+      "account_code": "6022.6",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Feed",
+      "heading": "Dairy Concentrates"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "64202c5b-21f8-4bb2-b674-66805e600142",
+      "account_code": "8011.1",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Labour",
+      "heading": "Labour"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "429215b8-a3b0-4686-8e3a-42e3d121f2f4",
+      "account_code": "8011.2",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Labour",
+      "heading": "Labour"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "ba79fbd7-c644-42b1-821d-4dad96f3223d",
+      "account_code": "8011.3",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Labour",
+      "heading": "Labour"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "e1466656-fcb5-4774-ba64-3868371a4f5a",
+      "account_code": "8011.5",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Labour",
+      "heading": "Labour"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "7fb81a61-816d-42e3-bc0e-68c0ddfc6495",
+      "account_code": "259",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Rent",
+      "heading": "Rent"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "77bbb78c-6b7d-401a-829b-12b25b8e0b28",
+      "account_code": "270",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Finance Costs",
+      "heading": "Current Account Interest"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "66da1631-89f0-45e2-a136-c4dfb2167d9f",
+      "account_code": "320",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Labour",
+      "heading": "Labour"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "877bfb5a-2cc2-47c7-8efd-6526e72aa323",
+      "account_code": "438",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Finance Costs",
+      "heading": "HP Interest"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "d903fbfc-0299-4651-99dd-afc996ed632d",
+      "account_code": "WR1",
+      "item_type": "Profit & Loss",
+      "band": "Valuation Change",
+      "group": "Valuation Change",
+      "heading": "Stock Valuation Change"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "10c38375-ab57-404f-8703-f28e91d64a4b",
+      "account_code": "6022.4",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Feed",
+      "heading": "Bulky Feed"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "4c2441d4-2299-4701-a5e6-c7e7d7dc35cd",
+      "account_code": "373",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Sundry",
+      "heading": "Sundry"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "75dbdcf3-5bcc-4d65-8796-e92d28cc6a7a",
+      "account_code": "6069",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Sundry",
+      "heading": "Sundry"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "a59dc28c-71d0-4efd-beba-f97f2669b3a1",
+      "account_code": "425",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Sundry",
+      "heading": "Sundry"
+    },
+    {
+      "tenant_id": "11840c18-1680-4909-a193-6b751e37a8cd",
+      "account_id": "9635b618-b812-4e67-8f57-60fe21985445",
+      "account_code": "8402",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "Professional Fees"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "3f1ac767-ff4b-49ac-a79c-16a84c3423ae",
+      "account_code": "420",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "Office Admin"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "06dd9985-0fb5-43fa-9c93-109c197fdfdd",
+      "account_code": "386",
+      "item_type": "Profit & Loss",
+      "band": "Purchases",
+      "group": "Bought Stock",
+      "heading": "Bought Stock"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "7c6c44f0-841f-4551-ace4-5a157ea147cb",
+      "account_code": "424",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "Office Admin"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "8c63c856-50b9-406c-8d1d-eba715f903d4",
+      "account_code": "7506",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Property",
+      "heading": "Farmhouse Reps"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "e0c4babf-b188-4820-9076-63a764df7fe0",
+      "account_code": "325",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Property",
+      "heading": "Farmhouse Reps"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "c4935d51-d8a4-4b78-9a47-4defc021eb07",
+      "account_code": "401",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "Professional Fees"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "36c3d325-d9a6-46cd-885f-b1aa6f31f276",
+      "account_code": "8001",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Labour",
+      "heading": "Labour"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "4d8f448c-468a-40eb-bfe6-254b507b47ea",
+      "account_code": "8001.1",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Labour",
+      "heading": "Labour"
+    },
+    {
+      "tenant_id": "9d1bdff5-09b8-4427-ab66-656e6f7a0fd6",
+      "account_id": "535cc0c0-3804-440a-8bc2-c960d4868e2e",
+      "account_code": "6061",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
+      "heading": "Subscriptions"
+    }
+  ]
+}
