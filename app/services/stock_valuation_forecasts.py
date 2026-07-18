@@ -23,16 +23,20 @@ CATEGORY_DISPLAY_ORDER: tuple[str, ...] = ("Dairy", "Youngstock", "Beef")
 
 
 def monthly_valuation_change_gbp(farm_view: dict[str, Any]) -> float:
-    """Total valuation change for a farm/month: closing − opening grand total."""
+    """P&L valuation change for a farm/month: inverted (opening − closing).
+
+    Natural stock movement is closing − opening; we multiply by -1 on import so
+    profit can use Sales + Valuation Change − other costs.
+    """
     opening = float(farm_view.get("opening_grand_total_gbp") or 0)
     closing = float(farm_view.get("closing_grand_total_gbp") or 0)
-    return closing - opening
+    return opening - closing
 
 
 def build_stock_valuation_change_index_from_report(
     report: dict[str, Any],
 ) -> dict[tuple[str, dt.date], float]:
-    """Index (farm, month_start) → total valuation change £ from a valuations report."""
+    """Index (farm, month_start) → inverted valuation change £ for P&L autofill."""
     index: dict[tuple[str, dt.date], float] = {}
     for row in report.get("rows", []):
         month = dt.date.fromisoformat(row["month_start"])
@@ -46,7 +50,7 @@ def build_stock_valuation_change_index_from_report(
             # Skip months with no valuation footprint so autofill does not write zeros.
             if opening == 0 and closing == 0:
                 continue
-            index[(farm, month)] = closing - opening
+            index[(farm, month)] = opening - closing
     return index
 
 

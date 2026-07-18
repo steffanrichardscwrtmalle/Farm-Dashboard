@@ -22,6 +22,7 @@ from app.api.milk_statements_routes import router as milk_statements_api_router
 from app.api.events_routes import router as events_api_router
 from app.api.feed_rate_routes import router as feed_rate_api_router
 from app.api.feedlync_routes import router as feedlync_api_router
+from app.api.xero_routes import router as xero_api_router
 from app.api.stock_inventory_routes import router as stock_inventory_api_router
 from app.api.admin_routes import router as admin_api_router
 from app.api.herd_routes import router as herd_api_router
@@ -48,6 +49,7 @@ from app.auth.permissions import (
     PAGE_HR,
     PAGE_MILK_QUALITY,
     PAGE_OFFICE_ADMIN,
+    PAGE_XERO,
     PAGE_PROSTOCK,
     PAGE_STOCK_INVENTORY,
     PAGE_WYNNSTAY,
@@ -102,6 +104,7 @@ app.include_router(stock_inventory_api_router)
 app.include_router(events_api_router)
 app.include_router(feed_rate_api_router)
 app.include_router(feedlync_api_router)
+app.include_router(xero_api_router)
 app.include_router(office_admin_api_router)
 app.include_router(genetics_api_router)
 app.include_router(nml_api_router)
@@ -129,6 +132,10 @@ _FEED_RATE_BREADCRUMB = (
 _OFFICE_ADMIN_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/office-admin/sales-payments">Office Admin</a>'
+)
+_XERO_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/xero">Xero</a>'
 )
 _HR_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
@@ -261,6 +268,19 @@ def _office_admin_context(title: str, active_nav: str, page_name: str | None = N
         "title": title,
         "active_nav_group": "office-admin",
         "active_section": "office-admin",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _xero_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _XERO_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "xero",
+        "active_section": "xero",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -997,6 +1017,83 @@ def office_admin_purchases_page(request: Request):
             **_office_admin_context("Purchases", "purchases", "Purchases"),
         ),
     )
+
+
+@app.get("/xero", response_class=HTMLResponse)
+def xero_page(request: Request):
+    if denied := _page_guard(request, PAGE_XERO):
+        return denied
+    from app.models import BUSINESS_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "xero/index.html",
+        _template_ctx(
+            request,
+            page_heading="Xero",
+            business_options=list(BUSINESS_OPTIONS),
+            error=request.query_params.get("error"),
+            connected_flash=request.query_params.get("xero") == "connected",
+            **_xero_context("Xero", "xero", "Connection"),
+        ),
+    )
+
+
+@app.get("/xero/actual-data", response_class=HTMLResponse)
+def xero_actual_data_page(request: Request):
+    if denied := _page_guard(request, PAGE_XERO):
+        return denied
+    from app.models import BUSINESS_GROUP_OPTIONS, BUSINESS_OPTIONS
+    from app.services.xero_actuals import available_actual_fiscal_years
+
+    with SessionLocal() as db:
+        fiscal_year_options = available_actual_fiscal_years(db)
+
+    return templates.TemplateResponse(
+        request,
+        "xero/actual_data.html",
+        _template_ctx(
+            request,
+            page_heading="Actual Data",
+            business_options=list(BUSINESS_OPTIONS),
+            business_group_options=list(BUSINESS_GROUP_OPTIONS.keys()),
+            fiscal_year_options=fiscal_year_options,
+            **_xero_context("Actual Data", "actual-data", "Actual Data"),
+        ),
+    )
+
+
+@app.get("/xero/pnl", response_class=HTMLResponse)
+def xero_pnl_page(request: Request):
+    if denied := _page_guard(request, PAGE_XERO):
+        return denied
+    from app.models import BUSINESS_GROUP_OPTIONS, BUSINESS_OPTIONS
+    from app.services.xero_actuals import available_actual_fiscal_years
+
+    with SessionLocal() as db:
+        fiscal_year_options = available_actual_fiscal_years(db)
+
+    return templates.TemplateResponse(
+        request,
+        "xero/pnl.html",
+        _template_ctx(
+            request,
+            page_heading="P&L",
+            business_options=list(BUSINESS_OPTIONS),
+            business_group_options=list(BUSINESS_GROUP_OPTIONS.keys()),
+            fiscal_year_options=fiscal_year_options,
+            **_xero_context("P&L", "pnl", "P&L"),
+        ),
+    )
+
+
+@app.get("/office-admin/xero", response_class=HTMLResponse)
+def office_admin_xero_redirect(request: Request):
+    query = request.url.query
+    target = "/xero"
+    if query:
+        target = f"{target}?{query}"
+    return RedirectResponse(target, status_code=302)
 
 
 @app.get("/genetics/pedigree-registrations", response_class=HTMLResponse)

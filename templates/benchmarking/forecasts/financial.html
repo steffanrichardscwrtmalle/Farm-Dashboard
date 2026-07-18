@@ -1673,6 +1673,7 @@
       let runC = 0;
       let runL = 0;
       for (let i = 0; i < n; i += 1) {
+        // Valuation Change amounts are stored inverted (× -1 on import), then added here.
         monthlyProfit[i] = sales[i] + valuation[i] - otherPL[i];
         monthlyProfitExDep[i] = sales[i] + valuation[i] - otherPLExDep[i];
         monthlyCashflow[i] = salesForCash[i] - otherPLForCash[i] - cash[i];

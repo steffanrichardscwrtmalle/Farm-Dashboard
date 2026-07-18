@@ -12,7 +12,13 @@ from app.db import SessionLocal
 from app.models import User
 from app.auth.import_key import valid_import_key
 
-_PUBLIC_PATHS = frozenset({"/login", "/health", "/favicon.ico"})
+_PUBLIC_PATHS = frozenset({
+    "/login",
+    "/health",
+    "/favicon.ico",
+    # OAuth return from Xero — must work even if localhost/127.0.0.1 session differs.
+    "/api/xero/oauth/callback",
+})
 _PUBLIC_PREFIXES = ("/static",)
 _IMPORT_API_PREFIX = "/api/herd"
 _IMPORT_KEY_POST_PATHS = frozenset({

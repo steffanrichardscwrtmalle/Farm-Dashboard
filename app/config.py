@@ -175,6 +175,37 @@ FEEDLYNC_REDIRECT_URI = os.getenv(
     f"{PUBLIC_APP_URL}/api/feedlync/oauth/callback",
 ).strip()
 
+# Xero Accounting API (OAuth 2.0)
+XERO_CLIENT_ID = os.getenv("XERO_CLIENT_ID", "").strip()
+XERO_CLIENT_SECRET = os.getenv("XERO_CLIENT_SECRET", "").strip()
+XERO_AUTHORIZE_URL = os.getenv(
+    "XERO_AUTHORIZE_URL",
+    "https://login.xero.com/identity/connect/authorize",
+).strip()
+XERO_TOKEN_URL = os.getenv(
+    "XERO_TOKEN_URL",
+    "https://identity.xero.com/connect/token",
+).strip()
+XERO_CONNECTIONS_URL = os.getenv(
+    "XERO_CONNECTIONS_URL",
+    "https://api.xero.com/connections",
+).strip()
+XERO_API_BASE_URL = os.getenv(
+    "XERO_API_BASE_URL",
+    "https://api.xero.com/api.xro/2.0",
+).strip().rstrip("/")
+# Apps created on/after 2 Mar 2026 must use granular scopes (not accounting.transactions).
+XERO_SCOPES = os.getenv(
+    "XERO_SCOPES",
+    "openid profile email offline_access "
+    "accounting.invoices accounting.payments accounting.banktransactions "
+    "accounting.manualjournals accounting.contacts accounting.settings",
+).strip()
+XERO_REDIRECT_URI = os.getenv(
+    "XERO_REDIRECT_URI",
+    f"{PUBLIC_APP_URL}/api/xero/oauth/callback",
+).strip()
+
 # Unattended login (B2C self-asserted flow replication). The redirect URI here
 # must be one already registered by FeedLync for their SPA client; we intercept
 # the redirect server-side and never actually load the page.

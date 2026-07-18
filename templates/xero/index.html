@@ -1,0 +1,902 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+  main { max-width: 1100px; }
+  .stage-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .stage-card h2 {
+    margin: 0 0 0.35rem;
+    font-size: 1.05rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .stage-card p {
+    margin: 0 0 0.9rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .stage-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.12rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .stage-badge.todo { background: #eef2f6; color: #475569; }
+  .stage-badge.ready { background: #fef3c7; color: #92400e; }
+  .stage-badge.done { background: #dcfce7; color: #166534; }
+  .stage-badge.locked { background: #f3f4f6; color: #9ca3af; }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+  }
+  .meta-line {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    margin: 0.75rem 0 0;
+  }
+  .code-box {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.55rem 0.7rem;
+    word-break: break-all;
+  }
+  .error-banner, .ok-banner {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+  }
+  .error-banner {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+  }
+  .ok-banner {
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    color: #065f46;
+  }
+  .org-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .org-table th, .org-table td {
+    text-align: left;
+    padding: 0.55rem 0.4rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .org-table th {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+  }
+  .org-table select {
+    min-width: 11rem;
+    margin: 0;
+  }
+  .inactive {
+    opacity: 0.55;
+  }
+  .status-msg {
+    margin-top: 0.65rem;
+    font-size: 0.85rem;
+  }
+  .status-msg.error { color: var(--danger); }
+  .status-msg.ok { color: var(--accent); }
+  .map-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    align-items: end;
+    margin-bottom: 0.75rem;
+  }
+  .map-filters label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+  }
+  .map-filters select, .map-filters input[type="search"] {
+    margin: 0;
+    min-width: 10rem;
+  }
+  .map-filters .check-label {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.4rem;
+    text-transform: none;
+    font-size: 0.82rem;
+    letter-spacing: 0;
+    color: var(--text);
+    margin-bottom: 0.15rem;
+  }
+  .map-table-wrap {
+    max-height: 28rem;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .map-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+  .map-table th, .map-table td {
+    text-align: left;
+    padding: 0.45rem 0.4rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .map-table th {
+    position: sticky;
+    top: 0;
+    background: #f8fafc;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    z-index: 1;
+  }
+  .map-table select {
+    width: 100%;
+    min-width: 14rem;
+    margin: 0;
+    font-size: 0.8rem;
+  }
+  .map-table tr.unmapped {
+    background: #fff7ed;
+  }
+  .map-table tr.unmapped-pnl {
+    background: #ffedd5;
+  }
+  .map-table tr.suggested {
+    background: #eff6ff;
+  }
+  .map-heading-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 16rem;
+  }
+  .map-heading-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .map-heading-row select {
+    flex: 1;
+  }
+  .map-heading-row .small {
+    margin: 0;
+    white-space: nowrap;
+  }
+  .suggest-hint {
+    font-size: 0.72rem;
+    color: #1d4ed8;
+  }
+  .code-hint {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+  .summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    margin-top: 0.85rem;
+  }
+  .summary-table th, .summary-table td {
+    text-align: left;
+    padding: 0.5rem 0.4rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .summary-table th {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+  }
+  .summary-table td.num, .summary-table th.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+{% endblock %}
+
+{% block content %}
+  {% if error %}
+  <div class="error-banner">{{ error }}</div>
+  {% endif %}
+  {% if connected_flash %}
+  <div class="ok-banner">Xero connected. Organisations have been loaded — map them below.</div>
+  {% endif %}
+
+  <section class="stage-card" id="stage-1">
+    <h2>
+      <span class="stage-badge todo" id="stage-1-badge">Stage 1</span>
+      Connect Xero
+    </h2>
+    <p>
+      Authorise the dashboard against your Xero login. Select all three organisations
+      when Xero asks which ones to allow.
+    </p>
+    <div class="actions">
+      <a class="primary" id="connect-btn" href="/api/xero/oauth/start?return_to=/xero">
+        Connect to Xero
+      </a>
+      <button type="button" class="secondary" id="disconnect-btn" hidden>Disconnect</button>
+    </div>
+    <p class="meta-line" id="connect-meta">Checking connection…</p>
+    <p class="meta-line">Redirect URI registered on your Xero app must be exactly:</p>
+    <div class="code-box" id="redirect-uri">—</div>
+    <p class="meta-line">
+      For local testing, open the dashboard as <code>http://localhost:8000/xero</code>
+      (same host as the redirect URI). Then click Connect and approve all three organisations.
+    </p>
+  </section>
+
+  <section class="stage-card" id="stage-2">
+    <h2>
+      <span class="stage-badge locked" id="stage-2-badge">Stage 2</span>
+      Link organisations
+    </h2>
+    <p>
+      Map each Xero organisation to a dashboard business
+      (Cwrt Malle, Green Acre Dairy, H&amp;S Forage).
+    </p>
+    <div class="actions" style="margin-bottom:0.75rem;">
+      <button type="button" class="secondary" id="sync-orgs-btn" disabled>Refresh organisations</button>
+    </div>
+    <div id="orgs-empty" class="meta-line">Connect Xero first to load organisations.</div>
+    <div id="orgs-wrap" hidden>
+      <table class="org-table">
+        <thead>
+          <tr>
+            <th>Xero organisation</th>
+            <th>Status</th>
+            <th>Dashboard business</th>
+          </tr>
+        </thead>
+        <tbody id="orgs-body"></tbody>
+      </table>
+    </div>
+    <div class="status-msg" id="orgs-status" style="display:none;"></div>
+  </section>
+
+  <section class="stage-card" id="stage-3">
+    <h2>
+      <span class="stage-badge locked" id="stage-3-badge">Stage 3</span>
+      Sync invoices
+    </h2>
+    <p>
+      Pull sales invoices (ACCREC), bills (ACCPAY), account names, and manual journals
+      from each mapped organisation. Totals below exclude draft, deleted, and voided documents.
+    </p>
+    <div class="actions">
+      <button type="button" class="primary" id="sync-invoices-btn" disabled>Sync invoices &amp; journals</button>
+    </div>
+    <p class="meta-line" id="invoice-meta">Map organisations first, then sync.</p>
+    <div id="invoice-summary-wrap" hidden>
+      <table class="summary-table">
+        <thead>
+          <tr>
+            <th>Business</th>
+            <th class="num">Sales</th>
+            <th class="num">Sales total</th>
+            <th class="num">Bills</th>
+            <th class="num">Bills total</th>
+          </tr>
+        </thead>
+        <tbody id="invoice-summary-body"></tbody>
+      </table>
+    </div>
+    <div class="status-msg" id="invoice-status" style="display:none;"></div>
+  </section>
+
+  <section class="stage-card" id="stage-4">
+    <h2>
+      <span class="stage-badge locked" id="stage-4-badge">Stage 4</span>
+      Map budget headings
+    </h2>
+    <p>
+      Link each Xero category to a budget heading (from Financial Forecasts).
+      Only categories with financial activity (invoices/journals) are listed.
+      Categories are matched by <strong>name</strong> across businesses (codes differ between orgs).
+      Similar names are pre-selected as suggestions — confirm to save.
+    </p>
+    <div class="map-filters">
+      <label>
+        Show
+        <select id="map-filter-show">
+          <option value="unmapped_pnl" selected>Unmapped P&amp;L</option>
+          <option value="unmapped">All unmapped</option>
+          <option value="suggested">Suggestions to confirm</option>
+          <option value="mapped">Mapped only</option>
+          <option value="all">All accounts</option>
+        </select>
+      </label>
+      <label>
+        Business
+        <select id="map-filter-business">
+          <option value="">All businesses</option>
+          {% for opt in business_options %}
+          <option value="{{ opt }}">{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Search
+        <input type="search" id="map-filter-search" placeholder="Name or code…" />
+      </label>
+      <label class="check-label">
+        <input type="checkbox" id="map-apply-same-name" checked />
+        Also apply to same category name on other businesses
+      </label>
+      <button type="button" class="secondary" id="confirm-suggestions-btn">Confirm visible suggestions</button>
+    </div>
+    <p class="meta-line" id="map-meta" style="margin-top:0;">Sync accounts first to load categories.</p>
+    <div id="map-empty" class="meta-line">No Xero accounts loaded yet.</div>
+    <div id="map-wrap" class="map-table-wrap" hidden>
+      <table class="map-table">
+        <thead>
+          <tr>
+            <th>Business</th>
+            <th>Xero category</th>
+            <th>Class</th>
+            <th>Budget heading</th>
+          </tr>
+        </thead>
+        <tbody id="map-body"></tbody>
+      </table>
+    </div>
+    <div class="status-msg" id="map-status" style="display:none;"></div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const BUSINESS_OPTIONS = {{ business_options | tojson }};
+
+    function setBadge(el, state, label) {
+      el.className = `stage-badge ${state}`;
+      el.textContent = label;
+    }
+
+    function showStatus(text, ok) {
+      const el = document.getElementById("orgs-status");
+      el.style.display = "";
+      el.className = `status-msg ${ok ? "ok" : "error"}`;
+      el.textContent = text;
+    }
+
+    function showInvoiceStatus(text, ok) {
+      const el = document.getElementById("invoice-status");
+      el.style.display = "";
+      el.className = `status-msg ${ok ? "ok" : "error"}`;
+      el.textContent = text;
+    }
+
+    function showMapStatus(text, ok) {
+      const el = document.getElementById("map-status");
+      el.style.display = "";
+      el.className = `status-msg ${ok ? "ok" : "error"}`;
+      el.textContent = text;
+    }
+
+    let accountMapItems = [];
+    let headingOptions = [];
+
+    function headingSelectHtml(selectedId) {
+      const opts = [
+        `<option value="">— Not mapped —</option>`,
+        ...headingOptions.map(opt =>
+          `<option value="${opt.id}" ${String(opt.id) === String(selectedId || "") ? "selected" : ""}>${opt.label.replace(/</g, "&lt;")}</option>`
+        ),
+      ];
+      return opts.join("");
+    }
+
+    function filteredMapItems() {
+      const show = document.getElementById("map-filter-show").value;
+      const business = document.getElementById("map-filter-business").value;
+      const q = document.getElementById("map-filter-search").value.trim().toLowerCase();
+      return accountMapItems.filter(item => {
+        if (show === "unmapped_pnl" && !(!item.is_mapped && item.is_pnl && item.is_active !== false)) return false;
+        if (show === "unmapped" && !(!item.is_mapped && item.is_active !== false)) return false;
+        if (show === "suggested" && !(!item.is_mapped && item.suggestion)) return false;
+        if (show === "mapped" && !item.is_mapped) return false;
+        if (business && item.dashboard_business !== business) return false;
+        if (q) {
+          const hay = `${item.account_code || ""} ${item.account_name || ""} ${item.tenant_name || ""}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    }
+
+    function normalizeCategoryName(value) {
+      return String(value || "")
+        .toLowerCase()
+        .replace(/\([^)]*\)/g, " ")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim()
+        .replace(/\s+/g, " ");
+    }
+
+    async function saveAccountMapping(tenantId, accountId, accountName, mappingId, { quiet } = {}) {
+      const res = await fetch(
+        `/api/xero/account-mappings/${encodeURIComponent(tenantId)}/${encodeURIComponent(accountId)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mapping_id: mappingId }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.detail || "Failed to save mapping.");
+      }
+
+      let extra = 0;
+      const nameKey = normalizeCategoryName(accountName);
+      if (document.getElementById("map-apply-same-name").checked && nameKey) {
+        const twins = accountMapItems.filter(
+          item =>
+            normalizeCategoryName(item.account_name) === nameKey &&
+            !(item.tenant_id === tenantId && item.account_id === accountId) &&
+            item.mapping_id !== mappingId
+        );
+        for (const twin of twins) {
+          const twinRes = await fetch(
+            `/api/xero/account-mappings/${encodeURIComponent(twin.tenant_id)}/${encodeURIComponent(twin.account_id)}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ mapping_id: mappingId }),
+            }
+          );
+          if (twinRes.ok) extra += 1;
+        }
+      }
+
+      if (!quiet) {
+        const label = accountName || accountId;
+        showMapStatus(
+          mappingId
+            ? `Mapped ${label}${extra ? ` (+${extra} same name on other business${extra === 1 ? "" : "es"})` : ""}.`
+            : `Cleared mapping for ${label}.`,
+          true
+        );
+      }
+      return extra;
+    }
+
+    function renderAccountMappings() {
+      const body = document.getElementById("map-body");
+      const empty = document.getElementById("map-empty");
+      const wrap = document.getElementById("map-wrap");
+      const rows = filteredMapItems();
+      if (!accountMapItems.length) {
+        empty.hidden = false;
+        empty.textContent = "No Xero accounts loaded yet. Sync invoices & journals (or refresh account names) first.";
+        wrap.hidden = true;
+        body.innerHTML = "";
+        return;
+      }
+      empty.hidden = true;
+      wrap.hidden = false;
+      if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="4" class="meta-line" style="border:0;">No accounts match these filters.</td></tr>`;
+        return;
+      }
+      body.innerHTML = rows.map(item => {
+        const suggestion = item.suggestion;
+        const selectedId = item.is_mapped
+          ? item.mapping_id
+          : (suggestion ? suggestion.mapping_id : "");
+        const needsConfirm = !item.is_mapped && !!suggestion;
+        const rowClass = item.is_mapped
+          ? ""
+          : needsConfirm
+            ? "suggested"
+            : (item.is_pnl ? "unmapped-pnl" : "unmapped");
+        const suggestHint = needsConfirm
+          ? `<div class="suggest-hint">Suggested: ${String(suggestion.heading || "").replace(/</g, "&lt;")} — confirm to save</div>`
+          : "";
+        const encodedName = encodeURIComponent(item.account_name || "");
+        const confirmBtn = needsConfirm
+          ? `<button type="button" class="small secondary confirm-suggestion-btn"
+               data-tenant="${item.tenant_id}" data-account="${item.account_id}" data-name="${encodedName}"
+               data-mapping="${suggestion.mapping_id}">Confirm</button>`
+          : "";
+        return `
+          <tr class="${rowClass}" data-tenant="${item.tenant_id}" data-account="${item.account_id}">
+            <td>${item.dashboard_business || "—"}</td>
+            <td>
+              <strong>${item.account_name || "Unnamed"}</strong>
+              <span class="code-hint">${item.account_code || "no code"} · ${item.tenant_name || ""}</span>
+            </td>
+            <td>${item.account_class || "—"}</td>
+            <td>
+              <div class="map-heading-cell">
+                <div class="map-heading-row">
+                  <select data-tenant="${item.tenant_id}" data-account="${item.account_id}" data-name="${encodedName}" data-suggested="${needsConfirm ? "1" : "0"}">
+                    ${headingSelectHtml(selectedId)}
+                  </select>
+                  ${confirmBtn}
+                </div>
+                ${suggestHint}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      body.querySelectorAll("select[data-account]").forEach(select => {
+        select.addEventListener("change", async () => {
+          const tenantId = select.dataset.tenant;
+          const accountId = select.dataset.account;
+          const accountName = decodeURIComponent(select.dataset.name || "");
+          const mappingId = select.value ? Number(select.value) : null;
+          select.disabled = true;
+          try {
+            await saveAccountMapping(tenantId, accountId, accountName, mappingId);
+            await loadAccountMappings();
+            await loadStatus(false);
+          } catch (err) {
+            showMapStatus(String(err), false);
+            await loadAccountMappings();
+          } finally {
+            select.disabled = false;
+          }
+        });
+      });
+
+      body.querySelectorAll(".confirm-suggestion-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const tenantId = btn.dataset.tenant;
+          const accountId = btn.dataset.account;
+          const accountName = decodeURIComponent(btn.dataset.name || "");
+          const mappingId = Number(btn.dataset.mapping);
+          btn.disabled = true;
+          try {
+            await saveAccountMapping(tenantId, accountId, accountName, mappingId);
+            await loadAccountMappings();
+            await loadStatus(false);
+          } catch (err) {
+            showMapStatus(String(err), false);
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      });
+    }
+
+    async function loadAccountMappings() {
+      const res = await fetch("/api/xero/account-mappings");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        document.getElementById("map-meta").textContent = data.detail || "Failed to load account mappings.";
+        return;
+      }
+      accountMapItems = data.items || [];
+      headingOptions = data.heading_options || [];
+      const c = data.counts || {};
+      const suggested = accountMapItems.filter(i => !i.is_mapped && i.suggestion && i.is_active !== false).length;
+      document.getElementById("map-meta").textContent =
+        `${Number(c.accounts || 0).toLocaleString("en-GB")} accounts · ` +
+        `${Number(c.mapped || 0).toLocaleString("en-GB")} mapped · ` +
+        `${Number(c.unmapped_pnl || 0).toLocaleString("en-GB")} unmapped P&L · ` +
+        `${suggested.toLocaleString("en-GB")} suggestions ready to confirm`;
+      renderAccountMappings();
+    }
+
+    function formatMoney(value) {
+      const n = Number(value || 0);
+      return n.toLocaleString("en-GB", { style: "currency", currency: "GBP" });
+    }
+
+    function renderInvoiceSummary(invoices) {
+      const wrap = document.getElementById("invoice-summary-wrap");
+      const body = document.getElementById("invoice-summary-body");
+      const meta = document.getElementById("invoice-meta");
+      const rows = invoices?.by_business || [];
+      const count = invoices?.invoice_count || 0;
+      const lines = invoices?.line_count || 0;
+      const last = invoices?.last_synced_at
+        ? new Date(invoices.last_synced_at).toLocaleString("en-GB")
+        : null;
+
+      if (!count) {
+        wrap.hidden = true;
+        body.innerHTML = "";
+        meta.textContent = last
+          ? `Last sync ${last}. No invoices stored yet.`
+          : "No invoices synced yet.";
+        return;
+      }
+
+      meta.textContent =
+        `${count.toLocaleString("en-GB")} invoices · ${lines.toLocaleString("en-GB")} lines` +
+        (last ? ` · last sync ${last}` : "") +
+        `. Totals use statuses: ${(invoices.included_statuses || []).join(", ")}.`;
+
+      wrap.hidden = false;
+      body.innerHTML = rows.map(row => `
+        <tr>
+          <td>${row.dashboard_business}</td>
+          <td class="num">${Number(row.sales_count || 0).toLocaleString("en-GB")}</td>
+          <td class="num">${formatMoney(row.sales_total)}</td>
+          <td class="num">${Number(row.bills_count || 0).toLocaleString("en-GB")}</td>
+          <td class="num">${formatMoney(row.bills_total)}</td>
+        </tr>
+      `).join("");
+    }
+
+    function renderOrganisations(orgs) {
+      const body = document.getElementById("orgs-body");
+      const empty = document.getElementById("orgs-empty");
+      const wrap = document.getElementById("orgs-wrap");
+      if (!orgs.length) {
+        empty.hidden = false;
+        empty.textContent = "No organisations returned from Xero yet. Click Refresh organisations after connecting.";
+        wrap.hidden = true;
+        body.innerHTML = "";
+        return;
+      }
+      empty.hidden = true;
+      wrap.hidden = false;
+      body.innerHTML = orgs.map(org => {
+        const options = [
+          `<option value="">— Not mapped —</option>`,
+          ...BUSINESS_OPTIONS.map(opt =>
+            `<option value="${opt.replace(/"/g, "&quot;")}" ${org.dashboard_business === opt ? "selected" : ""}>${opt}</option>`
+          ),
+        ].join("");
+        return `
+          <tr class="${org.is_active ? "" : "inactive"}">
+            <td>
+              <strong>${org.tenant_name || org.tenant_id}</strong>
+              <div class="meta-line" style="margin:0.2rem 0 0;">${org.tenant_id}</div>
+            </td>
+            <td>${org.is_active ? "Active" : "Inactive"}</td>
+            <td>
+              <select data-tenant="${org.tenant_id}">
+                ${options}
+              </select>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      body.querySelectorAll("select[data-tenant]").forEach(select => {
+        select.addEventListener("change", async () => {
+          const tenantId = select.dataset.tenant;
+          const value = select.value || null;
+          select.disabled = true;
+          try {
+            const res = await fetch(`/api/xero/organisations/${encodeURIComponent(tenantId)}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ dashboard_business: value }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              showStatus(data.detail || "Failed to save mapping.", false);
+              await loadStatus();
+              return;
+            }
+            showStatus(`Mapped ${data.tenant_name} → ${data.dashboard_business || "unmapped"}.`, true);
+            await loadStatus();
+          } catch (err) {
+            showStatus(String(err), false);
+          } finally {
+            select.disabled = false;
+          }
+        });
+      });
+    }
+
+    async function loadStatus(reloadMaps = true) {
+      const res = await fetch("/api/xero/status");
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("connect-meta").textContent = data.detail || "Failed to load Xero status.";
+        return;
+      }
+
+      document.getElementById("redirect-uri").textContent = data.redirect_uri || "—";
+
+      const stage1 = data.stages["1_connect"];
+      const stage2 = data.stages["2_organisations"];
+      const stage3 = data.stages["3_sync"];
+      const stage4 = data.stages["4_budget_map"] || { ready: false, done: false };
+
+      if (stage1.done) {
+        setBadge(document.getElementById("stage-1-badge"), "done", "Done");
+      } else if (stage1.ready) {
+        setBadge(document.getElementById("stage-1-badge"), "ready", "Ready");
+      } else {
+        setBadge(document.getElementById("stage-1-badge"), "todo", "Setup needed");
+      }
+
+      if (stage2.done) {
+        setBadge(document.getElementById("stage-2-badge"), "done", "Done");
+      } else if (stage2.ready) {
+        setBadge(document.getElementById("stage-2-badge"), "ready", "Ready");
+      } else {
+        setBadge(document.getElementById("stage-2-badge"), "locked", "Locked");
+      }
+
+      if (stage3.done) {
+        setBadge(document.getElementById("stage-3-badge"), "done", "Done");
+      } else if (stage3.ready) {
+        setBadge(document.getElementById("stage-3-badge"), "ready", "Ready");
+      } else {
+        setBadge(document.getElementById("stage-3-badge"), "locked", "Locked");
+      }
+
+      if (stage4.done) {
+        setBadge(document.getElementById("stage-4-badge"), "done", "Done");
+      } else if (stage4.ready) {
+        setBadge(document.getElementById("stage-4-badge"), "ready", "Ready");
+      } else {
+        setBadge(document.getElementById("stage-4-badge"), "locked", "Locked");
+      }
+
+      const connectBtn = document.getElementById("connect-btn");
+      const disconnectBtn = document.getElementById("disconnect-btn");
+      const syncBtn = document.getElementById("sync-orgs-btn");
+      const syncInvoicesBtn = document.getElementById("sync-invoices-btn");
+      connectBtn.hidden = !data.credentials_configured;
+      connectBtn.textContent = data.connected ? "Reconnect Xero" : "Connect to Xero";
+      disconnectBtn.hidden = !data.connected;
+      syncBtn.disabled = !data.connected;
+      syncInvoicesBtn.disabled = !stage3.ready;
+
+      if (!data.credentials_configured) {
+        document.getElementById("connect-meta").textContent =
+          "Set XERO_CLIENT_ID and XERO_CLIENT_SECRET on the server, then refresh this page.";
+      } else if (data.connected) {
+        const bm = data.budget_mappings || {};
+        document.getElementById("connect-meta").textContent =
+          `Connected${data.connected_at ? ` since ${new Date(data.connected_at).toLocaleString("en-GB")}` : ""}. ` +
+          `${data.organisation_count} organisation(s), ${data.mapped_count} mapped` +
+          (bm.unmapped_pnl != null ? ` · ${bm.unmapped_pnl} unmapped P&L categories` : "") +
+          ".";
+      } else {
+        document.getElementById("connect-meta").textContent =
+          "Credentials are configured. Click Connect to Xero and approve access for all three organisations.";
+      }
+
+      renderOrganisations(data.organisations || []);
+      renderInvoiceSummary(data.invoices || {});
+      if (reloadMaps) await loadAccountMappings();
+    }
+
+    document.getElementById("sync-orgs-btn").addEventListener("click", async () => {
+      const btn = document.getElementById("sync-orgs-btn");
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/xero/organisations/sync", { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showStatus(data.detail || "Failed to refresh organisations.", false);
+          return;
+        }
+        showStatus(`Loaded ${data.count} organisation(s) from Xero.`, true);
+        await loadStatus();
+      } catch (err) {
+        showStatus(String(err), false);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("disconnect-btn").addEventListener("click", async () => {
+      if (!confirm("Disconnect Xero from this dashboard?")) return;
+      const res = await fetch("/api/xero/disconnect", { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showStatus(data.detail || "Failed to disconnect.", false);
+        return;
+      }
+      showStatus("Xero disconnected.", true);
+      await loadStatus();
+    });
+
+    document.getElementById("sync-invoices-btn").addEventListener("click", async () => {
+      const btn = document.getElementById("sync-invoices-btn");
+      btn.disabled = true;
+      btn.textContent = "Syncing…";
+      showInvoiceStatus("Syncing invoices, accounts, and journals from Xero. This can take a few minutes…", true);
+      try {
+        const res = await fetch("/api/xero/invoices/sync", { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showInvoiceStatus(data.detail || "Invoice sync failed.", false);
+          return;
+        }
+        const parts = (data.organisations || []).map(
+          o => `${o.tenant_name}: ${Number(o.fetched || 0).toLocaleString("en-GB")}`
+        );
+        showInvoiceStatus(
+          `Synced ${Number(data.fetched_total || 0).toLocaleString("en-GB")} invoices` +
+            ` and ${Number(data.journals_fetched_total || 0).toLocaleString("en-GB")} journals` +
+            (parts.length ? ` (${parts.join("; ")})` : "") +
+            ".",
+          true
+        );
+        await loadStatus();
+      } catch (err) {
+        showInvoiceStatus(String(err), false);
+      } finally {
+        btn.textContent = "Sync invoices & journals";
+        const statusRes = await fetch("/api/xero/status");
+        const statusData = await statusRes.json().catch(() => ({}));
+        btn.disabled = !(statusData.stages && statusData.stages["3_sync"] && statusData.stages["3_sync"].ready);
+      }
+    });
+
+    document.getElementById("map-filter-show").addEventListener("change", renderAccountMappings);
+    document.getElementById("map-filter-business").addEventListener("change", renderAccountMappings);
+    document.getElementById("map-filter-search").addEventListener("input", renderAccountMappings);
+
+    document.getElementById("confirm-suggestions-btn").addEventListener("click", async () => {
+      const rows = filteredMapItems().filter(item => !item.is_mapped && item.suggestion);
+      if (!rows.length) {
+        showMapStatus("No visible suggestions to confirm.", false);
+        return;
+      }
+      if (!confirm(`Confirm ${rows.length} suggested mapping${rows.length === 1 ? "" : "s"}?`)) return;
+      const btn = document.getElementById("confirm-suggestions-btn");
+      btn.disabled = true;
+      let saved = 0;
+      try {
+        for (const item of rows) {
+          await saveAccountMapping(
+            item.tenant_id,
+            item.account_id,
+            item.account_name || "",
+            item.suggestion.mapping_id,
+            { quiet: true }
+          );
+          saved += 1;
+        }
+        showMapStatus(`Confirmed ${saved} suggested mapping${saved === 1 ? "" : "s"}.`, true);
+        await loadAccountMappings();
+        await loadStatus(false);
+      } catch (err) {
+        showMapStatus(String(err), false);
+        await loadAccountMappings();
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    loadStatus();
+  </script>
+{% endblock %}

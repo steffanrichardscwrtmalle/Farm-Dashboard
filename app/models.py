@@ -13,6 +13,10 @@ class Base(DeclarativeBase):
 
 BUSINESS_OPTIONS: tuple[str, ...] = ("Cwrt Malle", "Green Acre Dairy", "H&S Forage")
 DEFAULT_BUSINESS = "Cwrt Malle"
+# Named groups for consolidated Actual Data / reporting views.
+BUSINESS_GROUP_OPTIONS: dict[str, tuple[str, ...]] = {
+    "Cwrt Malle + H&S Forage": ("Cwrt Malle", "H&S Forage"),
+}
 
 SUPPLIER_WYNNSTAY = "wynnstay"
 SUPPLIER_PROSTOCK = "prostock"
@@ -510,6 +514,206 @@ class FeedlyncAuth(Base):
     connected_by_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=True
     )
+
+
+class XeroAuth(Base):
+    """Stored Xero OAuth tokens (singleton row id=1)."""
+
+    __tablename__ = "xero_auth"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    refresh_token: Mapped[str] = mapped_column(Text)
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    access_token_expires_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    connected_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    connected_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+
+
+class XeroOrganisation(Base):
+    """Xero tenant (organisation) linked after OAuth, mapped to a dashboard business."""
+
+    __tablename__ = "xero_organisations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    tenant_name: Mapped[str] = mapped_column(String(255), default="")
+    tenant_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    dashboard_business: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    connected_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class XeroInvoice(Base):
+    """Xero sales invoice (ACCREC) or bill (ACCPAY) header."""
+
+    __tablename__ = "xero_invoices"
+    __table_args__ = (UniqueConstraint("tenant_id", "invoice_id", name="uq_xero_invoice"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    invoice_id: Mapped[str] = mapped_column(String(64), index=True)
+    invoice_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    invoice_type: Mapped[str] = mapped_column(String(16), index=True)  # ACCREC / ACCPAY
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    currency_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    invoice_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True, index=True)
+    due_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    sub_total: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_tax: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total: Mapped[float | None] = mapped_column(Float, nullable=True)
+    amount_due: Mapped[float | None] = mapped_column(Float, nullable=True)
+    amount_paid: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dashboard_business: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    xero_updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    synced_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+    lines: Mapped[list[XeroInvoiceLine]] = relationship(
+        back_populates="invoice", cascade="all, delete-orphan"
+    )
+
+
+class XeroInvoiceLine(Base):
+    """Line item from a Xero invoice/bill — account codes drive budget vs actual."""
+
+    __tablename__ = "xero_invoice_lines"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "line_item_id", name="uq_xero_invoice_line"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    invoice_pk: Mapped[int] = mapped_column(
+        ForeignKey("xero_invoices.id", ondelete="CASCADE"), index=True
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    line_item_id: Mapped[str] = mapped_column(String(64), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    line_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tax_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    account_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    account_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tax_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    invoice: Mapped[XeroInvoice] = relationship(back_populates="lines")
+
+
+class XeroAccount(Base):
+    """Xero chart of accounts — maps account codes to category names."""
+
+    __tablename__ = "xero_accounts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "account_id", name="uq_xero_account"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    account_id: Mapped[str] = mapped_column(String(64), index=True)
+    code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    account_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    account_class: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    synced_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+
+class XeroAccountBudgetMapping(Base):
+    """Maps a Xero account (per tenant) to a financial budget heading."""
+
+    __tablename__ = "xero_account_budget_mappings"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "account_id",
+            name="uq_xero_account_budget_mapping",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    account_id: Mapped[str] = mapped_column(String(64), index=True)
+    account_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    mapping_id: Mapped[int] = mapped_column(
+        ForeignKey("financial_forecast_mappings.id", ondelete="CASCADE"),
+        index=True,
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class XeroManualJournal(Base):
+    """Xero manual journal header (posted journals feed Actual Data)."""
+
+    __tablename__ = "xero_manual_journals"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "manual_journal_id", name="uq_xero_manual_journal"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    manual_journal_id: Mapped[str] = mapped_column(String(64), index=True)
+    narration: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    journal_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True, index=True)
+    dashboard_business: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    xero_updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    synced_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+    lines: Mapped[list[XeroManualJournalLine]] = relationship(
+        back_populates="journal", cascade="all, delete-orphan"
+    )
+
+
+class XeroManualJournalLine(Base):
+    """Line on a Xero manual journal."""
+
+    __tablename__ = "xero_manual_journal_lines"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "manual_journal_id",
+            "line_index",
+            name="uq_xero_manual_journal_line",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    journal_pk: Mapped[int] = mapped_column(
+        ForeignKey("xero_manual_journals.id", ondelete="CASCADE"), index=True
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    manual_journal_id: Mapped[str] = mapped_column(String(64), index=True)
+    line_index: Mapped[int] = mapped_column(Integer)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    line_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    account_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    account_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tax_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    journal: Mapped[XeroManualJournal] = relationship(back_populates="lines")
 
 
 class CowEvent(Base):

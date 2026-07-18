@@ -14,6 +14,7 @@ PAGE_STOCK_INVENTORY = "stock_inventory"
 PAGE_EVENTS = "events"
 PAGE_FEED_RATE = "feed_rate"
 PAGE_OFFICE_ADMIN = "office_admin"
+PAGE_XERO = "xero"
 PAGE_GENETICS = "genetics"
 PAGE_MILK_QUALITY = "milk_quality"
 PAGE_CATTLE_SALES = "cattle_sales"
@@ -27,6 +28,7 @@ PAGE_KEYS: tuple[str, ...] = (
     PAGE_EVENTS,
     PAGE_FEED_RATE,
     PAGE_OFFICE_ADMIN,
+    PAGE_XERO,
     PAGE_GENETICS,
     PAGE_MILK_QUALITY,
     PAGE_CATTLE_SALES,
@@ -41,6 +43,7 @@ PAGE_LABELS: dict[str, str] = {
     PAGE_EVENTS: "Events",
     PAGE_FEED_RATE: "Feed Rate",
     PAGE_OFFICE_ADMIN: "Office Admin",
+    PAGE_XERO: "Xero",
     PAGE_GENETICS: "Genetics",
     PAGE_MILK_QUALITY: "Milk Sales",
     PAGE_CATTLE_SALES: "Cattle Sales",
@@ -193,7 +196,13 @@ def has_page(user: User | None, page_key: str) -> bool:
         return False
     if is_admin(user.role):
         return True
-    return page_key in parse_permissions(user.permissions).get("pages", [])
+    pages = parse_permissions(user.permissions).get("pages", [])
+    if page_key in pages:
+        return True
+    # Xero is a top-level section; allow Office Admin users during rollout.
+    if page_key == PAGE_XERO and PAGE_OFFICE_ADMIN in pages:
+        return True
+    return False
 
 
 def has_action(user: User | None, action_key: str) -> bool:

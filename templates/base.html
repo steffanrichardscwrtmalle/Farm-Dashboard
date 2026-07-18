@@ -552,6 +552,25 @@
           </div>
           {% endif %}
 
+          {% if perms.page('xero') %}
+          <div class="nav-group{% if active_nav_group == 'xero' %} expanded{% endif %}" data-nav-group="xero">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'xero' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'xero' %}true{% else %}false{% endif %}"
+              aria-controls="xero-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">Xero</span>
+            </button>
+            <div class="nav-group-items" id="xero-nav-items">
+              <a href="/xero" class="{% if active_nav == 'xero' %}active{% endif %}">Connection</a>
+              <a href="/xero/actual-data" class="{% if active_nav == 'actual-data' %}active{% endif %}">Actual Data</a>
+              <a href="/xero/pnl" class="{% if active_nav == 'pnl' %}active{% endif %}">P&amp;L</a>
+            </div>
+          </div>
+          {% endif %}
+
           {% if perms.page('genetics') %}
           <div class="nav-group{% if active_nav_group == 'genetics' %} expanded{% endif %}" data-nav-group="genetics">
             <button
@@ -896,6 +915,9 @@
           }
           if (group === "office-admin" && !window.location.pathname.startsWith("/office-admin")) {
             window.location.href = "/office-admin/sales-payments";
+          }
+          if (group === "xero" && !window.location.pathname.startsWith("/xero")) {
+            window.location.href = "/xero";
           }
           if (group === "genetics" && !window.location.pathname.startsWith("/genetics")) {
             window.location.href = "/genetics/genomic-progress";

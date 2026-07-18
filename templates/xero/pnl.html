@@ -1,0 +1,990 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+  main { max-width: none; }
+  .filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: end;
+    margin-bottom: 0.85rem;
+  }
+  .filters label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+  }
+  .filters select { min-width: 11rem; margin: 0; }
+  .range-panel {
+    display: none;
+    flex-basis: 100%;
+    max-width: 28rem;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card);
+  }
+  .range-panel.visible { display: block; }
+  .range-panel .range-title {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    margin: 0 0 0.45rem;
+  }
+  .range-panel .date-inputs {
+    display: grid;
+    gap: 0.45rem;
+  }
+  .range-panel .date-inputs label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    flex-direction: row;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.82rem;
+    color: var(--text);
+  }
+  .range-panel .date-inputs input[type="range"] {
+    width: 100%;
+    margin: 0;
+  }
+  .range-panel .month-label {
+    font-weight: 600;
+    min-width: 4.5rem;
+    text-align: right;
+  }
+  .range-panel .range-hint {
+    margin: 0.4rem 0 0;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .meta-line {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    margin: 0 0 0.85rem;
+  }
+  .check-label {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 0.4rem !important;
+    text-transform: none !important;
+    font-size: 0.82rem !important;
+    letter-spacing: 0 !important;
+    color: var(--text) !important;
+    margin-bottom: 0.15rem;
+  }
+  .grid-scroll {
+    overflow: auto;
+    max-width: 100%;
+    width: fit-content;
+    max-height: calc(100vh - 14rem);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card);
+  }
+  .pnl-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.78rem;
+    width: max-content;
+    table-layout: auto;
+  }
+  .pnl-table .col-month {
+    min-width: 4.25rem;
+  }
+  .pnl-table th, .pnl-table td {
+    padding: 0.18rem 0.4rem;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    background: var(--card);
+    line-height: 1.2;
+  }
+  .pnl-table th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+  }
+  .pnl-table .sticky-col {
+    position: sticky;
+    z-index: 2;
+    background: #fff;
+  }
+  .pnl-table th.sticky-col {
+    z-index: 4;
+    background: #f8fafc;
+  }
+  .pnl-table .col-group { left: 0; min-width: 8rem; }
+  .pnl-table .col-heading { left: 8rem; min-width: 12rem; }
+  .pnl-table .col-month-a { background: #e8f1fa; }
+  .pnl-table .col-month-b { background: #f1f3f5; }
+  .pnl-table .col-month-a.col-forecast { background: #faf3e8; }
+  .pnl-table .col-month-b.col-forecast { background: #f3ebe0; }
+  .pnl-table th.col-month-a.col-forecast { background: #f0e6d4; font-style: italic; }
+  .pnl-table th.col-month-b.col-forecast { background: #e8dcc8; font-style: italic; }
+  .pnl-table .col-total { background: #ffedd5; }
+  .pnl-table .col-ppl { background: #dcfce7; }
+  .pnl-table .col-budget { background: #fef3c7; }
+  .pnl-table .col-budget-ppl { background: #ccfbf1; }
+  .pnl-table .col-diff { background: #fce7f3; }
+  .pnl-table .col-diff-ppl { background: #fae8ff; }
+  .pnl-table th.col-month-a { background: #d9e8f6; }
+  .pnl-table th.col-month-b { background: #e5e7eb; }
+  .pnl-table th.col-total { background: #fed7aa; }
+  .pnl-table th.col-ppl { background: #bbf7d0; }
+  .pnl-table th.col-budget { background: #fde68a; }
+  .pnl-table th.col-budget-ppl { background: #99f6e4; }
+  .pnl-table th.col-diff { background: #fbcfe8; }
+  .pnl-table th.col-diff-ppl { background: #f5d0fe; }
+  .pnl-table .col-summary {
+    width: 1%;
+    max-width: 5.5rem;
+    padding-left: 0.3rem;
+    padding-right: 0.3rem;
+    white-space: nowrap;
+  }
+  .pnl-table th.col-summary {
+    white-space: normal;
+    line-height: 1.15;
+    max-width: 4.5rem;
+    vertical-align: bottom;
+  }
+  .pnl-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .pnl-table td.col-month {
+    cursor: default;
+  }
+  .pnl-table .neg { color: var(--danger); }
+  .pnl-table tr.data-row .sticky-col { background: #eef6ff; }
+  .pnl-table tr.zero-row { opacity: 0.45; }
+  .pnl-table tr.band-row td {
+    border-bottom: none;
+    padding-top: 0.55rem;
+    padding-bottom: 0.1rem;
+  }
+  .pnl-table tr.band-row .sticky-col,
+  .pnl-table tr.band-row td.band-label {
+    background: #fff;
+  }
+  .pnl-table tr.band-row td.band-label {
+    left: 0;
+    min-width: 20rem;
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+    letter-spacing: 0.01em;
+  }
+  .pnl-table tr.profit-row td {
+    font-weight: 700;
+    border-top: 1px solid #cbd5e1;
+  }
+  .pnl-table tr.profit-row .sticky-col { background: #f8fafc; }
+  .pnl-table tr.profit-row td.profit-label {
+    left: 0;
+    min-width: 20rem;
+    white-space: normal;
+  }
+  .unmapped-note {
+    margin-top: 0.75rem;
+    font-size: 0.82rem;
+    color: #9a3412;
+  }
+{% endblock %}
+
+{% block content %}
+  <div class="filters">
+    <label>
+      Business
+      <select id="business-select">
+        <option value="">All businesses</option>
+        {% for opt in business_group_options %}
+        <option value="{{ opt }}">{{ opt }}</option>
+        {% endfor %}
+        {% for opt in business_options %}
+        <option value="{{ opt }}">{{ opt }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Fiscal year
+      <select id="fiscal-year-select">
+        {% for year in fiscal_year_options %}
+        <option value="{{ year }}">FY {{ year }}</option>
+        {% endfor %}
+        <option value="range">Range…</option>
+      </select>
+    </label>
+    <label id="completed-through-label">
+      Completed through
+      <select id="completed-month-select"></select>
+    </label>
+    <label class="check-label">
+      <input type="checkbox" id="hide-zero-rows" checked />
+      Hide zero rows
+    </label>
+    <label class="check-label">
+      <input type="checkbox" id="show-budget" />
+      Show budget
+    </label>
+    <label class="check-label" id="show-forecast-label">
+      <input type="checkbox" id="show-forecast" />
+      Show forecast
+    </label>
+    <div class="range-panel" id="range-panel" hidden>
+      <p class="range-title">Month range</p>
+      <div class="date-inputs">
+        <label>
+          From
+          <span class="month-label" id="range-from-label">—</span>
+        </label>
+        <input type="range" id="range-from" min="0" max="0" value="0" />
+        <label>
+          To
+          <span class="month-label" id="range-to-label">—</span>
+        </label>
+        <input type="range" id="range-to" min="0" max="0" value="0" />
+      </div>
+      <p class="range-hint" id="range-hint">Select any rolling window (e.g. 12 months) across fiscal years.</p>
+    </div>
+  </div>
+  <p class="meta-line" id="meta-line">Loading P&amp;L…</p>
+  <div class="grid-scroll">
+    <table class="pnl-table">
+      <thead id="pnl-head"></thead>
+      <tbody id="pnl-body"></tbody>
+    </table>
+  </div>
+  <p class="unmapped-note" id="unmapped-note" hidden></p>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const money = new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: "GBP",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    });
+    const litresFmt = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 0 });
+    const pplFmt = new Intl.NumberFormat("en-GB", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+    let pnlData = null;
+    let rangeMonthOptions = [];
+    let rangeLoadTimer = null;
+
+    function esc(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function formatAmount(value, isCurrency) {
+      if (value == null || value === "") return "—";
+      const n = Number(value);
+      if (!Number.isFinite(n)) return "—";
+      if (!n) return isCurrency ? money.format(0) : "0";
+      return isCurrency ? money.format(n) : litresFmt.format(n);
+    }
+
+    function formatPpl(amount, litres) {
+      if (!litres) return "—";
+      const n = Number(amount) || 0;
+      return pplFmt.format((n * 100) / litres);
+    }
+
+    function computeGroupSpans(rows) {
+      return rows.map((row, idx) => {
+        const prev = rows[idx - 1];
+        const showGroup = !prev || prev.band !== row.band || prev.group !== row.group;
+        let groupSpan = 1;
+        if (showGroup) {
+          for (
+            let i = idx + 1;
+            i < rows.length && rows[i].band === row.band && rows[i].group === row.group;
+            i++
+          ) {
+            groupSpan++;
+          }
+        }
+        return { showGroup, group: groupSpan };
+      });
+    }
+
+    function monthIso(year, monthIndex0) {
+      return `${year}-${String(monthIndex0 + 1).padStart(2, "0")}-01`;
+    }
+
+    function fallbackCompletedMonthIso(today = new Date()) {
+      // Used only if no milk litres data exists for CM/GAD.
+      const monthsBack = today.getDate() > 26 ? 1 : 2;
+      const d = new Date(today.getFullYear(), today.getMonth() - monthsBack, 1);
+      return monthIso(d.getFullYear(), d.getMonth());
+    }
+
+    function defaultCompletedMonthIso() {
+      // Prefer latest month with milk litres for the selected dairy farms (CM/GAD).
+      return pnlData?.default_completed_month || fallbackCompletedMonthIso();
+    }
+
+    function latestSelectableMonthIso(today = new Date()) {
+      // Include the current month so it can be chosen in Completed through.
+      return monthIso(today.getFullYear(), today.getMonth());
+    }
+
+    function syncCompletedMonthSelect(monthLabels, { preferDefault = false } = {}) {
+      const select = document.getElementById("completed-month-select");
+      const previous = preferDefault ? "" : select.value;
+      const latest = latestSelectableMonthIso();
+      const options = (monthLabels || []).filter(m => m.month <= latest);
+      const list = options.length ? options : (monthLabels || []);
+      select.innerHTML = list
+        .map(m => `<option value="${esc(m.month)}">${esc(m.month_label)}</option>`)
+        .join("");
+      if (!list.length) {
+        select.value = "";
+        return;
+      }
+      const preferred = previous || defaultCompletedMonthIso();
+      if (list.some(m => m.month === preferred)) {
+        select.value = preferred;
+        return;
+      }
+      const earlier = list.filter(m => m.month <= preferred);
+      select.value = (earlier.length ? earlier[earlier.length - 1] : list[list.length - 1]).month;
+    }
+
+    function isRangeMode() {
+      return document.getElementById("fiscal-year-select").value === "range";
+    }
+
+    function showForecast() {
+      return !isRangeMode() && document.getElementById("show-forecast").checked;
+    }
+
+    function completedCutoff() {
+      return document.getElementById("completed-month-select").value || "";
+    }
+
+    function isForecastMonth(monthIso) {
+      const cutoff = completedCutoff();
+      return showForecast() && !!cutoff && monthIso > cutoff;
+    }
+
+    function selectedMonths() {
+      const all = pnlData?.month_labels || [];
+      if (isRangeMode() || showForecast()) return all;
+      const cutoff = completedCutoff();
+      if (!cutoff) return all;
+      return all.filter(m => m.month <= cutoff);
+    }
+
+    function rowsWithForecast(rows) {
+      if (!showForecast()) return rows;
+      const cutoff = completedCutoff();
+      if (!cutoff) return rows;
+      return (rows || []).map(row => ({
+        ...row,
+        months: (row.months || []).map(m => {
+          if (m.month <= cutoff) return m;
+          return {
+            ...m,
+            amount: m.budget == null ? 0 : Number(m.budget) || 0,
+            forecast: true,
+          };
+        }),
+      }));
+    }
+
+    function setRangePanelVisible(visible) {
+      const panel = document.getElementById("range-panel");
+      const completed = document.getElementById("completed-through-label");
+      const forecastLabel = document.getElementById("show-forecast-label");
+      panel.hidden = !visible;
+      panel.classList.toggle("visible", visible);
+      completed.hidden = visible;
+      forecastLabel.hidden = visible;
+      if (visible) document.getElementById("show-forecast").checked = false;
+    }
+
+    function monthIndexInOptions(monthIsoValue) {
+      return rangeMonthOptions.findIndex(m => m.month === monthIsoValue);
+    }
+
+    function defaultRollingRange() {
+      const endIso = defaultCompletedMonthIso();
+      let endIdx = monthIndexInOptions(endIso);
+      if (endIdx < 0) endIdx = rangeMonthOptions.length - 1;
+      if (endIdx < 0) return { fromIdx: 0, toIdx: 0 };
+      const fromIdx = Math.max(0, endIdx - 11);
+      return { fromIdx, toIdx: endIdx };
+    }
+
+    function syncRangeSliders({ preferDefault = false } = {}) {
+      const fromRange = document.getElementById("range-from");
+      const toRange = document.getElementById("range-to");
+      const max = Math.max(0, rangeMonthOptions.length - 1);
+      fromRange.min = "0";
+      fromRange.max = String(max);
+      toRange.min = "0";
+      toRange.max = String(max);
+      if (!rangeMonthOptions.length) {
+        fromRange.value = "0";
+        toRange.value = "0";
+        updateRangeLabels();
+        return;
+      }
+      if (preferDefault) {
+        const { fromIdx, toIdx } = defaultRollingRange();
+        fromRange.value = String(fromIdx);
+        toRange.value = String(toIdx);
+      } else {
+        let fromIdx = parseInt(fromRange.value, 10) || 0;
+        let toIdx = parseInt(toRange.value, 10) || 0;
+        fromIdx = Math.min(Math.max(0, fromIdx), max);
+        toIdx = Math.min(Math.max(0, toIdx), max);
+        if (fromIdx > toIdx) [fromIdx, toIdx] = [toIdx, fromIdx];
+        fromRange.value = String(fromIdx);
+        toRange.value = String(toIdx);
+      }
+      updateRangeLabels();
+    }
+
+    function updateRangeLabels() {
+      const fromIdx = parseInt(document.getElementById("range-from").value, 10) || 0;
+      const toIdx = parseInt(document.getElementById("range-to").value, 10) || 0;
+      const from = rangeMonthOptions[fromIdx];
+      const to = rangeMonthOptions[toIdx];
+      document.getElementById("range-from-label").textContent = from?.month_label || "—";
+      document.getElementById("range-to-label").textContent = to?.month_label || "—";
+      const months = Math.max(0, toIdx - fromIdx + 1);
+      document.getElementById("range-hint").textContent =
+        `${months} month${months === 1 ? "" : "s"} selected` +
+        (months === 12 ? " (12-month rolling)." : ".");
+    }
+
+    function selectedRangeMonths() {
+      let fromIdx = parseInt(document.getElementById("range-from").value, 10) || 0;
+      let toIdx = parseInt(document.getElementById("range-to").value, 10) || 0;
+      if (fromIdx > toIdx) [fromIdx, toIdx] = [toIdx, fromIdx];
+      const from = rangeMonthOptions[fromIdx];
+      const to = rangeMonthOptions[toIdx];
+      return {
+        month_from: from?.month || "",
+        month_to: to?.month || "",
+      };
+    }
+
+    function rebuildFiscalYearOptions(years, selected) {
+      const select = document.getElementById("fiscal-year-select");
+      const opts = (years || []).map(y => `<option value="${y}">FY ${y}</option>`).join("");
+      select.innerHTML = `${opts}<option value="range">Range…</option>`;
+      if (selected && [...select.options].some(o => o.value === String(selected))) {
+        select.value = String(selected);
+      }
+    }
+
+    function updateMetaLine() {
+      if (!pnlData) return;
+      const biz = pnlData.business || "All businesses";
+      const farms = (pnlData.milk_farms || []).join(", ") || "none";
+      let period;
+      if (isRangeMode()) {
+        const from = document.getElementById("range-from-label").textContent || "—";
+        const to = document.getElementById("range-to-label").textContent || "—";
+        period = `range ${from} → ${to}`;
+      } else {
+        const through = document.getElementById("completed-month-select").selectedOptions[0]?.textContent || "—";
+        period = `UK fiscal year ending ${pnlData.fiscal_year} · completed through ${through}`;
+        if (showForecast()) period += " · forecast months from budget";
+      }
+      document.getElementById("meta-line").textContent =
+        `${biz} · ${period}. ` +
+        `£ from mapped Xero invoices/journals; milk litres from milk statements (${farms}).`;
+    }
+
+    function showBudget() {
+      return document.getElementById("show-budget").checked;
+    }
+
+    function amountByMonth(row) {
+      const map = new Map();
+      (row.months || []).forEach(m => map.set(m.month, Number(m.amount) || 0));
+      return map;
+    }
+
+    function budgetByMonth(row) {
+      const map = new Map();
+      (row.months || []).forEach(m => map.set(m.month, Number(m.budget) || 0));
+      return map;
+    }
+
+    function rowTotal(row, months) {
+      const map = amountByMonth(row);
+      return (months || []).reduce((sum, m) => sum + (map.get(m.month) || 0), 0);
+    }
+
+    function rowBudgetTotal(row, months) {
+      const map = budgetByMonth(row);
+      return (months || []).reduce((sum, m) => sum + (map.get(m.month) || 0), 0);
+    }
+
+    function milkRow(rows) {
+      return (rows || []).find(
+        r => r.key === "milk_litres_sold"
+          || ((r.heading || "").toLowerCase().includes("litre") && r.item_type === "Data"),
+      );
+    }
+
+    function litresTotal(rows, months) {
+      const milk = milkRow(rows);
+      if (!milk) return 0;
+      return rowTotal(milk, months);
+    }
+
+    function budgetLitresTotal(rows, months) {
+      const milk = milkRow(rows);
+      if (!milk) return 0;
+      return rowBudgetTotal(milk, months);
+    }
+
+    function litresByMonthMap(rows) {
+      return amountByMonth(milkRow(rows) || { months: [] });
+    }
+
+    function tooltipMonthLabel(monthIsoValue, fallbackLabel) {
+      if (!monthIsoValue) return fallbackLabel || "";
+      const d = new Date(`${monthIsoValue}T00:00:00`);
+      if (Number.isNaN(d.getTime())) return fallbackLabel || monthIsoValue;
+      const monthName = d.toLocaleString("en-GB", { month: "long" });
+      const yy = String(d.getFullYear()).slice(-2);
+      return `${monthName} ${yy}`;
+    }
+
+    function monthPplTitle(heading, amount, litres, monthIsoValue, fallbackLabel, isForecast) {
+      const monthLine = tooltipMonthLabel(monthIsoValue, fallbackLabel)
+        + (isForecast ? " (forecast)" : "");
+      const headingLine = heading || "Amount";
+      const pplLine = !litres
+        ? "no milk litres"
+        : `${pplFmt.format(((Number(amount) || 0) * 100) / litres)}ppl`;
+      // Newlines in title tooltips: use &#10; so browsers show multiple lines.
+      return `${esc(monthLine)}&#10;${esc(headingLine)}&#10;${esc(pplLine)}`;
+    }
+
+    function pplNumber(amount, litres) {
+      if (!litres) return null;
+      return ((Number(amount) || 0) * 100) / litres;
+    }
+
+    function unfavourableDiffClass(diff, higherIsBetter) {
+      if (diff == null || !Number.isFinite(diff) || Math.abs(diff) < 0.005) return "";
+      // Sales / profit: below budget (negative) is bad. Costs etc: above budget (positive) is bad.
+      const bad = higherIsBetter ? diff < 0 : diff > 0;
+      return bad ? " neg" : "";
+    }
+
+    function budgetColumnsHtml({ total, budget, isCurrency, isLitres, actualLitres, budgetLitres, higherIsBetter }) {
+      if (!showBudget()) return "";
+      const diff = total - budget;
+      const budgetNeg = isCurrency && budget < 0 ? " neg" : "";
+      const diffTone = unfavourableDiffClass(diff, higherIsBetter);
+      const actualPpl = pplNumber(total, actualLitres);
+      const budgetPpl = pplNumber(budget, budgetLitres);
+      const diffPpl = (actualPpl == null || budgetPpl == null) ? null : actualPpl - budgetPpl;
+      const diffPplText = diffPpl == null ? "—" : pplFmt.format(diffPpl);
+      const diffPplTone = unfavourableDiffClass(diffPpl, higherIsBetter);
+      if (isLitres) {
+        return `
+          <td class="num col-summary col-budget">${formatAmount(budget, false)}</td>
+          <td class="num col-summary col-budget-ppl">—</td>
+          <td class="num col-summary col-diff${diffTone}">${formatAmount(diff, false)}</td>
+          <td class="num col-summary col-diff-ppl">—</td>
+        `;
+      }
+      return `
+        <td class="num col-summary col-budget${budgetNeg}">${formatAmount(budget, isCurrency)}</td>
+        <td class="num col-summary col-budget-ppl">${esc(formatPpl(budget, budgetLitres))}</td>
+        <td class="num col-summary col-diff${diffTone}">${formatAmount(diff, isCurrency)}</td>
+        <td class="num col-summary col-diff-ppl${diffPplTone}">${esc(diffPplText)}</td>
+      `;
+    }
+
+    function budgetHeaderHtml() {
+      if (!showBudget()) return "";
+      return `
+        <th class="num col-summary col-budget">Budget</th>
+        <th class="num col-summary col-budget-ppl">Budget PPL</th>
+        <th class="num col-summary col-diff">Diff</th>
+        <th class="num col-summary col-diff-ppl">Diff PPL</th>
+      `;
+    }
+
+    function budgetEmptyCellsHtml() {
+      if (!showBudget()) return "";
+      return `
+        <td class="col-summary col-budget"></td>
+        <td class="col-summary col-budget-ppl"></td>
+        <td class="col-summary col-diff"></td>
+        <td class="col-summary col-diff-ppl"></td>
+      `;
+    }
+
+    function visibleRows(months, sourceRows) {
+      const rows = sourceRows || pnlData?.grid_rows || [];
+      const hideZero = document.getElementById("hide-zero-rows").checked;
+      if (!hideZero) return rows;
+      return rows.filter(row => {
+        if (row.item_type === "Data") return true;
+        return Math.abs(rowTotal(row, months)) >= 0.005
+          || Math.abs(rowBudgetTotal(row, months)) >= 0.005;
+      });
+    }
+
+    function computeProfitRows(allRows, months) {
+      const n = months.length;
+      const monthIndex = new Map(months.map((m, i) => [m.month, i]));
+      const sales = Array(n).fill(0);
+      const valuation = Array(n).fill(0);
+      const costs = Array(n).fill(0);
+      const costsExDep = Array(n).fill(0);
+      const litres = Array(n).fill(0);
+      const budgetSales = Array(n).fill(0);
+      const budgetValuation = Array(n).fill(0);
+      const budgetCosts = Array(n).fill(0);
+      const budgetCostsExDep = Array(n).fill(0);
+      const budgetLitres = Array(n).fill(0);
+
+      allRows.forEach(row => {
+        const itemType = row.item_type;
+        const band = row.band || "";
+        const heading = (row.heading || "").toLowerCase();
+        const isDepreciation = heading.includes("depreciation");
+        const isValuationChange = band === "Valuation Change" || heading.includes("valuation change");
+        (row.months || []).forEach(month => {
+          const i = monthIndex.get(month.month);
+          if (i == null) return;
+          const val = Number(month.amount) || 0;
+          const budgetVal = Number(month.budget) || 0;
+          if (itemType === "Data" && heading.includes("litre")) {
+            litres[i] += val;
+            budgetLitres[i] += budgetVal;
+            return;
+          }
+          if (itemType !== "Profit & Loss") return;
+          if (band === "Sales") {
+            sales[i] += val;
+            budgetSales[i] += budgetVal;
+          } else if (band === "Valuation Change" || isValuationChange) {
+            valuation[i] += val;
+            budgetValuation[i] += budgetVal;
+          } else if (isDepreciation) {
+            costs[i] += val;
+            budgetCosts[i] += budgetVal;
+          } else {
+            costs[i] += val;
+            costsExDep[i] += val;
+            budgetCosts[i] += budgetVal;
+            budgetCostsExDep[i] += budgetVal;
+          }
+        });
+      });
+
+      // Valuation Change amounts are stored inverted (× -1 on import), then added here.
+      const profit = sales.map((s, i) => s + valuation[i] - costs[i]);
+      const profitExDep = sales.map((s, i) => s + valuation[i] - costsExDep[i]);
+      const profitExDepExVal = sales.map((s, i) => s - costsExDep[i]);
+      const budgetProfit = budgetSales.map((s, i) => s + budgetValuation[i] - budgetCosts[i]);
+      const budgetProfitExDep = budgetSales.map((s, i) => s + budgetValuation[i] - budgetCostsExDep[i]);
+      const budgetProfitExDepExVal = budgetSales.map((s, i) => s - budgetCostsExDep[i]);
+      const litresYear = litres.reduce((a, b) => a + b, 0);
+      const budgetLitresYear = budgetLitres.reduce((a, b) => a + b, 0);
+
+      const makeRow = (label, values, budgetValues) => {
+        const total = values.reduce((a, b) => a + b, 0);
+        const budget = budgetValues.reduce((a, b) => a + b, 0);
+        return { label, values, total, budget, litresYear, budgetLitresYear };
+      };
+
+      return {
+        litres,
+        litresYear,
+        budgetLitresYear,
+        rows: [
+          makeRow("Profit", profit, budgetProfit),
+          makeRow("Profit ex Depreciation", profitExDep, budgetProfitExDep),
+          makeRow("Profit ex Depreciation & Valuation Change", profitExDepExVal, budgetProfitExDepExVal),
+        ],
+      };
+    }
+
+    function monthColClass(index, monthIso) {
+      const base = index % 2 === 0 ? "col-month-a" : "col-month-b";
+      const forecast = isForecastMonth(monthIso) ? " col-forecast" : "";
+      return `col-month ${base}${forecast}`;
+    }
+
+    function renderProfitFooter(months, allRows, litresByMonth) {
+      const summary = computeProfitRows(allRows, months);
+      return summary.rows.map(row => {
+        const monthCells = row.values.map((v, i) => {
+          const neg = v < 0 ? " neg" : "";
+          const m = months[i];
+          const forecast = isForecastMonth(m.month);
+          const title = monthPplTitle(
+            row.label, v, litresByMonth.get(m.month) || 0, m.month, m.month_label, forecast,
+          );
+          return `<td class="num ${monthColClass(i, m.month)}${neg}" title="${title}">${formatAmount(v, true)}</td>`;
+        }).join("");
+        const totalNeg = row.total < 0 ? " neg" : "";
+        return `
+          <tr class="profit-row">
+            <td class="sticky-col profit-label" colspan="2">${esc(row.label)}</td>
+            ${monthCells}
+            <td class="num col-summary col-total${totalNeg}">${formatAmount(row.total, true)}</td>
+            <td class="num col-summary col-ppl">${esc(formatPpl(row.total, summary.litresYear))}</td>
+            ${budgetColumnsHtml({
+              total: row.total,
+              budget: row.budget,
+              isCurrency: true,
+              isLitres: false,
+              actualLitres: summary.litresYear,
+              budgetLitres: summary.budgetLitresYear,
+              higherIsBetter: true,
+            })}
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function renderBandHeader(band, months) {
+      const emptyMonths = months.map((m, i) => `<td class="${monthColClass(i, m.month)}"></td>`).join("");
+      return `
+        <tr class="band-row">
+          <td class="sticky-col band-label" colspan="2">${esc(band || "")}</td>
+          ${emptyMonths}
+          <td class="col-summary col-total"></td>
+          <td class="col-summary col-ppl"></td>
+          ${budgetEmptyCellsHtml()}
+        </tr>
+      `;
+    }
+
+    function renderPnl() {
+      if (!pnlData) return;
+      const months = selectedMonths();
+      const sourceRows = pnlData.grid_rows || [];
+      const allRows = rowsWithForecast(sourceRows);
+      const rows = visibleRows(months, allRows);
+      const spans = computeGroupSpans(rows);
+      const litres = litresTotal(allRows, months);
+      const budgetLitres = budgetLitresTotal(sourceRows, months);
+      const litresByMonth = litresByMonthMap(allRows);
+      const cutoffLabel = document.getElementById("completed-month-select").selectedOptions[0]?.textContent || "";
+      const extraCols = showBudget() ? 4 : 0;
+
+      document.getElementById("pnl-head").innerHTML = `
+        <tr>
+          <th class="sticky-col col-group">Group</th>
+          <th class="sticky-col col-heading">Heading</th>
+          ${months.map((m, i) => `<th class="num ${monthColClass(i, m.month)}">${esc(m.month_label)}</th>`).join("")}
+          <th class="num col-summary col-total">Total</th>
+          <th class="num col-summary col-ppl">PPL</th>
+          ${budgetHeaderHtml()}
+        </tr>
+      `;
+
+      if (!rows.length) {
+        document.getElementById("pnl-body").innerHTML =
+          `<tr><td colspan="${4 + months.length + extraCols}">No P&amp;L rows yet. Map categories on Connection and sync invoices.</td></tr>`;
+        return;
+      }
+
+      let lastBand = null;
+      const bodyRows = rows.map((row, idx) => {
+        const span = spans[idx];
+        const isCurrency = row.item_type !== "Data";
+        const isLitres = row.item_type === "Data" && (row.heading || "").toLowerCase().includes("litre");
+        const amounts = amountByMonth(row);
+        const total = rowTotal(row, months);
+        const budget = rowBudgetTotal(row, months);
+        const zeroClass = (!isLitres && Math.abs(total) < 0.005 && Math.abs(budget) < 0.005) ? " zero-row" : "";
+        const dataClass = row.item_type === "Data" ? " data-row" : "";
+        const band = row.band || "";
+        const bandHeader = band !== lastBand ? renderBandHeader(band, months) : "";
+        lastBand = band;
+        const labelCells = [
+          span.showGroup ? `<td class="sticky-col col-group" rowspan="${span.group}">${esc(row.group)}</td>` : "",
+          `<td class="sticky-col col-heading">${esc(row.heading)}</td>`,
+        ].join("");
+        const monthCells = months.map((m, i) => {
+          const n = amounts.get(m.month) || 0;
+          const neg = isCurrency && n < 0 ? " neg" : "";
+          const forecast = isForecastMonth(m.month);
+          const title = isLitres
+            ? ""
+            : ` title="${monthPplTitle(row.heading, n, litresByMonth.get(m.month) || 0, m.month, m.month_label, forecast)}"`;
+          return `<td class="num ${monthColClass(i, m.month)}${neg}"${title}>${formatAmount(n, isCurrency)}</td>`;
+        }).join("");
+        const totalNeg = isCurrency && total < 0 ? " neg" : "";
+        const ppl = isLitres ? "—" : formatPpl(total, litres);
+        // Valuation Change is stored inverted then added to profit, so higher (less negative) is better.
+        const higherIsBetter = band === "Sales" || band === "Valuation Change" || isLitres;
+        return `${bandHeader}<tr class="${dataClass}${zeroClass}">${labelCells}${monthCells}<td class="num col-summary col-total${totalNeg}">${formatAmount(total, isCurrency)}</td><td class="num col-summary col-ppl">${esc(ppl)}</td>${budgetColumnsHtml({
+          total,
+          budget,
+          isCurrency,
+          isLitres,
+          actualLitres: litres,
+          budgetLitres,
+          higherIsBetter,
+        })}</tr>`;
+      }).join("");
+
+      document.getElementById("pnl-body").innerHTML = bodyRows + renderProfitFooter(months, allRows, litresByMonth);
+
+      const unmapped = pnlData.unmapped || {};
+      const note = document.getElementById("unmapped-note");
+      const visibleMonthKeys = new Set(months.map(m => m.month));
+      const unmappedThrough = (unmapped.months || [])
+        .filter(m => visibleMonthKeys.has(m.month))
+        .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+      if (Math.abs(unmappedThrough) >= 0.005) {
+        note.hidden = false;
+        const throughText = isRangeMode()
+          ? `${months[0]?.month_label || "—"} → ${months[months.length - 1]?.month_label || "—"}`
+          : (cutoffLabel || "selected month");
+        note.textContent = `Unmapped actuals through ${throughText}: ${money.format(unmappedThrough)}. Map remaining categories on Connection → Stage 4.`;
+      } else {
+        note.hidden = true;
+      }
+    }
+
+    async function loadPnl() {
+      const business = document.getElementById("business-select").value;
+      const fiscalYear = document.getElementById("fiscal-year-select").value;
+      const params = new URLSearchParams();
+      if (business) params.set("business", business);
+      if (fiscalYear === "range") {
+        const { month_from, month_to } = selectedRangeMonths();
+        if (!month_from || !month_to) {
+          document.getElementById("meta-line").textContent = "Select a month range.";
+          return;
+        }
+        params.set("month_from", month_from);
+        params.set("month_to", month_to);
+      } else if (fiscalYear) {
+        params.set("fiscal_year", fiscalYear);
+      }
+      const res = await fetch(`/api/xero/pnl?${params.toString()}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        document.getElementById("meta-line").textContent = data.detail || "Failed to load P&L.";
+        return;
+      }
+      pnlData = data;
+      const keepRange = fiscalYear === "range";
+      rebuildFiscalYearOptions(
+        data.fiscal_year_options || [],
+        keepRange ? "range" : String(data.fiscal_year),
+      );
+      if ((data.range_month_options || []).length) {
+        const hadOptions = rangeMonthOptions.length > 0;
+        rangeMonthOptions = data.range_month_options;
+        syncRangeSliders({ preferDefault: keepRange && !hadOptions });
+        // If API returned a range, keep sliders aligned to it.
+        if (keepRange && data.month_from && data.month_to) {
+          const fromIdx = monthIndexInOptions(data.month_from);
+          const toIdx = monthIndexInOptions(data.month_to);
+          if (fromIdx >= 0 && toIdx >= 0) {
+            document.getElementById("range-from").value = String(fromIdx);
+            document.getElementById("range-to").value = String(toIdx);
+            updateRangeLabels();
+          }
+        }
+      }
+      setRangePanelVisible(keepRange);
+      if (!keepRange) {
+        syncCompletedMonthSelect(
+          data.month_labels || [],
+          { preferDefault: !document.getElementById("completed-month-select").options.length },
+        );
+      }
+      updateMetaLine();
+      renderPnl();
+    }
+
+    function scheduleRangeReload() {
+      updateRangeLabels();
+      if (rangeLoadTimer) clearTimeout(rangeLoadTimer);
+      rangeLoadTimer = setTimeout(() => {
+        rangeLoadTimer = null;
+        loadPnl();
+      }, 200);
+    }
+
+    document.getElementById("business-select").addEventListener("change", () => {
+      // Re-default Completed through from the selected business's latest milk month.
+      document.getElementById("completed-month-select").innerHTML = "";
+      loadPnl();
+    });
+    document.getElementById("fiscal-year-select").addEventListener("change", () => {
+      const range = isRangeMode();
+      setRangePanelVisible(range);
+      if (range) {
+        if (!rangeMonthOptions.length && pnlData?.range_month_options) {
+          rangeMonthOptions = pnlData.range_month_options;
+        }
+        syncRangeSliders({ preferDefault: true });
+      } else {
+        document.getElementById("completed-month-select").innerHTML = "";
+      }
+      loadPnl();
+    });
+    document.getElementById("completed-month-select").addEventListener("change", () => {
+      updateMetaLine();
+      renderPnl();
+    });
+    document.getElementById("range-from").addEventListener("input", () => {
+      const fromRange = document.getElementById("range-from");
+      const toRange = document.getElementById("range-to");
+      if (parseInt(fromRange.value, 10) > parseInt(toRange.value, 10)) {
+        toRange.value = fromRange.value;
+      }
+      scheduleRangeReload();
+    });
+    document.getElementById("range-to").addEventListener("input", () => {
+      const fromRange = document.getElementById("range-from");
+      const toRange = document.getElementById("range-to");
+      if (parseInt(toRange.value, 10) < parseInt(fromRange.value, 10)) {
+        fromRange.value = toRange.value;
+      }
+      scheduleRangeReload();
+    });
+    document.getElementById("hide-zero-rows").addEventListener("change", renderPnl);
+    document.getElementById("show-budget").addEventListener("change", renderPnl);
+    document.getElementById("show-forecast").addEventListener("change", () => {
+      updateMetaLine();
+      renderPnl();
+    });
+    loadPnl();
+  </script>
+{% endblock %}

@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+  main { max-width: none; }
+  .filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: end;
+    margin-bottom: 1rem;
+  }
+  .filters label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+  }
+  .filters select {
+    min-width: 11rem;
+    margin: 0;
+  }
+  .meta-line {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    margin: 0 0 0.85rem;
+  }
+  .status-msg {
+    margin: 0 0 0.85rem;
+    font-size: 0.85rem;
+  }
+  .status-msg.error { color: var(--danger); }
+  .status-msg.ok { color: var(--accent); }
+  .section-block {
+    margin-bottom: 1.5rem;
+  }
+  .section-block h2 {
+    margin: 0 0 0.55rem;
+    font-size: 1.05rem;
+  }
+  .table-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card);
+  }
+  .actuals-table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+  .actuals-table th,
+  .actuals-table td {
+    padding: 0.4rem 0.55rem;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .actuals-table th {
+    position: sticky;
+    top: 0;
+    background: #f8fafc;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    z-index: 1;
+  }
+  .actuals-table th.cat,
+  .actuals-table td.cat {
+    position: sticky;
+    left: 0;
+    background: var(--card);
+    min-width: 14rem;
+    max-width: 22rem;
+    white-space: normal;
+    z-index: 2;
+  }
+  .actuals-table th.cat {
+    background: #f8fafc;
+    z-index: 3;
+  }
+  .actuals-table th.cls,
+  .actuals-table td.cls {
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+  .class-pill {
+    display: inline-block;
+    padding: 0.08rem 0.4rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    background: #eef2f6;
+    color: #475569;
+  }
+  .class-pill.revenue { background: #dcfce7; color: #166534; }
+  .class-pill.expense { background: #ffedd5; color: #9a3412; }
+  .class-pill.asset { background: #e0e7ff; color: #3730a3; }
+  .class-pill.liability { background: #fce7f3; color: #9d174d; }
+  .class-pill.equity { background: #f3e8ff; color: #6b21a8; }
+  .actuals-table td.num,
+  .actuals-table th.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .actuals-table tr.total-row td {
+    font-weight: 700;
+    border-top: 1px solid #cbd5e1;
+    background: #f8fafc;
+  }
+  .actuals-table tr.total-row td.cat {
+    background: #f8fafc;
+  }
+  .code-hint {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+  .empty-note {
+    color: var(--muted);
+    font-size: 0.875rem;
+    padding: 0.85rem;
+  }
+{% endblock %}
+
+{% block content %}
+  <div class="filters">
+    <label>
+      Business
+      <select id="business-select">
+        <option value="">All businesses</option>
+        {% for opt in business_group_options %}
+        <option value="{{ opt }}">{{ opt }}</option>
+        {% endfor %}
+        {% for opt in business_options %}
+        <option value="{{ opt }}">{{ opt }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Fiscal year
+      <select id="fiscal-year-select">
+        {% for year in fiscal_year_options %}
+        <option value="{{ year }}">FY {{ year }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Statement
+      <select id="statement-select">
+        <option value="all">All</option>
+        <option value="P&L" selected>P&amp;L only</option>
+        <option value="Balance sheet">Balance sheet only</option>
+      </select>
+    </label>
+    <button type="button" class="secondary" id="sync-accounts-btn">Refresh account names</button>
+  </div>
+  <p class="meta-line" id="meta-line">Loading actuals…</p>
+  <div class="status-msg" id="status-msg" style="display:none;"></div>
+  <div id="sections"></div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const money = new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: "GBP",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+    function showStatus(text, ok) {
+      const el = document.getElementById("status-msg");
+      el.style.display = "";
+      el.className = `status-msg ${ok ? "ok" : "error"}`;
+      el.textContent = text;
+    }
+
+    function formatAmount(value) {
+      const n = Number(value || 0);
+      if (!n) return "—";
+      return money.format(n);
+    }
+
+    function classPill(row) {
+      const key = String(row.account_class || "unknown").toLowerCase();
+      const label = row.account_class_label || "Unknown";
+      const type = row.account_type_label ? ` · ${row.account_type_label}` : "";
+      return `<span class="class-pill ${key}">${label}</span><span class="code-hint">${type}</span>`;
+    }
+
+    function renderSection(section, monthLabels) {
+      const rows = section.rows || [];
+      if (!rows.length) {
+        return `
+          <section class="section-block" data-statement="${section.statement || ""}">
+            <h2>${section.label}</h2>
+            <div class="table-scroll"><div class="empty-note">No ${section.label.toLowerCase()} in this period.</div></div>
+          </section>
+        `;
+      }
+      const headMonths = monthLabels.map(m => `<th class="num">${m.month_label}</th>`).join("");
+      const body = rows.map(row => {
+        const cells = (row.months || []).map(m => `<td class="num">${formatAmount(m.amount)}</td>`).join("");
+        const codeHint = row.account_code
+          ? `<span class="code-hint">${row.account_code}</span>`
+          : "";
+        return `
+          <tr>
+            <td class="cat">${row.category || row.label}${codeHint}</td>
+            <td class="cls">${classPill(row)}</td>
+            ${cells}
+            <td class="num">${formatAmount(row.total)}</td>
+          </tr>
+        `;
+      }).join("");
+      const totalCells = (section.totals.months || [])
+        .map(m => `<td class="num">${formatAmount(m.amount)}</td>`)
+        .join("");
+      return `
+        <section class="section-block" data-statement="${section.statement || ""}">
+          <h2>${section.label}</h2>
+          <div class="table-scroll">
+            <table class="actuals-table">
+              <thead>
+                <tr>
+                  <th class="cat">Category</th>
+                  <th class="cls">Class</th>
+                  ${headMonths}
+                  <th class="num">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${body}
+                <tr class="total-row">
+                  <td class="cat">${section.label} total</td>
+                  <td class="cls"></td>
+                  ${totalCells}
+                  <td class="num">${formatAmount(section.totals.total)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      `;
+    }
+
+    function applyStatementFilter() {
+      const wanted = document.getElementById("statement-select").value;
+      document.querySelectorAll("#sections .section-block").forEach(el => {
+        const statement = el.dataset.statement || "";
+        el.hidden = !(wanted === "all" || statement === wanted);
+      });
+    }
+
+    async function loadActuals() {
+      const business = document.getElementById("business-select").value;
+      const fiscalYear = document.getElementById("fiscal-year-select").value;
+      const params = new URLSearchParams();
+      if (fiscalYear) params.set("fiscal_year", fiscalYear);
+      if (business) params.set("business", business);
+
+      const res = await fetch(`/api/xero/actuals?${params.toString()}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        document.getElementById("meta-line").textContent = data.detail || "Failed to load actuals.";
+        document.getElementById("sections").innerHTML = "";
+        return;
+      }
+
+      const yearSelect = document.getElementById("fiscal-year-select");
+      const currentYear = String(data.fiscal_year || "");
+      if ((data.fiscal_year_options || []).length) {
+        yearSelect.innerHTML = data.fiscal_year_options
+          .map(y => `<option value="${y}">FY ${y}</option>`)
+          .join("");
+        yearSelect.value = currentYear;
+      }
+
+      const bizLabel = data.business || "All businesses";
+      const statuses = (data.included_statuses || []).join(", ");
+      document.getElementById("meta-line").textContent =
+        `${bizLabel} · UK fiscal year ending ${data.fiscal_year} (Apr–Mar). ` +
+        `P&L Sales = ACCREC; P&L Costs = ACCPAY + expense journals; Balance sheet = asset/liability/equity accounts. Ex VAT, not netted. ` +
+        `Invoice statuses: ${statuses}.` +
+        (data.journals_synced ? "" : " Sync invoices on Connection to pull manual journals.") +
+        (data.accounts_synced ? "" : " Account names not synced yet — click Refresh account names.");
+
+      document.getElementById("sections").innerHTML = (data.sections || [])
+        .map(section => renderSection(section, data.month_labels || []))
+        .join("");
+      applyStatementFilter();
+    }
+
+    document.getElementById("business-select").addEventListener("change", loadActuals);
+    document.getElementById("fiscal-year-select").addEventListener("change", loadActuals);
+    document.getElementById("statement-select").addEventListener("change", applyStatementFilter);
+
+    document.getElementById("sync-accounts-btn").addEventListener("click", async () => {
+      const btn = document.getElementById("sync-accounts-btn");
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/xero/accounts/sync", { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showStatus(data.detail || "Failed to sync account names.", false);
+          return;
+        }
+        showStatus(
+          `Synced ${Number(data.fetched_total || 0).toLocaleString("en-GB")} account names from Xero.`,
+          true
+        );
+        await loadActuals();
+      } catch (err) {
+        showStatus(String(err), false);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    loadActuals();
+  </script>
+{% endblock %}
