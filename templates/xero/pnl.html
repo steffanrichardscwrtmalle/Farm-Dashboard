@@ -544,9 +544,16 @@
         period = `UK fiscal year ending ${pnlData.fiscal_year} · completed through ${through}`;
         if (showForecast()) period += " · forecast months from budget";
       }
+      let icNote = "";
+      const ic = pnlData.intercompany_elimination;
+      if (ic && ic.applied) {
+        const total = Number(ic.total) || 0;
+        icNote = ` Intercompany: H&S silage sales to CM netted from Bulky Feed (−£${total.toLocaleString("en-GB", { maximumFractionDigits: 0 })}).`;
+      }
       document.getElementById("meta-line").textContent =
         `${biz} · ${period}. ` +
-        `£ from mapped Xero invoices/journals; milk litres from milk statements (${farms}).`;
+        `£ from mapped Xero invoices/journals; milk litres from milk statements (${farms}).` +
+        icNote;
     }
 
     function showBudget() {

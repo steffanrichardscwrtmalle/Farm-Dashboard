@@ -53,6 +53,15 @@ _REVENUE_CLASSES = frozenset({"REVENUE"})
 _EXPENSE_CLASSES = frozenset({"EXPENSE"})
 _PNL_ITEM_TYPE = "Profit & Loss"
 
+# Consolidated view: eliminate H&S silage sales to CM against CM Bulky Feed purchases.
+_IC_BUSINESS_GROUP = "Cwrt Malle + H&S Forage"
+_IC_SALES_BUSINESS = "H&S Forage"
+_IC_PURCHASE_BUSINESS = "Cwrt Malle"
+_IC_SALES_HEADING = "Forage Sales"
+_IC_PURCHASE_HEADING = "Bulky Feed"
+_IC_SALES_CONTACT_PREFIX = "cwrt malle"
+_IC_PURCHASE_CONTACT = "h&s forage"
+
 # Dashboard business → milk statement farms (litres are not reliable in Xero).
 _BUSINESS_MILK_FARMS: dict[str, tuple[str, ...]] = {
     "Cwrt Malle": ("CM",),
@@ -356,6 +365,217 @@ def _resolve_mapping(
     return mapping_id, account_class
 
 
+def _mapping_id_for_heading(db: Session, heading: str) -> int | None:
+    row_id = db.scalar(
+        select(FinancialForecastMapping.id).where(
+            FinancialForecastMapping.item_type == _PNL_ITEM_TYPE,
+            FinancialForecastMapping.heading == heading,
+        )
+    )
+    return int(row_id) if row_id is not None else None
+
+
+def _contact_matched_amounts_by_month(
+    db: Session,
+    *,
+    start: dt.date,
+    end: dt.date,
+    month_key_set: set[str],
+    dashboard_business: str,
+    invoice_types: tuple[str, ...],
+    contact_match: str,
+    contact_match_mode: str,
+    target_mapping_id: int,
+    mapping_by_account_id: dict[tuple[str, str], int],
+    account_id_by_code: dict[tuple[str, str], str],
+    account_class_by_id: dict[tuple[str, str], str | None],
+) -> dict[str, float]:
+    """Sum signed P&L amounts for invoice lines matching business + contact."""
+    contact_col = func.lower(func.coalesce(XeroInvoice.contact_name, ""))
+    stmt = (
+        select(
+            XeroInvoice.id,
+            XeroInvoice.invoice_type,
+            XeroInvoice.invoice_date,
+            XeroInvoiceLine.account_id,
+            XeroInvoiceLine.account_code,
+            XeroInvoiceLine.line_amount,
+            XeroInvoiceLine.tax_amount,
+            XeroInvoice.tenant_id,
+            XeroInvoice.line_amount_types,
+            XeroInvoice.sub_total,
+            XeroInvoice.total,
+        )
+        .join(XeroInvoiceLine, XeroInvoiceLine.invoice_pk == XeroInvoice.id)
+        .where(XeroInvoice.status.in_(list(SUMMARY_STATUSES)))
+        .where(XeroInvoice.invoice_type.in_(list(invoice_types)))
+        .where(XeroInvoice.dashboard_business == dashboard_business)
+        .where(XeroInvoice.invoice_date.isnot(None))
+        .where(XeroInvoice.invoice_date >= start)
+        .where(XeroInvoice.invoice_date <= end)
+    )
+    needle = contact_match.lower().strip()
+    if contact_match_mode == "prefix":
+        stmt = stmt.where(contact_col.like(f"{needle}%"))
+    else:
+        stmt = stmt.where(contact_col == needle)
+
+    rows = db.execute(stmt).all()
+    line_sums: dict[int, float] = defaultdict(float)
+    for row in rows:
+        line_sums[int(row[0])] += float(row[5] or 0.0)
+
+    inclusive: set[int] = set()
+    seen_headers: set[int] = set()
+    for row in rows:
+        invoice_pk = int(row[0])
+        if invoice_pk in seen_headers:
+            continue
+        seen_headers.add(invoice_pk)
+        if document_is_inclusive(
+            row[8],
+            sub_total=row[9],
+            total=row[10],
+            line_sum=line_sums.get(invoice_pk),
+        ):
+            inclusive.add(invoice_pk)
+
+    out: dict[str, float] = defaultdict(float)
+    for (
+        invoice_pk,
+        invoice_type,
+        invoice_date,
+        account_id,
+        account_code,
+        line_amount,
+        tax_amount,
+        tenant_id,
+        _types,
+        _sub,
+        _total,
+    ) in rows:
+        if invoice_date is None:
+            continue
+        month_iso = invoice_date.replace(day=1).isoformat()
+        if month_iso not in month_key_set:
+            continue
+        mapping_id, account_class = _resolve_mapping(
+            tenant_id=str(tenant_id),
+            account_id=account_id,
+            account_code=account_code,
+            mapping_by_account_id=mapping_by_account_id,
+            account_id_by_code=account_id_by_code,
+            account_class_by_id=account_class_by_id,
+        )
+        if mapping_id != target_mapping_id:
+            continue
+        net_amount = ex_vat_line_amount(
+            line_amount,
+            tax_amount,
+            inclusive=int(invoice_pk) in inclusive,
+        )
+        signed = _signed_amount(
+            account_class=account_class,
+            invoice_type=invoice_type,
+            line_amount=net_amount,
+            is_journal=False,
+        )
+        out[month_iso] += signed
+    return dict(out)
+
+
+def _apply_hs_cm_silage_elimination(
+    db: Session,
+    *,
+    buckets: dict[int, dict[str, float]],
+    start: dt.date,
+    end: dt.date,
+    month_keys: list[str],
+    mapping_by_account_id: dict[tuple[str, str], int],
+    account_id_by_code: dict[tuple[str, str], str],
+    account_class_by_id: dict[tuple[str, str], str | None],
+) -> dict[str, Any] | None:
+    """Net H&S Forage silage sales to CM out of Forage Sales and Bulky Feed."""
+    sales_mapping_id = _mapping_id_for_heading(db, _IC_SALES_HEADING)
+    purchase_mapping_id = _mapping_id_for_heading(db, _IC_PURCHASE_HEADING)
+    if sales_mapping_id is None or purchase_mapping_id is None:
+        return None
+
+    month_key_set = set(month_keys)
+    sales_by_month = _contact_matched_amounts_by_month(
+        db,
+        start=start,
+        end=end,
+        month_key_set=month_key_set,
+        dashboard_business=_IC_SALES_BUSINESS,
+        invoice_types=("ACCREC", "ACCRECCREDIT"),
+        contact_match=_IC_SALES_CONTACT_PREFIX,
+        contact_match_mode="prefix",
+        target_mapping_id=sales_mapping_id,
+        mapping_by_account_id=mapping_by_account_id,
+        account_id_by_code=account_id_by_code,
+        account_class_by_id=account_class_by_id,
+    )
+    purchases_by_month = _contact_matched_amounts_by_month(
+        db,
+        start=start,
+        end=end,
+        month_key_set=month_key_set,
+        dashboard_business=_IC_PURCHASE_BUSINESS,
+        invoice_types=("ACCPAY", "ACCPAYCREDIT"),
+        contact_match=_IC_PURCHASE_CONTACT,
+        contact_match_mode="exact",
+        target_mapping_id=purchase_mapping_id,
+        mapping_by_account_id=mapping_by_account_id,
+        account_id_by_code=account_id_by_code,
+        account_class_by_id=account_class_by_id,
+    )
+
+    eliminated: dict[str, float] = {}
+    for key in month_keys:
+        # Both sides are positive in P&L buckets (sales income / purchase cost).
+        sales_amt = abs(float(sales_by_month.get(key, 0.0)))
+        purchase_amt = abs(float(purchases_by_month.get(key, 0.0)))
+        eliminate = round(min(sales_amt, purchase_amt), 2)
+        if eliminate < 0.005:
+            continue
+        buckets[sales_mapping_id][key] = (
+            float(buckets[sales_mapping_id].get(key, 0.0)) - eliminate
+        )
+        buckets[purchase_mapping_id][key] = (
+            float(buckets[purchase_mapping_id].get(key, 0.0)) - eliminate
+        )
+        eliminated[key] = eliminate
+
+    if not eliminated:
+        return {
+            "applied": False,
+            "description": (
+                "H&S Forage silage sales to Cwrt Malle netted from Bulky Feed "
+                "(no matching intercompany lines in range)."
+            ),
+            "sales_heading": _IC_SALES_HEADING,
+            "purchase_heading": _IC_PURCHASE_HEADING,
+            "total": 0.0,
+            "months": [],
+        }
+
+    return {
+        "applied": True,
+        "description": (
+            "H&S Forage silage sales to Cwrt Malle netted from Bulky Feed "
+            "(intercompany elimination)."
+        ),
+        "sales_heading": _IC_SALES_HEADING,
+        "purchase_heading": _IC_PURCHASE_HEADING,
+        "total": round(sum(eliminated.values()), 2),
+        "months": [
+            {"month": key, "amount": amount}
+            for key, amount in eliminated.items()
+        ],
+    }
+
+
 def _inclusive_invoice_pks(
     db: Session,
     *,
@@ -645,6 +865,19 @@ def list_xero_pnl(
         else:
             buckets[mapping_id][month_iso] += signed
 
+    intercompany_elimination: dict[str, Any] | None = None
+    if business_value == _IC_BUSINESS_GROUP:
+        intercompany_elimination = _apply_hs_cm_silage_elimination(
+            db,
+            buckets=buckets,
+            start=start,
+            end=end,
+            month_keys=month_keys,
+            mapping_by_account_id=mapping_by_account_id,
+            account_id_by_code=account_id_by_code,
+            account_class_by_id=account_class_by_id,
+        )
+
     # Milk litres from statements (not Xero).
     milk_farms = _milk_farms_for_business(business_value)
     milk_months = _milk_litres_by_month(db, farms=milk_farms, month_keys=month_keys)
@@ -782,4 +1015,5 @@ def list_xero_pnl(
             default_completed_month.isoformat() if default_completed_month else None
         ),
         "default_completed_month_farms": completed_default_farms,
+        "intercompany_elimination": intercompany_elimination,
     }
