@@ -607,6 +607,15 @@
       "item_type": "Profit & Loss",
       "band": "Overhead Expenses",
       "group": "Office & Admin",
+      "heading": "Office Admin"
+    },
+    {
+      "tenant_id": "c7d6c5cc-05e0-4b3c-bf8b-891d31bc00f0",
+      "account_id": "fd6f557c-76bb-4e46-ac0b-b3bac55463a4",
+      "account_code": "433",
+      "item_type": "Profit & Loss",
+      "band": "Overhead Expenses",
+      "group": "Office & Admin",
       "heading": "General Insurance"
     },
     {

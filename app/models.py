@@ -716,6 +716,79 @@ class XeroManualJournalLine(Base):
     journal: Mapped[XeroManualJournal] = relationship(back_populates="lines")
 
 
+class XeroBankTransaction(Base):
+    """Xero Spend Money / Receive Money (bank transactions) — fills P&L gaps bills miss."""
+
+    __tablename__ = "xero_bank_transactions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "bank_transaction_id",
+            name="uq_xero_bank_transaction",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    bank_transaction_id: Mapped[str] = mapped_column(String(64), index=True)
+    transaction_type: Mapped[str] = mapped_column(String(32), index=True)  # SPEND / RECEIVE / …
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    currency_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    transaction_date: Mapped[datetime.date | None] = mapped_column(
+        Date, nullable=True, index=True
+    )
+    sub_total: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_tax: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_reconciled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    dashboard_business: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, index=True
+    )
+    xero_updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    synced_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+    lines: Mapped[list[XeroBankTransactionLine]] = relationship(
+        back_populates="bank_transaction", cascade="all, delete-orphan"
+    )
+
+
+class XeroBankTransactionLine(Base):
+    """Line on a Xero bank transaction (coded to chart accounts)."""
+
+    __tablename__ = "xero_bank_transaction_lines"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "bank_transaction_id",
+            "line_index",
+            name="uq_xero_bank_transaction_line",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bank_transaction_pk: Mapped[int] = mapped_column(
+        ForeignKey("xero_bank_transactions.id", ondelete="CASCADE"), index=True
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    bank_transaction_id: Mapped[str] = mapped_column(String(64), index=True)
+    line_index: Mapped[int] = mapped_column(Integer)
+    line_item_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    line_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tax_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    account_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    account_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tax_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    bank_transaction: Mapped[XeroBankTransaction] = relationship(back_populates="lines")
+
+
 class CowEvent(Base):
     """Cow events from DCEXPORT CMEVENTS / GADEVENTS files."""
 

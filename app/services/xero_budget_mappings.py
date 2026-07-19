@@ -14,6 +14,8 @@ from app.models import (
     FinancialForecastMapping,
     XeroAccount,
     XeroAccountBudgetMapping,
+    XeroBankTransaction,
+    XeroBankTransactionLine,
     XeroInvoice,
     XeroInvoiceLine,
     XeroManualJournal,
@@ -25,6 +27,7 @@ from app.services.financial_forecasts import (
     seed_financial_forecasts_if_empty,
 )
 from app.services.xero_auth import XeroAuthError
+from app.services.xero_bank_transactions import BANK_STATUSES, is_pnl_bank_type
 from app.services.xero_invoices import SUMMARY_STATUSES
 from app.services.xero_journals import JOURNAL_STATUSES
 
@@ -235,6 +238,63 @@ def _activity_keys(db: Session) -> tuple[set[tuple[str, str]], set[tuple[str, st
         .group_by(XeroManualJournalLine.tenant_id, XeroManualJournalLine.account_code)
     ).all()
     for tenant_id, account_code, total in jnl_code_rows:
+        if abs(float(total or 0.0)) < _ACTIVITY_MIN:
+            continue
+        account_codes.add((str(tenant_id), str(account_code).strip()))
+
+    bank_id_rows = db.execute(
+        select(
+            XeroBankTransactionLine.tenant_id,
+            XeroBankTransactionLine.account_id,
+            XeroBankTransaction.transaction_type,
+            func.coalesce(func.sum(XeroBankTransactionLine.line_amount), 0.0),
+        )
+        .join(
+            XeroBankTransaction,
+            XeroBankTransactionLine.bank_transaction_pk == XeroBankTransaction.id,
+        )
+        .where(XeroBankTransaction.status.in_(list(BANK_STATUSES)))
+        .where(XeroBankTransactionLine.account_id.isnot(None))
+        .where(XeroBankTransactionLine.account_id != "")
+        .group_by(
+            XeroBankTransactionLine.tenant_id,
+            XeroBankTransactionLine.account_id,
+            XeroBankTransaction.transaction_type,
+        )
+    ).all()
+    for tenant_id, account_id, transaction_type, total in bank_id_rows:
+        if not is_pnl_bank_type(transaction_type):
+            continue
+        amount = float(total or 0.0)
+        if abs(amount) < _ACTIVITY_MIN:
+            continue
+        key = (str(tenant_id), str(account_id))
+        account_ids.add(key)
+        amounts_by_account_id[key] = amounts_by_account_id.get(key, 0.0) + amount
+
+    bank_code_rows = db.execute(
+        select(
+            XeroBankTransactionLine.tenant_id,
+            XeroBankTransactionLine.account_code,
+            XeroBankTransaction.transaction_type,
+            func.coalesce(func.sum(XeroBankTransactionLine.line_amount), 0.0),
+        )
+        .join(
+            XeroBankTransaction,
+            XeroBankTransactionLine.bank_transaction_pk == XeroBankTransaction.id,
+        )
+        .where(XeroBankTransaction.status.in_(list(BANK_STATUSES)))
+        .where(XeroBankTransactionLine.account_code.isnot(None))
+        .where(XeroBankTransactionLine.account_code != "")
+        .group_by(
+            XeroBankTransactionLine.tenant_id,
+            XeroBankTransactionLine.account_code,
+            XeroBankTransaction.transaction_type,
+        )
+    ).all()
+    for tenant_id, account_code, transaction_type, total in bank_code_rows:
+        if not is_pnl_bank_type(transaction_type):
+            continue
         if abs(float(total or 0.0)) < _ACTIVITY_MIN:
             continue
         account_codes.add((str(tenant_id), str(account_code).strip()))

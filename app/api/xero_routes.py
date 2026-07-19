@@ -32,6 +32,7 @@ from app.services.xero_budget_mappings import (
     set_account_budget_mapping,
 )
 from app.services.xero_pnl import list_xero_pnl
+from app.services.xero_bank_transactions import clear_bank_transactions
 from app.services.xero_invoices import clear_invoices, invoice_summary, sync_all_invoices
 from app.services.xero_journals import clear_journals
 from app.services.xero_oauth import (
@@ -338,6 +339,7 @@ def api_xero_disconnect(
     clear_tokens(db)
     clear_invoices(db)
     clear_journals(db)
+    clear_bank_transactions(db)
     clear_account_budget_mappings(db)
     clear_accounts(db)
     clear_organisations(db)

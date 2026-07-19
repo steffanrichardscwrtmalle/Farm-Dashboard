@@ -17,6 +17,8 @@ from app.models import (
     MilkStatement,
     XeroAccount,
     XeroAccountBudgetMapping,
+    XeroBankTransaction,
+    XeroBankTransactionLine,
     XeroInvoice,
     XeroInvoiceLine,
     XeroManualJournal,
@@ -34,6 +36,11 @@ from app.services.financial_forecasts import (
     seed_financial_forecasts_if_empty,
 )
 from app.services.xero_actuals import available_actual_fiscal_years
+from app.services.xero_bank_transactions import (
+    BANK_STATUSES,
+    bank_type_as_invoice_type,
+    is_pnl_bank_type,
+)
 from app.services.xero_invoices import SUMMARY_STATUSES
 from app.services.xero_journals import JOURNAL_STATUSES
 
@@ -459,6 +466,62 @@ def list_xero_pnl(
             invoice_type=None,
             line_amount=float(line_amount or 0.0),
             is_journal=True,
+        )
+        if mapping_id is None:
+            unmapped[month_iso] += signed
+        else:
+            buckets[mapping_id][month_iso] += signed
+
+    bank_stmt = (
+        select(
+            XeroBankTransaction.transaction_type,
+            XeroBankTransactionLine.account_id,
+            XeroBankTransactionLine.account_code,
+            XeroBankTransaction.transaction_date,
+            XeroBankTransactionLine.line_amount,
+            XeroBankTransaction.tenant_id,
+        )
+        .join(
+            XeroBankTransaction,
+            XeroBankTransactionLine.bank_transaction_pk == XeroBankTransaction.id,
+        )
+        .where(XeroBankTransaction.status.in_(list(BANK_STATUSES)))
+        .where(XeroBankTransaction.transaction_date.isnot(None))
+        .where(XeroBankTransaction.transaction_date >= start)
+        .where(XeroBankTransaction.transaction_date <= end)
+    )
+    if businesses:
+        bank_stmt = bank_stmt.where(
+            XeroBankTransaction.dashboard_business.in_(businesses)
+        )
+
+    for (
+        transaction_type,
+        account_id,
+        account_code,
+        transaction_date,
+        line_amount,
+        tenant_id,
+    ) in db.execute(bank_stmt):
+        if transaction_date is None or not is_pnl_bank_type(transaction_type):
+            continue
+        invoice_type = bank_type_as_invoice_type(transaction_type)
+        month_iso = transaction_date.replace(day=1).isoformat()
+        if month_iso not in month_key_set:
+            continue
+        mapping_id, account_class = _resolve_mapping(
+            tenant_id=str(tenant_id),
+            account_id=account_id,
+            account_code=account_code,
+            mapping_by_account_id=mapping_by_account_id,
+            account_id_by_code=account_id_by_code,
+            account_class_by_id=account_class_by_id,
+        )
+        signed = _signed_amount(
+            account_class=account_class,
+            invoice_type=invoice_type,
+            line_amount=float(line_amount or 0.0),
+            is_journal=False,
         )
         if mapping_id is None:
             unmapped[month_iso] += signed

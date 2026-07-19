@@ -14,6 +14,8 @@ from app.models import (
     BUSINESS_GROUP_OPTIONS,
     BUSINESS_OPTIONS,
     XeroAccount,
+    XeroBankTransaction,
+    XeroBankTransactionLine,
     XeroInvoice,
     XeroInvoiceLine,
     XeroManualJournal,
@@ -25,6 +27,11 @@ from app.services.events_common import (
     _iter_month_starts,
 )
 from app.services.xero_accounts import account_meta_lookup
+from app.services.xero_bank_transactions import (
+    BANK_STATUSES,
+    bank_type_as_invoice_type,
+    is_pnl_bank_type,
+)
 from app.services.xero_invoices import SUMMARY_STATUSES
 from app.services.xero_journals import JOURNAL_STATUSES
 
@@ -106,7 +113,19 @@ def available_actual_fiscal_years(db: Session) -> list[int]:
         .where(XeroManualJournal.status.in_(list(JOURNAL_STATUSES)))
         .where(XeroManualJournal.journal_date.isnot(None))
     ).one()
-    dates = [d for d in (inv_min, inv_max, jnl_min, jnl_max) if d is not None]
+    bank_min, bank_max = db.execute(
+        select(
+            func.min(XeroBankTransaction.transaction_date),
+            func.max(XeroBankTransaction.transaction_date),
+        )
+        .where(XeroBankTransaction.status.in_(list(BANK_STATUSES)))
+        .where(XeroBankTransaction.transaction_date.isnot(None))
+    ).one()
+    dates = [
+        d
+        for d in (inv_min, inv_max, jnl_min, jnl_max, bank_min, bank_max)
+        if d is not None
+    ]
     years: set[int] = set()
     if dates:
         for year in range(
@@ -198,12 +217,36 @@ def list_actuals(
     if businesses:
         jnl_stmt = jnl_stmt.where(XeroManualJournal.dashboard_business.in_(businesses))
 
+    bank_stmt = (
+        select(
+            XeroBankTransaction.transaction_type,
+            XeroBankTransactionLine.account_code,
+            XeroBankTransaction.transaction_date,
+            XeroBankTransactionLine.line_amount,
+            XeroBankTransaction.tenant_id,
+        )
+        .join(
+            XeroBankTransaction,
+            XeroBankTransactionLine.bank_transaction_pk == XeroBankTransaction.id,
+        )
+        .where(XeroBankTransaction.status.in_(list(BANK_STATUSES)))
+        .where(XeroBankTransaction.transaction_date.isnot(None))
+        .where(XeroBankTransaction.transaction_date >= start)
+        .where(XeroBankTransaction.transaction_date <= end)
+    )
+    if businesses:
+        bank_stmt = bank_stmt.where(
+            XeroBankTransaction.dashboard_business.in_(businesses)
+        )
+
     inv_rows = db.execute(inv_stmt).all()
     jnl_rows = db.execute(jnl_stmt).all()
+    bank_rows = db.execute(bank_stmt).all()
     tenant_ids = sorted(
         {
             *(str(t) for *_, t in inv_rows if t),
             *(str(t) for *_, t in jnl_rows if t),
+            *(str(t) for *_, t in bank_rows if t),
         }
     )
     accounts = account_meta_lookup(db, tenant_ids=tenant_ids or None)
@@ -239,6 +282,21 @@ def list_actuals(
             account_class, float(line_amount or 0.0)
         )
         buckets[section][code][month_iso] += amount
+
+    for transaction_type, account_code, transaction_date, line_amount, _tenant_id in bank_rows:
+        if transaction_date is None or not is_pnl_bank_type(transaction_type):
+            continue
+        invoice_type = bank_type_as_invoice_type(transaction_type)
+        if invoice_type is None:
+            continue
+        code = (str(account_code).strip() if account_code else "") or "Uncoded"
+        month_iso = transaction_date.replace(day=1).isoformat()
+        if month_iso not in month_key_set:
+            continue
+        meta = accounts.get(code) if code != "Uncoded" else None
+        account_class = meta["account_class"] if meta else None
+        section = _invoice_section(invoice_type, account_class)
+        buckets[section][code][month_iso] += float(line_amount or 0.0)
 
     def build_section(section_key: str, label: str, statement: str) -> dict[str, Any]:
         section_rows: list[dict[str, Any]] = []
@@ -306,6 +364,14 @@ def list_actuals(
         )
         or 0
     )
+    bank_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(XeroBankTransaction)
+            .where(XeroBankTransaction.status.in_(list(BANK_STATUSES)))
+        )
+        or 0
+    )
 
     sections = [
         build_section(_SECTION_SALES, "Sales (P&L)", "P&L"),
@@ -323,8 +389,10 @@ def list_actuals(
         "month_labels": month_labels,
         "included_statuses": sorted(SUMMARY_STATUSES),
         "journal_statuses": sorted(JOURNAL_STATUSES),
+        "bank_statuses": sorted(BANK_STATUSES),
         "accounts_synced": int(account_count) > 0,
         "journals_synced": int(journal_count) > 0,
-        "amount_basis": "ex_vat_invoices_and_journals",
+        "bank_transactions_synced": int(bank_count) > 0,
+        "amount_basis": "ex_vat_invoices_journals_and_bank_transactions",
         "sections": sections,
     }

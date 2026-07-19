@@ -292,11 +292,11 @@
       Sync invoices
     </h2>
     <p>
-      Pull sales invoices (ACCREC), bills (ACCPAY), account names, and manual journals
+      Pull sales invoices (ACCREC), bills (ACCPAY), account names, manual journals, and bank spend/receive money
       from each mapped organisation. Totals below exclude draft, deleted, and voided documents.
     </p>
     <div class="actions">
-      <button type="button" class="primary" id="sync-invoices-btn" disabled>Sync invoices &amp; journals</button>
+      <button type="button" class="primary" id="sync-invoices-btn" disabled>Sync invoices, journals &amp; bank</button>
     </div>
     <p class="meta-line" id="invoice-meta">Map organisations first, then sync.</p>
     <div id="invoice-summary-wrap" hidden>
@@ -323,7 +323,7 @@
     </h2>
     <p>
       Link each Xero category to a budget heading (from Financial Forecasts).
-      Only categories with financial activity (invoices/journals) are listed.
+      Only categories with financial activity (invoices, journals, or bank spend/receive) are listed.
       Categories are matched by <strong>name</strong> across businesses (codes differ between orgs).
       Similar names are pre-selected as suggestions — confirm to save.
     </p>
@@ -501,7 +501,7 @@
       const rows = filteredMapItems();
       if (!accountMapItems.length) {
         empty.hidden = false;
-        empty.textContent = "No Xero accounts loaded yet. Sync invoices & journals (or refresh account names) first.";
+        empty.textContent = "No Xero accounts loaded yet. Sync invoices, journals & bank (or refresh account names) first.";
         wrap.hidden = true;
         body.innerHTML = "";
         return;
@@ -832,7 +832,7 @@
       const btn = document.getElementById("sync-invoices-btn");
       btn.disabled = true;
       btn.textContent = "Syncing…";
-      showInvoiceStatus("Syncing invoices, accounts, and journals from Xero. This can take a few minutes…", true);
+      showInvoiceStatus("Syncing invoices, accounts, journals, and bank transactions from Xero. This can take a few minutes…", true);
       try {
         const res = await fetch("/api/xero/invoices/sync", { method: "POST" });
         const data = await res.json().catch(() => ({}));
@@ -845,7 +845,8 @@
         );
         showInvoiceStatus(
           `Synced ${Number(data.fetched_total || 0).toLocaleString("en-GB")} invoices` +
-            ` and ${Number(data.journals_fetched_total || 0).toLocaleString("en-GB")} journals` +
+            `, ${Number(data.journals_fetched_total || 0).toLocaleString("en-GB")} journals` +
+            `, and ${Number(data.bank_transactions_fetched_total || 0).toLocaleString("en-GB")} bank transactions` +
             (parts.length ? ` (${parts.join("; ")})` : "") +
             ".",
           true
@@ -854,7 +855,7 @@
       } catch (err) {
         showInvoiceStatus(String(err), false);
       } finally {
-        btn.textContent = "Sync invoices & journals";
+        btn.textContent = "Sync invoices, journals & bank";
         const statusRes = await fetch("/api/xero/status");
         const statusData = await statusRes.json().catch(() => ({}));
         btn.disabled = !(statusData.stages && statusData.stages["3_sync"] && statusData.stages["3_sync"].ready);

@@ -183,12 +183,14 @@ def sync_all_invoices(db: Session) -> dict[str, Any]:
         raise XeroAuthError(
             "Map at least one Xero organisation to a dashboard business before syncing."
         )
+    from app.services.xero_bank_transactions import sync_bank_transactions_for_organisation
     from app.services.xero_journals import sync_journals_for_organisation
 
     access_token = resolve_access_token(db)
     results: list[dict[str, Any]] = []
     account_results: list[dict[str, Any]] = []
     journal_results: list[dict[str, Any]] = []
+    bank_results: list[dict[str, Any]] = []
     with httpx.Client(timeout=90.0) as client:
         for organisation in organisations:
             results.append(
@@ -215,6 +217,14 @@ def sync_all_invoices(db: Session) -> dict[str, Any]:
                     organisation=organisation,
                 )
             )
+            bank_results.append(
+                sync_bank_transactions_for_organisation(
+                    db,
+                    client,
+                    access_token=access_token,
+                    organisation=organisation,
+                )
+            )
     summary = invoice_summary(db)
     return {
         "organisations": results,
@@ -223,6 +233,10 @@ def sync_all_invoices(db: Session) -> dict[str, Any]:
         "accounts_fetched_total": sum(int(item["fetched"]) for item in account_results),
         "journals": journal_results,
         "journals_fetched_total": sum(int(item["fetched"]) for item in journal_results),
+        "bank_transactions": bank_results,
+        "bank_transactions_fetched_total": sum(
+            int(item["fetched"]) for item in bank_results
+        ),
         "summary": summary,
     }
 

@@ -290,7 +290,8 @@
         `${bizLabel} · UK fiscal year ending ${data.fiscal_year} (Apr–Mar). ` +
         `P&L Sales = ACCREC; P&L Costs = ACCPAY + expense journals; Balance sheet = asset/liability/equity accounts. Ex VAT, not netted. ` +
         `Invoice statuses: ${statuses}.` +
-        (data.journals_synced ? "" : " Sync invoices on Connection to pull manual journals.") +
+        (data.journals_synced ? "" : " Sync on Connection to pull manual journals.") +
+        (data.bank_transactions_synced ? "" : " Sync on Connection to pull bank spend/receive money.") +
         (data.accounts_synced ? "" : " Account names not synced yet — click Refresh account names.");
 
       document.getElementById("sections").innerHTML = (data.sections || [])
