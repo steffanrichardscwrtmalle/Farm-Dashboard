@@ -60,8 +60,33 @@ def init_db() -> None:
     _migrate_rations_schema()
     _migrate_hp_schedules_schema()
     _migrate_rental_agreements_schema()
+    _migrate_xero_line_amount_types()
     _seed_financial_forecasts()
     _seed_hp_schedules()
+
+
+def _migrate_xero_line_amount_types() -> None:
+    """Add LineAmountTypes columns used to strip VAT from Inclusive Xero docs."""
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        if "xero_invoices" in tables:
+            cols = {col["name"] for col in inspector.get_columns("xero_invoices")}
+            if "line_amount_types" not in cols:
+                conn.execute(
+                    text("ALTER TABLE xero_invoices ADD COLUMN line_amount_types VARCHAR(16)")
+                )
+        if "xero_bank_transactions" in tables:
+            cols = {
+                col["name"] for col in inspector.get_columns("xero_bank_transactions")
+            }
+            if "line_amount_types" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE xero_bank_transactions "
+                        "ADD COLUMN line_amount_types VARCHAR(16)"
+                    )
+                )
 
 
 def _migrate_rental_agreements_schema() -> None:

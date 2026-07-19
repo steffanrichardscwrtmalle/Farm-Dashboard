@@ -36,6 +36,7 @@ from app.services.financial_forecasts import (
     seed_financial_forecasts_if_empty,
 )
 from app.services.xero_actuals import available_actual_fiscal_years
+from app.services.xero_amounts import document_is_inclusive, ex_vat_line_amount
 from app.services.xero_bank_transactions import (
     BANK_STATUSES,
     bank_type_as_invoice_type,
@@ -346,6 +347,86 @@ def _resolve_mapping(
     return mapping_id, account_class
 
 
+def _inclusive_invoice_pks(
+    db: Session,
+    *,
+    start: dt.date,
+    end: dt.date,
+    businesses: list[str] | None,
+) -> set[int]:
+    stmt = (
+        select(
+            XeroInvoice.id,
+            XeroInvoice.line_amount_types,
+            XeroInvoice.sub_total,
+            XeroInvoice.total,
+            func.coalesce(func.sum(XeroInvoiceLine.line_amount), 0.0),
+        )
+        .join(XeroInvoiceLine, XeroInvoiceLine.invoice_pk == XeroInvoice.id)
+        .where(XeroInvoice.status.in_(list(SUMMARY_STATUSES)))
+        .where(XeroInvoice.invoice_type.in_(("ACCREC", "ACCPAY")))
+        .where(XeroInvoice.invoice_date.isnot(None))
+        .where(XeroInvoice.invoice_date >= start)
+        .where(XeroInvoice.invoice_date <= end)
+        .group_by(
+            XeroInvoice.id,
+            XeroInvoice.line_amount_types,
+            XeroInvoice.sub_total,
+            XeroInvoice.total,
+        )
+    )
+    if businesses:
+        stmt = stmt.where(XeroInvoice.dashboard_business.in_(businesses))
+    out: set[int] = set()
+    for invoice_pk, types, sub_total, total, line_sum in db.execute(stmt):
+        if document_is_inclusive(
+            types, sub_total=sub_total, total=total, line_sum=float(line_sum or 0.0)
+        ):
+            out.add(int(invoice_pk))
+    return out
+
+
+def _inclusive_bank_pks(
+    db: Session,
+    *,
+    start: dt.date,
+    end: dt.date,
+    businesses: list[str] | None,
+) -> set[int]:
+    stmt = (
+        select(
+            XeroBankTransaction.id,
+            XeroBankTransaction.line_amount_types,
+            XeroBankTransaction.sub_total,
+            XeroBankTransaction.total,
+            func.coalesce(func.sum(XeroBankTransactionLine.line_amount), 0.0),
+        )
+        .join(
+            XeroBankTransactionLine,
+            XeroBankTransactionLine.bank_transaction_pk == XeroBankTransaction.id,
+        )
+        .where(XeroBankTransaction.status.in_(list(BANK_STATUSES)))
+        .where(XeroBankTransaction.transaction_date.isnot(None))
+        .where(XeroBankTransaction.transaction_date >= start)
+        .where(XeroBankTransaction.transaction_date <= end)
+        .group_by(
+            XeroBankTransaction.id,
+            XeroBankTransaction.line_amount_types,
+            XeroBankTransaction.sub_total,
+            XeroBankTransaction.total,
+        )
+    )
+    if businesses:
+        stmt = stmt.where(XeroBankTransaction.dashboard_business.in_(businesses))
+    out: set[int] = set()
+    for bank_pk, types, sub_total, total, line_sum in db.execute(stmt):
+        if document_is_inclusive(
+            types, sub_total=sub_total, total=total, line_sum=float(line_sum or 0.0)
+        ):
+            out.add(int(bank_pk))
+    return out
+
+
 def list_xero_pnl(
     db: Session,
     *,
@@ -379,6 +460,10 @@ def list_xero_pnl(
     business_value, businesses = _resolve_businesses(business)
 
     mapping_by_account_id, account_class_by_id, account_id_by_code = _lookup_maps(db)
+    inclusive_invoices = _inclusive_invoice_pks(
+        db, start=start, end=end, businesses=businesses
+    )
+    inclusive_banks = _inclusive_bank_pks(db, start=start, end=end, businesses=businesses)
 
     # mapping_id -> month -> amount
     buckets: dict[int, dict[str, float]] = defaultdict(lambda: defaultdict(float))
@@ -386,11 +471,13 @@ def list_xero_pnl(
 
     inv_stmt = (
         select(
+            XeroInvoice.id,
             XeroInvoice.invoice_type,
             XeroInvoiceLine.account_id,
             XeroInvoiceLine.account_code,
             XeroInvoice.invoice_date,
             XeroInvoiceLine.line_amount,
+            XeroInvoiceLine.tax_amount,
             XeroInvoice.tenant_id,
         )
         .join(XeroInvoice, XeroInvoiceLine.invoice_pk == XeroInvoice.id)
@@ -403,9 +490,16 @@ def list_xero_pnl(
     if businesses:
         inv_stmt = inv_stmt.where(XeroInvoice.dashboard_business.in_(businesses))
 
-    for invoice_type, account_id, account_code, invoice_date, line_amount, tenant_id in db.execute(
-        inv_stmt
-    ):
+    for (
+        invoice_pk,
+        invoice_type,
+        account_id,
+        account_code,
+        invoice_date,
+        line_amount,
+        tax_amount,
+        tenant_id,
+    ) in db.execute(inv_stmt):
         if invoice_date is None:
             continue
         month_iso = invoice_date.replace(day=1).isoformat()
@@ -419,10 +513,15 @@ def list_xero_pnl(
             account_id_by_code=account_id_by_code,
             account_class_by_id=account_class_by_id,
         )
+        net_amount = ex_vat_line_amount(
+            line_amount,
+            tax_amount,
+            inclusive=int(invoice_pk) in inclusive_invoices,
+        )
         signed = _signed_amount(
             account_class=account_class,
             invoice_type=invoice_type,
-            line_amount=float(line_amount or 0.0),
+            line_amount=net_amount,
             is_journal=False,
         )
         if mapping_id is None:
@@ -474,11 +573,13 @@ def list_xero_pnl(
 
     bank_stmt = (
         select(
+            XeroBankTransaction.id,
             XeroBankTransaction.transaction_type,
             XeroBankTransactionLine.account_id,
             XeroBankTransactionLine.account_code,
             XeroBankTransaction.transaction_date,
             XeroBankTransactionLine.line_amount,
+            XeroBankTransactionLine.tax_amount,
             XeroBankTransaction.tenant_id,
         )
         .join(
@@ -496,11 +597,13 @@ def list_xero_pnl(
         )
 
     for (
+        bank_pk,
         transaction_type,
         account_id,
         account_code,
         transaction_date,
         line_amount,
+        tax_amount,
         tenant_id,
     ) in db.execute(bank_stmt):
         if transaction_date is None or not is_pnl_bank_type(transaction_type):
@@ -517,10 +620,15 @@ def list_xero_pnl(
             account_id_by_code=account_id_by_code,
             account_class_by_id=account_class_by_id,
         )
+        net_amount = ex_vat_line_amount(
+            line_amount,
+            tax_amount,
+            inclusive=int(bank_pk) in inclusive_banks,
+        )
         signed = _signed_amount(
             account_class=account_class,
             invoice_type=invoice_type,
-            line_amount=float(line_amount or 0.0),
+            line_amount=net_amount,
             is_journal=False,
         )
         if mapping_id is None:

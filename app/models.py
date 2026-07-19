@@ -569,6 +569,8 @@ class XeroInvoice(Base):
     invoice_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
     invoice_type: Mapped[str] = mapped_column(String(16), index=True)  # ACCREC / ACCPAY
     status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # Exclusive / Inclusive / NoTax — Inclusive LineAmount includes VAT.
+    line_amount_types: Mapped[str | None] = mapped_column(String(16), nullable=True)
     reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     currency_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
@@ -733,6 +735,8 @@ class XeroBankTransaction(Base):
     bank_transaction_id: Mapped[str] = mapped_column(String(64), index=True)
     transaction_type: Mapped[str] = mapped_column(String(32), index=True)  # SPEND / RECEIVE / …
     status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # Exclusive / Inclusive / NoTax — Inclusive LineAmount includes VAT.
+    line_amount_types: Mapped[str | None] = mapped_column(String(16), nullable=True)
     reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     currency_code: Mapped[str | None] = mapped_column(String(8), nullable=True)

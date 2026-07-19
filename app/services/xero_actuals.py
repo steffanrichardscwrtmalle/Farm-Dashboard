@@ -27,6 +27,7 @@ from app.services.events_common import (
     _iter_month_starts,
 )
 from app.services.xero_accounts import account_meta_lookup
+from app.services.xero_amounts import document_is_inclusive, ex_vat_line_amount
 from app.services.xero_bank_transactions import (
     BANK_STATUSES,
     bank_type_as_invoice_type,
@@ -185,10 +186,15 @@ def list_actuals(
 
     inv_stmt = (
         select(
+            XeroInvoice.id,
             XeroInvoice.invoice_type,
+            XeroInvoice.line_amount_types,
+            XeroInvoice.sub_total,
+            XeroInvoice.total,
             XeroInvoiceLine.account_code,
             XeroInvoice.invoice_date,
             XeroInvoiceLine.line_amount,
+            XeroInvoiceLine.tax_amount,
             XeroInvoice.tenant_id,
         )
         .join(XeroInvoice, XeroInvoiceLine.invoice_pk == XeroInvoice.id)
@@ -219,10 +225,15 @@ def list_actuals(
 
     bank_stmt = (
         select(
+            XeroBankTransaction.id,
             XeroBankTransaction.transaction_type,
+            XeroBankTransaction.line_amount_types,
+            XeroBankTransaction.sub_total,
+            XeroBankTransaction.total,
             XeroBankTransactionLine.account_code,
             XeroBankTransaction.transaction_date,
             XeroBankTransactionLine.line_amount,
+            XeroBankTransactionLine.tax_amount,
             XeroBankTransaction.tenant_id,
         )
         .join(
@@ -244,12 +255,45 @@ def list_actuals(
     bank_rows = db.execute(bank_stmt).all()
     tenant_ids = sorted(
         {
-            *(str(t) for *_, t in inv_rows if t),
-            *(str(t) for *_, t in jnl_rows if t),
-            *(str(t) for *_, t in bank_rows if t),
+            *(str(r[-1]) for r in inv_rows if r[-1]),
+            *(str(r[-1]) for r in jnl_rows if r[-1]),
+            *(str(r[-1]) for r in bank_rows if r[-1]),
         }
     )
     accounts = account_meta_lookup(db, tenant_ids=tenant_ids or None)
+
+    inv_line_sums: dict[int, float] = defaultdict(float)
+    for row in inv_rows:
+        inv_line_sums[int(row[0])] += float(row[7] or 0.0)
+    bank_line_sums: dict[int, float] = defaultdict(float)
+    for row in bank_rows:
+        bank_line_sums[int(row[0])] += float(row[7] or 0.0)
+
+    inclusive_invoices: set[int] = set()
+    for row in inv_rows:
+        invoice_pk = int(row[0])
+        if invoice_pk in inclusive_invoices:
+            continue
+        if document_is_inclusive(
+            row[2],
+            sub_total=row[3],
+            total=row[4],
+            line_sum=inv_line_sums.get(invoice_pk),
+        ):
+            inclusive_invoices.add(invoice_pk)
+
+    inclusive_banks: set[int] = set()
+    for row in bank_rows:
+        bank_pk = int(row[0])
+        if bank_pk in inclusive_banks:
+            continue
+        if document_is_inclusive(
+            row[2],
+            sub_total=row[3],
+            total=row[4],
+            line_sum=bank_line_sums.get(bank_pk),
+        ):
+            inclusive_banks.add(bank_pk)
 
     buckets: dict[str, dict[str, dict[str, float]]] = {
         _SECTION_SALES: defaultdict(lambda: defaultdict(float)),
@@ -257,7 +301,18 @@ def list_actuals(
         _SECTION_BALANCE: defaultdict(lambda: defaultdict(float)),
     }
 
-    for invoice_type, account_code, invoice_date, line_amount, _tenant_id in inv_rows:
+    for (
+        invoice_pk,
+        invoice_type,
+        _types,
+        _sub,
+        _total,
+        account_code,
+        invoice_date,
+        line_amount,
+        tax_amount,
+        _tenant_id,
+    ) in inv_rows:
         if invoice_date is None:
             continue
         code = (str(account_code).strip() if account_code else "") or "Uncoded"
@@ -267,7 +322,11 @@ def list_actuals(
         meta = accounts.get(code) if code != "Uncoded" else None
         account_class = meta["account_class"] if meta else None
         section = _invoice_section(invoice_type, account_class)
-        buckets[section][code][month_iso] += float(line_amount or 0.0)
+        buckets[section][code][month_iso] += ex_vat_line_amount(
+            line_amount,
+            tax_amount,
+            inclusive=int(invoice_pk) in inclusive_invoices,
+        )
 
     for account_code, journal_date, line_amount, _tenant_id in jnl_rows:
         if journal_date is None:
@@ -283,7 +342,18 @@ def list_actuals(
         )
         buckets[section][code][month_iso] += amount
 
-    for transaction_type, account_code, transaction_date, line_amount, _tenant_id in bank_rows:
+    for (
+        bank_pk,
+        transaction_type,
+        _types,
+        _sub,
+        _total,
+        account_code,
+        transaction_date,
+        line_amount,
+        tax_amount,
+        _tenant_id,
+    ) in bank_rows:
         if transaction_date is None or not is_pnl_bank_type(transaction_type):
             continue
         invoice_type = bank_type_as_invoice_type(transaction_type)
@@ -296,7 +366,11 @@ def list_actuals(
         meta = accounts.get(code) if code != "Uncoded" else None
         account_class = meta["account_class"] if meta else None
         section = _invoice_section(invoice_type, account_class)
-        buckets[section][code][month_iso] += float(line_amount or 0.0)
+        buckets[section][code][month_iso] += ex_vat_line_amount(
+            line_amount,
+            tax_amount,
+            inclusive=int(bank_pk) in inclusive_banks,
+        )
 
     def build_section(section_key: str, label: str, statement: str) -> dict[str, Any]:
         section_rows: list[dict[str, Any]] = []

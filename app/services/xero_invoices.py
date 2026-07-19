@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import XERO_API_BASE_URL
 from app.models import XeroInvoice, XeroInvoiceLine, XeroOrganisation
 from app.services.xero_accounts import sync_accounts_for_organisation
+from app.services.xero_amounts import normalize_line_amount_types
 from app.services.xero_auth import XeroAuthError
 from app.services.xero_dates import parse_xero_date, parse_xero_datetime
 from app.services.xero_orgs import resolve_access_token
@@ -86,6 +87,9 @@ def upsert_invoice(
         "invoice_number": (str(payload.get("InvoiceNumber") or "").strip() or None),
         "invoice_type": str(payload.get("Type") or "").strip(),
         "status": (str(payload.get("Status") or "").strip() or None),
+        "line_amount_types": normalize_line_amount_types(
+            str(payload.get("LineAmountTypes") or "") or None
+        ),
         "reference": (str(payload.get("Reference") or "").strip() or None),
         "contact_name": (str(contact.get("Name") or "").strip() or None),
         "currency_code": (str(payload.get("CurrencyCode") or "").strip() or None),
