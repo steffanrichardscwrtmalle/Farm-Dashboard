@@ -33,7 +33,11 @@ from app.services.xero_bank_transactions import (
     bank_type_as_invoice_type,
     is_pnl_bank_type,
 )
-from app.services.xero_invoices import SUMMARY_STATUSES
+from app.services.xero_invoices import (
+    CREDIT_NOTE_TYPES,
+    PNL_DOCUMENT_TYPES,
+    SUMMARY_STATUSES,
+)
 from app.services.xero_journals import JOURNAL_STATUSES
 
 _CODE_PARTS_RE = re.compile(r"(\d+|\D+)")
@@ -142,7 +146,7 @@ def available_actual_fiscal_years(db: Session) -> list[int]:
 def _invoice_section(invoice_type: str, account_class: str | None) -> str:
     if account_class in _BALANCE_CLASSES:
         return _SECTION_BALANCE
-    if invoice_type == "ACCREC":
+    if invoice_type in ("ACCREC", "ACCRECCREDIT"):
         return _SECTION_SALES
     return _SECTION_COSTS
 
@@ -199,7 +203,7 @@ def list_actuals(
         )
         .join(XeroInvoice, XeroInvoiceLine.invoice_pk == XeroInvoice.id)
         .where(XeroInvoice.status.in_(list(SUMMARY_STATUSES)))
-        .where(XeroInvoice.invoice_type.in_(("ACCREC", "ACCPAY")))
+        .where(XeroInvoice.invoice_type.in_(list(PNL_DOCUMENT_TYPES)))
         .where(XeroInvoice.invoice_date.isnot(None))
         .where(XeroInvoice.invoice_date >= start)
         .where(XeroInvoice.invoice_date <= end)
@@ -322,11 +326,14 @@ def list_actuals(
         meta = accounts.get(code) if code != "Uncoded" else None
         account_class = meta["account_class"] if meta else None
         section = _invoice_section(invoice_type, account_class)
-        buckets[section][code][month_iso] += ex_vat_line_amount(
+        amount = ex_vat_line_amount(
             line_amount,
             tax_amount,
             inclusive=int(invoice_pk) in inclusive_invoices,
         )
+        if invoice_type in CREDIT_NOTE_TYPES:
+            amount = -abs(amount)
+        buckets[section][code][month_iso] += amount
 
     for account_code, journal_date, line_amount, _tenant_id in jnl_rows:
         if journal_date is None:

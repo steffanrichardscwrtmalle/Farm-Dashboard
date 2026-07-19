@@ -292,7 +292,7 @@
       Sync invoices
     </h2>
     <p>
-      Pull sales invoices (ACCREC), bills (ACCPAY), account names, manual journals, and bank spend/receive money
+      Pull sales invoices, bills, credit notes, account names, manual journals, and bank spend/receive money
       from each mapped organisation. Totals below exclude draft, deleted, and voided documents.
     </p>
     <div class="actions">
@@ -832,7 +832,7 @@
       const btn = document.getElementById("sync-invoices-btn");
       btn.disabled = true;
       btn.textContent = "Syncing…";
-      showInvoiceStatus("Syncing invoices, accounts, journals, and bank transactions from Xero. This can take a few minutes…", true);
+      showInvoiceStatus("Syncing invoices, credit notes, accounts, journals, and bank transactions from Xero. This can take a few minutes…", true);
       try {
         const res = await fetch("/api/xero/invoices/sync", { method: "POST" });
         const data = await res.json().catch(() => ({}));
@@ -845,6 +845,7 @@
         );
         showInvoiceStatus(
           `Synced ${Number(data.fetched_total || 0).toLocaleString("en-GB")} invoices` +
+            `, ${Number(data.credit_notes_fetched_total || 0).toLocaleString("en-GB")} credit notes` +
             `, ${Number(data.journals_fetched_total || 0).toLocaleString("en-GB")} journals` +
             `, and ${Number(data.bank_transactions_fetched_total || 0).toLocaleString("en-GB")} bank transactions` +
             (parts.length ? ` (${parts.join("; ")})` : "") +

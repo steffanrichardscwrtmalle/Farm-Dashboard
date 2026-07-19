@@ -1,8 +1,9 @@
-"""Fetch and store Xero ACCREC (sales) and ACCPAY (bills) invoices."""
+"""Fetch and store Xero invoices/bills and credit notes."""
 
 from __future__ import annotations
 
 import datetime as dt
+import time
 from typing import Any
 
 import httpx
@@ -18,6 +19,10 @@ from app.services.xero_dates import parse_xero_date, parse_xero_datetime
 from app.services.xero_orgs import resolve_access_token
 
 _INVOICE_TYPES = ("ACCREC", "ACCPAY")
+_CREDIT_NOTE_TYPES = ("ACCRECCREDIT", "ACCPAYCREDIT")
+# Bills, sales invoices, and supplier/customer credit notes used in P&L.
+PNL_DOCUMENT_TYPES = _INVOICE_TYPES + _CREDIT_NOTE_TYPES
+CREDIT_NOTE_TYPES = frozenset(_CREDIT_NOTE_TYPES)
 SUMMARY_STATUSES = frozenset({"AUTHORISED", "PAID", "SUBMITTED"})
 _SUMMARY_STATUSES = SUMMARY_STATUSES
 _MAX_PAGES_PER_TENANT = 50
@@ -71,7 +76,7 @@ def upsert_invoice(
     dashboard_business: str | None,
     payload: dict[str, Any],
 ) -> None:
-    invoice_id = str(payload.get("InvoiceID") or "").strip()
+    invoice_id = str(payload.get("InvoiceID") or payload.get("CreditNoteID") or "").strip()
     if not invoice_id:
         return
 
@@ -84,7 +89,14 @@ def upsert_invoice(
     contact = payload.get("Contact") or {}
     now = _utcnow()
     values = {
-        "invoice_number": (str(payload.get("InvoiceNumber") or "").strip() or None),
+        "invoice_number": (
+            str(
+                payload.get("InvoiceNumber")
+                or payload.get("CreditNoteNumber")
+                or ""
+            ).strip()
+            or None
+        ),
         "invoice_type": str(payload.get("Type") or "").strip(),
         "status": (str(payload.get("Status") or "").strip() or None),
         "line_amount_types": normalize_line_amount_types(
@@ -117,10 +129,8 @@ def upsert_invoice(
         row.lines.clear()
         db.flush()
 
-    for line in payload.get("LineItems") or []:
-        line_id = str(line.get("LineItemID") or "").strip()
-        if not line_id:
-            continue
+    for index, line in enumerate(payload.get("LineItems") or []):
+        line_id = str(line.get("LineItemID") or "").strip() or f"{invoice_id}:{index}"
         db.add(
             XeroInvoiceLine(
                 invoice_pk=row.id,
@@ -140,6 +150,115 @@ def upsert_invoice(
                 tax_type=(str(line.get("TaxType") or "").strip() or None),
             )
         )
+
+
+def fetch_credit_notes_page(
+    client: httpx.Client,
+    *,
+    access_token: str,
+    tenant_id: str,
+    page: int,
+) -> list[dict[str, Any]]:
+    for attempt in range(6):
+        response = client.get(
+            f"{XERO_API_BASE_URL}/CreditNotes",
+            params={"page": page, "unitdp": 4},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Xero-Tenant-Id": tenant_id,
+                "Accept": "application/json",
+            },
+        )
+        if response.status_code == 429:
+            time.sleep(2**attempt)
+            continue
+        if response.status_code >= 400:
+            detail = response.text.strip()
+            raise XeroAuthError(
+                f"Failed to fetch credit notes for tenant {tenant_id[:8]}… ({detail[:240]})"
+            )
+        payload = response.json() or {}
+        notes = payload.get("CreditNotes") or []
+        return [note for note in notes if note.get("Type") in _CREDIT_NOTE_TYPES]
+    raise XeroAuthError("Xero rate-limited credit note sync. Try again shortly.")
+
+
+def fetch_credit_note(
+    client: httpx.Client,
+    *,
+    access_token: str,
+    tenant_id: str,
+    credit_note_id: str,
+) -> dict[str, Any]:
+    response = client.get(
+        f"{XERO_API_BASE_URL}/CreditNotes/{credit_note_id}",
+        params={"unitdp": 4},
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Xero-Tenant-Id": tenant_id,
+            "Accept": "application/json",
+        },
+    )
+    if response.status_code >= 400:
+        detail = response.text.strip()
+        raise XeroAuthError(
+            f"Failed to fetch credit note {credit_note_id[:8]}… ({detail[:240]})"
+        )
+    payload = response.json() or {}
+    notes = payload.get("CreditNotes") or []
+    return notes[0] if notes else {}
+
+
+def sync_credit_notes_for_organisation(
+    db: Session,
+    client: httpx.Client,
+    *,
+    access_token: str,
+    organisation: XeroOrganisation,
+) -> dict[str, Any]:
+    page = 1
+    fetched = 0
+    while page <= _MAX_PAGES_PER_TENANT:
+        notes = fetch_credit_notes_page(
+            client,
+            access_token=access_token,
+            tenant_id=organisation.tenant_id,
+            page=page,
+        )
+        if not notes:
+            break
+        for payload in notes:
+            credit_note_id = str(payload.get("CreditNoteID") or "").strip()
+            lines = payload.get("LineItems") or []
+            if credit_note_id and not lines:
+                payload = (
+                    fetch_credit_note(
+                        client,
+                        access_token=access_token,
+                        tenant_id=organisation.tenant_id,
+                        credit_note_id=credit_note_id,
+                    )
+                    or payload
+                )
+                time.sleep(0.35)
+            upsert_invoice(
+                db,
+                tenant_id=organisation.tenant_id,
+                dashboard_business=organisation.dashboard_business,
+                payload=payload,
+            )
+            fetched += 1
+        db.commit()
+        if len(notes) < 100:
+            break
+        page += 1
+    return {
+        "tenant_id": organisation.tenant_id,
+        "tenant_name": organisation.tenant_name,
+        "dashboard_business": organisation.dashboard_business,
+        "fetched": fetched,
+        "pages": page,
+    }
 
 
 def sync_invoices_for_organisation(
@@ -192,6 +311,7 @@ def sync_all_invoices(db: Session) -> dict[str, Any]:
 
     access_token = resolve_access_token(db)
     results: list[dict[str, Any]] = []
+    credit_results: list[dict[str, Any]] = []
     account_results: list[dict[str, Any]] = []
     journal_results: list[dict[str, Any]] = []
     bank_results: list[dict[str, Any]] = []
@@ -199,6 +319,14 @@ def sync_all_invoices(db: Session) -> dict[str, Any]:
         for organisation in organisations:
             results.append(
                 sync_invoices_for_organisation(
+                    db,
+                    client,
+                    access_token=access_token,
+                    organisation=organisation,
+                )
+            )
+            credit_results.append(
+                sync_credit_notes_for_organisation(
                     db,
                     client,
                     access_token=access_token,
@@ -233,6 +361,8 @@ def sync_all_invoices(db: Session) -> dict[str, Any]:
     return {
         "organisations": results,
         "fetched_total": sum(int(item["fetched"]) for item in results),
+        "credit_notes": credit_results,
+        "credit_notes_fetched_total": sum(int(item["fetched"]) for item in credit_results),
         "accounts": account_results,
         "accounts_fetched_total": sum(int(item["fetched"]) for item in account_results),
         "journals": journal_results,
@@ -275,12 +405,12 @@ def invoice_summary(db: Session) -> dict[str, Any]:
                 "bills_total": 0.0,
             },
         )
-        if invoice_type == "ACCREC":
-            bucket["sales_count"] = int(count)
-            bucket["sales_total"] = float(total)
-        elif invoice_type == "ACCPAY":
-            bucket["bills_count"] = int(count)
-            bucket["bills_total"] = float(total)
+        if invoice_type in ("ACCREC", "ACCRECCREDIT"):
+            bucket["sales_count"] = int(bucket["sales_count"]) + int(count)
+            bucket["sales_total"] = float(bucket["sales_total"]) + float(total)
+        elif invoice_type in ("ACCPAY", "ACCPAYCREDIT"):
+            bucket["bills_count"] = int(bucket["bills_count"]) + int(count)
+            bucket["bills_total"] = float(bucket["bills_total"]) + float(total)
 
     return {
         "invoice_count": int(total_count),

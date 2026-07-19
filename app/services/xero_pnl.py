@@ -42,7 +42,11 @@ from app.services.xero_bank_transactions import (
     bank_type_as_invoice_type,
     is_pnl_bank_type,
 )
-from app.services.xero_invoices import SUMMARY_STATUSES
+from app.services.xero_invoices import (
+    CREDIT_NOTE_TYPES,
+    PNL_DOCUMENT_TYPES,
+    SUMMARY_STATUSES,
+)
 from app.services.xero_journals import JOURNAL_STATUSES
 
 _REVENUE_CLASSES = frozenset({"REVENUE"})
@@ -297,11 +301,16 @@ def _signed_amount(
         if account_class in _EXPENSE_CLASSES:
             return amount
         return amount
+    # Credit notes store positive LineAmount; reverse so they reduce sales/costs.
+    if invoice_type in CREDIT_NOTE_TYPES:
+        amount = -abs(amount)
+    payable = invoice_type in ("ACCPAY", "ACCPAYCREDIT")
+    receivable = invoice_type in ("ACCREC", "ACCRECCREDIT")
     if account_class in _REVENUE_CLASSES:
-        return amount if invoice_type == "ACCREC" else -amount
+        return amount if receivable else -amount
     if account_class in _EXPENSE_CLASSES:
-        return amount if invoice_type == "ACCPAY" else -amount
-    return amount if invoice_type == "ACCREC" else amount
+        return amount if payable else -amount
+    return amount if receivable else amount
 
 
 def _lookup_maps(db: Session) -> tuple[
@@ -364,7 +373,7 @@ def _inclusive_invoice_pks(
         )
         .join(XeroInvoiceLine, XeroInvoiceLine.invoice_pk == XeroInvoice.id)
         .where(XeroInvoice.status.in_(list(SUMMARY_STATUSES)))
-        .where(XeroInvoice.invoice_type.in_(("ACCREC", "ACCPAY")))
+        .where(XeroInvoice.invoice_type.in_(list(PNL_DOCUMENT_TYPES)))
         .where(XeroInvoice.invoice_date.isnot(None))
         .where(XeroInvoice.invoice_date >= start)
         .where(XeroInvoice.invoice_date <= end)
@@ -482,7 +491,7 @@ def list_xero_pnl(
         )
         .join(XeroInvoice, XeroInvoiceLine.invoice_pk == XeroInvoice.id)
         .where(XeroInvoice.status.in_(list(SUMMARY_STATUSES)))
-        .where(XeroInvoice.invoice_type.in_(("ACCREC", "ACCPAY")))
+        .where(XeroInvoice.invoice_type.in_(list(PNL_DOCUMENT_TYPES)))
         .where(XeroInvoice.invoice_date.isnot(None))
         .where(XeroInvoice.invoice_date >= start)
         .where(XeroInvoice.invoice_date <= end)
