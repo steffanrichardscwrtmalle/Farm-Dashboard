@@ -220,6 +220,30 @@
     max-height: none;
     overflow: visible;
   }
+  .grid-scroll.pdf-exporting .pnl-table {
+    font-size: 0.58rem;
+  }
+  .grid-scroll.pdf-exporting .pnl-table th,
+  .grid-scroll.pdf-exporting .pnl-table td {
+    padding: 0.02rem 0.22rem;
+    line-height: 1.05;
+  }
+  .grid-scroll.pdf-exporting .pnl-table th {
+    font-size: 0.52rem;
+    padding-top: 0.08rem;
+    padding-bottom: 0.08rem;
+  }
+  .grid-scroll.pdf-exporting .pnl-table th.col-summary {
+    line-height: 1.05;
+  }
+  .grid-scroll.pdf-exporting .pnl-table tr.band-row td {
+    padding-top: 0.18rem;
+    padding-bottom: 0.02rem;
+    font-size: 0.58rem;
+  }
+  .grid-scroll.pdf-exporting .pnl-table tr.profit-row td.profit-label {
+    font-size: 0.58rem;
+  }
   @media print {
     .filters, .export-actions, .sidebar, .topbar, nav { display: none !important; }
     .grid-scroll { max-height: none; overflow: visible; border: none; }
@@ -1129,6 +1153,27 @@
       URL.revokeObjectURL(url);
     }
 
+    function pdfReferenceTableWidth(printArea) {
+      // Scale PDFs as if 12 month columns + budget columns are present, so short
+      // ranges keep the same on-page row height as a full-year budget export.
+      const table = printArea.querySelector(".pnl-table");
+      if (!table) return 1600;
+      const monthEl = table.querySelector("th.col-month, td.col-month");
+      const groupEl = table.querySelector(".col-group");
+      const headingEl = table.querySelector(".col-heading");
+      const monthW = monthEl ? monthEl.getBoundingClientRect().width : 68;
+      const groupW = groupEl ? groupEl.getBoundingClientRect().width : 128;
+      const headingW = headingEl ? headingEl.getBoundingClientRect().width : 192;
+      let summaryW = 0;
+      table.querySelectorAll("thead th.col-summary").forEach(th => {
+        summaryW += th.getBoundingClientRect().width;
+      });
+      if (!summaryW) summaryW = 160;
+      // Budget adds 4 summary columns; estimate if not currently shown.
+      const budgetExtra = showBudget() ? 0 : 4 * Math.max(monthW * 0.95, 64);
+      return groupW + headingW + (12 * monthW) + summaryW + budgetExtra;
+    }
+
     async function exportPdf() {
       if (!getDisplayContext()) {
         alert("Nothing to export yet.");
@@ -1150,6 +1195,7 @@
       try {
         const exportWidth = Math.max(printArea.scrollWidth, printArea.clientWidth);
         const exportHeight = Math.max(printArea.scrollHeight, printArea.clientHeight);
+        const referenceWidth = Math.max(exportWidth, pdfReferenceTableWidth(printArea));
         const canvas = await html2canvasFn(printArea, {
           scale: 2,
           useCORS: true,
@@ -1162,14 +1208,15 @@
           windowHeight: exportHeight,
         });
 
-        // Fit full table width on one landscape page; slice vertically across pages.
+        // Fit as if full-year + budget width fills the page; fewer months stay smaller
+        // (same row height on the page, blank space on the right).
         const pdf = new JsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
         const margin = 6;
         const pageWidth = pdf.internal.pageSize.getWidth();
         const pageHeight = pdf.internal.pageSize.getHeight();
         const usableWidth = pageWidth - margin * 2;
         const usableHeight = pageHeight - margin * 2;
-        const imgWidthMm = usableWidth;
+        const imgWidthMm = usableWidth * (exportWidth / referenceWidth);
         const imgHeightMm = (canvas.height * imgWidthMm) / canvas.width;
         const pxPerMm = canvas.width / imgWidthMm;
         const pageSlicePx = Math.floor(usableHeight * pxPerMm);
