@@ -128,6 +128,7 @@
   }
   .pnl-table .col-group { left: 0; min-width: 8rem; }
   .pnl-table .col-heading { left: 8rem; min-width: 12rem; }
+  .pnl-table .col-heading.has-mapped-cats { cursor: help; }
   .pnl-table .col-month-a { background: #e8f1fa; }
   .pnl-table .col-month-b { background: #f1f3f5; }
   .pnl-table .col-month-a.col-forecast { background: #faf3e8; }
@@ -203,6 +204,27 @@
     font-size: 0.82rem;
     color: #9a3412;
   }
+  .export-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-left: auto;
+  }
+  .export-actions button {
+    margin: 0;
+    font-size: 0.82rem;
+    padding: 0.4rem 0.75rem;
+  }
+  .grid-scroll.pdf-exporting {
+    max-height: none;
+    overflow: visible;
+  }
+  @media print {
+    .filters, .export-actions, .sidebar, .topbar, nav { display: none !important; }
+    .grid-scroll { max-height: none; overflow: visible; border: none; }
+    main { max-width: none; }
+  }
 {% endblock %}
 
 {% block content %}
@@ -244,6 +266,10 @@
       <input type="checkbox" id="show-forecast" />
       Show forecast
     </label>
+    <div class="export-actions">
+      <button type="button" class="secondary" id="export-csv-btn">Export CSV</button>
+      <button type="button" class="secondary" id="export-pdf-btn">Export PDF</button>
+    </div>
     <div class="range-panel" id="range-panel" hidden>
       <p class="range-title">Month range</p>
       <div class="date-inputs">
@@ -262,8 +288,8 @@
     </div>
   </div>
   <p class="meta-line" id="meta-line">Loading P&amp;L…</p>
-  <div class="grid-scroll">
-    <table class="pnl-table">
+  <div class="grid-scroll" id="pnl-print-area">
+    <table class="pnl-table" id="pnl-table">
       <thead id="pnl-head"></thead>
       <tbody id="pnl-body"></tbody>
     </table>
@@ -272,6 +298,8 @@
 {% endblock %}
 
 {% block scripts %}
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
   <script>
     const money = new Intl.NumberFormat("en-GB", {
       style: "currency",
@@ -590,6 +618,25 @@
       return `${esc(monthLine)}&#10;${esc(headingLine)}&#10;${esc(pplLine)}`;
     }
 
+    function mappedCategoriesTitle(row) {
+      const cats = Array.isArray(row.mapped_categories) ? row.mapped_categories : [];
+      if (!cats.length) return "";
+      const businesses = new Set(
+        cats.map(c => (c.dashboard_business || "").trim()).filter(Boolean)
+      );
+      const showBusiness = businesses.size > 1;
+      const lines = cats.map(c => {
+        const code = (c.account_code || "").trim();
+        const name = (c.account_name || "").trim() || "Unnamed category";
+        const label = code ? `${code} — ${name}` : name;
+        if (showBusiness && c.dashboard_business) {
+          return `${c.dashboard_business}: ${label}`;
+        }
+        return label;
+      });
+      return ["Mapped Xero categories:", ...lines].map(esc).join("&#10;");
+    }
+
     function pplNumber(amount, litres) {
       if (!litres) return null;
       return ((Number(amount) || 0) * 100) / litres;
@@ -831,9 +878,12 @@
         const band = row.band || "";
         const bandHeader = band !== lastBand ? renderBandHeader(band, months) : "";
         lastBand = band;
+        const headingTitle = mappedCategoriesTitle(row);
+        const headingTitleAttr = headingTitle ? ` title="${headingTitle}"` : "";
+        const headingMappedClass = headingTitle ? " has-mapped-cats" : "";
         const labelCells = [
           span.showGroup ? `<td class="sticky-col col-group" rowspan="${span.group}">${esc(row.group)}</td>` : "",
-          `<td class="sticky-col col-heading">${esc(row.heading)}</td>`,
+          `<td class="sticky-col col-heading${headingMappedClass}"${headingTitleAttr}>${esc(row.heading)}</td>`,
         ].join("");
         const monthCells = months.map((m, i) => {
           const n = amounts.get(m.month) || 0;
@@ -941,6 +991,242 @@
       }, 200);
     }
 
+    function getDisplayContext() {
+      if (!pnlData) return null;
+      const months = selectedMonths();
+      const sourceRows = pnlData.grid_rows || [];
+      const allRows = rowsWithForecast(sourceRows);
+      const rows = visibleRows(months, allRows);
+      if (!months.length || !rows.length) return null;
+      return {
+        months,
+        sourceRows,
+        allRows,
+        rows,
+        litres: litresTotal(allRows, months),
+        budgetLitres: budgetLitresTotal(sourceRows, months),
+        summary: computeProfitRows(allRows, months),
+      };
+    }
+
+    function exportBasename() {
+      const biz = (pnlData?.business || "all").replace(/[^\w]+/g, "-").toLowerCase();
+      if (isRangeMode()) {
+        const from = document.getElementById("range-from-label").textContent || "from";
+        const to = document.getElementById("range-to-label").textContent || "to";
+        return `pnl-${biz}-${from}-${to}`.replace(/\s+/g, "");
+      }
+      const fy = pnlData?.fiscal_year || "fy";
+      const through = document.getElementById("completed-month-select").selectedOptions[0]?.textContent || "";
+      const suffix = through ? `-through-${through}` : "";
+      const forecast = showForecast() ? "-forecast" : "";
+      return `pnl-${biz}-fy${fy}${suffix}${forecast}`.replace(/\s+/g, "");
+    }
+
+    function csvEscape(value) {
+      const s = String(value ?? "");
+      if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    }
+
+    function exportCsv() {
+      const ctx = getDisplayContext();
+      if (!ctx) {
+        alert("Nothing to export yet.");
+        return;
+      }
+      const { months, rows, litres, budgetLitres, summary } = ctx;
+      const includeBudget = showBudget();
+      const headers = [
+        "Band",
+        "Group",
+        "Heading",
+        ...months.map(m => m.month_label),
+        "Total",
+        "PPL",
+      ];
+      if (includeBudget) headers.push("Budget", "Budget PPL", "Diff", "Diff PPL");
+
+      const lines = [headers.map(csvEscape).join(",")];
+      let lastBand = null;
+      rows.forEach(row => {
+        const band = row.band || "";
+        if (band !== lastBand) {
+          const bandRow = [band, "", "", ...months.map(() => ""), "", ""];
+          if (includeBudget) bandRow.push("", "", "", "");
+          lines.push(bandRow.map(csvEscape).join(","));
+          lastBand = band;
+        }
+        const isLitres = row.item_type === "Data" && (row.heading || "").toLowerCase().includes("litre");
+        const amounts = amountByMonth(row);
+        const total = rowTotal(row, months);
+        const budget = rowBudgetTotal(row, months);
+        const cells = [
+          "",
+          row.group || "",
+          row.heading || "",
+          ...months.map(m => {
+            const n = amounts.get(m.month) || 0;
+            return isLitres ? litresFmt.format(n) : String(Math.round(n));
+          }),
+          isLitres ? litresFmt.format(total) : String(Math.round(total)),
+          isLitres ? "" : formatPpl(total, litres),
+        ];
+        if (includeBudget) {
+          const actualPpl = pplNumber(total, litres);
+          const budgetPpl = pplNumber(budget, budgetLitres);
+          const diff = total - budget;
+          const diffPpl = (actualPpl == null || budgetPpl == null) ? "" : pplFmt.format(actualPpl - budgetPpl);
+          cells.push(
+            isLitres ? litresFmt.format(budget) : String(Math.round(budget)),
+            isLitres ? "" : formatPpl(budget, budgetLitres),
+            isLitres ? litresFmt.format(diff) : String(Math.round(diff)),
+            isLitres ? "" : diffPpl,
+          );
+        }
+        lines.push(cells.map(csvEscape).join(","));
+      });
+
+      summary.rows.forEach(row => {
+        const cells = [
+          "",
+          "",
+          row.label,
+          ...row.values.map(v => String(Math.round(v))),
+          String(Math.round(row.total)),
+          formatPpl(row.total, summary.litresYear),
+        ];
+        if (includeBudget) {
+          const actualPpl = pplNumber(row.total, summary.litresYear);
+          const budgetPpl = pplNumber(row.budget, summary.budgetLitresYear);
+          const diff = row.total - row.budget;
+          const diffPpl = (actualPpl == null || budgetPpl == null) ? "" : pplFmt.format(actualPpl - budgetPpl);
+          cells.push(
+            String(Math.round(row.budget)),
+            formatPpl(row.budget, summary.budgetLitresYear),
+            String(Math.round(diff)),
+            diffPpl,
+          );
+        }
+        lines.push(cells.map(csvEscape).join(","));
+      });
+
+      const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${exportBasename()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    async function exportPdf() {
+      if (!getDisplayContext()) {
+        alert("Nothing to export yet.");
+        return;
+      }
+      const html2canvasFn = typeof html2canvas === "function" ? html2canvas : null;
+      const JsPDF = window.jspdf?.jsPDF || (typeof jsPDF === "function" ? jsPDF : null);
+      if (!html2canvasFn || !JsPDF) {
+        alert("PDF library is still loading. Please try again in a moment.");
+        return;
+      }
+      const btn = document.getElementById("export-pdf-btn");
+      const printArea = document.getElementById("pnl-print-area");
+      btn.disabled = true;
+      const original = btn.textContent;
+      btn.textContent = "Generating…";
+      printArea.classList.add("pdf-exporting");
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      try {
+        const exportWidth = Math.max(printArea.scrollWidth, printArea.clientWidth);
+        const exportHeight = Math.max(printArea.scrollHeight, printArea.clientHeight);
+        const canvas = await html2canvasFn(printArea, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+          scrollX: 0,
+          scrollY: 0,
+          width: exportWidth,
+          height: exportHeight,
+          windowWidth: exportWidth,
+          windowHeight: exportHeight,
+        });
+
+        // Fit full table width on one landscape page; slice vertically across pages.
+        const pdf = new JsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+        const margin = 6;
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const usableWidth = pageWidth - margin * 2;
+        const usableHeight = pageHeight - margin * 2;
+        const imgWidthMm = usableWidth;
+        const imgHeightMm = (canvas.height * imgWidthMm) / canvas.width;
+        const pxPerMm = canvas.width / imgWidthMm;
+        const pageSlicePx = Math.floor(usableHeight * pxPerMm);
+
+        if (imgHeightMm <= usableHeight) {
+          pdf.addImage(
+            canvas.toDataURL("image/jpeg", 0.95),
+            "JPEG",
+            margin,
+            margin,
+            imgWidthMm,
+            imgHeightMm,
+            undefined,
+            "FAST",
+          );
+        } else {
+          let renderedPx = 0;
+          let pageIndex = 0;
+          while (renderedPx < canvas.height) {
+            const sliceHeightPx = Math.min(pageSlicePx, canvas.height - renderedPx);
+            const sliceCanvas = document.createElement("canvas");
+            sliceCanvas.width = canvas.width;
+            sliceCanvas.height = sliceHeightPx;
+            const ctx = sliceCanvas.getContext("2d");
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+            ctx.drawImage(
+              canvas,
+              0,
+              renderedPx,
+              canvas.width,
+              sliceHeightPx,
+              0,
+              0,
+              canvas.width,
+              sliceHeightPx,
+            );
+            const sliceHeightMm = sliceHeightPx / pxPerMm;
+            if (pageIndex > 0) pdf.addPage();
+            pdf.addImage(
+              sliceCanvas.toDataURL("image/jpeg", 0.95),
+              "JPEG",
+              margin,
+              margin,
+              imgWidthMm,
+              sliceHeightMm,
+              undefined,
+              "FAST",
+            );
+            renderedPx += sliceHeightPx;
+            pageIndex += 1;
+          }
+        }
+        pdf.save(`${exportBasename()}.pdf`);
+      } catch (err) {
+        console.error(err);
+        alert("Could not generate PDF. Try Export CSV, or use the browser Print → Save as PDF.");
+      } finally {
+        printArea.classList.remove("pdf-exporting");
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    }
+
     document.getElementById("business-select").addEventListener("change", () => {
       // Re-default Completed through from the selected business's latest milk month.
       document.getElementById("completed-month-select").innerHTML = "";
@@ -985,6 +1271,8 @@
       updateMetaLine();
       renderPnl();
     });
+    document.getElementById("export-csv-btn").addEventListener("click", exportCsv);
+    document.getElementById("export-pdf-btn").addEventListener("click", exportPdf);
     loadPnl();
   </script>
 {% endblock %}

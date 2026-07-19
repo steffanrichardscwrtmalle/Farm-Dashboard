@@ -21,6 +21,7 @@ from app.models import (
     XeroInvoiceLine,
     XeroManualJournal,
     XeroManualJournalLine,
+    XeroOrganisation,
 )
 from app.services.events_common import (
     _fiscal_year_calendar_bounds,
@@ -120,6 +121,60 @@ def _resolve_businesses(business: str | None) -> tuple[str | None, list[str] | N
     if business_value in BUSINESS_OPTIONS:
         return business_value, [business_value]
     return None, None
+
+
+def _mapped_categories_by_heading(
+    db: Session,
+    *,
+    businesses: list[str] | None,
+) -> dict[int, list[dict[str, Any]]]:
+    """Xero account categories mapped to each budget heading, scoped to selected businesses."""
+    organisations = {
+        row.tenant_id: row for row in db.scalars(select(XeroOrganisation)).all()
+    }
+    if businesses:
+        allowed_tenants = {
+            tenant_id
+            for tenant_id, org in organisations.items()
+            if org.dashboard_business in businesses
+        }
+    else:
+        allowed_tenants = None
+
+    mapping_rows = db.scalars(select(XeroAccountBudgetMapping)).all()
+    account_keys = {(row.tenant_id, row.account_id) for row in mapping_rows}
+    accounts = {
+        (row.tenant_id, row.account_id): row
+        for row in db.scalars(select(XeroAccount)).all()
+        if (row.tenant_id, row.account_id) in account_keys
+    }
+
+    out: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for mapped in mapping_rows:
+        if allowed_tenants is not None and mapped.tenant_id not in allowed_tenants:
+            continue
+        account = accounts.get((mapped.tenant_id, mapped.account_id))
+        org = organisations.get(mapped.tenant_id)
+        code = (account.code if account else mapped.account_code) or ""
+        name = (account.name if account else "") or ""
+        out[int(mapped.mapping_id)].append(
+            {
+                "account_code": code,
+                "account_name": name,
+                "dashboard_business": org.dashboard_business if org else None,
+            }
+        )
+
+    for mapping_id, items in out.items():
+        items.sort(
+            key=lambda item: (
+                item.get("dashboard_business") or "",
+                item.get("account_code") or "",
+                item.get("account_name") or "",
+            )
+        )
+        out[mapping_id] = items
+    return dict(out)
 
 
 def _milk_farms_for_business(business_value: str | None) -> list[str]:
@@ -468,6 +523,8 @@ def list_xero_pnl(
         ],
     }
 
+    categories_by_heading = _mapped_categories_by_heading(db, businesses=businesses)
+
     grid_rows: list[dict[str, Any]] = [milk_row]
     for band_def in bands:
         invert_valuation = band_def.get("band") == "Valuation Change"
@@ -504,6 +561,7 @@ def list_xero_pnl(
                     "group": heading_info["group"],
                     "heading": heading_info["heading"],
                     "unit": "gbp",
+                    "mapped_categories": categories_by_heading.get(mapping_id, []),
                     "months": month_rows,
                     "total": round(row_total, 2),
                     "budget_total": round(budget_total, 2),
