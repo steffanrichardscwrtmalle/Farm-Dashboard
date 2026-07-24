@@ -20,6 +20,7 @@ PAGE_MILK_QUALITY = "milk_quality"
 PAGE_CATTLE_SALES = "cattle_sales"
 PAGE_BENCHMARKING = "benchmarking"
 PAGE_HR = "hr"
+PAGE_PARLOUR = "parlour"
 
 PAGE_KEYS: tuple[str, ...] = (
     PAGE_WYNNSTAY,
@@ -34,6 +35,7 @@ PAGE_KEYS: tuple[str, ...] = (
     PAGE_CATTLE_SALES,
     PAGE_BENCHMARKING,
     PAGE_HR,
+    PAGE_PARLOUR,
 )
 
 PAGE_LABELS: dict[str, str] = {
@@ -49,6 +51,7 @@ PAGE_LABELS: dict[str, str] = {
     PAGE_CATTLE_SALES: "Cattle Sales",
     PAGE_BENCHMARKING: "Benchmarking",
     PAGE_HR: "Staff / HR",
+    PAGE_PARLOUR: "Parlour",
 }
 
 ACTION_WYNNSTAY_IMPORT = "wynnstay.import"
@@ -67,6 +70,7 @@ ACTION_CATTLE_SALES_IMPORT = "cattle_sales.import"
 ACTION_BENCHMARKING_EDIT = "benchmarking.edit"
 ACTION_HR_ENROLL = "hr.enroll"
 ACTION_HR_VIEW_SENSITIVE = "hr.view_sensitive"
+ACTION_PARLOUR_IMPORT = "parlour.import"
 
 ACTION_KEYS: tuple[str, ...] = (
     ACTION_WYNNSTAY_IMPORT,
@@ -85,6 +89,7 @@ ACTION_KEYS: tuple[str, ...] = (
     ACTION_BENCHMARKING_EDIT,
     ACTION_HR_ENROLL,
     ACTION_HR_VIEW_SENSITIVE,
+    ACTION_PARLOUR_IMPORT,
 )
 
 ACTION_LABELS: dict[str, str] = {
@@ -104,6 +109,7 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_BENCHMARKING_EDIT: "Benchmarking — edit forecast tables",
     ACTION_HR_ENROLL: "HR — enroll new staff",
     ACTION_HR_VIEW_SENSITIVE: "HR — view sensitive PII (NI, pay details)",
+    ACTION_PARLOUR_IMPORT: "Parlour — import milk flow shift reports",
 }
 
 ALL_PAGES = list(PAGE_KEYS)

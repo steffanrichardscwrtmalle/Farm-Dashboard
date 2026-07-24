@@ -1097,6 +1097,83 @@ class MilkStatement(Base):
     )
 
 
+class ParlourMilkFlowImport(Base):
+    """One imported milk-flow shift report (usually emailed after each milking)."""
+
+    __tablename__ = "parlour_milk_flow_imports"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm",
+            "milking_date",
+            "shift",
+            name="uq_parlour_milk_flow_import_farm_date_shift",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    milking_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    shift: Mapped[str] = mapped_column(String(32), index=True)
+    source_filename: Mapped[str] = mapped_column(String(255), default="")
+    source_message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_received: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    rows_imported: Mapped[int] = mapped_column(Integer, default=0)
+    imported_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+    rows: Mapped[list[ParlourMilkFlowRow]] = relationship(
+        back_populates="import_batch", cascade="all, delete-orphan"
+    )
+
+
+class ParlourMilkFlowRow(Base):
+    """One cow milking from a parlour milk-flow report."""
+
+    __tablename__ = "parlour_milk_flow_rows"
+    __table_args__ = (
+        UniqueConstraint(
+            "import_id",
+            "cow_id",
+            "milking_point",
+            "start_seconds",
+            name="uq_parlour_milk_flow_row_identity",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    import_id: Mapped[int] = mapped_column(
+        ForeignKey("parlour_milk_flow_imports.id", ondelete="CASCADE"), index=True
+    )
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    milking_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    shift: Mapped[str] = mapped_column(String(32), index=True)
+    cow_id: Mapped[str] = mapped_column(String(64), index=True)
+    pen: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    milking_point: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dim: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    yield_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    average_flow: Mapped[float | None] = mapped_column(Float, nullable=True)
+    peak_flow: Mapped[float | None] = mapped_column(Float, nullable=True)
+    time_to_peak_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    flow_15s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    flow_30s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    flow_60s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    flow_120s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pct_2_minutes: Mapped[float | None] = mapped_column(Float, nullable=True)
+    milk_yield_2_minutes: Mapped[float | None] = mapped_column(Float, nullable=True)
+    flow_rate_at_removal: Mapped[float | None] = mapped_column(Float, nullable=True)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    identified_at_milking: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    final_detaching: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    extra_attachments: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    import_batch: Mapped[ParlourMilkFlowImport] = relationship(back_populates="rows")
+
+
 class BenchmarkForecastLine(Base):
     """Manual monthly forecast/budget figures for benchmarking (per farm, per metric)."""
 

@@ -2,6 +2,8 @@
 render-env-paste.txt
 .venv/
 /data/
+Milk Flow Report*.csv
+Milk Flow Report*.xls
 __pycache__/
 *.pyc
 *.har

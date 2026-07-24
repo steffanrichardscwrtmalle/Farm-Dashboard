@@ -1,0 +1,1347 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .page-layout { grid-template-columns: 1fr; } }
+    .sidebar-column { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    .content-panel { min-width: 0; }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-of-type { margin-bottom: 0; }
+    .filter-section .section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .farm-slicer,
+    .shift-slicer {
+      display: grid;
+      gap: 0.5rem;
+    }
+    .farm-slicer { grid-template-columns: 1fr 1fr; }
+    .shift-slicer { grid-template-columns: 1fr; }
+    .slicer-btn {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 2.5rem; padding: 0.45rem 0.4rem;
+      border: 2px solid var(--border); border-radius: 8px;
+      background: #f3f4f6; color: var(--muted);
+      font-size: 0.8125rem; font-weight: 600; cursor: pointer;
+    }
+    .slicer-btn[data-value="CM"].selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
+    .shift-slicer .slicer-btn.selected {
+      background: #1e3a5f;
+      border-color: #1e3a5f;
+      color: #fff;
+    }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
+    .table-wrap {
+      overflow: visible;
+      max-height: none;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+    }
+    .metric-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    .metric-table th,
+    .metric-table td {
+      padding: 0.4rem 0.65rem;
+      line-height: 1.2;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .metric-table th:first-child,
+    .metric-table td:first-child {
+      text-align: left;
+      font-weight: 600;
+      position: sticky;
+      left: 0;
+      background: #fff;
+      z-index: 1;
+      min-width: 8.5rem;
+    }
+    .metric-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .metric-table thead th:first-child {
+      background: #1e3a5f;
+      z-index: 3;
+    }
+    .metric-table thead th.day-col {
+      cursor: pointer;
+      user-select: none;
+    }
+    .metric-table thead th.day-col:hover {
+      background: #2a5080;
+    }
+    .metric-table thead th.day-col.selected {
+      background: #c45c26;
+      box-shadow: inset 0 -3px 0 #f0a070;
+    }
+    .metric-table tbody td.col-selected {
+      background: #fff4ec;
+    }
+    .metric-table tbody tr:nth-child(even) td { background: #f7f9fb; }
+    .metric-table tbody tr:nth-child(even) td:first-child { background: #f7f9fb; }
+    .metric-table tbody tr:nth-child(even) td.col-selected { background: #ffe8d6; }
+    .metric-table td.missing { color: var(--muted); }
+    .metric-table td.outlier-bad {
+      background: #fee2e2 !important;
+      color: #991b1b;
+      font-weight: 700;
+    }
+    .metric-table td.outlier-problem {
+      background: #7f1d1d !important;
+      color: #fff;
+      font-weight: 700;
+    }
+    .metric-table td.trend-cell {
+      cursor: pointer;
+    }
+    .metric-table td.trend-cell:hover {
+      outline: 2px solid #5a9fd4;
+      outline-offset: -2px;
+    }
+    .metric-table td.trend-selected {
+      outline: 2px solid #1e3a5f;
+      outline-offset: -2px;
+      box-shadow: inset 0 0 0 999px rgba(30, 58, 95, 0.08);
+    }
+    .trend-section {
+      margin-top: 1.25rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .trend-section h3 {
+      margin: 0 0 0.25rem;
+      font-size: 1rem;
+      color: #1e3a5f;
+    }
+    .trend-section .pen-meta { margin-bottom: 0.75rem; }
+    .trend-chart-wrap {
+      position: relative;
+      height: 280px;
+      max-width: 100%;
+    }
+    .metric-table thead th.stat-col {
+      background: #2a5080;
+    }
+    .metric-table tbody td.stat-col {
+      background: #eef3f8;
+      font-weight: 600;
+      color: #1e3a5f;
+    }
+    .metric-table tbody tr:nth-child(even) td.stat-col {
+      background: #e4ebf3;
+    }
+    .pen-section {
+      margin-top: 1.5rem;
+    }
+    .pen-section h2 {
+      margin: 0 0 0.35rem;
+      font-size: 1.05rem;
+      color: #1e3a5f;
+    }
+    .pen-section .pen-meta {
+      color: var(--muted);
+      font-size: 0.8125rem;
+      margin-bottom: 0.65rem;
+    }
+    .pen-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1.25rem;
+      margin-bottom: 0.65rem;
+    }
+    .pen-toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.8125rem;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+    }
+    .metric-table tbody td.metric-label {
+      cursor: default;
+    }
+    .metric-table tbody tr.metric-row-clickable td.metric-label {
+      cursor: pointer;
+    }
+    .metric-table tbody tr.metric-row-clickable:hover td.metric-label {
+      color: #c45c26;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .metric-table tbody tr.metric-row-selected td.metric-label {
+      color: #c45c26;
+      box-shadow: inset 3px 0 0 #c45c26;
+    }
+    .empty-state { padding: 1.5rem; color: var(--muted); text-align: center; }
+    .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
+    .message { margin: 0.5rem 0; }
+    .message.warn {
+      display: block;
+      background: #fef3e2;
+      color: #92400e;
+      border: 1px solid #f5d9ad;
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+    }
+    .message.ok {
+      display: block;
+      background: #ecfdf3;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+    }
+{% endblock %}
+
+{% block content %}
+<div class="page-layout">
+  <div class="sidebar-column">
+    <div class="filter-panel">
+      <h2>Filters</h2>
+      <div class="filter-section">
+        <span class="section-label">Farm</span>
+        <div class="farm-slicer" id="farm-slicer">
+          <button type="button" class="slicer-btn selected" data-value="CM">CM</button>
+          <button type="button" class="slicer-btn" data-value="GAD">GAD</button>
+        </div>
+      </div>
+      <div class="filter-section">
+        <span class="section-label">Shift</span>
+        <div class="shift-slicer" id="shift-slicer">
+          <button type="button" class="slicer-btn selected" data-value="Morning">Morning</button>
+          <button type="button" class="slicer-btn" data-value="Day">Day</button>
+          <button type="button" class="slicer-btn" data-value="Night">Night</button>
+        </div>
+      </div>
+    </div>
+
+    {% if can_import %}
+    <div class="filter-panel">
+      <h2>Import from email</h2>
+      <p class="help-text">Scans for milk-flow reports from support@dataflow2.com (attachments named Milk Flow Report Export CM / GAD).</p>
+      <div class="filter-section" style="margin-top:0.75rem;">
+        <label class="section-label" for="import-scope">Range</label>
+        <select id="import-scope" title="How far back to scan the mailboxes">
+          <option value="recent" selected>Recent (last {{ lookback_days }} days)</option>
+          <option value="custom">Choose days back…</option>
+        </select>
+      </div>
+      <div class="filter-section">
+        <button type="button" class="primary" id="import-btn">Import from email</button>
+      </div>
+      <div id="import-status" class="meta-line" style="margin:0;"></div>
+      <div id="import-message" hidden></div>
+    </div>
+
+    <div class="filter-panel">
+      <h2>Upload shift report</h2>
+      <p class="help-text">Or upload DelPro milk-flow exports (.xls / .csv) manually. Filename should include CM or GAD.</p>
+      <div class="filter-section" style="margin-top:0.75rem;">
+        <input type="file" id="upload-files" accept=".xls,.xlsx,.csv,application/vnd.ms-excel" multiple>
+      </div>
+      <div class="filter-section">
+        <button type="button" class="primary" id="upload-btn">Upload</button>
+      </div>
+      <div id="upload-message" hidden></div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="content-panel">
+    <div class="meta-line" id="meta-line">Loading…</div>
+    <div id="summary-root">
+      <div class="empty-state">Loading shift summaries…</div>
+    </div>
+    <div id="pen-root" class="pen-section" hidden></div>
+    <div id="trend-root" class="trend-section" hidden></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+<script>
+(function () {
+  const root = document.getElementById("summary-root");
+  const penRoot = document.getElementById("pen-root");
+  const trendRoot = document.getElementById("trend-root");
+  const meta = document.getElementById("meta-line");
+  const farmSlicer = document.getElementById("farm-slicer");
+  const shiftSlicer = document.getElementById("shift-slicer");
+  const canImport = {{ can_import | tojson }};
+  const drilldown = {{ drilldown | default("pen") | tojson }};
+  const isPenDrilldown = drilldown === "pen";
+  const drilldownNoun = isPenDrilldown ? "pen" : "milking point";
+  const drilldownNounPlural = isPenDrilldown ? "pens" : "milking points";
+  const drilldownParam = isPenDrilldown ? "include_pens" : "include_milking_points";
+  const drilldownDataKey = isPenDrilldown ? "pens" : "milking_points";
+  const drilldownIdKey = isPenDrilldown ? "pen" : "milking_point";
+  const drilldownLabelPrefix = isPenDrilldown ? "Pen" : "Point";
+
+  let farm = "CM";
+  let shift = "Morning";
+  let selectedDate = null;
+  let selectedTrend = null; // { pointId, metricKey, label } stall cell trend
+  let selectedFarmMetric = null; // metricKey for shift-summary row trend
+  let trendChart = null;
+  /** Performance: false = problem stalls only; true = all stalls. */
+  let showAllStalls = false;
+  /** Cached API payload per farm so shift switches only re-render. */
+  let cachedByFarm = {};
+  let cacheFarm = null;
+  /** Pen breakdown cache keyed by farm|date|shift */
+  let penCache = {};
+
+  function fmtNum(n, digits) {
+    if (n == null || Number.isNaN(n)) return "—";
+    return Number(n).toLocaleString(undefined, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+  }
+
+  function isoDate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function parseIsoDate(s) {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+
+  function formatHeaderDate(iso) {
+    const d = parseIsoDate(iso);
+    return d.toLocaleDateString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+  }
+
+  function cell(value, missing, selected, outlierBad) {
+    const cls = [
+      missing ? "missing" : "",
+      selected ? "col-selected" : "",
+      outlierBad ? "outlier-bad" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return `<td class="${cls}">${value}</td>`;
+  }
+
+  const OUTLIER_SD = 2;
+  const OUTLIER_MIN_N = 5;
+
+  function sampleStats(values) {
+    if (!values || values.length < OUTLIER_MIN_N) return null;
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const variance =
+      values.reduce((a, v) => a + (v - mean) ** 2, 0) / (values.length - 1);
+    const sd = Math.sqrt(variance);
+    if (!(sd > 0) || !Number.isFinite(sd)) return null;
+    return { mean, sd };
+  }
+
+  function rowStats(values) {
+    if (!values || !values.length) return { mean: null, sd: null };
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    if (values.length < 2) return { mean, sd: null };
+    const variance =
+      values.reduce((a, v) => a + (v - mean) ** 2, 0) / (values.length - 1);
+    const sd = Math.sqrt(variance);
+    return {
+      mean: Number.isFinite(mean) ? mean : null,
+      sd: Number.isFinite(sd) ? sd : null,
+    };
+  }
+
+  function isOutlierBad(value, stats, badDirection) {
+    if (value == null || !stats || !badDirection) return false;
+    const z = (value - stats.mean) / stats.sd;
+    if (badDirection === "high") return z >= OUTLIER_SD;
+    if (badDirection === "low") return z <= -OUTLIER_SD;
+    return false;
+  }
+
+  const ALL_METRICS = [
+    {
+      label: "Total yield (kg)",
+      metricKey: "yield_kg",
+      value: (s) => (s ? fmtNum(s.yield_kg, 1) : "—"),
+      num: (s) => (s && s.yield_kg != null ? Number(s.yield_kg) : null),
+      // Skip outlier flag — total yield tracks how many cows used the stall.
+    },
+    {
+      label: "Average Yield (kg)",
+      metricKey: "avg_yield_kg",
+      value: (s) => (s && s.avg_yield_kg != null ? fmtNum(s.avg_yield_kg, 2) : "—"),
+      num: (s) => (s && s.avg_yield_kg != null ? Number(s.avg_yield_kg) : null),
+      badDirection: "low",
+    },
+    {
+      label: "Cows",
+      metricKey: "cow_count",
+      value: (s) => (s ? fmtNum(s.cow_count, 0) : "—"),
+      num: (s) => (s && s.cow_count != null ? Number(s.cow_count) : null),
+    },
+    {
+      label: "Cows / hour",
+      metricKey: "cows_per_hour",
+      value: (s) => (s && s.cows_per_hour != null ? fmtNum(s.cows_per_hour, 1) : "—"),
+      num: (s) => (s && s.cows_per_hour != null ? Number(s.cows_per_hour) : null),
+      badDirection: "low",
+    },
+    {
+      label: "Problem Stalls",
+      performanceOnly: true,
+      metricKey: "problem_stall_count",
+      value: (s) =>
+        s && s.problem_stall_count != null ? fmtNum(s.problem_stall_count, 0) : "—",
+      num: (s) =>
+        s && s.problem_stall_count != null ? Number(s.problem_stall_count) : null,
+    },
+    {
+      label: "High flow takeoffs % (>1800)",
+      metricKey: "high_flow_takeoff_pct",
+      value: (s) => (s && s.high_flow_takeoff_pct != null ? `${fmtNum(s.high_flow_takeoff_pct, 1)}%` : "—"),
+      num: (s) => (s && s.high_flow_takeoff_pct != null ? Number(s.high_flow_takeoff_pct) : null),
+      badDirection: "high",
+    },
+    {
+      label: "Average Takeoff Flow",
+      metricKey: "avg_flow_rate_at_removal",
+      value: (s) => (s && s.avg_flow_rate_at_removal != null ? fmtNum(s.avg_flow_rate_at_removal, 1) : "—"),
+      num: (s) =>
+        s && s.avg_flow_rate_at_removal != null
+          ? Number(s.avg_flow_rate_at_removal)
+          : null,
+      badDirection: "high",
+    },
+    {
+      label: "Bi-modal let-down %",
+      metricKey: "bimodal_pct",
+      value: (s) => (s && s.bimodal_pct != null ? `${fmtNum(s.bimodal_pct, 1)}%` : "—"),
+      num: (s) => (s && s.bimodal_pct != null ? Number(s.bimodal_pct) : null),
+      badDirection: "high",
+    },
+    {
+      label: "Shift length",
+      shiftOnly: true,
+      metricKey: "duration_seconds",
+      value: (s) => (s && s.duration_label ? s.duration_label : "—"),
+      num: (s) => (s && s.duration_seconds != null ? Number(s.duration_seconds) : null),
+    },
+    {
+      label: "Median Unit On Time",
+      metricKey: "median_milking_duration_seconds",
+      value: (s) => (s && s.median_milking_duration_label ? s.median_milking_duration_label : "—"),
+      num: (s) =>
+        s && s.median_milking_duration_seconds != null
+          ? Number(s.median_milking_duration_seconds)
+          : null,
+      badDirection: "high",
+    },
+    {
+      label: "Average Unit On Time",
+      metricKey: "avg_milking_duration_seconds",
+      value: (s) => (s && s.avg_milking_duration_label ? s.avg_milking_duration_label : "—"),
+      num: (s) =>
+        s && s.avg_milking_duration_seconds != null
+          ? Number(s.avg_milking_duration_seconds)
+          : null,
+      badDirection: "high",
+    },
+    {
+      label: "Avg 15s flow",
+      metricKey: "avg_flow_15s",
+      value: (s) => (s && s.avg_flow_15s != null ? fmtNum(s.avg_flow_15s, 1) : "—"),
+      num: (s) => (s && s.avg_flow_15s != null ? Number(s.avg_flow_15s) : null),
+      badDirection: "low",
+    },
+    {
+      label: "Avg 30s flow",
+      metricKey: "avg_flow_30s",
+      value: (s) => (s && s.avg_flow_30s != null ? fmtNum(s.avg_flow_30s, 1) : "—"),
+      num: (s) => (s && s.avg_flow_30s != null ? Number(s.avg_flow_30s) : null),
+      badDirection: "low",
+    },
+    {
+      label: "Avg 60s flow",
+      metricKey: "avg_flow_60s",
+      value: (s) => (s && s.avg_flow_60s != null ? fmtNum(s.avg_flow_60s, 1) : "—"),
+      num: (s) => (s && s.avg_flow_60s != null ? Number(s.avg_flow_60s) : null),
+      badDirection: "low",
+    },
+    {
+      label: "Avg 120s flow",
+      metricKey: "avg_flow_120s",
+      value: (s) => (s && s.avg_flow_120s != null ? fmtNum(s.avg_flow_120s, 1) : "—"),
+      num: (s) => (s && s.avg_flow_120s != null ? Number(s.avg_flow_120s) : null),
+      badDirection: "low",
+    },
+    {
+      label: "Average Peak Flow",
+      metricKey: "avg_peak_flow",
+      value: (s) => (s && s.avg_peak_flow != null ? fmtNum(s.avg_peak_flow, 2) : "—"),
+      num: (s) => (s && s.avg_peak_flow != null ? Number(s.avg_peak_flow) : null),
+      badDirection: "low",
+    },
+    {
+      label: "Average Flow",
+      metricKey: "avg_average_flow",
+      value: (s) => (s && s.avg_average_flow != null ? fmtNum(s.avg_average_flow, 2) : "—"),
+      num: (s) => (s && s.avg_average_flow != null ? Number(s.avg_average_flow) : null),
+      badDirection: "low",
+    },
+    {
+      label: "Avg % in 2 minutes",
+      metricKey: "avg_pct_2_minutes",
+      value: (s) => (s && s.avg_pct_2_minutes != null ? fmtNum(s.avg_pct_2_minutes, 1) : "—"),
+      num: (s) => (s && s.avg_pct_2_minutes != null ? Number(s.avg_pct_2_minutes) : null),
+      badDirection: "low",
+    },
+    {
+      label: "Avg milk yield at 2 min (kg)",
+      metricKey: "avg_milk_yield_2_minutes",
+      value: (s) => (s && s.avg_milk_yield_2_minutes != null ? fmtNum(s.avg_milk_yield_2_minutes, 2) : "—"),
+      num: (s) =>
+        s && s.avg_milk_yield_2_minutes != null
+          ? Number(s.avg_milk_yield_2_minutes)
+          : null,
+      badDirection: "low",
+    },
+    {
+      label: "Shift start time",
+      shiftOnly: true,
+      value: (s) => (s && s.first_start ? s.first_start : "—"),
+    },
+    {
+      label: "Shift end time",
+      shiftOnly: true,
+      value: (s) => (s && s.last_end ? s.last_end : "—"),
+    },
+  ];
+  const METRICS = ALL_METRICS.filter((m) => {
+    if (m.shiftOnly && !isPenDrilldown) return false;
+    if (m.performanceOnly && isPenDrilldown) return false;
+    return true;
+  });
+  /** Day table includes Problem Stalls; stall table does not. */
+  const DAY_METRICS = METRICS;
+  const STALL_METRICS = METRICS.filter((m) => !m.performanceOnly);
+
+  function penCacheKey(dateIso) {
+    return `${farm}|${dateIso}|${shift}`;
+  }
+
+  function clearTrend() {
+    selectedTrend = null;
+    selectedFarmMetric = null;
+    if (trendChart) {
+      trendChart.destroy();
+      trendChart = null;
+    }
+    if (trendRoot) {
+      trendRoot.hidden = true;
+      trendRoot.innerHTML = "";
+    }
+  }
+
+  function clearPenSelection() {
+    selectedDate = null;
+    clearTrend();
+    penRoot.hidden = true;
+    penRoot.innerHTML = "";
+  }
+
+  function scaleTrendValue(metricKey, value) {
+    if (value == null || !Number.isFinite(value)) return null;
+    if (metricKey.endsWith("_seconds")) return value / 60;
+    return value;
+  }
+
+  function trendYLabel(metricKey, metricLabel) {
+    if (metricKey.endsWith("_seconds")) return "Minutes";
+    if (metricKey.endsWith("_pct") || metricLabel.includes("%")) return "%";
+    if (metricLabel.includes("(kg)")) return "kg";
+    return metricLabel;
+  }
+
+  function destroyTrendChart() {
+    if (trendChart) {
+      trendChart.destroy();
+      trendChart = null;
+    }
+  }
+
+  function renderTrendChart(data, metricLabel) {
+    if (!trendRoot || typeof Chart === "undefined") return;
+    const isFarm = data.scope === "farm";
+    const pointLabel = isFarm
+      ? farm
+      : data.milking_point == null
+        ? "Unknown"
+        : `${drilldownLabelPrefix} ${data.milking_point}`;
+    const dates = data.dates || [];
+    const shiftColors = {
+      Morning: "#1e3a5f",
+      Day: "#c45c26",
+      Night: "#5a9fd4",
+      Afternoon: "#7c3aed",
+      Evening: "#059669",
+    };
+
+    destroyTrendChart();
+    trendRoot.hidden = false;
+    trendRoot.innerHTML = `
+      <h3>${metricLabel} · ${pointLabel}</h3>
+      <p class="pen-meta">${farm} · ${dates.length} milking day(s) · Morning / Day / Night · click the ${isFarm ? "metric row" : "cell"} again to close</p>
+      <div class="trend-chart-wrap"><canvas id="trend-canvas"></canvas></div>`;
+
+    if (!dates.length) {
+      trendRoot.querySelector(".trend-chart-wrap").innerHTML =
+        `<div class="empty-state">No history for this ${isFarm ? "metric" : drilldownNoun}.</div>`;
+      return;
+    }
+
+    const datasets = (data.series || []).map((s) => {
+      const byDate = {};
+      for (const p of s.points || []) byDate[p.date] = p.value;
+      return {
+        label: s.shift,
+        data: dates.map((d) => scaleTrendValue(data.metric, byDate[d])),
+        borderColor: shiftColors[s.shift] || "#666",
+        backgroundColor: "transparent",
+        tension: 0.2,
+        spanGaps: true,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+      };
+    });
+
+    const canvas = document.getElementById("trend-canvas");
+    trendChart = new Chart(canvas, {
+      type: "line",
+      data: {
+        labels: dates.map((d) => formatHeaderDate(d)),
+        datasets,
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { position: "top" },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const v = ctx.parsed.y;
+                if (v == null) return `${ctx.dataset.label}: —`;
+                const digits = data.metric.endsWith("_seconds") ? 1 : 2;
+                return `${ctx.dataset.label}: ${Number(v).toLocaleString(undefined, {
+                  maximumFractionDigits: digits,
+                  minimumFractionDigits: 0,
+                })}`;
+              },
+            },
+          },
+        },
+        scales: {
+          y: {
+            title: { display: true, text: trendYLabel(data.metric, metricLabel) },
+            beginAtZero: false,
+          },
+        },
+      },
+    });
+  }
+
+  function buildFarmMetricTrendFromCache(metricDef) {
+    const data = cachedByFarm[farm];
+    if (!data || !metricDef || !metricDef.num) return null;
+    const dates = [...new Set((data.days || []).map((d) => d.milking_date))].sort();
+    const shiftNames = ["Morning", "Day", "Night"];
+    const series = [];
+    for (const shiftName of shiftNames) {
+      const points = [];
+      for (const dateIso of dates) {
+        const day = (data.days || []).find((d) => d.milking_date === dateIso);
+        const shiftRow = day && (day.shifts || []).find((s) => s.shift === shiftName);
+        points.push({
+          date: dateIso,
+          value: shiftRow ? metricDef.num(shiftRow) : null,
+        });
+      }
+      if (points.some((p) => p.value != null)) {
+        series.push({ shift: shiftName, points });
+      }
+    }
+    return {
+      scope: "farm",
+      farm,
+      metric: metricDef.metricKey,
+      dates,
+      series,
+    };
+  }
+
+  function selectFarmMetric(metricDef) {
+    if (!isPenDrilldown || !metricDef || !metricDef.metricKey || !metricDef.num) return;
+    if (selectedFarmMetric === metricDef.metricKey) {
+      clearTrend();
+      renderTable(cachedByFarm[farm]);
+      return;
+    }
+    selectedTrend = null;
+    selectedFarmMetric = metricDef.metricKey;
+    renderTable(cachedByFarm[farm]);
+    const trendData = buildFarmMetricTrendFromCache(metricDef);
+    if (!trendData) {
+      trendRoot.hidden = false;
+      trendRoot.innerHTML = `<div class="empty-state">No data to graph.</div>`;
+      return;
+    }
+    renderTrendChart(trendData, metricDef.label);
+  }
+
+  async function loadTrend(pointId, metricKey, metricLabel) {
+    if (isPenDrilldown || !trendRoot) return;
+    const same =
+      selectedTrend &&
+      selectedTrend.pointId === pointId &&
+      selectedTrend.metricKey === metricKey;
+    if (same) {
+      clearTrend();
+      // Re-render table to clear selected cell outline
+      const key = penCacheKey(selectedDate);
+      if (selectedDate && penCache[key]) renderDrilldownTable(penCache[key], selectedDate);
+      return;
+    }
+    selectedTrend = { pointId, metricKey, label: metricLabel };
+    const key = penCacheKey(selectedDate);
+    if (selectedDate && penCache[key]) renderDrilldownTable(penCache[key], selectedDate);
+
+    trendRoot.hidden = false;
+    trendRoot.innerHTML = `
+      <h3>${metricLabel} · ${pointId == null ? "Unknown" : `${drilldownLabelPrefix} ${pointId}`}</h3>
+      <p class="pen-meta">Loading trend…</p>`;
+
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+    const params = new URLSearchParams({
+      farm,
+      metric: metricKey,
+      date_from: isoDate(since),
+    });
+    if (pointId != null) params.set("milking_point", String(pointId));
+
+    try {
+      const res = await fetch("/api/parlour/milking-point-trend?" + params.toString());
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      if (
+        !selectedTrend ||
+        selectedTrend.pointId !== pointId ||
+        selectedTrend.metricKey !== metricKey
+      ) {
+        return;
+      }
+      renderTrendChart(data, metricLabel);
+    } catch (err) {
+      trendRoot.innerHTML = `
+        <h3>${metricLabel}</h3>
+        <div class="empty-state">Could not load trend.</div>`;
+      console.error(err);
+    }
+  }
+
+  function isProblemStall(item) {
+    const flags = item && item.outlier_flags;
+    if (!flags) return false;
+    return Object.keys(flags).some((k) => flags[k] === "problem");
+  }
+
+  function formatDurationFromSeconds(seconds) {
+    if (seconds == null || !Number.isFinite(seconds)) return "—";
+    const total = Math.max(0, Math.round(seconds));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    if (hours) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+    return `${minutes}m ${String(secs).padStart(2, "0")}s`;
+  }
+
+  function metricNumbers(m, items) {
+    if (m.num) {
+      return items.map((item) => m.num(item)).filter((v) => v != null && Number.isFinite(v));
+    }
+    if (m.label === "Total yield (kg)") {
+      return items
+        .map((item) => (item && item.yield_kg != null ? Number(item.yield_kg) : null))
+        .filter((v) => v != null && Number.isFinite(v));
+    }
+    if (m.label === "Cows") {
+      return items
+        .map((item) => (item && item.cow_count != null ? Number(item.cow_count) : null))
+        .filter((v) => v != null && Number.isFinite(v));
+    }
+    return [];
+  }
+
+  function formatMetricStat(m, value, { isSd } = {}) {
+    if (value == null || !Number.isFinite(value)) return "—";
+    if (m.metricKey && m.metricKey.endsWith("_seconds")) {
+      return formatDurationFromSeconds(value);
+    }
+    if (
+      (m.metricKey && m.metricKey.endsWith("_pct")) ||
+      (m.label && m.label.includes("%"))
+    ) {
+      return `${fmtNum(value, 1)}%`;
+    }
+    if (m.label === "Cows") return fmtNum(value, isSd ? 1 : 0);
+    if (m.label && m.label.includes("(kg)")) return fmtNum(value, 2);
+    return fmtNum(value, isSd ? 2 : 1);
+  }
+
+  function renderDrilldownTable(items, dateIso) {
+    if (!items || !items.length) {
+      penRoot.hidden = false;
+      penRoot.innerHTML = `
+        <h2>By ${drilldownNoun} · ${formatHeaderDate(dateIso)}</h2>
+        <p class="pen-meta">${farm} · ${shift}</p>
+        <div class="empty-state">No ${drilldownNoun} data for this day.</div>`;
+      clearTrend();
+      return;
+    }
+
+    const problemItems = !isPenDrilldown ? items.filter(isProblemStall) : items;
+    const displayItems =
+      !isPenDrilldown && !showAllStalls ? problemItems : items;
+    const showStatCols = !isPenDrilldown;
+
+    const toolbar = !isPenDrilldown
+      ? `<div class="pen-toolbar">
+          <label>
+            <input type="checkbox" id="show-all-stalls" ${showAllStalls ? "checked" : ""}>
+            Show all stalls
+          </label>
+          <span class="pen-meta" style="margin:0;">
+            ${
+              showAllStalls
+                ? `Showing all ${items.length} stalls (${problemItems.length} problem)`
+                : `Showing ${problemItems.length} problem stall${problemItems.length === 1 ? "" : "s"} of ${items.length}`
+            }
+          </span>
+        </div>`
+      : "";
+
+    if (!displayItems.length) {
+      penRoot.hidden = false;
+      penRoot.innerHTML = `
+        <h2>By ${drilldownNoun} · ${formatHeaderDate(dateIso)}</h2>
+        ${toolbar}
+        <p class="pen-meta">${farm} · ${shift}</p>
+        <div class="empty-state">No problem stalls this shift. Turn on “Show all stalls” to see every point.</div>`;
+      const toggle = document.getElementById("show-all-stalls");
+      if (toggle) {
+        toggle.addEventListener("change", () => {
+          showAllStalls = toggle.checked;
+          renderDrilldownTable(items, dateIso);
+        });
+      }
+      clearTrend();
+      return;
+    }
+
+    const statHead = showStatCols
+      ? `<th class="stat-col" title="Average across all stalls this shift">Average</th><th class="stat-col" title="Standard deviation across all stalls this shift">SD</th>`
+      : "";
+    const head = displayItems
+      .map((item) => {
+        const id = item[drilldownIdKey];
+        return `<th>${id == null ? "Unknown" : `${drilldownLabelPrefix} ${id}`}</th>`;
+      })
+      .join("");
+    // Outlier stats stay based on all stalls so flags stay consistent when filtered.
+    const body = STALL_METRICS.map((m) => {
+      const nums = metricNumbers(m, items);
+      const outlierStats =
+        !isPenDrilldown && m.badDirection ? sampleStats(nums) : null;
+      const displayStats = rowStats(nums);
+      const avgCell = showStatCols
+        ? `<td class="stat-col">${formatMetricStat(m, displayStats.mean)}</td>`
+        : "";
+      const sdCell = showStatCols
+        ? `<td class="stat-col">${formatMetricStat(m, displayStats.sd, { isSd: true })}</td>`
+        : "";
+      const cells = displayItems
+        .map((item) => {
+          const n = m.num ? m.num(item) : null;
+          const apiFlag =
+            !isPenDrilldown && m.metricKey && item.outlier_flags
+              ? item.outlier_flags[m.metricKey]
+              : null;
+          let outlierClass = "";
+          if (apiFlag === "problem") outlierClass = "outlier-problem";
+          else if (apiFlag === "alert") outlierClass = "outlier-bad";
+          else if (
+            !isPenDrilldown &&
+            !item.outlier_flags &&
+            m.badDirection &&
+            isOutlierBad(n, outlierStats, m.badDirection)
+          ) {
+            outlierClass = "outlier-bad";
+          }
+          const pointId = item[drilldownIdKey];
+          const canTrend = !isPenDrilldown && !!m.metricKey;
+          const selected =
+            canTrend &&
+            selectedTrend &&
+            selectedTrend.metricKey === m.metricKey &&
+            selectedTrend.pointId === pointId;
+          const cls = [
+            outlierClass,
+            canTrend ? "trend-cell" : "",
+            selected ? "trend-selected" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const attrs = canTrend
+            ? ` data-point="${pointId == null ? "" : pointId}" data-metric="${m.metricKey}" data-label="${m.label.replace(/"/g, "&quot;")}" title="Show trend over time"`
+            : "";
+          return `<td class="${cls}"${attrs}>${m.value(item)}</td>`;
+        })
+        .join("");
+      return `<tr><td>${m.label}</td>${avgCell}${sdCell}${cells}</tr>`;
+    }).join("");
+
+    const note = isPenDrilldown
+      ? "pens use cohort-corrected assignments · click another day to switch"
+      : `Average / SD are across all stalls · red = ≥${OUTLIER_SD} SD worse this shift · dark red = problem stall · click a cell for trend`;
+    penRoot.hidden = false;
+    penRoot.innerHTML = `
+      <h2>By ${drilldownNoun} · ${formatHeaderDate(dateIso)}</h2>
+      ${toolbar}
+      <p class="pen-meta">${farm} · ${shift} · ${note}</p>
+      <div class="table-wrap">
+        <table class="metric-table" id="pen-table">
+          <thead><tr><th>Metric</th>${statHead}${head}</tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>`;
+
+    if (!isPenDrilldown) {
+      const toggle = document.getElementById("show-all-stalls");
+      if (toggle) {
+        toggle.addEventListener("change", () => {
+          showAllStalls = toggle.checked;
+          renderDrilldownTable(items, dateIso);
+        });
+      }
+      penRoot.querySelectorAll("td.trend-cell").forEach((td) => {
+        td.addEventListener("click", () => {
+          const raw = td.dataset.point;
+          const pointId = raw === "" || raw == null ? null : Number(raw);
+          loadTrend(pointId, td.dataset.metric, td.dataset.label);
+        });
+      });
+    }
+  }
+
+  async function loadDrilldown(dateIso) {
+    const key = penCacheKey(dateIso);
+    if (penCache[key]) {
+      renderDrilldownTable(penCache[key], dateIso);
+      return;
+    }
+    penRoot.hidden = false;
+    penRoot.innerHTML = `
+      <h2>By ${drilldownNoun} · ${formatHeaderDate(dateIso)}</h2>
+      <p class="pen-meta">Loading ${drilldownNoun} breakdown…</p>`;
+    const params = new URLSearchParams({
+      farm,
+      shift,
+      date_from: dateIso,
+      date_to: dateIso,
+      [drilldownParam]: "true",
+    });
+    try {
+      const res = await fetch("/api/parlour/shift-summary?" + params.toString());
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      const day = (data.days || []).find((d) => d.milking_date === dateIso);
+      const shiftRow = day && (day.shifts || []).find((s) => s.shift === shift);
+      const items = (shiftRow && shiftRow[drilldownDataKey]) || [];
+      penCache[key] = items;
+      if (selectedDate === dateIso) renderDrilldownTable(items, dateIso);
+    } catch (err) {
+      if (selectedDate === dateIso) {
+        penRoot.innerHTML = `
+          <h2>By ${drilldownNoun} · ${formatHeaderDate(dateIso)}</h2>
+          <div class="empty-state">Could not load ${drilldownNoun} breakdown.</div>`;
+      }
+      console.error(err);
+    }
+  }
+
+  function selectDay(dateIso) {
+    if (selectedDate === dateIso) {
+      clearPenSelection();
+      renderTable(cachedByFarm[farm]);
+      return;
+    }
+    clearTrend();
+    selectedDate = dateIso;
+    renderTable(cachedByFarm[farm]);
+    loadDrilldown(dateIso);
+  }
+
+  function renderTable(data) {
+    const byDate = {};
+    for (const day of data.days || []) {
+      const match = (day.shifts || []).find((s) => s.shift === shift);
+      if (match) byDate[day.milking_date] = match;
+    }
+
+    // Last 7 milking dates that actually have this shift (not a blank calendar window).
+    const dates = Object.keys(byDate).sort().slice(-7);
+
+    if (!dates.length) {
+      root.innerHTML = `<div class="empty-state">No ${shift} shift data yet${canImport ? " — import a milk-flow report to get started." : "."}</div>`;
+      clearPenSelection();
+      return;
+    }
+
+    if (selectedDate && !dates.includes(selectedDate)) {
+      clearPenSelection();
+    }
+
+    const head = dates
+      .map((d) => {
+        const selected = d === selectedDate ? " selected" : "";
+        return `<th class="day-col${selected}" data-date="${d}" title="Show by-${drilldownNoun} breakdown">${formatHeaderDate(d)}</th>`;
+      })
+      .join("");
+    const body = DAY_METRICS.map((m) => {
+      const cells = dates
+        .map((d) => {
+          const s = byDate[d];
+          const missing = !s;
+          const selected = d === selectedDate;
+          let extraClass = "";
+          if (
+            !isPenDrilldown &&
+            m.metricKey === "problem_stall_count" &&
+            s &&
+            s.problem_stall_count > 0
+          ) {
+            extraClass = "outlier-bad";
+          }
+          const cls = [
+            missing ? "missing" : "",
+            selected ? "col-selected" : "",
+            extraClass,
+          ]
+            .filter(Boolean)
+            .join(" ");
+          return `<td class="${cls}">${m.value(s)}</td>`;
+        })
+        .join("");
+      const canGraph = isPenDrilldown && !!m.metricKey && !!m.num;
+      const rowSelected = canGraph && selectedFarmMetric === m.metricKey;
+      const rowCls = [
+        canGraph ? "metric-row-clickable" : "",
+        rowSelected ? "metric-row-selected" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const labelTitle = canGraph ? ` title="Graph ${m.label} over time by shift"` : "";
+      return `<tr class="${rowCls}"${canGraph ? ` data-metric="${m.metricKey}"` : ""}><td class="metric-label"${labelTitle}>${m.label}</td>${cells}</tr>`;
+    }).join("");
+
+    const help = isPenDrilldown
+      ? `Click a metric name to graph it over time (Morning / Day / Night). Click a day column for by-${drilldownNoun} breakdown.`
+      : `Click a day column to see the same metrics broken down by ${drilldownNoun}.`;
+
+    root.innerHTML = `
+      <div class="table-wrap">
+        <table class="metric-table" id="summary-table">
+          <thead><tr><th>Metric</th>${head}</tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+      <p class="help-text" style="margin-top:0.5rem;">${help}</p>`;
+
+    root.querySelectorAll("th.day-col").forEach((th) => {
+      th.addEventListener("click", () => selectDay(th.dataset.date));
+    });
+    if (isPenDrilldown) {
+      root.querySelectorAll("tr.metric-row-clickable").forEach((tr) => {
+        tr.querySelector("td.metric-label").addEventListener("click", (e) => {
+          e.stopPropagation();
+          const key = tr.dataset.metric;
+          const metricDef = DAY_METRICS.find((m) => m.metricKey === key);
+          selectFarmMetric(metricDef);
+        });
+      });
+    }
+  }
+
+  function dataHasQualityMetrics(data) {
+    const day = (data && data.days && data.days[0]) || null;
+    const shiftRow = day && day.shifts && day.shifts[0];
+    if (!shiftRow || shiftRow.high_flow_takeoff_pct == null || shiftRow.bimodal_pct == null) {
+      return false;
+    }
+    if (!isPenDrilldown && shiftRow.problem_stall_count == null) return false;
+    return true;
+  }
+
+  function showCached() {
+    const data = cachedByFarm[farm];
+    if (!data) return false;
+    if (!dataHasQualityMetrics(data)) {
+      delete cachedByFarm[farm];
+      return false;
+    }
+    const latest = data.latest_import ? new Date(data.latest_import).toLocaleString() : "never";
+    meta.textContent = `${farm} · ${shift} · up to 7 most recent milking days · last import ${latest}`;
+    renderTable(data);
+    if (selectedDate) loadDrilldown(selectedDate);
+    return true;
+  }
+
+  async function loadSummary(forceReload) {
+    if (!forceReload && showCached()) return;
+
+    meta.textContent = "Loading…";
+    const params = new URLSearchParams();
+    if (farm) params.set("farm", farm);
+    // Load all shifts once for the farm; slicer filters client-side.
+    const since = new Date();
+    since.setDate(since.getDate() - 45);
+    params.set("date_from", isoDate(since));
+    params.set("v", "quality-3");
+    if (!isPenDrilldown) params.set("include_problem_stalls", "true");
+    try {
+      const res = await fetch("/api/parlour/shift-summary?" + params.toString());
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      cachedByFarm[farm] = data;
+      cacheFarm = farm;
+      showCached();
+    } catch (err) {
+      meta.textContent = "Failed to load";
+      root.innerHTML = `<div class="empty-state">Could not load shift summary.</div>`;
+      clearPenSelection();
+      console.error(err);
+    }
+  }
+
+  function invalidateCache() {
+    cachedByFarm = {};
+    cacheFarm = null;
+    penCache = {};
+  }
+
+  function bindSlicer(el, onSelect) {
+    el.addEventListener("click", (e) => {
+      const btn = e.target.closest(".slicer-btn");
+      if (!btn) return;
+      el.querySelectorAll(".slicer-btn").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      onSelect(btn.dataset.value);
+    });
+  }
+
+  bindSlicer(farmSlicer, (value) => {
+    farm = value;
+    clearPenSelection();
+    loadSummary(false);
+  });
+  bindSlicer(shiftSlicer, (value) => {
+    shift = value;
+    clearPenSelection();
+    // Instant: reuse cached farm payload
+    if (!showCached()) loadSummary(false);
+  });
+
+  if (canImport) {
+    const importBtn = document.getElementById("import-btn");
+    const importScope = document.getElementById("import-scope");
+    const importStatus = document.getElementById("import-status");
+    const importMsg = document.getElementById("import-message");
+    let importPoll = null;
+
+    function showImportResult(result) {
+      if (!result) {
+        importMsg.hidden = true;
+        return;
+      }
+      const warnings = [...(result.warnings || []), ...(result.skipped_files || [])];
+      const parts = (result.results || []).map(
+        (r) => `${r.farm} ${r.milking_date} ${r.shift}: ${r.rows_imported} cows`
+      );
+      importMsg.hidden = false;
+      importMsg.className = "message ok";
+      importMsg.innerHTML =
+        `<div>Imported ${result.shifts_imported || 0} shift(s) from ${result.files_processed || 0} file(s)</div>` +
+        (parts.length ? `<div>${parts.join(" · ")}</div>` : "") +
+        (warnings.length
+          ? `<div class="help-text">${warnings.map((w) => `<div>${w}</div>`).join("")}</div>`
+          : "");
+    }
+
+    async function pollImportStatus() {
+      const res = await fetch("/api/parlour/import/status");
+      const data = await res.json();
+      importStatus.textContent = data.message || data.status || "";
+      if (data.status === "running") return;
+      clearInterval(importPoll);
+      importPoll = null;
+      importBtn.disabled = false;
+      if (data.status === "complete") {
+        showImportResult(data.result);
+        invalidateCache();
+        clearPenSelection();
+        await loadSummary(true);
+      } else if (data.status === "error") {
+        importMsg.hidden = false;
+        importMsg.className = "message warn";
+        importMsg.textContent = data.message || "Import failed.";
+      }
+    }
+
+    importBtn.addEventListener("click", async () => {
+      const scope = importScope.value;
+      let days = null;
+      if (scope === "custom") {
+        const input = window.prompt("How many days back should I scan the mailboxes?", "90");
+        if (input === null) return;
+        days = parseInt(input, 10);
+        if (!Number.isFinite(days) || days <= 0) {
+          importMsg.hidden = false;
+          importMsg.className = "message warn";
+          importMsg.textContent = "Enter a positive whole number of days.";
+          return;
+        }
+      } else if (
+        !window.confirm(
+          "Check the mailboxes for milk-flow reports from support@dataflow2.com and import them now?"
+        )
+      ) {
+        return;
+      }
+
+      importBtn.disabled = true;
+      importMsg.hidden = true;
+      importStatus.textContent = days
+        ? `Importing last ${days} days…`
+        : "Importing from email…";
+      try {
+        const params = new URLSearchParams();
+        if (days) params.set("days", String(days));
+        const res = await fetch("/api/parlour/import?" + params.toString(), {
+          method: "POST",
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.detail || "Import failed to start");
+        }
+        importStatus.textContent = data.message || "Import started…";
+        importPoll = setInterval(pollImportStatus, 2000);
+        await pollImportStatus();
+      } catch (err) {
+        importBtn.disabled = false;
+        importMsg.hidden = false;
+        importMsg.className = "message warn";
+        importMsg.textContent = err.message || String(err);
+      }
+    });
+
+    const uploadBtn = document.getElementById("upload-btn");
+    const fileInput = document.getElementById("upload-files");
+    const uploadMsg = document.getElementById("upload-message");
+    uploadBtn.addEventListener("click", async () => {
+      const files = fileInput.files;
+      if (!files || !files.length) {
+        uploadMsg.hidden = false;
+        uploadMsg.className = "message warn";
+        uploadMsg.textContent = "Choose one or more report files first.";
+        return;
+      }
+      const form = new FormData();
+      for (const f of files) form.append("files", f);
+      form.append("farm", farm);
+      uploadBtn.disabled = true;
+      uploadMsg.hidden = false;
+      uploadMsg.className = "message";
+      uploadMsg.textContent = "Uploading…";
+      try {
+        const res = await fetch("/api/parlour/upload", { method: "POST", body: form });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.detail || "Upload failed");
+        }
+        const parts = (data.results || []).map(
+          (r) => `${r.farm} ${r.milking_date} ${r.shift}: ${r.rows_imported} cows`
+        );
+        const err = (data.errors || []).join("; ");
+        uploadMsg.className = err && !parts.length ? "message warn" : "message ok";
+        uploadMsg.textContent = [parts.join(" · "), err].filter(Boolean).join(" | ") || "Done.";
+        fileInput.value = "";
+        invalidateCache();
+        clearPenSelection();
+        await loadSummary(true);
+      } catch (err) {
+        uploadMsg.className = "message warn";
+        uploadMsg.textContent = err.message || String(err);
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+  }
+
+  loadSummary(true);
+})();
+</script>
+{% endblock %}

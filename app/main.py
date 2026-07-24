@@ -19,6 +19,7 @@ from app.api.haulier_routes import router as haulier_api_router
 from app.api.benchmarking_routes import router as benchmarking_api_router
 from app.api.cattle_sales_routes import router as cattle_sales_api_router
 from app.api.milk_statements_routes import router as milk_statements_api_router
+from app.api.parlour_routes import router as parlour_api_router
 from app.api.events_routes import router as events_api_router
 from app.api.feed_rate_routes import router as feed_rate_api_router
 from app.api.feedlync_routes import router as feedlync_api_router
@@ -43,11 +44,13 @@ from app.auth.permissions import (
     ACTION_CATTLE_SALES_IMPORT,
     ACTION_MILK_QUALITY_IMPORT,
     ACTION_MILK_COLLECTIONS_IMPORT,
+    ACTION_PARLOUR_IMPORT,
     PAGE_BENCHMARKING,
     PAGE_CATTLE_SALES,
     PAGE_GENETICS,
     PAGE_HR,
     PAGE_MILK_QUALITY,
+    PAGE_PARLOUR,
     PAGE_OFFICE_ADMIN,
     PAGE_XERO,
     PAGE_PROSTOCK,
@@ -110,6 +113,7 @@ app.include_router(genetics_api_router)
 app.include_router(nml_api_router)
 app.include_router(haulier_api_router)
 app.include_router(milk_statements_api_router)
+app.include_router(parlour_api_router)
 app.include_router(cattle_sales_api_router)
 app.include_router(benchmarking_api_router)
 app.include_router(admin_api_router)
@@ -148,6 +152,10 @@ _GENETICS_BREADCRUMB = (
 _MILK_QUALITY_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/milk-quality/results">Milk Sales</a>'
+)
+_PARLOUR_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/parlour/shift-summary">Parlour</a>'
 )
 _CATTLE_SALES_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
@@ -307,6 +315,19 @@ def _milk_quality_context(title: str, active_nav: str, page_name: str | None = N
         "title": title,
         "active_nav_group": "milk-quality",
         "active_section": "milk-quality",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _parlour_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _PARLOUR_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "parlour",
+        "active_section": "parlour",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -1257,6 +1278,61 @@ def milk_quality_statements_page(request: Request):
                 "milk-statements",
                 "Statements",
             ),
+        ),
+    )
+
+
+@app.get("/parlour/shift-summary", response_class=HTMLResponse)
+def parlour_shift_summary_page(request: Request):
+    if denied := _page_guard(request, PAGE_PARLOUR):
+        return denied
+    from app.config import PARLOUR_LOOKBACK_DAYS
+
+    return templates.TemplateResponse(
+        request,
+        "parlour/shift_summary.html",
+        _template_ctx(
+            request,
+            page_heading="Shift Summary",
+            can_import=has_action(request.state.user, ACTION_PARLOUR_IMPORT),
+            lookback_days=PARLOUR_LOOKBACK_DAYS,
+            drilldown="pen",
+            **_parlour_context("Shift Summary", "shift-summary", "Shift Summary"),
+        ),
+    )
+
+
+@app.get("/parlour/performance", response_class=HTMLResponse)
+def parlour_performance_page(request: Request):
+    if denied := _page_guard(request, PAGE_PARLOUR):
+        return denied
+    from app.config import PARLOUR_LOOKBACK_DAYS
+
+    return templates.TemplateResponse(
+        request,
+        "parlour/shift_summary.html",
+        _template_ctx(
+            request,
+            page_heading="Performance",
+            can_import=has_action(request.state.user, ACTION_PARLOUR_IMPORT),
+            lookback_days=PARLOUR_LOOKBACK_DAYS,
+            drilldown="milking_point",
+            **_parlour_context("Performance", "performance", "Performance"),
+        ),
+    )
+
+
+@app.get("/parlour/efficiency", response_class=HTMLResponse)
+def parlour_efficiency_page(request: Request):
+    if denied := _page_guard(request, PAGE_PARLOUR):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "parlour/placeholder.html",
+        _template_ctx(
+            request,
+            page_heading="Efficiency",
+            **_parlour_context("Efficiency", "efficiency", "Efficiency"),
         ),
     )
 

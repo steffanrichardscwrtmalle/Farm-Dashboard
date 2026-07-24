@@ -143,6 +143,28 @@ python scripts/import_nml_results.py --days 2
 python scripts/import_milk_statements.py --days 2
 ```
 
+### Parlour / Dataflow milk-flow email import
+
+DelPro milk-flow reports from `support@dataflow2.com` are imported on a separate
+cron at **1am, 9am, and 5pm UK time** (`Europe/London`, including BST).
+
+Render cron is UTC-only, so the job runs **hourly** and the script exits unless
+the current UK hour is 1, 9, or 17:
+
+1. Sync the blueprint — `farm-dashboard-parlour-import` in [`render.yaml`](render.yaml)
+   — or add a Cron Job manually:
+   - **Schedule:** `5 * * * *` (every hour at :05 UTC)
+   - **Command:** `python scripts/import_parlour_milk_flow.py --only-at-uk-hours 1,9,17 --days 2`
+   - Same `DATABASE_URL` and `GRAPH_*` env vars as the web service (plus optional
+     `PARLOUR_MAILBOX_*` / `PARLOUR_SENDER`)
+2. The daily milk cron also imports parlour reports once as a backup.
+
+Manual run:
+
+```powershell
+python scripts/import_parlour_milk_flow.py --days 2
+```
+
 ### Pedigree registrations (Genetics email)
 
 The **Genetics → Pedigree Registrations** page can email a CSV attachment via Microsoft

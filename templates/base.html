@@ -610,6 +610,25 @@
           </div>
           {% endif %}
 
+          {% if perms.page('parlour') %}
+          <div class="nav-group{% if active_nav_group == 'parlour' %} expanded{% endif %}" data-nav-group="parlour">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'parlour' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'parlour' %}true{% else %}false{% endif %}"
+              aria-controls="parlour-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">Parlour</span>
+            </button>
+            <div class="nav-group-items" id="parlour-nav-items">
+              <a href="/parlour/shift-summary" class="{% if active_nav == 'shift-summary' %}active{% endif %}">Shift Summary</a>
+              <a href="/parlour/performance" class="{% if active_nav == 'performance' %}active{% endif %}">Performance</a>
+              <a href="/parlour/efficiency" class="{% if active_nav == 'efficiency' %}active{% endif %}">Efficiency</a>
+            </div>
+          </div>
+          {% endif %}
+
           {% if perms.page('cattle_sales') %}
           <div class="nav-group{% if active_nav_group == 'cattle-sales' %} expanded{% endif %}" data-nav-group="cattle-sales">
             <button

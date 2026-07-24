@@ -128,6 +128,59 @@ services:
           type: web
           envVarKey: GRAPH_CLIENT_SECRET_CM
 
+  # Parlour / Dataflow milk-flow email import at 1am, 9am, and 5pm UK time.
+  # Runs hourly (UTC); the script exits immediately unless Europe/London hour
+  # is 1, 9, or 17 — so BST/GMT stay correct year-round.
+  - type: cron
+    name: farm-dashboard-parlour-import
+    runtime: docker
+    schedule: "5 * * * *"
+    dockerCommand: python scripts/import_parlour_milk_flow.py --only-at-uk-hours 1,9,17 --days 2
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: farm-dashboard-db
+          property: connectionString
+      - key: ENVIRONMENT
+        value: production
+      - key: MILK_CRON_LOOKBACK_DAYS
+        value: "2"
+      - key: GRAPH_TENANT_ID
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_TENANT_ID
+      - key: GRAPH_CLIENT_ID
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_CLIENT_ID
+      - key: GRAPH_CLIENT_SECRET
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_CLIENT_SECRET
+      - key: GRAPH_DRIVE_USER_EMAIL
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_DRIVE_USER_EMAIL
+      - key: GRAPH_TENANT_ID_CM
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_TENANT_ID_CM
+      - key: GRAPH_CLIENT_ID_CM
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_CLIENT_ID_CM
+      - key: GRAPH_CLIENT_SECRET_CM
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_CLIENT_SECRET_CM
+
 databases:
   - name: farm-dashboard-db
     plan: basic-1gb

@@ -123,7 +123,7 @@ STATEMENTS_DEFAULT_HAULAGE = float(os.getenv("STATEMENTS_DEFAULT_HAULAGE", "1.0"
 # Optional local folder of statement PDFs for development (skips Graph mail when set).
 LOCAL_STATEMENTS_DIR = os.getenv("LOCAL_STATEMENTS_DIR", "").strip()
 
-# Daily cron for haulier + NML + statements (scripts/import_milk_daily.py).
+# Daily cron for haulier + NML + statements + cattle sales + parlour (scripts/import_milk_daily.py).
 # 2 days covers yesterday and today when the job runs each morning.
 MILK_CRON_LOOKBACK_DAYS = int(os.getenv("MILK_CRON_LOOKBACK_DAYS", "2"))
 
@@ -141,6 +141,15 @@ CATTLE_SALES_MAILBOX_CM = _env_mailbox(
 )
 CATTLE_SALES_LOOKBACK_DAYS = int(os.getenv("CATTLE_SALES_LOOKBACK_DAYS", "30"))
 LOCAL_CATTLE_SALES_DIR = os.getenv("LOCAL_CATTLE_SALES_DIR", "").strip()
+
+# Parlour milk-flow reports (DelPro / Dataflow emailed XLS/CSV after each shift).
+PARLOUR_SENDER = os.getenv(
+    "PARLOUR_SENDER", "support@dataflow2.com"
+).strip().lower()
+PARLOUR_MAILBOX_GAD = _env_mailbox("PARLOUR_MAILBOX_GAD", NML_MAILBOX_GAD)
+PARLOUR_MAILBOX_CM = _env_mailbox("PARLOUR_MAILBOX_CM", NML_MAILBOX_CM)
+PARLOUR_LOOKBACK_DAYS = int(os.getenv("PARLOUR_LOOKBACK_DAYS", "30"))
+LOCAL_PARLOUR_DIR = os.getenv("LOCAL_PARLOUR_DIR", "").strip()
 
 # Feedlync API (refresh token from browser MSAL storage after logging in once)
 FEEDLYNC_REFRESH_TOKEN = os.getenv("FEEDLYNC_REFRESH_TOKEN", "").strip()

@@ -25,6 +25,7 @@ _IMPORT_KEY_POST_PATHS = frozenset({
     "/api/nml/import",
     "/api/haulier/import",
     "/api/milk-statements/import",
+    "/api/parlour/import",
 })
 _HR_WEBHOOK_PATH = "/api/hr/webhook"
 

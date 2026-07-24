@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block content %}
+<div class="empty-state" style="padding: 2rem; color: var(--muted);">
+  <p style="margin: 0 0 0.5rem; font-size: 1.05rem;">{{ page_heading }} is coming next.</p>
+  <p style="margin: 0; font-size: 0.9rem;">Use <a href="/parlour/shift-summary">Shift Summary</a> for milk yield, shift duration, pen duration, and cows per hour.</p>
+</div>
+{% endblock %}

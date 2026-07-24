@@ -61,9 +61,32 @@ def init_db() -> None:
     _migrate_hp_schedules_schema()
     _migrate_rental_agreements_schema()
     _migrate_xero_line_amount_types()
+    _migrate_parlour_schema()
     _seed_financial_forecasts()
     _seed_hp_schedules()
 
+
+def _migrate_parlour_schema() -> None:
+    """Add email provenance columns so older attachments cannot overwrite newer ones."""
+    inspector = inspect(engine)
+    if "parlour_milk_flow_imports" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("parlour_milk_flow_imports")}
+    with engine.begin() as conn:
+        if "source_message_id" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE parlour_milk_flow_imports "
+                    "ADD COLUMN source_message_id VARCHAR(256)"
+                )
+            )
+        if "source_received" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE parlour_milk_flow_imports "
+                    "ADD COLUMN source_received TIMESTAMP"
+                )
+            )
 
 def _migrate_xero_line_amount_types() -> None:
     """Add LineAmountTypes columns used to strip VAT from Inclusive Xero docs."""
