@@ -17,7 +17,7 @@ EVENT_PAGE_TYPES: dict[str, tuple[str, ...]] = {
     "sales": ("SOLD",),
     "deaths": ("DIED",),
     "breedings": ("BRED",),
-    "disease": ("ILL", "SCOURS", "LAME", "MAST", "METR", "RESP", "INJURY", "ABORT", "DA"),
+    "disease": ("ILL", "SCOURS", "LAME", "MAST", "METR", "RESP", "INJURY", "ABORT", "DA", "MF"),
     "hooftrimming": ("FOOTRIM", "LAME"),
 }
 
@@ -31,6 +31,7 @@ DISEASE_EVENT_LABELS: dict[str, str] = {
     "INJURY": "Injury",
     "ABORT": "Abortion",
     "DA": "Displaced Abomasum",
+    "MF": "Milk Fever",
     "DIED": "Died",
 }
 
