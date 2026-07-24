@@ -226,6 +226,53 @@
       padding: 0.5rem 0.75rem;
       border-radius: 6px;
     }
+    .import-sync-banner {
+      display: none;
+      align-items: flex-start;
+      gap: 0.75rem;
+      margin: 0 0 0.85rem;
+      padding: 0.75rem 0.9rem;
+      border-radius: 8px;
+      border: 1px solid #93c5fd;
+      background: linear-gradient(90deg, #dbeafe 0%, #eff6ff 100%);
+      color: #1e3a5f;
+      box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.35);
+      animation: sync-pulse 1.6s ease-in-out infinite;
+    }
+    .import-sync-banner.visible { display: flex; }
+    .import-sync-banner .sync-spinner {
+      width: 1.1rem;
+      height: 1.1rem;
+      margin-top: 0.15rem;
+      border: 2.5px solid #93c5fd;
+      border-top-color: #1e3a5f;
+      border-radius: 50%;
+      flex: 0 0 auto;
+      animation: sync-spin 0.8s linear infinite;
+    }
+    .import-sync-banner .sync-copy { min-width: 0; flex: 1; }
+    .import-sync-banner .sync-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin: 0 0 0.2rem;
+    }
+    .import-sync-banner .sync-detail {
+      margin: 0;
+      font-size: 0.8125rem;
+      color: #1e40af;
+      line-height: 1.4;
+    }
+    #import-status.syncing {
+      color: #1e40af;
+      font-weight: 600;
+    }
+    @keyframes sync-spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes sync-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.25); }
+      50% { box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12); }
+    }
 {% endblock %}
 
 {% block content %}
@@ -283,6 +330,13 @@
   </div>
 
   <div class="content-panel">
+    <div id="import-sync-banner" class="import-sync-banner" aria-live="polite">
+      <div class="sync-spinner" aria-hidden="true"></div>
+      <div class="sync-copy">
+        <p class="sync-title">Synchronising milk-flow emails…</p>
+        <p class="sync-detail" id="import-sync-detail">Scanning mailboxes — this can take a few minutes when several reports arrive together.</p>
+      </div>
+    </div>
     <div class="meta-line" id="meta-line">Loading…</div>
     <div id="summary-root">
       <div class="empty-state">Loading shift summaries…</div>
@@ -1210,7 +1264,32 @@
     const importScope = document.getElementById("import-scope");
     const importStatus = document.getElementById("import-status");
     const importMsg = document.getElementById("import-message");
+    const syncBanner = document.getElementById("import-sync-banner");
+    const syncDetail = document.getElementById("import-sync-detail");
     let importPoll = null;
+    let importStartedAt = null;
+
+    function setSyncing(active, detailText) {
+      if (syncBanner) syncBanner.classList.toggle("visible", !!active);
+      importStatus.classList.toggle("syncing", !!active);
+      if (importBtn) {
+        importBtn.disabled = !!active;
+        importBtn.textContent = active ? "Synchronising…" : "Import from email";
+      }
+      if (detailText) {
+        importStatus.textContent = detailText;
+        if (syncDetail) syncDetail.textContent = detailText;
+      }
+    }
+
+    function elapsedLabel() {
+      if (!importStartedAt) return "";
+      const secs = Math.max(0, Math.round((Date.now() - importStartedAt) / 1000));
+      if (secs < 60) return `${secs}s`;
+      const mins = Math.floor(secs / 60);
+      const rem = secs % 60;
+      return `${mins}m ${String(rem).padStart(2, "0")}s`;
+    }
 
     function showImportResult(result) {
       if (!result) {
@@ -1231,14 +1310,31 @@
           : "");
     }
 
+    function stopImportPolling() {
+      if (importPoll) {
+        clearInterval(importPoll);
+        importPoll = null;
+      }
+      importStartedAt = null;
+      setSyncing(false);
+    }
+
     async function pollImportStatus() {
       const res = await fetch("/api/parlour/import/status");
       const data = await res.json();
-      importStatus.textContent = data.message || data.status || "";
-      if (data.status === "running") return;
-      clearInterval(importPoll);
-      importPoll = null;
-      importBtn.disabled = false;
+      const elapsed = elapsedLabel();
+      const baseMsg = data.message || data.status || "Synchronising…";
+      const detail = elapsed
+        ? `${baseMsg} · running ${elapsed}`
+        : baseMsg;
+
+      if (data.status === "running") {
+        setSyncing(true, detail);
+        return;
+      }
+
+      stopImportPolling();
+      importStatus.textContent = baseMsg;
       if (data.status === "complete") {
         showImportResult(data.result);
         invalidateCache();
@@ -1249,6 +1345,14 @@
         importMsg.className = "message warn";
         importMsg.textContent = data.message || "Import failed.";
       }
+    }
+
+    function startImportPolling() {
+      if (importPoll) clearInterval(importPoll);
+      if (!importStartedAt) importStartedAt = Date.now();
+      setSyncing(true, importStatus.textContent || "Synchronising milk-flow emails…");
+      importPoll = setInterval(pollImportStatus, 1500);
+      pollImportStatus();
     }
 
     importBtn.addEventListener("click", async () => {
@@ -1272,11 +1376,14 @@
         return;
       }
 
-      importBtn.disabled = true;
       importMsg.hidden = true;
-      importStatus.textContent = days
-        ? `Importing last ${days} days…`
-        : "Importing from email…";
+      importStartedAt = Date.now();
+      setSyncing(
+        true,
+        days
+          ? `Scanning last ${days} days of mail — this can take a few minutes…`
+          : "Scanning mailboxes — this can take a few minutes when several reports arrive together…"
+      );
       try {
         const params = new URLSearchParams();
         if (days) params.set("days", String(days));
@@ -1287,16 +1394,23 @@
         if (!res.ok) {
           throw new Error(data.detail || "Import failed to start");
         }
-        importStatus.textContent = data.message || "Import started…";
-        importPoll = setInterval(pollImportStatus, 2000);
-        await pollImportStatus();
+        setSyncing(true, data.message || "Import started — synchronising…");
+        startImportPolling();
       } catch (err) {
-        importBtn.disabled = false;
+        stopImportPolling();
         importMsg.hidden = false;
         importMsg.className = "message warn";
         importMsg.textContent = err.message || String(err);
       }
     });
+
+    // Resume banner if an import is already running (e.g. after refresh).
+    fetch("/api/parlour/import/status")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.status === "running") startImportPolling();
+      })
+      .catch(() => {});
 
     const uploadBtn = document.getElementById("upload-btn");
     const fileInput = document.getElementById("upload-files");
