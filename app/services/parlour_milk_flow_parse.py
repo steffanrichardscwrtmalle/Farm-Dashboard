@@ -281,6 +281,9 @@ def parse_milk_flow_report(
         # Skip trailing summary/total rows (no shift, date, or milking start).
         if not shift or not milking_date or not cow_id or start_seconds is None:
             continue
+        # Dataflow labels Morning shifts with the previous calendar date.
+        if shift.strip().casefold() == "morning":
+            milking_date = milking_date + dt.timedelta(days=1)
         rows.append(
             ParsedMilkFlowRow(
                 cow_id=cow_id,

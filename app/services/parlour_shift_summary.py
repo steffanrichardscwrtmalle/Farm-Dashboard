@@ -11,6 +11,17 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import ParlourMilkFlowImport, ParlourMilkFlowRow
+from app.services.parlour_metric_cleaning import (
+    eligible_average_flow,
+    eligible_duration_seconds,
+    eligible_interval_flow,
+    eligible_milk_yield_2_minutes,
+    eligible_peak_flow,
+    eligible_pct_2_minutes,
+    eligible_takeoff_flow,
+    eligible_yield_kg,
+    is_bimodal,
+)
 from app.services.parlour_milk_flow_parse import (
     correct_pens_by_milking_cohort,
     milking_span_seconds,
@@ -90,54 +101,79 @@ def _pct(count: int, total: int, *, digits: int = 1) -> float | None:
     return round(100.0 * count / total, digits)
 
 
-def _is_bimodal(
-    flow_15s: float | None,
-    flow_30s: float | None,
-    flow_60s: float | None,
-) -> bool | None:
-    """Bi-modal let-down: 30s < 15s, or 60s < 15s, or 60s < 30s.
-
-    Returns None when any required flow is missing.
-    """
-    if flow_15s is None or flow_30s is None or flow_60s is None:
-        return None
-    return (
-        flow_30s < flow_15s
-        or flow_60s < flow_15s
-        or flow_60s < flow_30s
-    )
+def _avg_yield_kg(yield_values: list[Any]) -> float | None:
+    """Mean yield excluding null/zero (does not change total yield or cow counts)."""
+    cleaned = [
+        v
+        for v in (eligible_yield_kg(y) for y in yield_values)
+        if v is not None
+    ]
+    return _mean(cleaned, digits=2)
 
 
 def _cow_quality_stats(cows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Per-cow milking quality aggregates for a shift."""
+    """Per-cow milking quality aggregates for a shift (per-metric cleaning)."""
     durations = [
-        float(c["duration_seconds"])
-        for c in cows
-        if c.get("duration_seconds") is not None
+        v
+        for v in (eligible_duration_seconds(c.get("duration_seconds")) for c in cows)
+        if v is not None
     ]
-    flow_15 = [float(c["flow_15s"]) for c in cows if c.get("flow_15s") is not None]
-    flow_30 = [float(c["flow_30s"]) for c in cows if c.get("flow_30s") is not None]
-    flow_60 = [float(c["flow_60s"]) for c in cows if c.get("flow_60s") is not None]
-    flow_120 = [float(c["flow_120s"]) for c in cows if c.get("flow_120s") is not None]
-    pct_2 = [float(c["pct_2_minutes"]) for c in cows if c.get("pct_2_minutes") is not None]
+    flow_15 = [
+        v
+        for v in (eligible_interval_flow(c.get("flow_15s")) for c in cows)
+        if v is not None
+    ]
+    flow_30 = [
+        v
+        for v in (eligible_interval_flow(c.get("flow_30s")) for c in cows)
+        if v is not None
+    ]
+    flow_60 = [
+        v
+        for v in (eligible_interval_flow(c.get("flow_60s")) for c in cows)
+        if v is not None
+    ]
+    flow_120 = [
+        v
+        for v in (eligible_interval_flow(c.get("flow_120s")) for c in cows)
+        if v is not None
+    ]
+    pct_2 = [
+        v
+        for v in (eligible_pct_2_minutes(c.get("pct_2_minutes")) for c in cows)
+        if v is not None
+    ]
     yield_2 = [
-        float(c["milk_yield_2_minutes"])
-        for c in cows
-        if c.get("milk_yield_2_minutes") is not None
+        v
+        for v in (
+            eligible_milk_yield_2_minutes(c.get("milk_yield_2_minutes")) for c in cows
+        )
+        if v is not None
     ]
     removal = [
-        float(c["flow_rate_at_removal"])
-        for c in cows
-        if c.get("flow_rate_at_removal") is not None
+        v
+        for v in (
+            eligible_takeoff_flow(c.get("flow_rate_at_removal")) for c in cows
+        )
+        if v is not None
     ]
     avg_flow = [
-        float(c["average_flow"]) for c in cows if c.get("average_flow") is not None
+        v
+        for v in (
+            eligible_average_flow(c.get("average_flow"), c.get("peak_flow"))
+            for c in cows
+        )
+        if v is not None
     ]
-    peak_flow = [float(c["peak_flow"]) for c in cows if c.get("peak_flow") is not None]
+    peak_flow = [
+        v
+        for v in (eligible_peak_flow(c.get("peak_flow")) for c in cows)
+        if v is not None
+    ]
 
     high_flow_n = sum(1 for v in removal if v > HIGH_FLOW_TAKEOFF_THRESHOLD)
     bimodal_flags = [
-        _is_bimodal(c.get("flow_15s"), c.get("flow_30s"), c.get("flow_60s"))
+        is_bimodal(c.get("flow_15s"), c.get("flow_30s"), c.get("flow_60s"))
         for c in cows
     ]
     bimodal_known = [f for f in bimodal_flags if f is not None]
@@ -198,7 +234,7 @@ def _pen_summary(
             "pen": pen_key,
             "cow_count": cow_count,
             "yield_kg": round(yield_kg, 1),
-            "avg_yield_kg": round(yield_kg / cow_count, 2) if cow_count else None,
+            "avg_yield_kg": _avg_yield_kg([row.yield_kg for row, _ in pen_items]),
             "first_start": _fmt_hhmmss(first_start),
             "last_end": _fmt_hhmmss(
                 last_end % 86400 if last_end is not None else None
@@ -234,7 +270,7 @@ def _milking_point_summary(rows: list[ParlourMilkFlowRow]) -> list[dict]:
             "milking_point": point_key,
             "cow_count": cow_count,
             "yield_kg": round(yield_kg, 1),
-            "avg_yield_kg": round(yield_kg / cow_count, 2) if cow_count else None,
+            "avg_yield_kg": _avg_yield_kg([row.yield_kg for row in items]),
             "first_start": _fmt_hhmmss(first_start),
             "last_end": _fmt_hhmmss(
                 last_end % 86400 if last_end is not None else None
@@ -361,12 +397,13 @@ def _shift_summary_core(
     cow_count: int,
     start_duration_pairs: list[tuple[int, int | None]],
     cows: list[dict[str, Any]],
+    yield_values: list[Any],
 ) -> dict:
     first_start, last_end, span = milking_span_seconds(start_duration_pairs)
     summary = {
         "cow_count": cow_count,
         "yield_kg": round(yield_kg, 1),
-        "avg_yield_kg": round(yield_kg / cow_count, 2) if cow_count else None,
+        "avg_yield_kg": _avg_yield_kg(yield_values),
         "first_start": _fmt_hhmmss(first_start),
         "last_end": _fmt_hhmmss(last_end % 86400 if last_end is not None else None),
         "duration_seconds": span,
@@ -415,6 +452,7 @@ def _shift_summary(
         cow_count=cow_count,
         start_duration_pairs=pairs,
         cows=[_row_to_cow_dict(r) for r in rows],
+        yield_values=[r.yield_kg for r in rows],
     )
     if include_pens:
         origin = shift_timeline_origin(
@@ -563,6 +601,7 @@ def list_shift_summaries(
                 cow_count=len(values),
                 start_duration_pairs=pairs,
                 cows=values,
+                yield_values=[c.get("yield_kg") for c in values],
             )
             days[day_key]["shifts"].append({"shift": shift_name, **summary})
             days[day_key]["total_yield_kg"] = round(
@@ -703,7 +742,7 @@ def _group_metric_value(rows: list[ParlourMilkFlowRow], metric: str) -> float | 
     values: dict[str, Any] = {
         "cow_count": cow_count,
         "yield_kg": round(yield_kg, 1),
-        "avg_yield_kg": round(yield_kg / cow_count, 2) if cow_count else None,
+        "avg_yield_kg": _avg_yield_kg([row.yield_kg for row in rows]),
         "duration_seconds": span,
         "cows_per_hour": _cows_per_hour(cow_count, span),
     }

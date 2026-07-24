@@ -31,6 +31,12 @@ from app.services.parlour_email_import import (
     run_import_in_background,
 )
 from app.services.parlour_milk_flow_import import upload_milk_flow_files
+from app.services.parlour_scatter import (
+    SCATTER_METRIC_KEYS,
+    list_scatter_metrics,
+    list_scatter_points,
+    scatter_date_bounds,
+)
 from app.services.parlour_shift_summary import (
     TREND_METRIC_KEYS,
     list_shift_summaries,
@@ -115,6 +121,67 @@ def api_parlour_milking_point_trend(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/scatter/metrics")
+def api_parlour_scatter_metrics(
+    _user: User = Depends(require_page(PAGE_PARLOUR)),
+):
+    return {"metrics": list_scatter_metrics()}
+
+
+@router.get("/scatter")
+def api_parlour_scatter(
+    farm: str = Query(...),
+    metric: str = Query("yield_kg"),
+    date_from: dt.date | None = Query(None),
+    date_to: dt.date | None = Query(None),
+    shifts: str | None = Query(
+        None,
+        description="Comma-separated shifts. Omit for all; empty string for none.",
+    ),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_PARLOUR)),
+):
+    farm_key = farm.upper()
+    if farm_key not in {"CM", "GAD"}:
+        raise HTTPException(status_code=400, detail="farm must be CM or GAD")
+    if metric not in SCATTER_METRIC_KEYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"metric must be one of: {', '.join(sorted(SCATTER_METRIC_KEYS))}",
+        )
+    shift_list: list[str] | None
+    if shifts is None:
+        shift_list = None
+    elif shifts.strip() == "":
+        shift_list = []
+    else:
+        shift_list = [part.strip() for part in shifts.split(",") if part.strip()]
+
+    try:
+        return list_scatter_points(
+            db,
+            farm=farm_key,
+            metric=metric,
+            date_from=date_from,
+            date_to=date_to,
+            shifts=shift_list,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/scatter/bounds")
+def api_parlour_scatter_bounds(
+    farm: str | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_PARLOUR)),
+):
+    farm_key = farm.upper() if farm else None
+    if farm_key and farm_key not in {"CM", "GAD"}:
+        raise HTTPException(status_code=400, detail="farm must be CM or GAD")
+    return scatter_date_bounds(db, farm=farm_key)
 
 
 @router.get("/import/status")

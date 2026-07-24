@@ -1322,6 +1322,21 @@ def parlour_performance_page(request: Request):
     )
 
 
+@app.get("/parlour/scatter-graphs", response_class=HTMLResponse)
+def parlour_scatter_graphs_page(request: Request):
+    if denied := _page_guard(request, PAGE_PARLOUR):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "parlour/scatter.html",
+        _template_ctx(
+            request,
+            page_heading="Scatter Graphs",
+            **_parlour_context("Scatter Graphs", "scatter-graphs", "Scatter Graphs"),
+        ),
+    )
+
+
 @app.get("/parlour/efficiency", response_class=HTMLResponse)
 def parlour_efficiency_page(request: Request):
     if denied := _page_guard(request, PAGE_PARLOUR):
