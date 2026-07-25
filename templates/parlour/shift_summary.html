@@ -484,6 +484,19 @@
       badDirection: "low",
     },
     {
+      label: "Rotation (min)",
+      metricKey: "median_rotation_minutes",
+      value: (s) =>
+        s && s.median_rotation_minutes != null
+          ? fmtNum(s.median_rotation_minutes, 1)
+          : "—",
+      num: (s) =>
+        s && s.median_rotation_minutes != null
+          ? Number(s.median_rotation_minutes)
+          : null,
+      badDirection: "high",
+    },
+    {
       label: "Problem Stalls",
       performanceOnly: true,
       metricKey: "problem_stall_count",

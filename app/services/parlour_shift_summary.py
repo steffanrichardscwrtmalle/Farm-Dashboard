@@ -29,6 +29,7 @@ from app.services.parlour_milk_flow_parse import (
     shift_timeline_origin,
     to_absolute_start,
 )
+from app.services.parlour_rotation import rotation_stats_from_point_starts
 
 # Flow rate at removal above this = high-flow takeoff.
 HIGH_FLOW_TAKEOFF_THRESHOLD = 1800.0
@@ -39,6 +40,7 @@ OUTLIER_MIN_N = 5
 METRIC_OUTLIER_RULES: list[tuple[str, str]] = [
     ("avg_yield_kg", "low"),
     ("cows_per_hour", "low"),
+    ("median_rotation_minutes", "high"),
     ("high_flow_takeoff_pct", "high"),
     ("bimodal_pct", "high"),
     ("median_milking_duration_seconds", "high"),
@@ -244,6 +246,11 @@ def _pen_summary(
             "sessions": sessions,
             "cows_per_hour": _cows_per_hour(cow_count, span),
         }
+        pen_row.update(
+            rotation_stats_from_point_starts(
+                [(row.milking_point, row.start_seconds) for row, _ in pen_items]
+            )
+        )
         pen_row.update(_cow_quality_stats([_row_to_cow_dict(row) for row, _ in pen_items]))
         pens.append(pen_row)
     return pens
@@ -279,6 +286,11 @@ def _milking_point_summary(rows: list[ParlourMilkFlowRow]) -> list[dict]:
             "duration_label": _fmt_duration(span),
             "cows_per_hour": _cows_per_hour(cow_count, span),
         }
+        point_row.update(
+            rotation_stats_from_point_starts(
+                [(row.milking_point, row.start_seconds) for row in items]
+            )
+        )
         point_row.update(_cow_quality_stats([_row_to_cow_dict(row) for row in items]))
         points.append(point_row)
     return points
@@ -415,12 +427,19 @@ def _shift_summary_core(
         "milking_points": [],
         "problem_stall_count": None,
     }
+    summary.update(
+        rotation_stats_from_point_starts(
+            [(c.get("milking_point"), c.get("start_seconds")) for c in cows]
+        )
+    )
     summary.update(_cow_quality_stats(cows))
     return summary
 
 
 def _row_to_cow_dict(row: ParlourMilkFlowRow) -> dict[str, Any]:
     return {
+        "milking_point": row.milking_point,
+        "start_seconds": row.start_seconds,
         "duration_seconds": row.duration_seconds,
         "flow_15s": row.flow_15s,
         "flow_30s": row.flow_30s,
@@ -518,6 +537,7 @@ def list_shift_summaries(
             ParlourMilkFlowRow.shift,
             ParlourMilkFlowRow.start_seconds,
             ParlourMilkFlowRow.duration_seconds,
+            ParlourMilkFlowRow.milking_point,
             ParlourMilkFlowRow.yield_kg,
             ParlourMilkFlowRow.flow_15s,
             ParlourMilkFlowRow.flow_30s,
@@ -547,6 +567,7 @@ def list_shift_summaries(
             shift_name,
             start_s,
             dur_s,
+            milking_point,
             yield_kg,
             flow_15s,
             flow_30s,
@@ -562,6 +583,7 @@ def list_shift_summaries(
                 {
                     "start_seconds": start_s,
                     "duration_seconds": dur_s,
+                    "milking_point": milking_point,
                     "yield_kg": yield_kg,
                     "flow_15s": flow_15s,
                     "flow_30s": flow_30s,
@@ -711,6 +733,7 @@ TREND_METRIC_KEYS = frozenset(
     {
         "avg_yield_kg",
         "cows_per_hour",
+        "median_rotation_minutes",
         "high_flow_takeoff_pct",
         "bimodal_pct",
         "median_milking_duration_seconds",
@@ -746,6 +769,11 @@ def _group_metric_value(rows: list[ParlourMilkFlowRow], metric: str) -> float | 
         "duration_seconds": span,
         "cows_per_hour": _cows_per_hour(cow_count, span),
     }
+    values.update(
+        rotation_stats_from_point_starts(
+            [(row.milking_point, row.start_seconds) for row in rows]
+        )
+    )
     values.update(_cow_quality_stats([_row_to_cow_dict(row) for row in rows]))
     raw = values.get(metric)
     if raw is None:

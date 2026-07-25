@@ -31,6 +31,11 @@ from app.services.parlour_email_import import (
     run_import_in_background,
 )
 from app.services.parlour_milk_flow_import import upload_milk_flow_files
+from app.services.parlour_rotation import (
+    DEFAULT_MA_WINDOW,
+    list_rotation_series,
+    rotation_date_bounds,
+)
 from app.services.parlour_scatter import (
     SCATTER_METRIC_KEYS,
     list_scatter_metrics,
@@ -182,6 +187,50 @@ def api_parlour_scatter_bounds(
     if farm_key and farm_key not in {"CM", "GAD"}:
         raise HTTPException(status_code=400, detail="farm must be CM or GAD")
     return scatter_date_bounds(db, farm=farm_key)
+
+
+@router.get("/rotation/bounds")
+def api_parlour_rotation_bounds(
+    farm: str | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_PARLOUR)),
+):
+    farm_key = farm.upper() if farm else None
+    if farm_key and farm_key not in {"CM", "GAD"}:
+        raise HTTPException(status_code=400, detail="farm must be CM or GAD")
+    return rotation_date_bounds(db, farm=farm_key)
+
+
+@router.get("/rotation")
+def api_parlour_rotation(
+    farm: str = Query(...),
+    date_from: dt.date | None = Query(None),
+    date_to: dt.date | None = Query(None),
+    shifts: str | None = Query(
+        None,
+        description="Comma-separated shifts. Omit for all; empty string for none.",
+    ),
+    ma_window: int = Query(DEFAULT_MA_WINDOW, ge=5, le=500),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_PARLOUR)),
+):
+    farm_key = farm.upper()
+    if farm_key not in {"CM", "GAD"}:
+        raise HTTPException(status_code=400, detail="farm must be CM or GAD")
+    if shifts is None:
+        shift_list = None
+    elif shifts.strip() == "":
+        shift_list = []
+    else:
+        shift_list = [part.strip() for part in shifts.split(",") if part.strip()]
+    return list_rotation_series(
+        db,
+        farm=farm_key,
+        date_from=date_from,
+        date_to=date_to,
+        shifts=shift_list,
+        ma_window=ma_window,
+    )
 
 
 @router.get("/import/status")

@@ -69,7 +69,8 @@ def init_db() -> None:
 def _migrate_parlour_schema() -> None:
     """Add email provenance columns so older attachments cannot overwrite newer ones."""
     inspector = inspect(engine)
-    if "parlour_milk_flow_imports" not in inspector.get_table_names():
+    tables = set(inspector.get_table_names())
+    if "parlour_milk_flow_imports" not in tables:
         return
     columns = {col["name"] for col in inspector.get_columns("parlour_milk_flow_imports")}
     with engine.begin() as conn:
@@ -85,6 +86,16 @@ def _migrate_parlour_schema() -> None:
                 text(
                     "ALTER TABLE parlour_milk_flow_imports "
                     "ADD COLUMN source_received TIMESTAMP"
+                )
+            )
+        # GAD reports label the mid-day milking Afternoon; app uses Day.
+        for table in ("parlour_milk_flow_imports", "parlour_milk_flow_rows"):
+            if table not in tables:
+                continue
+            conn.execute(
+                text(
+                    f"UPDATE {table} SET shift = 'Day' "
+                    "WHERE lower(shift) IN ('afternoon', 'afternnoon', 'aftenoon')"
                 )
             )
 

@@ -1343,7 +1343,7 @@ def parlour_efficiency_page(request: Request):
         return denied
     return templates.TemplateResponse(
         request,
-        "parlour/placeholder.html",
+        "parlour/efficiency.html",
         _template_ctx(
             request,
             page_heading="Efficiency",

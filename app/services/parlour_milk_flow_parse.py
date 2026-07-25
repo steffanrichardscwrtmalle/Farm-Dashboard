@@ -39,6 +39,13 @@ OPTIONAL_COLUMNS = (
     "Milking Point",
 )
 
+# Farm-specific header variants → canonical column names used below.
+# Casing-only differences (e.g. "% 2 Minutes") are handled by casefold match.
+COLUMN_ALIASES: dict[str, str] = {
+    "2 minute yield": "Milk Yield at 2 Minutes",
+    "2 minutes yield": "Milk Yield at 2 Minutes",
+}
+
 
 @dataclass
 class ParsedMilkFlowRow:
@@ -90,6 +97,26 @@ def is_milk_flow_report_filename(filename: str) -> bool:
     if "milk flow report" not in name:
         return False
     return detect_farm_from_filename(filename) in {"CM", "GAD"}
+
+
+def normalize_shift_name(shift: str) -> str:
+    """Map farm-specific report shift labels onto app shift names.
+
+    GAD reports use Afternoon (sometimes misspelled) for the Day shift.
+    """
+    key = (shift or "").strip().casefold()
+    if key in {"afternoon", "afternnoon", "aftenoon"}:
+        return "Day"
+    # Preserve familiar casing for the common three.
+    if key == "morning":
+        return "Morning"
+    if key == "day":
+        return "Day"
+    if key == "night":
+        return "Night"
+    if key == "evening":
+        return "Evening"
+    return (shift or "").strip()
 
 
 def _to_seconds(value: Any) -> int | None:
@@ -178,6 +205,32 @@ def _to_cow_id(value: Any) -> str | None:
     return text
 
 
+def _normalize_milk_flow_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename farm-specific headers onto the canonical CM column names."""
+    rename: dict[Any, str] = {}
+    used_targets: set[str] = set()
+    for col in df.columns:
+        text = str(col).strip()
+        key = text.casefold()
+        canonical = COLUMN_ALIASES.get(key)
+        if canonical is None:
+            # Case-insensitive match to known required/optional headers.
+            for known in (*REQUIRED_COLUMNS, *OPTIONAL_COLUMNS):
+                if key == known.casefold():
+                    canonical = known
+                    break
+        if canonical is None or canonical == col:
+            continue
+        if canonical in used_targets or canonical in df.columns:
+            # Prefer an already-canonical column; skip alias clash.
+            continue
+        rename[col] = canonical
+        used_targets.add(canonical)
+    if rename:
+        df = df.rename(columns=rename)
+    return df
+
+
 def read_milk_flow_dataframe(content: bytes) -> pd.DataFrame:
     """Load report bytes; Dataflow files are often OLE .xls even when named .csv."""
     if not content:
@@ -188,7 +241,8 @@ def read_milk_flow_dataframe(content: bytes) -> pd.DataFrame:
 
     def _drop_unnamed(df: pd.DataFrame) -> pd.DataFrame:
         drop_cols = [c for c in df.columns if str(c).startswith("Unnamed")]
-        return df.drop(columns=drop_cols) if drop_cols else df
+        cleaned = df.drop(columns=drop_cols) if drop_cols else df
+        return _normalize_milk_flow_columns(cleaned)
 
     if is_ole:
         try:
@@ -274,15 +328,17 @@ def parse_milk_flow_report(
 
     rows: list[ParsedMilkFlowRow] = []
     for _, raw in df.iterrows():
-        shift = _to_str(raw.get("Shift"))
+        raw_shift = _to_str(raw.get("Shift"))
         milking_date = _to_date(raw.get("Date"))
         cow_id = _to_cow_id(raw.get("ID"))
         start_seconds = _to_seconds(raw.get("Cow Milking Start Time"))
         # Skip trailing summary/total rows (no shift, date, or milking start).
-        if not shift or not milking_date or not cow_id or start_seconds is None:
+        if not raw_shift or not milking_date or not cow_id or start_seconds is None:
             continue
-        # Dataflow labels Morning shifts with the previous calendar date.
-        if shift.strip().casefold() == "morning":
+        shift = normalize_shift_name(raw_shift)
+        # CM Dataflow labels Morning shifts with the previous calendar date.
+        # GAD Morning dates are already correct — do not bump.
+        if resolved_farm == "CM" and shift.casefold() == "morning":
             milking_date = milking_date + dt.timedelta(days=1)
         rows.append(
             ParsedMilkFlowRow(
