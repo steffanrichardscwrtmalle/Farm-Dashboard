@@ -157,15 +157,13 @@ def import_rotary_entry_id_bytes(
 
     id_min = min(e.identified_at for e in parsed.events)
     id_max = max(e.identified_at for e in parsed.events)
-    # Cumulative exports replace the covered calendar window so a corrected
-    # Date+time parse is not blocked by earlier wrong-timestamp rows.
-    range_start = dt.datetime.combine(id_min.date(), dt.time.min)
-    range_end = dt.datetime.combine(id_max.date() + dt.timedelta(days=1), dt.time.min)
+    # Replace only the timestamp span present in this file — not whole calendar
+    # days. A later Day-shift-only email must not wipe that morning's IDs.
     db.execute(
         delete(ParlourRotaryEntryIdEvent).where(
             ParlourRotaryEntryIdEvent.farm == parsed.farm,
-            ParlourRotaryEntryIdEvent.identified_at >= range_start,
-            ParlourRotaryEntryIdEvent.identified_at < range_end,
+            ParlourRotaryEntryIdEvent.identified_at >= id_min,
+            ParlourRotaryEntryIdEvent.identified_at <= id_max,
         )
     )
 
