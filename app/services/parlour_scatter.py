@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections import defaultdict
+from statistics import fmean
 from typing import Any
 
 from sqlalchemy import func, select
@@ -10,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.models import ParlourMilkFlowRow
 from app.services.parlour_metric_cleaning import scatter_metric_value
+
+_SHIFT_SORT = {"Morning": 0, "Day": 1, "Afternoon": 2, "Evening": 3, "Night": 4}
 
 # Per-cow metrics available on the scatter page.
 SCATTER_METRICS: dict[str, dict[str, Any]] = {
@@ -82,7 +86,6 @@ def list_scatter_points(
     date_from: dt.date | None = None,
     date_to: dt.date | None = None,
     shifts: list[str] | None = None,
-    limit: int = 40000,
 ) -> dict[str, Any]:
     if metric not in SCATTER_METRIC_KEYS:
         raise ValueError(f"Unsupported metric: {metric}")
@@ -107,6 +110,7 @@ def list_scatter_points(
             "point_count": 0,
             "truncated": False,
             "points": [],
+            "shift_day_averages": [],
         }
 
     cols = [
@@ -132,16 +136,18 @@ def list_scatter_points(
     if shifts:
         stmt = stmt.where(ParlourMilkFlowRow.shift.in_(shifts))
 
-    # Over-fetch slightly so post-filter cleaning can still fill the limit.
-    fetch_limit = limit + 1 if metric == "pct_2_minutes" else (limit * 2) + 1
     stmt = stmt.order_by(
         ParlourMilkFlowRow.milking_date,
         ParlourMilkFlowRow.start_seconds,
-    ).limit(fetch_limit)
+    )
 
     rows = list(db.execute(stmt).all())
 
     points: list[dict[str, Any]] = []
+    # (date, shift) -> list of (start_seconds, y)
+    buckets: dict[tuple[dt.date, str], list[tuple[int, float]]] = defaultdict(list)
+    digits = int(meta["digits"])
+
     for row in rows:
         if needs_peak:
             milking_date, shift, start_seconds, cow_id, milking_point, raw, peak = row
@@ -159,10 +165,11 @@ def list_scatter_points(
         # Treat milking clock time as absolute wall-clock (no server TZ shift).
         x_ms = int((started - dt.datetime(1970, 1, 1)).total_seconds() * 1000)
         y = float(cleaned) * scale
+        buckets[(milking_date, shift)].append((int(start_seconds), y))
         points.append(
             {
                 "x": x_ms,
-                "y": round(y, int(meta["digits"]) + 2),
+                "y": round(y, digits + 2),
                 "shift": shift,
                 "milking_date": milking_date.isoformat(),
                 "start_seconds": int(start_seconds),
@@ -170,12 +177,30 @@ def list_scatter_points(
                 "milking_point": milking_point,
             }
         )
-        if len(points) >= limit + 1:
-            break
 
-    truncated = len(points) > limit
-    if truncated:
-        points = points[:limit]
+    shift_day_averages: list[dict[str, Any]] = []
+    for milking_date, shift in sorted(
+        buckets.keys(),
+        key=lambda key: (key[0], _SHIFT_SORT.get(key[1], 99), key[1]),
+    ):
+        vals = buckets[(milking_date, shift)]
+        if not vals:
+            continue
+        mean_start = int(round(fmean(s for s, _ in vals)))
+        mean_y = fmean(y for _, y in vals)
+        started = dt.datetime.combine(milking_date, dt.time.min) + dt.timedelta(
+            seconds=mean_start
+        )
+        x_ms = int((started - dt.datetime(1970, 1, 1)).total_seconds() * 1000)
+        shift_day_averages.append(
+            {
+                "x": x_ms,
+                "y": round(mean_y, digits + 2),
+                "shift": shift,
+                "milking_date": milking_date.isoformat(),
+                "n": len(vals),
+            }
+        )
 
     bounds = scatter_date_bounds(db, farm=farm_key)
     return {
@@ -187,6 +212,7 @@ def list_scatter_points(
         "date_min": bounds["date_min"],
         "date_max": bounds["date_max"],
         "point_count": len(points),
-        "truncated": truncated,
+        "truncated": False,
         "points": points,
+        "shift_day_averages": shift_day_averages,
     }

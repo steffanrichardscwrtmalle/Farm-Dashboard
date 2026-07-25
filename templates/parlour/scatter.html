@@ -196,7 +196,7 @@
     <div class="meta-line" id="meta-line">Loading…</div>
     <div class="chart-card">
       <div class="chart-toolbar">
-        <p class="help-text" id="chart-help">Each point is one cow milking. X = start milking date/time. Colour = shift. Drag a box to zoom; Reset zoom to return.</p>
+        <p class="help-text" id="chart-help">Each point is one cow milking. Pink line = average of the selected metric for each date × shift. Drag a box to zoom; Reset zoom to return.</p>
         <button type="button" class="chart-btn" id="reset-zoom-btn" title="Reset zoom">Reset zoom</button>
       </div>
       <div class="chart-wrap">
@@ -365,19 +365,46 @@
     }
 
     const datasets = SHIFT_ORDER.filter((s) => byShift[s] && byShift[s].length).map((shift) => ({
+      type: "scatter",
       label: shift,
       data: byShift[shift],
       backgroundColor: SHIFT_COLORS[shift] || "#666",
       borderColor: SHIFT_COLORS[shift] || "#666",
       pointRadius: 3,
       pointHoverRadius: 5,
+      order: 2,
     }));
+
+    const avgSeries = (data.shift_day_averages || []).map((p) => ({
+      x: p.x,
+      y: p.y,
+      shift: p.shift,
+      milking_date: p.milking_date,
+      n: p.n,
+      isShiftDayAvg: true,
+    }));
+    if (avgSeries.length) {
+      datasets.push({
+        type: "line",
+        label: "Shift-day average",
+        data: avgSeries,
+        borderColor: "#ec4899",
+        backgroundColor: "#ec4899",
+        borderWidth: 2.5,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        pointBackgroundColor: "#ec4899",
+        pointBorderColor: "#fff",
+        pointBorderWidth: 1.5,
+        tension: 0.15,
+        order: 1,
+      });
+    }
 
     const digits = data.digits != null ? data.digits : 1;
     const unit = data.unit || "";
 
     chart = new Chart(canvas, {
-      type: "scatter",
       data: { datasets },
       options: {
         responsive: true,
@@ -401,6 +428,10 @@
                         maximumFractionDigits: digits,
                         minimumFractionDigits: 0,
                       })}${unit ? ` ${unit}` : ""}`;
+                if (raw.isShiftDayAvg) {
+                  const n = raw.n != null ? ` · n=${raw.n}` : "";
+                  return `Shift-day avg (${raw.shift || "?"}): ${yText}${n}`;
+                }
                 const point =
                   raw.milking_point != null ? ` · Point ${raw.milking_point}` : "";
                 return `${ctx.dataset.label}: ${yText} · Cow ${raw.cow_id || "?"}${point}`;
@@ -492,11 +523,9 @@
             ? "all shifts"
             : [...selectedShifts].join(", ");
       meta.textContent =
-        `${farm} · ${data.metric_label} · ${formatShortDate(dateFrom)} – ${formatShortDate(dateTo)} · ${shiftLabel} · ${data.point_count.toLocaleString()} point(s)` +
-        (data.truncated ? " (truncated)" : "");
-      help.textContent = data.truncated
-        ? "Showing a capped sample of points for this range. Narrow the dates if needed. Drag a box to zoom; Reset zoom to return."
-        : "Each point is one cow milking. X = start milking date/time. Colour = shift. Drag a box to zoom; Reset zoom to return.";
+        `${farm} · ${data.metric_label} · ${formatShortDate(dateFrom)} – ${formatShortDate(dateTo)} · ${shiftLabel} · ${data.point_count.toLocaleString()} point(s)`;
+      help.textContent =
+        "Each point is one cow milking. Pink line = average for each date × shift in the selection. Drag a box to zoom; Reset zoom to return.";
       if (!data.point_count) {
         destroyChart();
         return;
