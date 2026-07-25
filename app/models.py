@@ -1167,11 +1167,63 @@ class ParlourMilkFlowRow(Base):
     flow_rate_at_removal: Mapped[float | None] = mapped_column(Float, nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     start_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    identification_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    lag_phase_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     identified_at_milking: Mapped[str | None] = mapped_column(String(16), nullable=True)
     final_detaching: Mapped[str | None] = mapped_column(String(32), nullable=True)
     extra_attachments: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     import_batch: Mapped[ParlourMilkFlowImport] = relationship(back_populates="rows")
+
+
+class ParlourRotaryEntryIdImport(Base):
+    """One imported Rotary Entry ID attachment batch."""
+
+    __tablename__ = "parlour_rotary_entry_id_imports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    source_filename: Mapped[str] = mapped_column(String(255), default="")
+    source_message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_received: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    rows_imported: Mapped[int] = mapped_column(Integer, default=0)
+    imported_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+    events: Mapped[list[ParlourRotaryEntryIdEvent]] = relationship(
+        back_populates="import_batch", cascade="all, delete-orphan"
+    )
+
+
+class ParlourRotaryEntryIdEvent(Base):
+    """One cow identification / prep timestamp from a Rotary Entry ID report."""
+
+    __tablename__ = "parlour_rotary_entry_id_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm",
+            "cow_id",
+            "identified_at",
+            name="uq_parlour_rotary_entry_id_farm_cow_time",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    import_id: Mapped[int] = mapped_column(
+        ForeignKey("parlour_rotary_entry_id_imports.id", ondelete="CASCADE"),
+        index=True,
+    )
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    cow_id: Mapped[str] = mapped_column(String(64), index=True)
+    identified_at: Mapped[datetime.datetime] = mapped_column(DateTime, index=True)
+    id_seconds: Mapped[int] = mapped_column(Integer, default=0)
+
+    import_batch: Mapped[ParlourRotaryEntryIdImport] = relationship(
+        back_populates="events"
+    )
 
 
 class BenchmarkForecastLine(Base):

@@ -169,9 +169,14 @@ def import_milk_flow_bytes(
     force: bool = False,
 ) -> list[dict]:
     """Import a milk-flow file; splits into one DB batch per date+shift."""
+    from app.services.parlour_rotary_entry_import import (
+        match_rotary_entry_ids_to_milkings,
+    )
+
     reports = parse_milk_flow_report(content, filename=filename, farm=farm)
     received = _parse_received(source_received)
     results: list[dict] = []
+    rematch_dates: set[tuple[str, dt.date]] = set()
     for parsed in reports:
         result = _upsert_parsed_report(
             db,
@@ -182,6 +187,14 @@ def import_milk_flow_bytes(
         )
         if result is not None:
             results.append(result)
+            rematch_dates.add((parsed.farm, parsed.milking_date))
+    for farm_key, milking_date in sorted(rematch_dates):
+        match_rotary_entry_ids_to_milkings(
+            db,
+            farm=farm_key,
+            date_from=milking_date,
+            date_to=milking_date,
+        )
     db.commit()
     return results
 

@@ -67,7 +67,7 @@ def init_db() -> None:
 
 
 def _migrate_parlour_schema() -> None:
-    """Add email provenance columns so older attachments cannot overwrite newer ones."""
+    """Add email provenance columns and lag-phase fields on milk-flow rows."""
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
     if "parlour_milk_flow_imports" not in tables:
@@ -98,6 +98,24 @@ def _migrate_parlour_schema() -> None:
                     "WHERE lower(shift) IN ('afternoon', 'afternnoon', 'aftenoon')"
                 )
             )
+        if "parlour_milk_flow_rows" in tables:
+            row_cols = {
+                col["name"] for col in inspector.get_columns("parlour_milk_flow_rows")
+            }
+            if "identification_seconds" not in row_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE parlour_milk_flow_rows "
+                        "ADD COLUMN identification_seconds INTEGER"
+                    )
+                )
+            if "lag_phase_seconds" not in row_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE parlour_milk_flow_rows "
+                        "ADD COLUMN lag_phase_seconds INTEGER"
+                    )
+                )
 
 def _migrate_xero_line_amount_types() -> None:
     """Add LineAmountTypes columns used to strip VAT from Inclusive Xero docs."""

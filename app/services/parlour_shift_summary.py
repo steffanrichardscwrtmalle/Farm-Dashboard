@@ -44,6 +44,7 @@ METRIC_OUTLIER_RULES: list[tuple[str, str]] = [
     ("cows_per_hour", "low"),
     ("median_rotation_minutes", "high"),
     ("attachment_idle_seconds", "high"),
+    ("median_lag_phase_seconds", "high"),
     ("high_flow_takeoff_pct", "high"),
     ("bimodal_pct", "high"),
     ("median_milking_duration_seconds", "high"),
@@ -210,6 +211,12 @@ def _cow_quality_stats(cows: list[dict[str, Any]]) -> dict[str, Any]:
 
     median_dur = _median(durations, digits=0)
     avg_dur = _mean(durations, digits=0)
+    lag_values = [
+        float(v)
+        for v in (c.get("lag_phase_seconds") for c in cows)
+        if v is not None
+    ]
+    median_lag = _median(lag_values, digits=0)
 
     return {
         "median_milking_duration_seconds": int(median_dur) if median_dur is not None else None,
@@ -220,6 +227,7 @@ def _cow_quality_stats(cows: list[dict[str, Any]]) -> dict[str, Any]:
         "avg_milking_duration_label": _fmt_duration(
             int(avg_dur) if avg_dur is not None else None
         ),
+        "median_lag_phase_seconds": int(median_lag) if median_lag is not None else None,
         "avg_flow_15s": _mean(flow_15, digits=1),
         "avg_flow_30s": _mean(flow_30, digits=1),
         "avg_flow_60s": _mean(flow_60, digits=1),
@@ -486,6 +494,7 @@ def _row_to_cow_dict(row: ParlourMilkFlowRow) -> dict[str, Any]:
         "milking_point": row.milking_point,
         "start_seconds": row.start_seconds,
         "duration_seconds": row.duration_seconds,
+        "lag_phase_seconds": row.lag_phase_seconds,
         "flow_15s": row.flow_15s,
         "flow_30s": row.flow_30s,
         "flow_60s": row.flow_60s,
@@ -607,6 +616,7 @@ def list_shift_summaries(
             ParlourMilkFlowRow.shift,
             ParlourMilkFlowRow.start_seconds,
             ParlourMilkFlowRow.duration_seconds,
+            ParlourMilkFlowRow.lag_phase_seconds,
             ParlourMilkFlowRow.milking_point,
             ParlourMilkFlowRow.yield_kg,
             ParlourMilkFlowRow.flow_15s,
@@ -637,6 +647,7 @@ def list_shift_summaries(
             shift_name,
             start_s,
             dur_s,
+            lag_s,
             milking_point,
             yield_kg,
             flow_15s,
@@ -653,6 +664,7 @@ def list_shift_summaries(
                 {
                     "start_seconds": start_s,
                     "duration_seconds": dur_s,
+                    "lag_phase_seconds": lag_s,
                     "milking_point": milking_point,
                     "yield_kg": yield_kg,
                     "flow_15s": flow_15s,
@@ -811,6 +823,7 @@ TREND_METRIC_KEYS = frozenset(
         "duration_seconds",
         "median_milking_duration_seconds",
         "avg_milking_duration_seconds",
+        "median_lag_phase_seconds",
         "avg_flow_15s",
         "avg_flow_30s",
         "avg_flow_60s",
@@ -871,6 +884,7 @@ def _pen_group_metric_value(
             "abs_start": abs_start,
             "start_seconds": row.start_seconds,
             "duration_seconds": row.duration_seconds,
+            "lag_phase_seconds": row.lag_phase_seconds,
             "milking_point": row.milking_point,
             "yield_kg": row.yield_kg,
             "flow_15s": row.flow_15s,
@@ -934,7 +948,16 @@ def _pen_metric_from_slim(items: list[dict[str, Any]], metric: str) -> float | N
         value = idle.get(metric)
         return float(value) if value is not None else None
 
-    # Flow / takeoff / bi-modal / unit-on — only the requested field.
+    # Flow / takeoff / bi-modal / unit-on / lag — only the requested field.
+    if metric == "median_lag_phase_seconds":
+        values = [
+            float(v)
+            for v in (it.get("lag_phase_seconds") for it in items)
+            if v is not None
+        ]
+        med = _median(values, digits=0)
+        return float(med) if med is not None else None
+
     if metric == "median_milking_duration_seconds":
         values = [
             v
@@ -1174,6 +1197,9 @@ def _pen_trend_select_columns(metric: str) -> list[Any]:
     if metric in _PEN_TREND_CORE_METRICS:
         return cols
     # Quality / flow metrics — pull only the fields that metric uses.
+    if metric == "median_lag_phase_seconds":
+        cols.append(ParlourMilkFlowRow.lag_phase_seconds)
+        return cols
     if metric in {"avg_flow_15s", "bimodal_pct"}:
         cols.append(ParlourMilkFlowRow.flow_15s)
     if metric in {"avg_flow_30s", "bimodal_pct"}:

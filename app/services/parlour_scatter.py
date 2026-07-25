@@ -31,6 +31,11 @@ SCATTER_METRICS: dict[str, dict[str, Any]] = {
         "digits": 1,
         "scale": 1 / 60.0,
     },
+    "lag_phase_seconds": {
+        "label": "Lag phase (s)",
+        "unit": "s",
+        "digits": 0,
+    },
     "average_flow": {"label": "Average Flow", "unit": "", "digits": 2},
     "peak_flow": {"label": "Peak Flow", "unit": "", "digits": 2},
     "flow_15s": {"label": "15s flow", "unit": "", "digits": 1},

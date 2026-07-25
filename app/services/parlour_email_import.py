@@ -1,10 +1,10 @@
-"""Import parlour milk-flow reports from email (Dataflow / DelPro exports).
+"""Import parlour reports from email (Dataflow / DelPro exports).
 
 Sources, in priority order:
 * LOCAL_PARLOUR_DIR — local folder of XLS/CSV files (development; skips Graph mail).
 * Microsoft Graph mail — configured mailbox(es), reading attachments from
   PARLOUR_SENDER (default support@dataflow2.com) whose filenames look like
-  ``Milk Flow Report Export CM`` / ``… GAD``.
+  ``Milk Flow Report Export CM`` / ``… GAD`` or ``Rotary Entry ID CM`` / ``… GAD``.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from app.config import (
     PARLOUR_SENDER,
     graph_cm_is_configured,
 )
-from app.models import ParlourMilkFlowImport
+from app.models import ParlourMilkFlowImport, ParlourRotaryEntryIdImport
 from app.services.graph_mail import iter_attachments
 from app.services.graph_onedrive import get_access_token_for, graph_is_configured
 from app.services.parlour_milk_flow_import import import_milk_flow_bytes
@@ -39,6 +39,8 @@ from app.services.parlour_milk_flow_parse import (
     detect_farm_from_filename,
     is_milk_flow_report_filename,
 )
+from app.services.parlour_rotary_entry_import import import_rotary_entry_id_bytes
+from app.services.parlour_rotary_entry_parse import is_rotary_entry_id_filename
 
 _EPOCH = dt.datetime(2000, 1, 1, tzinfo=dt.timezone.utc)
 _EXTENSIONS = (".xls", ".xlsx", ".csv")
@@ -93,6 +95,12 @@ def _progress_callback(phase: str, messages: int, files: int) -> None:
         )
 
 
+def _is_parlour_attachment_filename(filename: str) -> bool:
+    return is_milk_flow_report_filename(filename) or is_rotary_entry_id_filename(
+        filename
+    )
+
+
 def _iter_sources(
     warnings: list[str],
     since: dt.datetime,
@@ -107,7 +115,7 @@ def _iter_sources(
                 continue
             if path.suffix.lower() not in _EXTENSIONS:
                 continue
-            if not is_milk_flow_report_filename(path.name):
+            if not _is_parlour_attachment_filename(path.name):
                 continue
             local_items.append(
                 {
@@ -161,7 +169,7 @@ def _iter_sources(
                 on_progress=_progress_callback,
             ):
                 filename = attachment.get("filename") or ""
-                if not is_milk_flow_report_filename(filename):
+                if not _is_parlour_attachment_filename(filename):
                     continue
                 collected.append(
                     {
@@ -217,14 +225,18 @@ def resolve_import_since(
     if full_history:
         return _EPOCH
     if since_last_import:
-        latest_received = _as_utc(
-            db.scalar(select(func.max(ParlourMilkFlowImport.source_received)))
-        )
-        latest_imported = _as_utc(
-            db.scalar(select(func.max(ParlourMilkFlowImport.imported_at)))
-        )
+        candidates = [
+            _as_utc(db.scalar(select(func.max(ParlourMilkFlowImport.source_received)))),
+            _as_utc(db.scalar(select(func.max(ParlourMilkFlowImport.imported_at)))),
+            _as_utc(
+                db.scalar(select(func.max(ParlourRotaryEntryIdImport.source_received)))
+            ),
+            _as_utc(
+                db.scalar(select(func.max(ParlourRotaryEntryIdImport.imported_at)))
+            ),
+        ]
         latest = max(
-            (value for value in (latest_received, latest_imported) if value is not None),
+            (value for value in candidates if value is not None),
             default=None,
         )
         if latest is not None:
@@ -236,7 +248,11 @@ def resolve_import_since(
 
 
 def _known_attachment_keys(db: Session) -> set[tuple[str, str]]:
-    """Keys of (message_id, filename) already stored — one email may have CM + GAD."""
+    """Keys of (message_id, filename) already stored for milk-flow only.
+
+    Rotary Entry ID attachments are not skipped: cumulative dumps are re-applied
+    over their date window so Date+time corrections and later emails refresh lag.
+    """
     rows = db.execute(
         select(
             ParlourMilkFlowImport.source_message_id,
@@ -292,15 +308,26 @@ def import_parlour_milk_flow(
 
         farm = detect_farm_from_filename(filename) or source.get("mailbox_farm")
         try:
-            batch_results = import_milk_flow_bytes(
-                db,
-                source["content"],
-                filename=filename,
-                farm=farm,
-                source_message_id=message_id,
-                source_received=source.get("received"),
-                force=False,
-            )
+            if is_rotary_entry_id_filename(filename):
+                rotary_result = import_rotary_entry_id_bytes(
+                    db,
+                    source["content"],
+                    filename=filename,
+                    farm=farm,
+                    source_message_id=message_id,
+                    source_received=source.get("received"),
+                )
+                batch_results = [rotary_result]
+            else:
+                batch_results = import_milk_flow_bytes(
+                    db,
+                    source["content"],
+                    filename=filename,
+                    farm=farm,
+                    source_message_id=message_id,
+                    source_received=source.get("received"),
+                    force=False,
+                )
         except Exception as exc:  # noqa: BLE001
             db.rollback()
             files_skipped += 1

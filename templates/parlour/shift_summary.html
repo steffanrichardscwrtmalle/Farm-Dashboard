@@ -300,7 +300,7 @@
     {% if can_import %}
     <div class="filter-panel">
       <h2>Import from email</h2>
-      <p class="help-text">Scans for milk-flow reports from support@dataflow2.com (attachments named Milk Flow Report Export CM / GAD). Default scans only new mail since the last import (with a short overlap). Cron uses the last 2 days automatically.</p>
+      <p class="help-text">Scans for milk-flow and Rotary Entry ID reports from support@dataflow2.com (attachments named Milk Flow Report Export CM / GAD and Rotary Entry ID CM / GAD). Rotary IDs are matched to milkings to compute lag phase (prep/ID → cluster attach). Default scans only new mail since the last import (with a short overlap). Cron uses the last 2 days automatically.</p>
       <div class="filter-section" style="margin-top:0.75rem;">
         <label class="section-label" for="import-scope">Range</label>
         <select id="import-scope" title="How far back to scan the mailboxes">
@@ -515,6 +515,19 @@
       badDirection: "high",
     },
     {
+      label: "Lag phase (s)",
+      metricKey: "median_lag_phase_seconds",
+      value: (s) =>
+        s && s.median_lag_phase_seconds != null
+          ? fmtNum(s.median_lag_phase_seconds, 0)
+          : "—",
+      num: (s) =>
+        s && s.median_lag_phase_seconds != null
+          ? Number(s.median_lag_phase_seconds)
+          : null,
+      badDirection: "high",
+    },
+    {
       label: "Problem Stalls",
       performanceOnly: true,
       metricKey: "problem_stall_count",
@@ -664,6 +677,7 @@
     "duration_seconds",
     "median_milking_duration_seconds",
     "avg_milking_duration_seconds",
+    "median_lag_phase_seconds",
     "avg_flow_15s",
     "avg_flow_30s",
     "avg_flow_60s",
