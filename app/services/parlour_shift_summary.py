@@ -23,10 +23,12 @@ from app.services.parlour_metric_cleaning import (
     is_bimodal,
 )
 from app.services.parlour_milk_flow_parse import (
+    attachment_idle_from_clock_starts,
     correct_pens_by_milking_cohort,
     milking_span_seconds,
     pen_session_span_seconds,
     shift_timeline_origin,
+    sum_attachment_idle_gaps,
     to_absolute_start,
 )
 from app.services.parlour_rotation import rotation_stats_from_point_starts
@@ -41,6 +43,7 @@ METRIC_OUTLIER_RULES: list[tuple[str, str]] = [
     ("avg_yield_kg", "low"),
     ("cows_per_hour", "low"),
     ("median_rotation_minutes", "high"),
+    ("attachment_idle_seconds", "high"),
     ("high_flow_takeoff_pct", "high"),
     ("bimodal_pct", "high"),
     ("median_milking_duration_seconds", "high"),
@@ -83,6 +86,30 @@ def _cows_per_hour(cow_count: int, span_seconds: int | None) -> float | None:
     if not span_seconds or span_seconds <= 0 or cow_count <= 0:
         return None
     return round(cow_count / (span_seconds / 3600.0), 1)
+
+
+def _attachment_idle_fields_from_clock(
+    start_seconds_list: list[int | None],
+) -> dict[str, Any]:
+    total, gap_n = attachment_idle_from_clock_starts(start_seconds_list)
+    minutes = int(round(total / 60.0)) if total else 0
+    return {
+        "attachment_idle_seconds": total,
+        "attachment_idle_minutes": minutes,
+        "attachment_idle_label": str(minutes),
+        "attachment_idle_gap_n": gap_n,
+    }
+
+
+def _attachment_idle_fields_from_abs(abs_starts: list[int]) -> dict[str, Any]:
+    total, gap_n = sum_attachment_idle_gaps(abs_starts)
+    minutes = int(round(total / 60.0)) if total else 0
+    return {
+        "attachment_idle_seconds": total,
+        "attachment_idle_minutes": minutes,
+        "attachment_idle_label": str(minutes),
+        "attachment_idle_gap_n": gap_n,
+    }
 
 
 def _mean(values: list[float], *, digits: int = 2) -> float | None:
@@ -247,6 +274,9 @@ def _pen_summary(
             "cows_per_hour": _cows_per_hour(cow_count, span),
         }
         pen_row.update(
+            _attachment_idle_fields_from_abs([abs_start for _, abs_start in pen_items])
+        )
+        pen_row.update(
             rotation_stats_from_point_starts(
                 [(row.milking_point, row.start_seconds) for row, _ in pen_items]
             )
@@ -256,28 +286,28 @@ def _pen_summary(
     return pens
 
 
-def _milking_point_summary(rows: list[ParlourMilkFlowRow]) -> list[dict]:
+def _milking_point_summary_from_cows(cows: list[dict[str, Any]]) -> list[dict]:
     """Same quality metrics as pens, grouped by milking point (stall)."""
-    by_point: dict[int | None, list[ParlourMilkFlowRow]] = defaultdict(list)
-    for row in rows:
-        by_point[row.milking_point].append(row)
+    by_point: dict[int | None, list[dict[str, Any]]] = defaultdict(list)
+    for cow in cows:
+        by_point[cow.get("milking_point")].append(cow)
 
     points: list[dict] = []
     for point_key in sorted(by_point.keys(), key=lambda p: (p is None, p or 0)):
         items = by_point[point_key]
         pairs = [
-            (row.start_seconds, row.duration_seconds)
-            for row in items
-            if row.start_seconds is not None
+            (c["start_seconds"], c["duration_seconds"])
+            for c in items
+            if c.get("start_seconds") is not None
         ]
         first_start, last_end, span = milking_span_seconds(pairs)
-        yield_kg = sum(row.yield_kg or 0.0 for row in items)
+        yield_kg = sum(c.get("yield_kg") or 0.0 for c in items)
         cow_count = len(items)
         point_row = {
             "milking_point": point_key,
             "cow_count": cow_count,
             "yield_kg": round(yield_kg, 1),
-            "avg_yield_kg": _avg_yield_kg([row.yield_kg for row in items]),
+            "avg_yield_kg": _avg_yield_kg([c.get("yield_kg") for c in items]),
             "first_start": _fmt_hhmmss(first_start),
             "last_end": _fmt_hhmmss(
                 last_end % 86400 if last_end is not None else None
@@ -287,13 +317,23 @@ def _milking_point_summary(rows: list[ParlourMilkFlowRow]) -> list[dict]:
             "cows_per_hour": _cows_per_hour(cow_count, span),
         }
         point_row.update(
-            rotation_stats_from_point_starts(
-                [(row.milking_point, row.start_seconds) for row in items]
+            _attachment_idle_fields_from_clock(
+                [c.get("start_seconds") for c in items]
             )
         )
-        point_row.update(_cow_quality_stats([_row_to_cow_dict(row) for row in items]))
+        point_row.update(
+            rotation_stats_from_point_starts(
+                [(c.get("milking_point"), c.get("start_seconds")) for c in items]
+            )
+        )
+        point_row.update(_cow_quality_stats(items))
         points.append(point_row)
     return points
+
+
+def _milking_point_summary(rows: list[ParlourMilkFlowRow]) -> list[dict]:
+    """ORM wrapper around dict-based milking-point summary."""
+    return _milking_point_summary_from_cows([_row_to_cow_dict(row) | {"yield_kg": row.yield_kg} for row in rows])
 
 
 def _sample_stats(values: list[float]) -> tuple[float, float] | None:
@@ -428,6 +468,11 @@ def _shift_summary_core(
         "problem_stall_count": None,
     }
     summary.update(
+        _attachment_idle_fields_from_clock(
+            [c.get("start_seconds") for c in cows]
+        )
+    )
+    summary.update(
         rotation_stats_from_point_starts(
             [(c.get("milking_point"), c.get("start_seconds")) for c in cows]
         )
@@ -507,6 +552,29 @@ def _shift_summary(
     return summary
 
 
+def _attach_milking_point_annotations(
+    days: dict[tuple[str, dt.date], dict],
+    point_map: dict[tuple[str, dt.date, str], list[dict[str, Any]]],
+    *,
+    include_milking_points: bool,
+) -> None:
+    farms_seen = {key[0] for key in point_map}
+    for farm_key in farms_seen:
+        farm_points: dict[tuple[dt.date, str], list[dict[str, Any]]] = {
+            (d, s): pts for (f, d, s), pts in point_map.items() if f == farm_key
+        }
+        counts = _annotate_milking_point_outliers(farm_points)
+        for day in days.values():
+            if day["farm"] != farm_key:
+                continue
+            milking_date = dt.date.fromisoformat(day["milking_date"])
+            for shift_row in day["shifts"]:
+                key = (milking_date, shift_row["shift"])
+                shift_row["problem_stall_count"] = counts.get(key, 0)
+                if include_milking_points:
+                    shift_row["milking_points"] = farm_points.get(key, [])
+
+
 def list_shift_summaries(
     db: Session,
     *,
@@ -519,7 +587,9 @@ def list_shift_summaries(
     include_problem_stalls: bool = False,
 ) -> dict:
     need_points = include_milking_points or include_problem_stalls
-    need_orm = include_pens or need_points
+    # Pen breakdown still uses ORM (cohort correction). Problem-stall / stall
+    # drilldowns use slim column loads so Performance can load ~45 days safely.
+    need_orm = include_pens
     # Need prior calendar day so Morning can compare to previous Night.
     requested_from = date_from
     query_from = (
@@ -630,6 +700,17 @@ def list_shift_summaries(
                 days[day_key]["total_yield_kg"] + summary["yield_kg"], 1
             )
             days[day_key]["total_cows"] += summary["cow_count"]
+
+        if need_points:
+            point_map = {
+                key: _milking_point_summary_from_cows(values)
+                for key, values in grouped_vals.items()
+            }
+            _attach_milking_point_annotations(
+                days,
+                point_map,
+                include_milking_points=include_milking_points,
+            )
     else:
         stmt_orm = select(ParlourMilkFlowRow)
         if farm:
@@ -681,23 +762,11 @@ def list_shift_summaries(
 
         if need_points:
             point_map = _shift_summaries_from_point_rows(rows)
-            farms_seen = {key[0] for key in point_map}
-            for farm_key in farms_seen:
-                farm_points: dict[tuple[dt.date, str], list[dict[str, Any]]] = {
-                    (d, s): pts
-                    for (f, d, s), pts in point_map.items()
-                    if f == farm_key
-                }
-                counts = _annotate_milking_point_outliers(farm_points)
-                for day in days.values():
-                    if day["farm"] != farm_key:
-                        continue
-                    milking_date = dt.date.fromisoformat(day["milking_date"])
-                    for shift_row in day["shifts"]:
-                        key = (milking_date, shift_row["shift"])
-                        shift_row["problem_stall_count"] = counts.get(key, 0)
-                        if include_milking_points:
-                            shift_row["milking_points"] = farm_points.get(key, [])
+            _attach_milking_point_annotations(
+                days,
+                point_map,
+                include_milking_points=include_milking_points,
+            )
 
     # Sort shifts within each day: Morning → Day → Night (legacy Evening/Afternoon kept)
     shift_order = {
@@ -731,11 +800,15 @@ def list_shift_summaries(
 
 TREND_METRIC_KEYS = frozenset(
     {
+        "yield_kg",
+        "cow_count",
         "avg_yield_kg",
         "cows_per_hour",
         "median_rotation_minutes",
+        "attachment_idle_seconds",
         "high_flow_takeoff_pct",
         "bimodal_pct",
+        "duration_seconds",
         "median_milking_duration_seconds",
         "avg_milking_duration_seconds",
         "avg_flow_15s",
@@ -749,6 +822,8 @@ TREND_METRIC_KEYS = frozenset(
         "avg_flow_rate_at_removal",
     }
 )
+
+_TREND_SHIFT_ORDER = ("Morning", "Day", "Afternoon", "Evening", "Night")
 
 
 def _group_metric_value(rows: list[ParlourMilkFlowRow], metric: str) -> float | None:
@@ -770,6 +845,9 @@ def _group_metric_value(rows: list[ParlourMilkFlowRow], metric: str) -> float | 
         "cows_per_hour": _cows_per_hour(cow_count, span),
     }
     values.update(
+        _attachment_idle_fields_from_clock([row.start_seconds for row in rows])
+    )
+    values.update(
         rotation_stats_from_point_starts(
             [(row.milking_point, row.start_seconds) for row in rows]
         )
@@ -779,6 +857,233 @@ def _group_metric_value(rows: list[ParlourMilkFlowRow], metric: str) -> float | 
     if raw is None:
         return None
     return float(raw)
+
+
+def _pen_group_metric_value(
+    pen_items: list[tuple[ParlourMilkFlowRow, int]],
+    metric: str,
+) -> float | None:
+    """Match pen-summary metrics (cohort pens + gap-split session span)."""
+    if not pen_items or metric not in TREND_METRIC_KEYS:
+        return None
+    slim = [
+        {
+            "abs_start": abs_start,
+            "start_seconds": row.start_seconds,
+            "duration_seconds": row.duration_seconds,
+            "milking_point": row.milking_point,
+            "yield_kg": row.yield_kg,
+            "flow_15s": row.flow_15s,
+            "flow_30s": row.flow_30s,
+            "flow_60s": row.flow_60s,
+            "flow_120s": row.flow_120s,
+            "pct_2_minutes": row.pct_2_minutes,
+            "milk_yield_2_minutes": row.milk_yield_2_minutes,
+            "flow_rate_at_removal": row.flow_rate_at_removal,
+            "average_flow": row.average_flow,
+            "peak_flow": row.peak_flow,
+        }
+        for row, abs_start in pen_items
+    ]
+    return _pen_metric_from_slim(slim, metric)
+
+
+def _pen_metric_from_slim(items: list[dict[str, Any]], metric: str) -> float | None:
+    """Compute a single pen metric without building full quality aggregates."""
+    if not items or metric not in TREND_METRIC_KEYS:
+        return None
+    cow_count = len(items)
+
+    if metric == "cow_count":
+        return float(cow_count)
+
+    if metric in {"duration_seconds", "cows_per_hour"}:
+        pairs = [
+            (int(it["abs_start"]), int(it.get("duration_seconds") or 0))
+            for it in items
+        ]
+        _first, _last, span, _sessions = pen_session_span_seconds(pairs)
+        if metric == "duration_seconds":
+            return float(span) if span is not None else None
+        value = _cows_per_hour(cow_count, span)
+        return float(value) if value is not None else None
+
+    if metric == "yield_kg":
+        return round(sum(float(it.get("yield_kg") or 0.0) for it in items), 1)
+
+    if metric == "avg_yield_kg":
+        value = _avg_yield_kg([it.get("yield_kg") for it in items])
+        return float(value) if value is not None else None
+
+    if metric == "median_rotation_minutes":
+        stats = rotation_stats_from_point_starts(
+            [(it.get("milking_point"), it.get("start_seconds")) for it in items]
+        )
+        value = stats.get(metric)
+        return float(value) if value is not None else None
+
+    if metric == "attachment_idle_seconds":
+        if items and items[0].get("abs_start") is not None:
+            idle = _attachment_idle_fields_from_abs(
+                [int(it["abs_start"]) for it in items if it.get("abs_start") is not None]
+            )
+        else:
+            idle = _attachment_idle_fields_from_clock(
+                [it.get("start_seconds") for it in items]
+            )
+        value = idle.get(metric)
+        return float(value) if value is not None else None
+
+    # Flow / takeoff / bi-modal / unit-on — only the requested field.
+    if metric == "median_milking_duration_seconds":
+        values = [
+            v
+            for v in (
+                eligible_duration_seconds(it.get("duration_seconds")) for it in items
+            )
+            if v is not None
+        ]
+        med = _median(values, digits=0)
+        return float(med) if med is not None else None
+
+    if metric == "avg_milking_duration_seconds":
+        values = [
+            v
+            for v in (
+                eligible_duration_seconds(it.get("duration_seconds")) for it in items
+            )
+            if v is not None
+        ]
+        avg = _mean(values, digits=0)
+        return float(avg) if avg is not None else None
+
+    if metric == "avg_flow_15s":
+        values = [
+            v
+            for v in (eligible_interval_flow(it.get("flow_15s")) for it in items)
+            if v is not None
+        ]
+        avg = _mean(values, digits=1)
+        return float(avg) if avg is not None else None
+
+    if metric == "avg_flow_30s":
+        values = [
+            v
+            for v in (eligible_interval_flow(it.get("flow_30s")) for it in items)
+            if v is not None
+        ]
+        avg = _mean(values, digits=1)
+        return float(avg) if avg is not None else None
+
+    if metric == "avg_flow_60s":
+        values = [
+            v
+            for v in (eligible_interval_flow(it.get("flow_60s")) for it in items)
+            if v is not None
+        ]
+        avg = _mean(values, digits=1)
+        return float(avg) if avg is not None else None
+
+    if metric == "avg_flow_120s":
+        values = [
+            v
+            for v in (eligible_interval_flow(it.get("flow_120s")) for it in items)
+            if v is not None
+        ]
+        avg = _mean(values, digits=1)
+        return float(avg) if avg is not None else None
+
+    if metric == "avg_pct_2_minutes":
+        values = [
+            v
+            for v in (eligible_pct_2_minutes(it.get("pct_2_minutes")) for it in items)
+            if v is not None
+        ]
+        avg = _mean(values, digits=1)
+        return float(avg) if avg is not None else None
+
+    if metric == "avg_milk_yield_2_minutes":
+        values = [
+            v
+            for v in (
+                eligible_milk_yield_2_minutes(it.get("milk_yield_2_minutes"))
+                for it in items
+            )
+            if v is not None
+        ]
+        avg = _mean(values, digits=2)
+        return float(avg) if avg is not None else None
+
+    if metric == "avg_flow_rate_at_removal":
+        values = [
+            v
+            for v in (
+                eligible_takeoff_flow(it.get("flow_rate_at_removal")) for it in items
+            )
+            if v is not None
+        ]
+        avg = _mean(values, digits=1)
+        return float(avg) if avg is not None else None
+
+    if metric == "avg_average_flow":
+        values = [
+            v
+            for v in (
+                eligible_average_flow(it.get("average_flow"), it.get("peak_flow"))
+                for it in items
+            )
+            if v is not None
+        ]
+        avg = _mean(values, digits=2)
+        return float(avg) if avg is not None else None
+
+    if metric == "avg_peak_flow":
+        values = [
+            v
+            for v in (eligible_peak_flow(it.get("peak_flow")) for it in items)
+            if v is not None
+        ]
+        avg = _mean(values, digits=2)
+        return float(avg) if avg is not None else None
+
+    if metric == "high_flow_takeoff_pct":
+        removal = [
+            v
+            for v in (
+                eligible_takeoff_flow(it.get("flow_rate_at_removal")) for it in items
+            )
+            if v is not None
+        ]
+        high_n = sum(1 for v in removal if v > HIGH_FLOW_TAKEOFF_THRESHOLD)
+        value = _pct(high_n, len(removal))
+        return float(value) if value is not None else None
+
+    if metric == "bimodal_pct":
+        flags = [
+            is_bimodal(it.get("flow_15s"), it.get("flow_30s"), it.get("flow_60s"))
+            for it in items
+        ]
+        known = [f for f in flags if f is not None]
+        value = _pct(sum(1 for f in known if f), len(known))
+        return float(value) if value is not None else None
+
+    return None
+
+
+def _series_from_shift_points(
+    by_shift: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    series: list[dict[str, Any]] = []
+    for shift_name in _TREND_SHIFT_ORDER:
+        points = by_shift.get(shift_name) or []
+        if not points:
+            continue
+        series.append({"shift": shift_name, "points": points})
+    for shift_name, points in sorted(by_shift.items()):
+        if shift_name in _TREND_SHIFT_ORDER or not points:
+            continue
+        series.append({"shift": shift_name, "points": points})
+    return series
 
 
 def milking_point_metric_trend(
@@ -810,8 +1115,9 @@ def milking_point_metric_trend(
     for row in rows:
         grouped[(row.milking_date, row.shift)].append(row)
 
-    shift_order = ("Morning", "Day", "Afternoon", "Evening", "Night")
-    by_shift: dict[str, list[dict[str, Any]]] = {name: [] for name in shift_order}
+    by_shift: dict[str, list[dict[str, Any]]] = {
+        name: [] for name in _TREND_SHIFT_ORDER
+    }
     dates: set[str] = set()
 
     for (milking_date, shift_name), group_rows in sorted(grouped.items()):
@@ -829,23 +1135,160 @@ def milking_point_metric_trend(
         )
 
     date_list = sorted(dates)
-    series = []
-    for shift_name in shift_order:
-        points = by_shift.get(shift_name) or []
-        if not points:
-            continue
-        series.append({"shift": shift_name, "points": points})
-    # Any unexpected shift names
-    for shift_name, points in sorted(by_shift.items()):
-        if shift_name in shift_order or not points:
-            continue
-        series.append({"shift": shift_name, "points": points})
-
     return {
         "farm": farm_key,
         "milking_point": milking_point,
         "metric": metric,
         "dates": date_list,
-        "series": series,
+        "series": _series_from_shift_points(by_shift),
+        "point_count": len(date_list),
+    }
+
+
+_PEN_TREND_CORE_METRICS = frozenset(
+    {
+        "cow_count",
+        "yield_kg",
+        "avg_yield_kg",
+        "duration_seconds",
+        "cows_per_hour",
+        "median_rotation_minutes",
+        "attachment_idle_seconds",
+        "median_milking_duration_seconds",
+        "avg_milking_duration_seconds",
+    }
+)
+
+
+def _pen_trend_select_columns(metric: str) -> list[Any]:
+    """Columns needed for cohort correction + the requested metric."""
+    cols: list[Any] = [
+        ParlourMilkFlowRow.milking_date,
+        ParlourMilkFlowRow.shift,
+        ParlourMilkFlowRow.pen,
+        ParlourMilkFlowRow.start_seconds,
+        ParlourMilkFlowRow.duration_seconds,
+        ParlourMilkFlowRow.milking_point,
+        ParlourMilkFlowRow.yield_kg,
+    ]
+    if metric in _PEN_TREND_CORE_METRICS:
+        return cols
+    # Quality / flow metrics — pull only the fields that metric uses.
+    if metric in {"avg_flow_15s", "bimodal_pct"}:
+        cols.append(ParlourMilkFlowRow.flow_15s)
+    if metric in {"avg_flow_30s", "bimodal_pct"}:
+        cols.append(ParlourMilkFlowRow.flow_30s)
+    if metric in {"avg_flow_60s", "bimodal_pct"}:
+        cols.append(ParlourMilkFlowRow.flow_60s)
+    if metric == "avg_flow_120s":
+        cols.append(ParlourMilkFlowRow.flow_120s)
+    if metric == "avg_pct_2_minutes":
+        cols.append(ParlourMilkFlowRow.pct_2_minutes)
+    if metric == "avg_milk_yield_2_minutes":
+        cols.append(ParlourMilkFlowRow.milk_yield_2_minutes)
+    if metric in {"avg_flow_rate_at_removal", "high_flow_takeoff_pct"}:
+        cols.append(ParlourMilkFlowRow.flow_rate_at_removal)
+    if metric in {"avg_average_flow", "avg_peak_flow"}:
+        cols.append(ParlourMilkFlowRow.average_flow)
+        cols.append(ParlourMilkFlowRow.peak_flow)
+    return cols
+
+
+def pen_metric_trend(
+    db: Session,
+    *,
+    farm: str,
+    pen: int | None,
+    metric: str,
+    date_from: dt.date | None = None,
+    date_to: dt.date | None = None,
+) -> dict[str, Any]:
+    """Trend of one metric for one pen (cohort-corrected), split by shift over time."""
+    if metric not in TREND_METRIC_KEYS:
+        raise ValueError(f"Unsupported metric: {metric}")
+
+    farm_key = farm.upper()
+    # Slim column load (not full ORM rows). Whole shifts still needed for cohort correction.
+    cols = _pen_trend_select_columns(metric)
+    col_keys = [c.key for c in cols]
+    stmt = select(*cols).where(ParlourMilkFlowRow.farm == farm_key)
+    if date_from:
+        stmt = stmt.where(ParlourMilkFlowRow.milking_date >= date_from)
+    if date_to:
+        stmt = stmt.where(ParlourMilkFlowRow.milking_date <= date_to)
+
+    by_session: dict[tuple[dt.date, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in db.execute(stmt).all():
+        mapping = {key: value for key, value in zip(col_keys, row)}
+        by_session[(mapping["milking_date"], mapping["shift"])].append(mapping)
+
+    by_shift: dict[str, list[dict[str, Any]]] = {
+        name: [] for name in _TREND_SHIFT_ORDER
+    }
+    dates: set[str] = set()
+
+    for (milking_date, shift_name), session_rows in sorted(by_session.items()):
+        starts = [
+            int(r["start_seconds"])
+            for r in session_rows
+            if r.get("start_seconds") is not None
+        ]
+        origin = shift_timeline_origin(starts)
+        recorded_pens = [r.get("pen") for r in session_rows]
+        abs_starts: list[int | None] = []
+        for row in session_rows:
+            start_s = row.get("start_seconds")
+            if start_s is None or origin is None:
+                abs_starts.append(None)
+            else:
+                abs_starts.append(to_absolute_start(int(start_s), origin))
+
+        correctable_idx = [i for i, a in enumerate(abs_starts) if a is not None]
+        corrected = list(recorded_pens)
+        if correctable_idx:
+            sub_pens = [recorded_pens[i] for i in correctable_idx]
+            sub_abs = [abs_starts[i] for i in correctable_idx]
+            sub_corrected, _ = correct_pens_by_milking_cohort(
+                sub_pens, sub_abs  # type: ignore[arg-type]
+            )
+            for i, new_pen in zip(correctable_idx, sub_corrected):
+                corrected[i] = new_pen
+
+        pen_items: list[dict[str, Any]] = []
+        for row, abs_start, cpen in zip(session_rows, abs_starts, corrected):
+            if abs_start is None:
+                continue
+            if pen is None:
+                if cpen is not None:
+                    continue
+            elif cpen != pen:
+                continue
+            item = dict(row)
+            item["abs_start"] = abs_start
+            pen_items.append(item)
+
+        if not pen_items:
+            continue
+
+        value = _pen_metric_from_slim(pen_items, metric)
+        date_iso = milking_date.isoformat()
+        dates.add(date_iso)
+        if shift_name not in by_shift:
+            by_shift[shift_name] = []
+        by_shift[shift_name].append(
+            {
+                "date": date_iso,
+                "value": value,
+                "cow_count": len(pen_items),
+            }
+        )
+
+    date_list = sorted(dates)
+    return {
+        "farm": farm_key,
+        "pen": pen,
+        "metric": metric,
+        "dates": date_list,
+        "series": _series_from_shift_points(by_shift),
         "point_count": len(date_list),
     }

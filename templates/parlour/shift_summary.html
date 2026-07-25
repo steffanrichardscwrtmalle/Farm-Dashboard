@@ -300,11 +300,12 @@
     {% if can_import %}
     <div class="filter-panel">
       <h2>Import from email</h2>
-      <p class="help-text">Scans for milk-flow reports from support@dataflow2.com (attachments named Milk Flow Report Export CM / GAD).</p>
+      <p class="help-text">Scans for milk-flow reports from support@dataflow2.com (attachments named Milk Flow Report Export CM / GAD). Default scans only new mail since the last import (with a short overlap). Cron uses the last 2 days automatically.</p>
       <div class="filter-section" style="margin-top:0.75rem;">
         <label class="section-label" for="import-scope">Range</label>
         <select id="import-scope" title="How far back to scan the mailboxes">
-          <option value="recent" selected>Recent (last {{ lookback_days }} days)</option>
+          <option value="since_last" selected>Since last import (new mail only)</option>
+          <option value="recent">Last {{ lookback_days }} days</option>
           <option value="custom">Choose days back…</option>
         </select>
       </div>
@@ -372,6 +373,7 @@
   let selectedDate = null;
   let selectedTrend = null; // { pointId, metricKey, label } stall cell trend
   let selectedFarmMetric = null; // metricKey for shift-summary row trend
+  const trendCache = new Map(); // `${farm}|${endpoint}|${pointId}|${metric}|${date_from}` -> payload
   let trendChart = null;
   /** Performance: false = problem stalls only; true = all stalls. */
   let showAllStalls = false;
@@ -493,6 +495,22 @@
       num: (s) =>
         s && s.median_rotation_minutes != null
           ? Number(s.median_rotation_minutes)
+          : null,
+      badDirection: "high",
+    },
+    {
+      label: "Idle gaps (min)",
+      metricKey: "attachment_idle_seconds",
+      value: (s) => {
+        if (s && s.attachment_idle_minutes != null) return fmtNum(s.attachment_idle_minutes, 0);
+        if (s && s.attachment_idle_seconds != null) {
+          return fmtNum(Math.round(Number(s.attachment_idle_seconds) / 60), 0);
+        }
+        return "—";
+      },
+      num: (s) =>
+        s && s.attachment_idle_seconds != null
+          ? Number(s.attachment_idle_seconds)
           : null,
       badDirection: "high",
     },
@@ -634,6 +652,28 @@
   /** Day table includes Problem Stalls; stall table does not. */
   const DAY_METRICS = METRICS;
   const STALL_METRICS = METRICS.filter((m) => !m.performanceOnly);
+  const TRENDABLE_METRICS = new Set([
+    "yield_kg",
+    "cow_count",
+    "avg_yield_kg",
+    "cows_per_hour",
+    "median_rotation_minutes",
+    "attachment_idle_seconds",
+    "high_flow_takeoff_pct",
+    "bimodal_pct",
+    "duration_seconds",
+    "median_milking_duration_seconds",
+    "avg_milking_duration_seconds",
+    "avg_flow_15s",
+    "avg_flow_30s",
+    "avg_flow_60s",
+    "avg_flow_120s",
+    "avg_peak_flow",
+    "avg_average_flow",
+    "avg_pct_2_minutes",
+    "avg_milk_yield_2_minutes",
+    "avg_flow_rate_at_removal",
+  ]);
 
   function penCacheKey(dateIso) {
     return `${farm}|${dateIso}|${shift}`;
@@ -682,11 +722,14 @@
   function renderTrendChart(data, metricLabel) {
     if (!trendRoot || typeof Chart === "undefined") return;
     const isFarm = data.scope === "farm";
+    const entityId = Object.prototype.hasOwnProperty.call(data, "pen")
+      ? data.pen
+      : data.milking_point;
     const pointLabel = isFarm
       ? farm
-      : data.milking_point == null
+      : entityId == null
         ? "Unknown"
-        : `${drilldownLabelPrefix} ${data.milking_point}`;
+        : `${drilldownLabelPrefix} ${entityId}`;
     const dates = data.dates || [];
     const shiftColors = {
       Morning: "#1e3a5f",
@@ -800,6 +843,9 @@
     selectedTrend = null;
     selectedFarmMetric = metricDef.metricKey;
     renderTable(cachedByFarm[farm]);
+    if (selectedDate && penCache[penCacheKey(selectedDate)]) {
+      renderDrilldownTable(penCache[penCacheKey(selectedDate)], selectedDate);
+    }
     const trendData = buildFarmMetricTrendFromCache(metricDef);
     if (!trendData) {
       trendRoot.hidden = false;
@@ -810,19 +856,21 @@
   }
 
   async function loadTrend(pointId, metricKey, metricLabel) {
-    if (isPenDrilldown || !trendRoot) return;
+    if (!trendRoot || !TRENDABLE_METRICS.has(metricKey)) return;
     const same =
       selectedTrend &&
       selectedTrend.pointId === pointId &&
       selectedTrend.metricKey === metricKey;
     if (same) {
       clearTrend();
-      // Re-render table to clear selected cell outline
       const key = penCacheKey(selectedDate);
       if (selectedDate && penCache[key]) renderDrilldownTable(penCache[key], selectedDate);
+      if (isPenDrilldown) renderTable(cachedByFarm[farm]);
       return;
     }
+    selectedFarmMetric = null;
     selectedTrend = { pointId, metricKey, label: metricLabel };
+    if (isPenDrilldown) renderTable(cachedByFarm[farm]);
     const key = penCacheKey(selectedDate);
     if (selectedDate && penCache[key]) renderDrilldownTable(penCache[key], selectedDate);
 
@@ -838,12 +886,22 @@
       metric: metricKey,
       date_from: isoDate(since),
     });
-    if (pointId != null) params.set("milking_point", String(pointId));
+    if (pointId != null) {
+      params.set(isPenDrilldown ? "pen" : "milking_point", String(pointId));
+    }
+    const endpoint = isPenDrilldown
+      ? "/api/parlour/pen-trend"
+      : "/api/parlour/milking-point-trend";
+    const cacheKey = `${endpoint}|${params.toString()}`;
 
     try {
-      const res = await fetch("/api/parlour/milking-point-trend?" + params.toString());
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
+      let data = trendCache.get(cacheKey);
+      if (!data) {
+        const res = await fetch(endpoint + "?" + params.toString());
+        if (!res.ok) throw new Error(await res.text());
+        data = await res.json();
+        trendCache.set(cacheKey, data);
+      }
       if (
         !selectedTrend ||
         selectedTrend.pointId !== pointId ||
@@ -895,6 +953,9 @@
 
   function formatMetricStat(m, value, { isSd } = {}) {
     if (value == null || !Number.isFinite(value)) return "—";
+    if (m.metricKey === "attachment_idle_seconds") {
+      return fmtNum(value / 60, isSd ? 1 : 0);
+    }
     if (m.metricKey && m.metricKey.endsWith("_seconds")) {
       return formatDurationFromSeconds(value);
     }
@@ -999,7 +1060,7 @@
             outlierClass = "outlier-bad";
           }
           const pointId = item[drilldownIdKey];
-          const canTrend = !isPenDrilldown && !!m.metricKey;
+          const canTrend = !!m.metricKey && TRENDABLE_METRICS.has(m.metricKey);
           const selected =
             canTrend &&
             selectedTrend &&
@@ -1013,7 +1074,7 @@
             .filter(Boolean)
             .join(" ");
           const attrs = canTrend
-            ? ` data-point="${pointId == null ? "" : pointId}" data-metric="${m.metricKey}" data-label="${m.label.replace(/"/g, "&quot;")}" title="Show trend over time"`
+            ? ` data-point="${pointId == null ? "" : pointId}" data-metric="${m.metricKey}" data-label="${m.label.replace(/"/g, "&quot;")}" title="Show trend over time for this ${drilldownNoun}"`
             : "";
           return `<td class="${cls}"${attrs}>${m.value(item)}</td>`;
         })
@@ -1022,7 +1083,7 @@
     }).join("");
 
     const note = isPenDrilldown
-      ? "pens use cohort-corrected assignments · click another day to switch"
+      ? "pens use cohort-corrected assignments · click a cell for that pen’s trend by shift · click another day to switch"
       : `Average / SD are across all stalls · red = ≥${OUTLIER_SD} SD worse this shift · dark red = problem stall · click a cell for trend`;
     penRoot.hidden = false;
     penRoot.innerHTML = `
@@ -1044,14 +1105,14 @@
           renderDrilldownTable(items, dateIso);
         });
       }
-      penRoot.querySelectorAll("td.trend-cell").forEach((td) => {
-        td.addEventListener("click", () => {
-          const raw = td.dataset.point;
-          const pointId = raw === "" || raw == null ? null : Number(raw);
-          loadTrend(pointId, td.dataset.metric, td.dataset.label);
-        });
-      });
     }
+    penRoot.querySelectorAll("td.trend-cell").forEach((td) => {
+      td.addEventListener("click", () => {
+        const raw = td.dataset.point;
+        const pointId = raw === "" || raw == null ? null : Number(raw);
+        loadTrend(pointId, td.dataset.metric, td.dataset.label);
+      });
+    });
   }
 
   async function loadDrilldown(dateIso) {
@@ -1227,7 +1288,7 @@
     const since = new Date();
     since.setDate(since.getDate() - 45);
     params.set("date_from", isoDate(since));
-    params.set("v", "quality-3");
+    params.set("v", "quality-5");
     if (!isPenDrilldown) params.set("include_problem_stalls", "true");
     try {
       const res = await fetch("/api/parlour/shift-summary?" + params.toString());
@@ -1248,6 +1309,7 @@
     cachedByFarm = {};
     cacheFarm = null;
     penCache = {};
+    trendCache.clear();
   }
 
   function bindSlicer(el, onSelect) {
@@ -1371,6 +1433,7 @@
     importBtn.addEventListener("click", async () => {
       const scope = importScope.value;
       let days = null;
+      const sinceLast = scope === "since_last";
       if (scope === "custom") {
         const input = window.prompt("How many days back should I scan the mailboxes?", "90");
         if (input === null) return;
@@ -1381,13 +1444,14 @@
           importMsg.textContent = "Enter a positive whole number of days.";
           return;
         }
-      } else if (
-        !window.confirm(
-          "Check the mailboxes for milk-flow reports from support@dataflow2.com and import them now?"
-        )
-      ) {
-        return;
       }
+
+      const confirmMsg = sinceLast
+        ? "Check the mailboxes for new milk-flow reports since the last import?"
+        : days
+          ? `Scan the last ${days} days of milk-flow emails and import them now?`
+          : `Scan the last {{ lookback_days }} days of milk-flow emails and import them now?`;
+      if (!window.confirm(confirmMsg)) return;
 
       importMsg.hidden = true;
       importStartedAt = Date.now();
@@ -1395,11 +1459,14 @@
         true,
         days
           ? `Scanning last ${days} days of mail — this can take a few minutes…`
-          : "Scanning mailboxes — this can take a few minutes when several reports arrive together…"
+          : sinceLast
+            ? "Scanning for new mail since last import…"
+            : "Scanning mailboxes — this can take a few minutes when several reports arrive together…"
       );
       try {
         const params = new URLSearchParams();
         if (days) params.set("days", String(days));
+        if (sinceLast) params.set("since_last_import", "true");
         const res = await fetch("/api/parlour/import?" + params.toString(), {
           method: "POST",
         });

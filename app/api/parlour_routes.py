@@ -37,7 +37,9 @@ from app.services.parlour_rotation import (
     rotation_date_bounds,
 )
 from app.services.parlour_scatter import (
+    ATTACHMENT_METRIC_KEY,
     SCATTER_METRIC_KEYS,
+    list_attachment_time_bins,
     list_scatter_metrics,
     list_scatter_points,
     scatter_date_bounds,
@@ -46,6 +48,7 @@ from app.services.parlour_shift_summary import (
     TREND_METRIC_KEYS,
     list_shift_summaries,
     milking_point_metric_trend,
+    pen_metric_trend,
 )
 
 logger = logging.getLogger(__name__)
@@ -128,11 +131,50 @@ def api_parlour_milking_point_trend(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/pen-trend")
+def api_parlour_pen_trend(
+    farm: str = Query(...),
+    metric: str = Query(...),
+    pen: int | None = Query(None),
+    date_from: dt.date | None = Query(None),
+    date_to: dt.date | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_PARLOUR)),
+):
+    farm_key = farm.upper()
+    if farm_key not in {"CM", "GAD"}:
+        raise HTTPException(status_code=400, detail="farm must be CM or GAD")
+    if metric not in TREND_METRIC_KEYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"metric must be one of: {', '.join(sorted(TREND_METRIC_KEYS))}",
+        )
+    try:
+        return pen_metric_trend(
+            db,
+            farm=farm_key,
+            pen=pen,
+            metric=metric,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/scatter/metrics")
 def api_parlour_scatter_metrics(
     _user: User = Depends(require_page(PAGE_PARLOUR)),
 ):
     return {"metrics": list_scatter_metrics()}
+
+
+def _parse_shift_list(shifts: str | None) -> list[str] | None:
+    if shifts is None:
+        return None
+    if shifts.strip() == "":
+        return []
+    return [part.strip() for part in shifts.split(",") if part.strip()]
 
 
 @router.get("/scatter")
@@ -151,18 +193,25 @@ def api_parlour_scatter(
     farm_key = farm.upper()
     if farm_key not in {"CM", "GAD"}:
         raise HTTPException(status_code=400, detail="farm must be CM or GAD")
+    shift_list = _parse_shift_list(shifts)
+
+    if metric == ATTACHMENT_METRIC_KEY:
+        return list_attachment_time_bins(
+            db,
+            farm=farm_key,
+            date_from=date_from,
+            date_to=date_to,
+            shifts=shift_list,
+        )
+
     if metric not in SCATTER_METRIC_KEYS:
+        allowed = ", ".join(
+            sorted({*SCATTER_METRIC_KEYS, ATTACHMENT_METRIC_KEY})
+        )
         raise HTTPException(
             status_code=400,
-            detail=f"metric must be one of: {', '.join(sorted(SCATTER_METRIC_KEYS))}",
+            detail=f"metric must be one of: {allowed}",
         )
-    shift_list: list[str] | None
-    if shifts is None:
-        shift_list = None
-    elif shifts.strip() == "":
-        shift_list = []
-    else:
-        shift_list = [part.strip() for part in shifts.split(",") if part.strip()]
 
     try:
         return list_scatter_points(
@@ -187,6 +236,30 @@ def api_parlour_scatter_bounds(
     if farm_key and farm_key not in {"CM", "GAD"}:
         raise HTTPException(status_code=400, detail="farm must be CM or GAD")
     return scatter_date_bounds(db, farm=farm_key)
+
+
+@router.get("/scatter/attachment-bins")
+def api_parlour_attachment_bins(
+    farm: str = Query(...),
+    date_from: dt.date | None = Query(None),
+    date_to: dt.date | None = Query(None),
+    shifts: str | None = Query(
+        None,
+        description="Comma-separated shifts. Omit for all; empty string for none.",
+    ),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_PARLOUR)),
+):
+    farm_key = farm.upper()
+    if farm_key not in {"CM", "GAD"}:
+        raise HTTPException(status_code=400, detail="farm must be CM or GAD")
+    return list_attachment_time_bins(
+        db,
+        farm=farm_key,
+        date_from=date_from,
+        date_to=date_to,
+        shifts=_parse_shift_list(shifts),
+    )
 
 
 @router.get("/rotation/bounds")
@@ -245,6 +318,10 @@ def api_parlour_import(
     background_tasks: BackgroundTasks,
     full_history: bool = Query(False),
     days: int | None = Query(None, ge=1),
+    since_last_import: bool = Query(
+        False,
+        description="Scan only mail newer than the latest successful import.",
+    ),
     _: None = Depends(require_import_or_action(ACTION_PARLOUR_IMPORT)),
 ):
     if not parlour_is_configured():
@@ -258,14 +335,24 @@ def api_parlour_import(
     if is_import_running():
         return {"status": "running", "message": "Import already in progress."}
 
-    mark_import_started(days=days)
+    mark_import_started(days=days, since_last_import=since_last_import)
     background_tasks.add_task(
         run_import_in_background,
         SessionLocal,
         full_history=full_history,
         days=days,
+        since_last_import=since_last_import,
     )
-    return {"status": "started", "message": "Parlour milk-flow import started."}
+    message = (
+        f"Scanning last {days} day(s)…"
+        if days
+        else (
+            "Scanning since last import…"
+            if since_last_import
+            else "Parlour milk-flow import started."
+        )
+    )
+    return {"status": "started", "message": message}
 
 
 @router.post("/upload")

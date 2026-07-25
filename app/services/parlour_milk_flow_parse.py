@@ -443,6 +443,53 @@ PEN_COHORT_MIN_NEIGHBOURS = 8
 PEN_COHORT_MIN_SHARE = 0.60
 # Split a pen into separate milking sessions when cows are this far apart.
 PEN_SESSION_GAP_SECONDS = 45 * 60
+# Idle time between attachments: count gaps longer than 5 minutes, ignore > 1 hour.
+ATTACHMENT_IDLE_MIN_SECONDS = 5 * 60
+ATTACHMENT_IDLE_MAX_SECONDS = 60 * 60
+
+
+def sum_attachment_idle_gaps(
+    abs_starts: list[int],
+    *,
+    min_seconds: int = ATTACHMENT_IDLE_MIN_SECONDS,
+    max_seconds: int = ATTACHMENT_IDLE_MAX_SECONDS,
+) -> tuple[int, int]:
+    """Sum idle gaps between consecutive attachments (first → last).
+
+    Returns ``(total_idle_seconds, gap_count)``. Only gaps strictly longer than
+    ``min_seconds`` and at most ``max_seconds`` are included (longer gaps are
+    treated as data errors / session breaks).
+    """
+    if len(abs_starts) < 2:
+        return 0, 0
+    ordered = sorted(int(s) for s in abs_starts)
+    total = 0
+    count = 0
+    for earlier, later in zip(ordered, ordered[1:]):
+        gap = later - earlier
+        if min_seconds < gap <= max_seconds:
+            total += gap
+            count += 1
+    return total, count
+
+
+def attachment_idle_from_clock_starts(
+    start_seconds_list: list[int | None],
+    *,
+    min_seconds: int = ATTACHMENT_IDLE_MIN_SECONDS,
+    max_seconds: int = ATTACHMENT_IDLE_MAX_SECONDS,
+) -> tuple[int, int]:
+    """Idle gaps from milking clock times (handles midnight wrap within a shift)."""
+    starts = [int(s) for s in start_seconds_list if s is not None]
+    if len(starts) < 2:
+        return 0, 0
+    origin = shift_timeline_origin(starts)
+    if origin is None:
+        return 0, 0
+    abs_starts = [to_absolute_start(s, origin) for s in starts]
+    return sum_attachment_idle_gaps(
+        abs_starts, min_seconds=min_seconds, max_seconds=max_seconds
+    )
 
 
 def correct_pens_by_milking_cohort(
@@ -463,31 +510,39 @@ def correct_pens_by_milking_cohort(
         return list(pens), 0
 
     order = sorted(range(n), key=lambda i: abs_starts[i])
+    times = [abs_starts[i] for i in order]
+    order_pens = [pens[i] for i in order]
     corrected = list(pens)
     changes = 0
 
+    # Sliding window over sorted starts — O(n) after the sort.
+    left = 0
+    right = 0
+    counts: Counter[int] = Counter()
+    known_in_window = 0
+
     for rank, i in enumerate(order):
+        t = times[rank]
+        while right < n and times[right] <= t + window_seconds:
+            p = order_pens[right]
+            if p is not None:
+                counts[p] += 1
+                known_in_window += 1
+            right += 1
+        while left < n and times[left] < t - window_seconds:
+            p = order_pens[left]
+            if p is not None:
+                counts[p] -= 1
+                if counts[p] <= 0:
+                    del counts[p]
+                known_in_window -= 1
+            left += 1
+
         recorded = pens[i]
-        if recorded is None:
+        if recorded is None or known_in_window < min_neighbours:
             continue
-        t = abs_starts[i]
-        local: list[int] = []
-        j = rank
-        while j >= 0 and abs_starts[order[j]] >= t - window_seconds:
-            p = pens[order[j]]
-            if p is not None:
-                local.append(p)
-            j -= 1
-        j = rank + 1
-        while j < n and abs_starts[order[j]] <= t + window_seconds:
-            p = pens[order[j]]
-            if p is not None:
-                local.append(p)
-            j += 1
-        if len(local) < min_neighbours:
-            continue
-        majority, count = Counter(local).most_common(1)[0]
-        if majority != recorded and (count / len(local)) >= min_share:
+        majority, count = counts.most_common(1)[0]
+        if majority != recorded and (count / known_in_window) >= min_share:
             corrected[i] = majority
             changes += 1
 

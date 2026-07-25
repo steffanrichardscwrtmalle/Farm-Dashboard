@@ -148,7 +148,6 @@
       height: min(70vh, 640px);
       width: 100%;
     }
-    .empty-state { padding: 1.5rem; color: var(--muted); text-align: center; }
     .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0.5rem 0 0; }
     .shift-hint { font-size: 0.75rem; color: var(--muted); margin: 0.35rem 0 0; }
 {% endblock %}
@@ -196,7 +195,7 @@
     <div class="meta-line" id="meta-line">Loading…</div>
     <div class="chart-card">
       <div class="chart-toolbar">
-        <p class="help-text" id="chart-help">Each point is one cow milking. Pink line = average of the selected metric for each date × shift. Drag a box to zoom; Reset zoom to return.</p>
+        <p class="help-text" id="chart-help">Each point is one cow milking. Pink line = average of the selected metric for each date × shift. Left-drag to zoom; right-drag to pan; Reset zoom to return.</p>
         <button type="button" class="chart-btn" id="reset-zoom-btn" title="Reset zoom">Reset zoom</button>
       </div>
       <div class="chart-wrap">
@@ -224,19 +223,132 @@
   const canvas = document.getElementById("scatter-canvas");
   const resetZoomBtn = document.getElementById("reset-zoom-btn");
 
+  const ATTACHMENT_METRIC = "attachments";
   const SHIFT_COLORS = {
     Morning: "#1e3a5f",
     Day: "#c45c26",
+    Afternoon: "#c45c26",
+    Evening: "#c45c26",
     Night: "#5a9fd4",
   };
   const SHIFT_ORDER = ["Morning", "Day", "Night"];
+  const BIN_MS = 5 * 60 * 1000;
+  const GAP_COLOR = "#b45309";
 
   let farm = "CM";
   let selectedShifts = new Set(["Morning", "Day", "Night"]);
-  let dateList = []; // ISO dates ascending across available data
+  let dateList = [];
   let chart = null;
   let loadTimer = null;
   let metrics = [];
+  let rightPanCleanup = null;
+
+  function bindRightClickPan(chartInstance, mode) {
+    if (rightPanCleanup) {
+      rightPanCleanup();
+      rightPanCleanup = null;
+    }
+    if (!chartInstance || !chartInstance.canvas) return;
+
+    const canvasEl = chartInstance.canvas;
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    function onContextMenu(e) {
+      e.preventDefault();
+    }
+    function onPointerDown(e) {
+      if (e.button !== 2) return;
+      dragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      canvasEl.setPointerCapture?.(e.pointerId);
+      canvasEl.style.cursor = "grabbing";
+      e.preventDefault();
+    }
+    function onPointerMove(e) {
+      if (!dragging || typeof chartInstance.pan !== "function") return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      const delta = { x: 0, y: 0 };
+      if (mode === "x" || mode === "xy") delta.x = dx;
+      if (mode === "y" || mode === "xy") delta.y = dy;
+      if (delta.x || delta.y) chartInstance.pan(delta);
+    }
+    function endDrag(e) {
+      if (!dragging) return;
+      if (e && e.pointerId != null) {
+        try {
+          canvasEl.releasePointerCapture?.(e.pointerId);
+        } catch (_) {
+          /* already released */
+        }
+      }
+      dragging = false;
+      canvasEl.style.cursor = "";
+    }
+
+    canvasEl.addEventListener("contextmenu", onContextMenu);
+    canvasEl.addEventListener("pointerdown", onPointerDown);
+    canvasEl.addEventListener("pointermove", onPointerMove);
+    canvasEl.addEventListener("pointerup", endDrag);
+    canvasEl.addEventListener("pointercancel", endDrag);
+
+    rightPanCleanup = () => {
+      endDrag();
+      canvasEl.removeEventListener("contextmenu", onContextMenu);
+      canvasEl.removeEventListener("pointerdown", onPointerDown);
+      canvasEl.removeEventListener("pointermove", onPointerMove);
+      canvasEl.removeEventListener("pointerup", endDrag);
+      canvasEl.removeEventListener("pointercancel", endDrag);
+      canvasEl.style.cursor = "";
+    };
+  }
+
+  const gapLabelPlugin = {
+    id: "gapLabels",
+    afterDatasetsDraw(chartInstance) {
+      const ctx = chartInstance.ctx;
+      chartInstance.data.datasets.forEach((ds, datasetIndex) => {
+        if (!ds.isGapDataset) return;
+        const metaDs = chartInstance.getDatasetMeta(datasetIndex);
+        if (!metaDs || metaDs.hidden) return;
+        metaDs.data.forEach((el, idx) => {
+          const raw = ds.data[idx];
+          if (!raw || raw.gap_minutes == null) return;
+          const props = el.getProps(["x", "y"], true);
+          const label = `${raw.gap_minutes}m`;
+          ctx.save();
+          ctx.font = "600 11px system-ui, Segoe UI, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          const textWidth = ctx.measureText(label).width;
+          const padX = 4;
+          const padY = 2;
+          const boxW = textWidth + padX * 2;
+          const boxH = 14;
+          const boxX = props.x - boxW / 2;
+          const boxY = props.y - 22;
+          ctx.fillStyle = "#fff7ed";
+          ctx.strokeStyle = GAP_COLOR;
+          ctx.lineWidth = 1.25;
+          ctx.fillRect(boxX, boxY, boxW, boxH);
+          ctx.strokeRect(boxX, boxY, boxW, boxH);
+          ctx.fillStyle = GAP_COLOR;
+          ctx.fillText(label, props.x, boxY + boxH - padY);
+          ctx.restore();
+        });
+      });
+    },
+  };
+
+  function normalizeShift(shift) {
+    if (shift === "Afternoon" || shift === "Evening") return "Day";
+    return shift;
+  }
 
   function isoFromParts(y, m, d) {
     return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
@@ -258,7 +370,6 @@
 
   function formatTick(ms) {
     const d = new Date(ms);
-    // Values were encoded as UTC-epoch of wall-clock milking time.
     const day = d.getUTCDate();
     const mon = d.toLocaleString(undefined, { month: "short", timeZone: "UTC" });
     const hh = String(d.getUTCHours()).padStart(2, "0");
@@ -275,6 +386,15 @@
     const mm = String(d.getUTCMinutes()).padStart(2, "0");
     const ss = String(d.getUTCSeconds()).padStart(2, "0");
     return `${day} ${mon} ${year} ${hh}:${mm}:${ss}`;
+  }
+
+  function formatBinRange(ms) {
+    const start = formatTooltipTime(ms).replace(/:\d{2}$/, "");
+    const endMs = ms + BIN_MS;
+    const d = new Date(endMs);
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${start} – ${hh}:${mm}`;
   }
 
   function buildDateList(dateMin, dateMax) {
@@ -317,7 +437,6 @@
       if (fromIdx < 0) fromIdx = 0;
       if (toIdx < 0) toIdx = maxIdx;
     } else if (dateList.length > 14) {
-      // Default to last 14 days when first loading.
       fromIdx = Math.max(0, maxIdx - 13);
     }
     if (fromIdx > toIdx) [fromIdx, toIdx] = [toIdx, fromIdx];
@@ -337,6 +456,10 @@
   }
 
   function destroyChart() {
+    if (rightPanCleanup) {
+      rightPanCleanup();
+      rightPanCleanup = null;
+    }
     if (chart) {
       chart.destroy();
       chart = null;
@@ -349,18 +472,25 @@
     }
   }
 
-  function renderChart(data) {
+  function shiftLabelText() {
+    if (selectedShifts.size === 0) return "no shifts";
+    if (selectedShifts.size === 3) return "all shifts";
+    return [...selectedShifts].join(", ");
+  }
+
+  function renderScatterChart(data) {
     destroyChart();
     const byShift = {};
     for (const shift of SHIFT_ORDER) byShift[shift] = [];
     for (const p of data.points || []) {
-      if (!byShift[p.shift]) byShift[p.shift] = [];
-      byShift[p.shift].push({
+      const shift = normalizeShift(p.shift);
+      if (!byShift[shift]) byShift[shift] = [];
+      byShift[shift].push({
         x: p.x,
         y: p.y,
         cow_id: p.cow_id,
         milking_point: p.milking_point,
-        shift: p.shift,
+        shift,
       });
     }
 
@@ -439,7 +569,8 @@
             },
           },
           zoom: {
-            pan: { enabled: true, mode: "xy", modifierKey: "ctrl" },
+            // Left-drag = box zoom. Right-drag pan is handled separately (see bindRightClickPan).
+            pan: { enabled: false },
             zoom: {
               wheel: { enabled: true },
               pinch: { enabled: true },
@@ -474,6 +605,152 @@
         },
       },
     });
+    bindRightClickPan(chart, "xy");
+  }
+
+  function renderAttachmentBars(data) {
+    destroyChart();
+    const byShift = {};
+    for (const shift of SHIFT_ORDER) byShift[shift] = new Map();
+    let maxCount = 0;
+    for (const bin of data.bins || []) {
+      const shift = normalizeShift(bin.shift);
+      if (!byShift[shift]) byShift[shift] = new Map();
+      const next = (byShift[shift].get(bin.x) || 0) + (Number(bin.y) || 0);
+      byShift[shift].set(bin.x, next);
+    }
+    // Stacked totals per x for marker height.
+    const totalsByX = new Map();
+    for (const shift of SHIFT_ORDER) {
+      const map = byShift[shift];
+      if (!map) continue;
+      for (const [x, y] of map.entries()) {
+        const total = (totalsByX.get(x) || 0) + y;
+        totalsByX.set(x, total);
+        if (total > maxCount) maxCount = total;
+      }
+    }
+    for (const shift of Object.keys(byShift)) {
+      byShift[shift] = [...byShift[shift].entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([x, y]) => ({ x, y, shift }));
+    }
+
+    const markerY = Math.max(1, maxCount) + Math.max(1, Math.ceil(maxCount * 0.08));
+    const gapPoints = (data.gaps || []).map((g) => ({
+      x: g.x,
+      y: markerY,
+      gap_minutes: g.gap_minutes,
+      shift: normalizeShift(g.shift),
+      milking_date: g.milking_date,
+      isGap: true,
+    }));
+
+    const datasets = SHIFT_ORDER.filter((s) => byShift[s] && byShift[s].length).map(
+      (shift) => ({
+        type: "bar",
+        label: shift,
+        data: byShift[shift],
+        backgroundColor: SHIFT_COLORS[shift] || "#666",
+        borderColor: SHIFT_COLORS[shift] || "#666",
+        borderWidth: 0,
+        stack: "attachments",
+        barPercentage: 1,
+        categoryPercentage: 1,
+        maxBarThickness: 28,
+        order: 2,
+      })
+    );
+
+    if (gapPoints.length) {
+      datasets.push({
+        type: "scatter",
+        label: "Gaps > 5 min",
+        data: gapPoints,
+        isGapDataset: true,
+        backgroundColor: GAP_COLOR,
+        borderColor: "#fff",
+        borderWidth: 1.5,
+        pointStyle: "rectRot",
+        pointRadius: 7,
+        pointHoverRadius: 9,
+        showLine: false,
+        order: 0,
+      });
+    }
+
+    chart = new Chart(canvas, {
+      type: "bar",
+      data: { datasets },
+      plugins: [gapLabelPlugin],
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        parsing: false,
+        plugins: {
+          legend: { position: "top" },
+          tooltip: {
+            mode: "nearest",
+            intersect: true,
+            callbacks: {
+              title: (items) => {
+                const raw = items[0] && items[0].raw;
+                if (!raw) return "";
+                if (raw.isGap) return formatTooltipTime(raw.x);
+                return formatBinRange(raw.x);
+              },
+              label: (ctx) => {
+                const raw = ctx.raw || {};
+                if (raw.isGap) {
+                  return `Gap: ${raw.gap_minutes} minute(s) between attachments (${raw.shift || "?"})`;
+                }
+                const y = ctx.parsed.y;
+                if (y == null || y === 0) return null;
+                return `${ctx.dataset.label}: ${Number(y).toLocaleString()} attachment(s)`;
+              },
+            },
+          },
+          zoom: {
+            // Left-drag = box zoom. Right-drag pan is handled separately (see bindRightClickPan).
+            pan: { enabled: false },
+            zoom: {
+              wheel: { enabled: true },
+              pinch: { enabled: true },
+              drag: {
+                enabled: true,
+                backgroundColor: "rgba(30,58,95,0.15)",
+                borderColor: "rgba(30,58,95,0.6)",
+                borderWidth: 1,
+              },
+              mode: "x",
+            },
+          },
+        },
+        scales: {
+          x: {
+            type: "linear",
+            stacked: true,
+            offset: false,
+            title: { display: true, text: "Attachment time (5-minute bins)" },
+            ticks: {
+              maxRotation: 45,
+              minRotation: 0,
+              callback: (value) => formatTick(value),
+              maxTicksLimit: 12,
+            },
+          },
+          y: {
+            stacked: true,
+            beginAtZero: true,
+            suggestedMax: markerY + 1,
+            ticks: { precision: 0 },
+            title: { display: true, text: "Attachments" },
+          },
+        },
+      },
+    });
+    bindRightClickPan(chart, "x");
   }
 
   async function loadBoundsAndChart(resetDates) {
@@ -504,7 +781,7 @@
     const metric = metricSelect.value;
     if (!metric || !dateFrom || !dateTo) return;
 
-    meta.textContent = "Loading scatter…";
+    meta.textContent = "Loading…";
     const params = new URLSearchParams({
       farm,
       metric,
@@ -516,23 +793,33 @@
       const res = await fetch("/api/parlour/scatter?" + params.toString());
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      const shiftLabel =
-        selectedShifts.size === 0
-          ? "no shifts"
-          : selectedShifts.size === 3
-            ? "all shifts"
-            : [...selectedShifts].join(", ");
+
+      if (metric === ATTACHMENT_METRIC || data.chart === "bars") {
+        const gaps = data.gap_count || (data.gaps || []).length;
+        meta.textContent =
+          `${farm} · Attachments · ${formatShortDate(dateFrom)} – ${formatShortDate(dateTo)} · ${shiftLabelText()} · ${(data.attachment_count || 0).toLocaleString()} attachment(s)` +
+          (gaps ? ` · ${gaps.toLocaleString()} gap(s) > 5 min` : "");
+        help.textContent =
+          "Bars = attachments in each 5-minute bin, coloured by shift. Amber markers show gaps longer than 5 minutes between consecutive cows in the same shift. Left-drag to zoom; right-drag to pan.";
+        if (!data.attachment_count) {
+          destroyChart();
+          return;
+        }
+        renderAttachmentBars(data);
+        return;
+      }
+
       meta.textContent =
-        `${farm} · ${data.metric_label} · ${formatShortDate(dateFrom)} – ${formatShortDate(dateTo)} · ${shiftLabel} · ${data.point_count.toLocaleString()} point(s)`;
+        `${farm} · ${data.metric_label} · ${formatShortDate(dateFrom)} – ${formatShortDate(dateTo)} · ${shiftLabelText()} · ${data.point_count.toLocaleString()} point(s)`;
       help.textContent =
-        "Each point is one cow milking. Pink line = average for each date × shift in the selection. Drag a box to zoom; Reset zoom to return.";
+        "Each point is one cow milking. Pink line = average for each date × shift in the selection. Left-drag to zoom; right-drag to pan; Reset zoom to return.";
       if (!data.point_count) {
         destroyChart();
         return;
       }
-      renderChart(data);
+      renderScatterChart(data);
     } catch (err) {
-      meta.textContent = "Failed to load scatter";
+      meta.textContent = "Failed to load chart";
       console.error(err);
     }
   }

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import (
@@ -30,6 +31,7 @@ from app.config import (
     PARLOUR_SENDER,
     graph_cm_is_configured,
 )
+from app.models import ParlourMilkFlowImport
 from app.services.graph_mail import iter_attachments
 from app.services.graph_onedrive import get_access_token_for, graph_is_configured
 from app.services.parlour_milk_flow_import import import_milk_flow_bytes
@@ -40,6 +42,8 @@ from app.services.parlour_milk_flow_parse import (
 
 _EPOCH = dt.datetime(2000, 1, 1, tzinfo=dt.timezone.utc)
 _EXTENSIONS = (".xls", ".xlsx", ".csv")
+# Overlap when scanning since last import so clock skew / near-boundary mail is not missed.
+_SINCE_LAST_BUFFER = dt.timedelta(hours=12)
 
 logger = logging.getLogger(__name__)
 _lock = threading.Lock()
@@ -191,11 +195,67 @@ def _iter_sources(
     yield from collected
 
 
+def _as_utc(value: dt.datetime | None) -> dt.datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=dt.timezone.utc)
+    return value.astimezone(dt.timezone.utc)
+
+
+def resolve_import_since(
+    db: Session,
+    *,
+    full_history: bool = False,
+    days: int | None = None,
+    since_last_import: bool = False,
+) -> dt.datetime:
+    """Return the mailbox scan lower bound (UTC, timezone-aware)."""
+    now = dt.datetime.now(dt.timezone.utc)
+    if days is not None and days > 0:
+        return now - dt.timedelta(days=days)
+    if full_history:
+        return _EPOCH
+    if since_last_import:
+        latest_received = _as_utc(
+            db.scalar(select(func.max(ParlourMilkFlowImport.source_received)))
+        )
+        latest_imported = _as_utc(
+            db.scalar(select(func.max(ParlourMilkFlowImport.imported_at)))
+        )
+        latest = max(
+            (value for value in (latest_received, latest_imported) if value is not None),
+            default=None,
+        )
+        if latest is not None:
+            since = latest - _SINCE_LAST_BUFFER
+            # Never look further back than the configured catch-up window.
+            floor = now - dt.timedelta(days=PARLOUR_LOOKBACK_DAYS)
+            return max(since, floor)
+    return now - dt.timedelta(days=PARLOUR_LOOKBACK_DAYS)
+
+
+def _known_attachment_keys(db: Session) -> set[tuple[str, str]]:
+    """Keys of (message_id, filename) already stored — one email may have CM + GAD."""
+    rows = db.execute(
+        select(
+            ParlourMilkFlowImport.source_message_id,
+            ParlourMilkFlowImport.source_filename,
+        ).where(ParlourMilkFlowImport.source_message_id.isnot(None))
+    )
+    return {
+        (mid, (filename or "").casefold())
+        for mid, filename in rows
+        if mid
+    }
+
+
 def import_parlour_milk_flow(
     db: Session,
     *,
     full_history: bool = False,
     days: int | None = None,
+    since_last_import: bool = False,
 ) -> dict[str, Any]:
     if not parlour_is_configured():
         raise ValueError(
@@ -203,14 +263,13 @@ def import_parlour_milk_flow(
             "Set Graph API variables or LOCAL_PARLOUR_DIR."
         )
 
-    if days is not None and days > 0:
-        since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)
-    elif full_history:
-        since = _EPOCH
-    else:
-        since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
-            days=PARLOUR_LOOKBACK_DAYS
-        )
+    since = resolve_import_since(
+        db,
+        full_history=full_history,
+        days=days,
+        since_last_import=since_last_import,
+    )
+    known_keys = _known_attachment_keys(db)
 
     files_processed = 0
     files_skipped = 0
@@ -222,6 +281,15 @@ def import_parlour_milk_flow(
 
     for source in _iter_sources(warnings, since):
         filename = source.get("source_file") or "unknown"
+        message_id = source.get("message_id")
+        attachment_key = (
+            (message_id, filename.casefold()) if message_id else None
+        )
+        if attachment_key and attachment_key in known_keys:
+            files_skipped += 1
+            skipped_files.append(f"{filename}: skipped (already imported)")
+            continue
+
         farm = detect_farm_from_filename(filename) or source.get("mailbox_farm")
         try:
             batch_results = import_milk_flow_bytes(
@@ -229,7 +297,7 @@ def import_parlour_milk_flow(
                 source["content"],
                 filename=filename,
                 farm=farm,
-                source_message_id=source.get("message_id"),
+                source_message_id=message_id,
                 source_received=source.get("received"),
                 force=False,
             )
@@ -256,6 +324,8 @@ def import_parlour_milk_flow(
             skipped_files.append(f"{filename}: skipped (older than existing import)")
             continue
 
+        if attachment_key:
+            known_keys.add(attachment_key)
         files_processed += 1
         shifts_imported += len(applied)
         rows_imported += sum(r.get("rows_imported", 0) for r in applied)
@@ -293,9 +363,15 @@ def is_import_running() -> bool:
         return _import_status.get("status") == "running"
 
 
-def mark_import_started(*, days: int | None) -> None:
+def mark_import_started(
+    *,
+    days: int | None = None,
+    since_last_import: bool = False,
+) -> None:
     if days:
         message = f"Scanning mailbox for milk-flow reports (last {days} days)…"
+    elif since_last_import:
+        message = "Scanning mailbox for milk-flow reports since last import…"
     else:
         message = "Scanning mailbox for milk-flow reports…"
     with _lock:
@@ -312,6 +388,7 @@ def run_import_in_background(
     *,
     full_history: bool = False,
     days: int | None = None,
+    since_last_import: bool = False,
 ) -> None:
     db = db_factory()
     try:
@@ -319,6 +396,7 @@ def run_import_in_background(
             db,
             full_history=full_history,
             days=days,
+            since_last_import=since_last_import,
         )
         message = (
             f"Imported {result['shifts_imported']} shift(s) "
