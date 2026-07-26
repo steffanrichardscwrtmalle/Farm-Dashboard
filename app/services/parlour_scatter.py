@@ -11,7 +11,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import ParlourMilkFlowRow
-from app.services.parlour_metric_cleaning import scatter_metric_value
+from app.services.parlour_metric_cleaning import (
+    FLOW_RATE_METRICS,
+    scatter_metric_value,
+)
 from app.services.parlour_milk_flow_parse import (
     shift_timeline_origin,
     to_absolute_start,
@@ -132,6 +135,7 @@ def list_scatter_points(
             "shift_day_averages": [],
         }
 
+    needs_yield = metric in FLOW_RATE_METRICS
     cols = [
         ParlourMilkFlowRow.milking_date,
         ParlourMilkFlowRow.shift,
@@ -142,6 +146,8 @@ def list_scatter_points(
     ]
     if needs_peak:
         cols.append(ParlourMilkFlowRow.peak_flow)
+    if needs_yield:
+        cols.append(ParlourMilkFlowRow.yield_kg)
 
     stmt = select(*cols).where(
         ParlourMilkFlowRow.farm == farm_key,
@@ -168,14 +174,38 @@ def list_scatter_points(
     digits = int(meta["digits"])
 
     for row in rows:
-        if needs_peak:
+        peak = None
+        yield_kg = None
+        if needs_peak and needs_yield:
+            (
+                milking_date,
+                shift,
+                start_seconds,
+                cow_id,
+                milking_point,
+                raw,
+                peak,
+                yield_kg,
+            ) = row
+        elif needs_peak:
             milking_date, shift, start_seconds, cow_id, milking_point, raw, peak = row
+        elif needs_yield:
+            (
+                milking_date,
+                shift,
+                start_seconds,
+                cow_id,
+                milking_point,
+                raw,
+                yield_kg,
+            ) = row
         else:
             milking_date, shift, start_seconds, cow_id, milking_point, raw = row
-            peak = None
         if start_seconds is None or raw is None:
             continue
-        cleaned = scatter_metric_value(metric, raw, peak_flow=peak)
+        cleaned = scatter_metric_value(
+            metric, raw, peak_flow=peak, yield_kg=yield_kg
+        )
         if cleaned is None:
             continue
         started = dt.datetime.combine(milking_date, dt.time.min) + dt.timedelta(

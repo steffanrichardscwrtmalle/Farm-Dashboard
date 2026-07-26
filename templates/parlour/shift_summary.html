@@ -713,13 +713,21 @@
     penRoot.innerHTML = "";
   }
 
+  function isLagPhaseMetric(metricKey) {
+    return metricKey === "median_lag_phase_seconds" || metricKey === "lag_phase_seconds";
+  }
+
   function scaleTrendValue(metricKey, value) {
     if (value == null || !Number.isFinite(value)) return null;
-    if (metricKey.endsWith("_seconds")) return value / 60;
+    // Lag stays in seconds; other *_seconds metrics plot as minutes.
+    if (metricKey.endsWith("_seconds") && !isLagPhaseMetric(metricKey)) {
+      return value / 60;
+    }
     return value;
   }
 
   function trendYLabel(metricKey, metricLabel) {
+    if (isLagPhaseMetric(metricKey)) return "Seconds";
     if (metricKey.endsWith("_seconds")) return "Minutes";
     if (metricKey.endsWith("_pct") || metricLabel.includes("%")) return "%";
     if (metricLabel.includes("(kg)")) return "kg";
@@ -799,7 +807,11 @@
               label: (ctx) => {
                 const v = ctx.parsed.y;
                 if (v == null) return `${ctx.dataset.label}: —`;
-                const digits = data.metric.endsWith("_seconds") ? 1 : 2;
+                const digits = isLagPhaseMetric(data.metric)
+                  ? 0
+                  : data.metric.endsWith("_seconds")
+                    ? 1
+                    : 2;
                 return `${ctx.dataset.label}: ${Number(v).toLocaleString(undefined, {
                   maximumFractionDigits: digits,
                   minimumFractionDigits: 0,
@@ -811,7 +823,8 @@
         scales: {
           y: {
             title: { display: true, text: trendYLabel(data.metric, metricLabel) },
-            beginAtZero: false,
+            beginAtZero: isLagPhaseMetric(data.metric),
+            suggestedMin: isLagPhaseMetric(data.metric) ? 0 : undefined,
           },
         },
       },

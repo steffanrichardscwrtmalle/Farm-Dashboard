@@ -436,8 +436,8 @@
       toIdx = dateList.indexOf(prevTo);
       if (fromIdx < 0) fromIdx = 0;
       if (toIdx < 0) toIdx = maxIdx;
-    } else if (dateList.length > 14) {
-      fromIdx = Math.max(0, maxIdx - 13);
+    } else if (dateList.length > 7) {
+      fromIdx = Math.max(0, maxIdx - 6);
     }
     if (fromIdx > toIdx) [fromIdx, toIdx] = [toIdx, fromIdx];
     fromSlider.value = String(fromIdx);

@@ -150,22 +150,34 @@ def _cow_quality_stats(cows: list[dict[str, Any]]) -> dict[str, Any]:
     ]
     flow_15 = [
         v
-        for v in (eligible_interval_flow(c.get("flow_15s")) for c in cows)
+        for v in (
+            eligible_interval_flow(c.get("flow_15s"), yield_kg=c.get("yield_kg"))
+            for c in cows
+        )
         if v is not None
     ]
     flow_30 = [
         v
-        for v in (eligible_interval_flow(c.get("flow_30s")) for c in cows)
+        for v in (
+            eligible_interval_flow(c.get("flow_30s"), yield_kg=c.get("yield_kg"))
+            for c in cows
+        )
         if v is not None
     ]
     flow_60 = [
         v
-        for v in (eligible_interval_flow(c.get("flow_60s")) for c in cows)
+        for v in (
+            eligible_interval_flow(c.get("flow_60s"), yield_kg=c.get("yield_kg"))
+            for c in cows
+        )
         if v is not None
     ]
     flow_120 = [
         v
-        for v in (eligible_interval_flow(c.get("flow_120s")) for c in cows)
+        for v in (
+            eligible_interval_flow(c.get("flow_120s"), yield_kg=c.get("yield_kg"))
+            for c in cows
+        )
         if v is not None
     ]
     pct_2 = [
@@ -183,27 +195,42 @@ def _cow_quality_stats(cows: list[dict[str, Any]]) -> dict[str, Any]:
     removal = [
         v
         for v in (
-            eligible_takeoff_flow(c.get("flow_rate_at_removal")) for c in cows
+            eligible_takeoff_flow(
+                c.get("flow_rate_at_removal"), yield_kg=c.get("yield_kg")
+            )
+            for c in cows
         )
         if v is not None
     ]
     avg_flow = [
         v
         for v in (
-            eligible_average_flow(c.get("average_flow"), c.get("peak_flow"))
+            eligible_average_flow(
+                c.get("average_flow"),
+                c.get("peak_flow"),
+                yield_kg=c.get("yield_kg"),
+            )
             for c in cows
         )
         if v is not None
     ]
     peak_flow = [
         v
-        for v in (eligible_peak_flow(c.get("peak_flow")) for c in cows)
+        for v in (
+            eligible_peak_flow(c.get("peak_flow"), yield_kg=c.get("yield_kg"))
+            for c in cows
+        )
         if v is not None
     ]
 
     high_flow_n = sum(1 for v in removal if v > HIGH_FLOW_TAKEOFF_THRESHOLD)
     bimodal_flags = [
-        is_bimodal(c.get("flow_15s"), c.get("flow_30s"), c.get("flow_60s"))
+        is_bimodal(
+            c.get("flow_15s"),
+            c.get("flow_30s"),
+            c.get("flow_60s"),
+            yield_kg=c.get("yield_kg"),
+        )
         for c in cows
     ]
     bimodal_known = [f for f in bimodal_flags if f is not None]
@@ -495,6 +522,7 @@ def _row_to_cow_dict(row: ParlourMilkFlowRow) -> dict[str, Any]:
         "start_seconds": row.start_seconds,
         "duration_seconds": row.duration_seconds,
         "lag_phase_seconds": row.lag_phase_seconds,
+        "yield_kg": row.yield_kg,
         "flow_15s": row.flow_15s,
         "flow_30s": row.flow_30s,
         "flow_60s": row.flow_60s,
@@ -983,7 +1011,12 @@ def _pen_metric_from_slim(items: list[dict[str, Any]], metric: str) -> float | N
     if metric == "avg_flow_15s":
         values = [
             v
-            for v in (eligible_interval_flow(it.get("flow_15s")) for it in items)
+            for v in (
+                eligible_interval_flow(
+                    it.get("flow_15s"), yield_kg=it.get("yield_kg")
+                )
+                for it in items
+            )
             if v is not None
         ]
         avg = _mean(values, digits=1)
@@ -992,7 +1025,12 @@ def _pen_metric_from_slim(items: list[dict[str, Any]], metric: str) -> float | N
     if metric == "avg_flow_30s":
         values = [
             v
-            for v in (eligible_interval_flow(it.get("flow_30s")) for it in items)
+            for v in (
+                eligible_interval_flow(
+                    it.get("flow_30s"), yield_kg=it.get("yield_kg")
+                )
+                for it in items
+            )
             if v is not None
         ]
         avg = _mean(values, digits=1)
@@ -1001,7 +1039,12 @@ def _pen_metric_from_slim(items: list[dict[str, Any]], metric: str) -> float | N
     if metric == "avg_flow_60s":
         values = [
             v
-            for v in (eligible_interval_flow(it.get("flow_60s")) for it in items)
+            for v in (
+                eligible_interval_flow(
+                    it.get("flow_60s"), yield_kg=it.get("yield_kg")
+                )
+                for it in items
+            )
             if v is not None
         ]
         avg = _mean(values, digits=1)
@@ -1010,7 +1053,12 @@ def _pen_metric_from_slim(items: list[dict[str, Any]], metric: str) -> float | N
     if metric == "avg_flow_120s":
         values = [
             v
-            for v in (eligible_interval_flow(it.get("flow_120s")) for it in items)
+            for v in (
+                eligible_interval_flow(
+                    it.get("flow_120s"), yield_kg=it.get("yield_kg")
+                )
+                for it in items
+            )
             if v is not None
         ]
         avg = _mean(values, digits=1)
@@ -1041,7 +1089,10 @@ def _pen_metric_from_slim(items: list[dict[str, Any]], metric: str) -> float | N
         values = [
             v
             for v in (
-                eligible_takeoff_flow(it.get("flow_rate_at_removal")) for it in items
+                eligible_takeoff_flow(
+                    it.get("flow_rate_at_removal"), yield_kg=it.get("yield_kg")
+                )
+                for it in items
             )
             if v is not None
         ]
@@ -1052,7 +1103,11 @@ def _pen_metric_from_slim(items: list[dict[str, Any]], metric: str) -> float | N
         values = [
             v
             for v in (
-                eligible_average_flow(it.get("average_flow"), it.get("peak_flow"))
+                eligible_average_flow(
+                    it.get("average_flow"),
+                    it.get("peak_flow"),
+                    yield_kg=it.get("yield_kg"),
+                )
                 for it in items
             )
             if v is not None
@@ -1063,7 +1118,10 @@ def _pen_metric_from_slim(items: list[dict[str, Any]], metric: str) -> float | N
     if metric == "avg_peak_flow":
         values = [
             v
-            for v in (eligible_peak_flow(it.get("peak_flow")) for it in items)
+            for v in (
+                eligible_peak_flow(it.get("peak_flow"), yield_kg=it.get("yield_kg"))
+                for it in items
+            )
             if v is not None
         ]
         avg = _mean(values, digits=2)
@@ -1073,7 +1131,10 @@ def _pen_metric_from_slim(items: list[dict[str, Any]], metric: str) -> float | N
         removal = [
             v
             for v in (
-                eligible_takeoff_flow(it.get("flow_rate_at_removal")) for it in items
+                eligible_takeoff_flow(
+                    it.get("flow_rate_at_removal"), yield_kg=it.get("yield_kg")
+                )
+                for it in items
             )
             if v is not None
         ]
@@ -1083,7 +1144,12 @@ def _pen_metric_from_slim(items: list[dict[str, Any]], metric: str) -> float | N
 
     if metric == "bimodal_pct":
         flags = [
-            is_bimodal(it.get("flow_15s"), it.get("flow_30s"), it.get("flow_60s"))
+            is_bimodal(
+                it.get("flow_15s"),
+                it.get("flow_30s"),
+                it.get("flow_60s"),
+                yield_kg=it.get("yield_kg"),
+            )
             for it in items
         ]
         known = [f for f in flags if f is not None]
