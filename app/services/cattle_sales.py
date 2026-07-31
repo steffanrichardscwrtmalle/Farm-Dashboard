@@ -21,7 +21,8 @@ EVENT_MATCH_WINDOW_DAYS = 14
 CATTLE_CATEGORIES: tuple[str, ...] = ("Dairy", "Youngstock", "Beef")
 BUYER_EUROFARM = "Euro Farm Wales"
 BUYER_PATHWAY = "Pathway"
-KNOWN_BUYERS: tuple[str, ...] = (BUYER_EUROFARM, BUYER_PATHWAY)
+BUYER_BUITELAAR = "Buitelaar"
+KNOWN_BUYERS: tuple[str, ...] = (BUYER_EUROFARM, BUYER_PATHWAY, BUYER_BUITELAAR)
 
 
 def infer_cattle_sale_buyer(
@@ -37,6 +38,8 @@ def infer_cattle_sale_buyer(
         return None
     if "pathway" in name or name.startswith("pwa") or " pwa" in name:
         return BUYER_PATHWAY
+    if "buitelaar" in name or "vendbill" in name:
+        return BUYER_BUITELAAR
     if "cheque" in name or "eurofarm" in name or "euro farm" in name:
         return BUYER_EUROFARM
     return None

@@ -17,9 +17,11 @@ from app.services.cattle_sale_pdf import (
     parse_cattle_sale_pdf,
 )
 from app.services.cattle_sales import (
+    BUYER_BUITELAAR,
     compute_dim_at_cull,
     compute_price_per_kg,
     format_age_years_months,
+    infer_cattle_sale_buyer,
     list_cattle_sales,
 )
 
@@ -535,5 +537,101 @@ def test_list_cattle_sales_matches_pathway_calf_line() -> None:
     assert row["amount_gbp"] == 460.0
     assert row["cold_weight_kg"] == 64.0
     assert row["buyer"] == "Pathway"
+
+    session.close()
+
+
+def _buitelaar_fixture_path():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent
+    candidates = [
+        root / "fixtures" / "VENDBILL116896 - CC-2867314.pdf",
+        root.parent / "VENDBILL116896 - CC-2867314.pdf",
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+def test_parse_buitelaar_pdf_sample():
+    from app.services.buitelaar_pdf import parse_buitelaar_pdf
+
+    path = _buitelaar_fixture_path()
+    assert path is not None, "Buitelaar sample PDF fixture missing"
+    result = parse_buitelaar_pdf(path.read_bytes(), source_file=path.name)
+    assert result["farm"] == "CM"
+    assert result["sale_date"] == dt.date(2026, 7, 23)
+    assert len(result["lines"]) == 40
+    assert abs(sum(line["amount_gbp"] for line in result["lines"]) - 12920.0) < 0.01
+    first = next(line for line in result["lines"] if line["etag"] == "UK740651135200")
+    assert first["cold_weight_kg"] == 56.0
+    assert first["amount_gbp"] == 365.0
+    assert first["kill_date"] == dt.date(2026, 7, 23)
+    female = next(line for line in result["lines"] if line["etag"] == "UK740651135130")
+    assert female["cold_weight_kg"] == 53.0
+    assert female["amount_gbp"] == 295.0
+
+
+def test_parse_sale_pdf_dispatches_buitelaar():
+    from app.services.cattle_sales_import import _parse_sale_pdf
+
+    path = _buitelaar_fixture_path()
+    assert path is not None, "Buitelaar sample PDF fixture missing"
+    result = _parse_sale_pdf(
+        path.read_bytes(),
+        mailbox_farm=None,
+        source_file=path.name,
+    )
+    assert result["buyer"] == BUYER_BUITELAAR
+    assert result["farm"] == "CM"
+    assert len(result["lines"]) == 40
+
+
+def test_infer_cattle_sale_buyer_buitelaar_filename():
+    assert infer_cattle_sale_buyer(source_file="VENDBILL116896 - CC-2867314.pdf") == BUYER_BUITELAAR
+    assert infer_cattle_sale_buyer(source_file="buitelaar-advice.pdf") == BUYER_BUITELAAR
+
+
+def test_list_cattle_sales_matches_buitelaar_calf_line() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="135200",
+            etag="UK740651135200",
+            event="SOLD",
+            event_date=dt.date(2026, 7, 23),
+            dest="BUITELAAR",
+            gndr="M",
+            bdat=dt.date(2026, 6, 21),
+            lact=0,
+            cbrd=1,
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651135200",
+            sale_date=dt.date(2026, 7, 23),
+            kill_date=dt.date(2026, 7, 23),
+            cold_weight_kg=56.0,
+            amount_gbp=365.0,
+            buyer=BUYER_BUITELAAR,
+            source_file="VENDBILL116896 - CC-2867314.pdf",
+        )
+    )
+    session.commit()
+
+    result = list_cattle_sales(session, farms=["CM"])
+    assert result["total"] == 1
+    row = result["rows"][0]
+    assert row["event_matched"] is True
+    assert row["amount_gbp"] == 365.0
+    assert row["cold_weight_kg"] == 56.0
+    assert row["buyer"] == BUYER_BUITELAAR
 
     session.close()

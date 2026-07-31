@@ -98,14 +98,17 @@ def herd_file_relative_path(*parts: str) -> str:
     return "/".join(seg.strip("/") for seg in segments if seg)
 
 
-def find_newest_herd_file(folder_relative_path: str, *, suffix: str | None = None) -> str:
+def find_newest_herd_file_meta(
+    folder_relative_path: str, *, suffix: str | None = None
+) -> dict[str, str]:
     """
-    Return the relative path of the most recently modified file in a herd folder.
+    Return metadata for the most recently modified file in a herd folder.
 
-    folder_relative_path is under HERD_EXPORT_BASE_PATH, e.g. 'Genomic Results'.
-    When suffix is given (e.g. '.xlsx'), only files with that extension are considered.
-    The returned value can be passed straight to download_herd_file.
+    Keys: ``relative_path`` (for download_herd_file), ``name``, ``last_modified``
+    (ISO-8601 string from Graph, or UTC ISO from local mtime).
     """
+    from datetime import datetime, timezone
+
     suffix_lower = suffix.lower() if suffix else None
 
     if LOCAL_HERD_EXPORT_DIR:
@@ -124,7 +127,12 @@ def find_newest_herd_file(folder_relative_path: str, *, suffix: str | None = Non
                 f"No matching files in local herd folder: {folder}"
             )
         newest = max(candidates, key=lambda path: path.stat().st_mtime)
-        return f"{folder_relative_path}/{newest.name}"
+        mtime = datetime.fromtimestamp(newest.stat().st_mtime, tz=timezone.utc)
+        return {
+            "relative_path": f"{folder_relative_path}/{newest.name}",
+            "name": newest.name,
+            "last_modified": mtime.isoformat().replace("+00:00", "Z"),
+        }
 
     _require_graph_config()
     full_path = herd_file_relative_path(folder_relative_path)
@@ -159,7 +167,24 @@ def find_newest_herd_file(folder_relative_path: str, *, suffix: str | None = Non
             f"No matching files in OneDrive folder: {full_path}"
         )
     newest = max(files, key=lambda item: item.get("lastModifiedDateTime", ""))
-    return f"{folder_relative_path}/{newest['name']}"
+    return {
+        "relative_path": f"{folder_relative_path}/{newest['name']}",
+        "name": newest["name"],
+        "last_modified": str(newest.get("lastModifiedDateTime") or ""),
+    }
+
+
+def find_newest_herd_file(folder_relative_path: str, *, suffix: str | None = None) -> str:
+    """
+    Return the relative path of the most recently modified file in a herd folder.
+
+    folder_relative_path is under HERD_EXPORT_BASE_PATH, e.g. 'Genomic Results'.
+    When suffix is given (e.g. '.xlsx'), only files with that extension are considered.
+    The returned value can be passed straight to download_herd_file.
+    """
+    return find_newest_herd_file_meta(folder_relative_path, suffix=suffix)[
+        "relative_path"
+    ]
 
 
 def download_herd_file(relative_path: str) -> bytes:

@@ -94,7 +94,13 @@ def main() -> int:
         # genomicresults.xlsx must not abort the core herd / valuation pipeline.
         try:
             genomic = import_genomic_results(db)
-            _log(f"Imported {genomic['rows_imported']:,} genomic result rows")
+            if genomic.get("skipped"):
+                _log(
+                    f"Skipped genomic results (unchanged): {genomic.get('source_file')} "
+                    f"({genomic.get('rows_imported', 0):,} rows already loaded)"
+                )
+            else:
+                _log(f"Imported {genomic['rows_imported']:,} genomic result rows")
         except FileNotFoundError as exc:
             db.rollback()
             _log(f"WARNING: skipped genomic results (file missing): {exc}")

@@ -214,3 +214,35 @@ def test_list_sales_payments_matches_pathway_calf_amount(db: Session) -> None:
     row = next(r for r in result["rows"] if r["etag"] == "UK740651135074")
     assert row["amount_gbp"] == 460.0
     assert row["has_sale_amount"] is True
+
+
+def test_list_sales_payments_matches_buitelaar_calf_amount(db: Session) -> None:
+    db.add(
+        CowEvent(
+            farm="CM",
+            cow_id="135200",
+            etag="UK740651135200",
+            event="SOLD",
+            event_date=dt.date(2026, 7, 23),
+            dest="BUITELAAR",
+            gndr="M",
+            bdat=dt.date(2026, 6, 21),
+        )
+    )
+    db.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651135200",
+            sale_date=dt.date(2026, 7, 23),
+            kill_date=dt.date(2026, 7, 23),
+            cold_weight_kg=56.0,
+            amount_gbp=365.0,
+            buyer="Buitelaar",
+        )
+    )
+    db.commit()
+
+    result = list_sales_payments(db, farms=["CM"], has_amount=True)
+    row = next(r for r in result["rows"] if r["etag"] == "UK740651135200")
+    assert row["amount_gbp"] == 365.0
+    assert row["has_sale_amount"] is True

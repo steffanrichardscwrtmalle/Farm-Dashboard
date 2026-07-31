@@ -5,23 +5,25 @@ from __future__ import annotations
 import datetime as dt
 import gc
 import io
+import json
 import re
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.models import GenomicResult
+from app.models import AppSetting, GenomicResult
 from app.services.graph_onedrive import (
     download_herd_file,
-    find_newest_herd_file,
+    find_newest_herd_file_meta,
     graph_is_configured,
 )
 
 # Newest .xlsx in this folder is used (filename varies between exports).
 GENOMIC_FOLDER = "Genomic Results"
 GENOMIC_SHEET = "Herd GBR Females"
+GENOMIC_SOURCE_SETTING_KEY = "genomic_results.source_fingerprint"
 
 # Excel column name -> GenomicResult field
 TRAIT_COLUMNS: dict[str, str] = {
@@ -60,6 +62,32 @@ def normalize_hbn(value: Any) -> str | None:
     return digits or None
 
 
+def _fingerprint(source_file: str, last_modified: str) -> str:
+    return json.dumps(
+        {"source_file": source_file, "last_modified": last_modified},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _load_stored_fingerprint(db: Session) -> str | None:
+    row = db.scalar(
+        select(AppSetting).where(AppSetting.key == GENOMIC_SOURCE_SETTING_KEY)
+    )
+    value = (row.value if row else None) or ""
+    return value.strip() or None
+
+
+def _store_fingerprint(db: Session, fingerprint: str) -> None:
+    row = db.scalar(
+        select(AppSetting).where(AppSetting.key == GENOMIC_SOURCE_SETTING_KEY)
+    )
+    if row is None:
+        db.add(AppSetting(key=GENOMIC_SOURCE_SETTING_KEY, value=fingerprint))
+    else:
+        row.value = fingerprint
+
+
 def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[dict[str, Any]]:
     def series_str(col: str) -> pd.Series:
         if col not in df.columns:
@@ -88,14 +116,37 @@ def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[d
     return frame.to_dict(orient="records")
 
 
-def import_genomic_results(db: Session) -> dict[str, Any]:
-    """Download the newest genomic results workbook and replace genomic_results."""
+def import_genomic_results(db: Session, *, force: bool = False) -> dict[str, Any]:
+    """Download the newest genomic results workbook and replace genomic_results.
+
+    Skips download/replace when the newest file path and last-modified timestamp
+    match the fingerprint stored from the previous successful import, unless
+    ``force=True``.
+    """
     if not graph_is_configured():
         raise ValueError(
             "Herd import is not configured. Set Graph API variables or LOCAL_HERD_EXPORT_DIR."
         )
 
-    source_file = find_newest_herd_file(GENOMIC_FOLDER, suffix=".xlsx")
+    meta = find_newest_herd_file_meta(GENOMIC_FOLDER, suffix=".xlsx")
+    source_file = meta["relative_path"]
+    last_modified = meta.get("last_modified") or ""
+    fingerprint = _fingerprint(source_file, last_modified)
+
+    if not force and last_modified:
+        stored = _load_stored_fingerprint(db)
+        if stored == fingerprint:
+            row_count = db.scalar(select(func.count()).select_from(GenomicResult)) or 0
+            return {
+                "skipped": True,
+                "reason": "source_unchanged",
+                "rows_imported": int(row_count),
+                "imported_at": None,
+                "source_file": source_file,
+                "last_modified": last_modified,
+                "sheet": GENOMIC_SHEET,
+            }
+
     file_bytes = download_herd_file(source_file)
     df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=GENOMIC_SHEET)
     del file_bytes
@@ -113,11 +164,14 @@ def import_genomic_results(db: Session) -> dict[str, Any]:
         del mappings, batch
     del df
     gc.collect()
+    _store_fingerprint(db, fingerprint)
     db.commit()
 
     return {
+        "skipped": False,
         "rows_imported": rows_imported,
         "imported_at": import_time.isoformat(timespec="seconds"),
         "source_file": source_file,
+        "last_modified": last_modified,
         "sheet": GENOMIC_SHEET,
     }

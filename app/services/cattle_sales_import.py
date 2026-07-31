@@ -1,6 +1,7 @@
 """Import cattle-sale remittance PDFs from email into the database.
 
-Supports Eurofarm Wales cheque reports and Pathway Farming calf remittances.
+Supports Eurofarm Wales cheque reports, Pathway Farming calf remittances,
+and Buitelaar self-billing invoices.
 """
 
 from __future__ import annotations
@@ -33,7 +34,15 @@ from app.services.cattle_sale_pdf import (
     is_acceptable_sale_line,
     parse_cattle_sale_pdf,
 )
-from app.services.cattle_sales import BUYER_EUROFARM, BUYER_PATHWAY
+from app.services.buitelaar_pdf import (
+    looks_like_buitelaar_pdf,
+    parse_buitelaar_pdf,
+)
+from app.services.cattle_sales import (
+    BUYER_BUITELAAR,
+    BUYER_EUROFARM,
+    BUYER_PATHWAY,
+)
 from app.services.graph_mail import iter_attachments
 from app.services.graph_onedrive import get_access_token_for, graph_is_configured
 from app.services.pathway_farming_pdf import (
@@ -110,7 +119,7 @@ def _parse_sale_pdf(
     mailbox_farm: str | None,
     source_file: str | None,
 ) -> dict[str, Any]:
-    """Dispatch Eurofarm vs Pathway remittances by PDF content."""
+    """Dispatch Eurofarm / Pathway / Buitelaar remittances by PDF content."""
     text = _extract_text(content)
     if looks_like_pathway_pdf(text):
         result = parse_pathway_farming_pdf(
@@ -119,6 +128,14 @@ def _parse_sale_pdf(
             source_file=source_file,
         )
         result["buyer"] = BUYER_PATHWAY
+        return result
+    if looks_like_buitelaar_pdf(text):
+        result = parse_buitelaar_pdf(
+            content,
+            mailbox_farm=mailbox_farm,
+            source_file=source_file,
+        )
+        result["buyer"] = BUYER_BUITELAAR
         return result
     result = parse_cattle_sale_pdf(
         content,
@@ -441,7 +458,7 @@ def import_cattle_sales(
     ):
         warnings.append(
             "No cattle-sale PDFs found in the mailboxes for this date range "
-            "(Eurofarm / Pathway Farming). Try a longer Range, or Upload PDFs."
+            "(Eurofarm / Pathway / Buitelaar). Try a longer Range, or Upload PDFs."
         )
 
     return _import_result(
