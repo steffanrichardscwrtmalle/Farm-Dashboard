@@ -145,6 +145,9 @@
 
       <div class="action-bar">
         <button type="button" class="secondary small" id="download-xlsx-btn">Export to XLSX</button>
+        {% if can_refresh_genomics %}
+        <button type="button" class="secondary small" id="refresh-genomics-btn">Refresh genomic results</button>
+        {% endif %}
         {% if can_email %}
         <button type="button" class="primary small" id="email-btn">Email submissions</button>
         {% endif %}
@@ -174,6 +177,7 @@
 {% block scripts %}
   <script>
     const CAN_EMAIL = {{ 'true' if can_email else 'false' }};
+    const CAN_REFRESH_GENOMICS = {{ 'true' if can_refresh_genomics else 'false' }};
     let rows = [];
 
     function showMessage(text, isError) {
@@ -263,6 +267,46 @@
     document.getElementById('download-xlsx-btn').addEventListener('click', function () {
       window.location.href = '/api/genetics/pending-results/export.xlsx?' + buildQuery();
     });
+
+    if (CAN_REFRESH_GENOMICS) {
+      document.getElementById('refresh-genomics-btn').addEventListener('click', async function () {
+        if (!window.confirm(
+          'Download the latest genomic results workbook from OneDrive and reload the genetics data? This can take a minute.'
+        )) {
+          return;
+        }
+        const btn = document.getElementById('refresh-genomics-btn');
+        btn.disabled = true;
+        showMessage('Refreshing genomic results…');
+        try {
+          const res = await fetch('/api/herd/genomic/import?force=true', { method: 'POST' });
+          const data = await res.json().catch(function () { return {}; });
+          if (!res.ok) {
+            const detail = data.detail;
+            throw new Error(
+              typeof detail === 'string' ? detail : (detail && detail[0] && detail[0].msg) || 'Genomic refresh failed'
+            );
+          }
+          if (data.skipped) {
+            showMessage(
+              'Genomic file unchanged (' + (data.source_file || 'current workbook') + '). Pending list reloaded.',
+              false
+            );
+          } else {
+            showMessage(
+              'Imported ' + (data.rows_imported || 0).toLocaleString() +
+              ' genomic result rows from ' + (data.source_file || 'OneDrive') + '.',
+              false
+            );
+          }
+          await loadRows();
+        } catch (err) {
+          showMessage(err.message, true);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    }
 
     async function loadRecipient() {
       if (!CAN_EMAIL) return;

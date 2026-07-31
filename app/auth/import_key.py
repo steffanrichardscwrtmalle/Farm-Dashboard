@@ -57,7 +57,7 @@ def require_import_or_any_action(*action_keys: str) -> Callable[..., None]:
         if not any(has_action(user, key) for key in action_keys):
             raise HTTPException(
                 status_code=403,
-                detail="You do not have permission to import milk statements",
+                detail="You do not have permission for this action",
             )
 
     return _dependency

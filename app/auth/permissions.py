@@ -101,7 +101,7 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_OFFICE_ADMIN_SALES_PAYMENT: "Office Admin — confirm sales payments",
     ACTION_OFFICE_ADMIN_FALLEN_STOCK: "Office Admin — confirm fallen stock collection",
     ACTION_GENETICS_PEDIGREE: "Genetics — pedigree registrations (email & restore)",
-    ACTION_GENETICS_PENDING_RESULTS: "Genetics — pending results (email submissions)",
+    ACTION_GENETICS_PENDING_RESULTS: "Genetics — pending results (email & refresh genomics)",
     ACTION_MILK_QUALITY_IMPORT: "Milk Sales — import NML results from email",
     ACTION_MILK_COLLECTIONS_IMPORT: "Milk Sales — import haulier collections from email",
     ACTION_MILK_STATEMENTS_IMPORT: "Milk Sales — import buyer statements from email",

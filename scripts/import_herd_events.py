@@ -1,10 +1,11 @@
 """
 Import herd data from OneDrive CSV exports into the database.
 
-For Render cron (weekly):
+For Render cron (e.g. daily):
   python scripts/import_herd_events.py
 
-Imports cow events, inventory, genomic results, and birth records.
+Imports cow events, inventory, and birth records, then rebuilds stock snapshots.
+Genomic results are imported separately via scripts/import_genomic_results.py.
 Requires Graph API env vars or LOCAL_HERD_EXPORT_DIR for local synced files.
 """
 
@@ -21,7 +22,6 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, init_db
-from app.services.genomic_import import import_genomic_results
 from app.services.herd_birth_import import import_herd_births
 from app.services.herd_events_import import import_cow_events
 from app.services.herd_inventory_import import import_herd_inventory
@@ -86,27 +86,6 @@ def main() -> int:
             f"(CM: {inventory['farm_counts'].get('CM', 0):,}, "
             f"GAD: {inventory['farm_counts'].get('GAD', 0):,})"
         )
-        _release_memory(db)
-
-        step = "genomic results"
-        _log("Step: importing genomic results...")
-        # Genomic data is supplementary (Genetics pages only). A missing or broken
-        # genomicresults.xlsx must not abort the core herd / valuation pipeline.
-        try:
-            genomic = import_genomic_results(db)
-            if genomic.get("skipped"):
-                _log(
-                    f"Skipped genomic results (unchanged): {genomic.get('source_file')} "
-                    f"({genomic.get('rows_imported', 0):,} rows already loaded)"
-                )
-            else:
-                _log(f"Imported {genomic['rows_imported']:,} genomic result rows")
-        except FileNotFoundError as exc:
-            db.rollback()
-            _log(f"WARNING: skipped genomic results (file missing): {exc}")
-        except Exception as exc:  # noqa: BLE001 - keep core pipeline running
-            db.rollback()
-            _log(f"WARNING: skipped genomic results ({type(exc).__name__}): {exc}")
         _release_memory(db)
 
         step = "births"

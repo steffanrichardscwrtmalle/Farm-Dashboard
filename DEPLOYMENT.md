@@ -98,20 +98,40 @@ After deploying schema changes (e.g. new `supplier` column), Render runs migrati
 ### Herd data (events, inventory, birth from OneDrive)
 
 1. Complete Microsoft Entra app registration (see `.env.example` for `GRAPH_*` variables).
-2. Add env vars to the web service and a **Cron Job** on Render:
-   - **Schedule:** e.g. `0 6 * * 0` (6:00 UTC every Sunday)
+2. Add env vars to the web service and a **Cron Job** on Render (e.g. the existing
+   `Farm-Dashboard` cron):
+   - **Schedule:** e.g. `0 4 * * *` (daily 04:00 UTC)
    - **Command:** `python scripts/import_herd_events.py`
-   - Same env vars as the web service (`DATABASE_URL`, `GRAPH_*`, `HERD_EXPORT_BASE_PATH`, `GRAPH_DRIVE_USER_EMAIL`, `IMPORT_API_KEY`)
-3. The cron script imports:
+   - Same env vars as the web service (`DATABASE_URL`, `GRAPH_*`, `HERD_EXPORT_BASE_PATH`, `GRAPH_DRIVE_USER_EMAIL`)
+3. The herd cron imports:
    - `CMEVENTS.CSV` / `GADEVENTS.CSV` → `cow_events`
    - `CMINV.CSV` / `GADINV.CSV` → `herd_inventory`
    - `CMBORN.CSV` / `GADBORN.CSV` → `herd_births`
+   - then rebuilds stock valuation / accrual snapshots
 4. Or trigger individual imports via HTTP with header `X-Import-Key: <IMPORT_API_KEY>`:
    - `POST /api/herd/events/import`
    - `POST /api/herd/inventory/import`
    - `POST /api/herd/birth/import`
+   - `POST /api/herd/genomic/import`
 
 For local testing without Graph API, set `LOCAL_HERD_EXPORT_DIR` to your synced OneDrive folder path.
+
+### Genomic results (OneDrive, weekly)
+
+Genomics are imported on a **separate** weekly cron so the daily herd job stays lighter.
+Blueprint service: `farm-dashboard-genomic-import` in [`render.yaml`](render.yaml).
+
+- **Schedule:** `0 5 * * 0` (Sunday 05:00 UTC)
+- **Command:** `python scripts/import_genomic_results.py`
+- Needs `DATABASE_URL`, `GRAPH_*`, `GRAPH_DRIVE_USER_EMAIL`, `HERD_EXPORT_BASE_PATH`
+- Skips reload when the newest workbook is unchanged; use `--force` to override
+
+Manual run:
+
+```powershell
+python scripts/import_genomic_results.py
+python scripts/import_genomic_results.py --force
+```
 
 ### Milk email imports (collections, NML, statements)
 

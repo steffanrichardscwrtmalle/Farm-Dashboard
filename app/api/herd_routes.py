@@ -7,8 +7,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
-from app.auth.import_key import require_import_or_action
-from app.auth.permissions import ACTION_HERD_IMPORT
+from app.auth.import_key import require_import_or_action, require_import_or_any_action
+from app.auth.permissions import ACTION_GENETICS_PENDING_RESULTS, ACTION_HERD_IMPORT
 from app.db import get_db
 from app.models import AppSetting, CowEvent, GenomicResult, HerdBirth, HerdInventory, User
 from app.services.genomic_import import (
@@ -114,7 +114,12 @@ def api_herd_births_status(
 def api_import_genomic_results(
     force: bool = False,
     db: Session = Depends(get_db),
-    _: None = Depends(require_import_or_action(ACTION_HERD_IMPORT)),
+    _: None = Depends(
+        require_import_or_any_action(
+            ACTION_HERD_IMPORT,
+            ACTION_GENETICS_PENDING_RESULTS,
+        )
+    ),
 ):
     try:
         return import_genomic_results(db, force=force)

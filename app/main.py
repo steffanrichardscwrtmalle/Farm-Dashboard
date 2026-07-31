@@ -36,6 +36,7 @@ from app.auth.passwords import verify_password
 from app.auth.permissions import (
     ACTION_GENETICS_PEDIGREE,
     ACTION_GENETICS_PENDING_RESULTS,
+    ACTION_HERD_IMPORT,
     ACTION_HR_ENROLL,
     ACTION_HR_VIEW_SENSITIVE,
     PAGE_EVENTS,
@@ -1176,6 +1177,10 @@ def genetics_pending_results_page(request: Request):
             page_heading="Pending Results",
             farm_options=list(HERD_FARM_OPTIONS),
             can_email=has_action(request.state.user, ACTION_GENETICS_PENDING_RESULTS),
+            can_refresh_genomics=(
+                has_action(request.state.user, ACTION_GENETICS_PENDING_RESULTS)
+                or has_action(request.state.user, ACTION_HERD_IMPORT)
+            ),
             **_genetics_context(
                 "Pending Results",
                 "pending-results",

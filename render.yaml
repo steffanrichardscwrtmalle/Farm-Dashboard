@@ -181,6 +181,45 @@ services:
           type: web
           envVarKey: GRAPH_CLIENT_SECRET_CM
 
+  # Genomic results from OneDrive (weekly — file changes infrequently).
+  - type: cron
+    name: farm-dashboard-genomic-import
+    runtime: docker
+    schedule: "0 5 * * 0"
+    dockerCommand: python scripts/import_genomic_results.py
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: farm-dashboard-db
+          property: connectionString
+      - key: ENVIRONMENT
+        value: production
+      - key: GRAPH_TENANT_ID
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_TENANT_ID
+      - key: GRAPH_CLIENT_ID
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_CLIENT_ID
+      - key: GRAPH_CLIENT_SECRET
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_CLIENT_SECRET
+      - key: GRAPH_DRIVE_USER_EMAIL
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_DRIVE_USER_EMAIL
+      - key: HERD_EXPORT_BASE_PATH
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: HERD_EXPORT_BASE_PATH
+
 databases:
   - name: farm-dashboard-db
     plan: basic-1gb
