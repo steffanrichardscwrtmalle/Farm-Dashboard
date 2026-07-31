@@ -10,6 +10,7 @@ Sources, in priority order:
 from __future__ import annotations
 
 import datetime as dt
+import gc
 import logging
 import threading
 from collections.abc import Iterator
@@ -105,32 +106,34 @@ def _iter_sources(
     warnings: list[str],
     since: dt.datetime,
 ) -> Iterator[dict[str, Any]]:
+    """Yield parlour attachments one at a time (do not buffer all file bytes).
+
+    Within each mailbox, Graph returns messages newest-first. Farms do not
+    overwrite each other, so streaming per mailbox is safe and keeps peak RAM
+    to roughly one attachment + its pandas parse.
+    """
     if LOCAL_PARLOUR_DIR:
         folder = Path(LOCAL_PARLOUR_DIR)
         if not folder.is_dir():
             raise FileNotFoundError(f"LOCAL_PARLOUR_DIR not found: {folder}")
-        local_items: list[dict[str, Any]] = []
-        for path in sorted(folder.rglob("*")):
+        local_paths: list[Path] = []
+        for path in folder.rglob("*"):
             if not path.is_file() or path.name.startswith("~$"):
                 continue
             if path.suffix.lower() not in _EXTENSIONS:
                 continue
             if not _is_parlour_attachment_filename(path.name):
                 continue
-            local_items.append(
-                {
-                    "content": path.read_bytes(),
-                    "source_file": path.name,
-                    "message_id": None,
-                    "mailbox_farm": detect_farm_from_filename(path.name),
-                    "received": dt.datetime.fromtimestamp(path.stat().st_mtime),
-                }
-            )
-        local_items.sort(
-            key=lambda item: item.get("received") or dt.datetime.min,
-            reverse=True,
-        )
-        yield from local_items
+            local_paths.append(path)
+        local_paths.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        for path in local_paths:
+            yield {
+                "content": path.read_bytes(),
+                "source_file": path.name,
+                "message_id": None,
+                "mailbox_farm": detect_farm_from_filename(path.name),
+                "received": dt.datetime.fromtimestamp(path.stat().st_mtime),
+            }
         return
 
     cm_token = None
@@ -152,7 +155,6 @@ def _iter_sources(
         warnings.append("PARLOUR_SENDER is empty — no emails will be scanned.")
         return
 
-    collected: list[dict[str, Any]] = []
     for mailbox, farm, token in mailboxes:
         if not mailbox:
             continue
@@ -171,36 +173,16 @@ def _iter_sources(
                 filename = attachment.get("filename") or ""
                 if not _is_parlour_attachment_filename(filename):
                     continue
-                collected.append(
-                    {
-                        "content": attachment["content"],
-                        "source_file": filename,
-                        "message_id": attachment.get("message_id"),
-                        "mailbox_farm": farm,
-                        "received": attachment.get("received"),
-                    }
-                )
+                # Yield immediately — do not accumulate attachment bytes.
+                yield {
+                    "content": attachment["content"],
+                    "source_file": filename,
+                    "message_id": attachment.get("message_id"),
+                    "mailbox_farm": farm,
+                    "received": attachment.get("received"),
+                }
         except Exception as exc:  # noqa: BLE001
             warnings.append(_mailbox_error_message(farm, mailbox, exc))
-
-    def _received_key(item: dict[str, Any]) -> dt.datetime:
-        value = item.get("received")
-        if isinstance(value, dt.datetime):
-            return value.replace(tzinfo=None)
-        if not value:
-            return dt.datetime.min
-        try:
-            parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        except ValueError:
-            return dt.datetime.min
-        if parsed.tzinfo is not None:
-            parsed = parsed.astimezone(dt.timezone.utc).replace(tzinfo=None)
-        return parsed
-
-    # Newest emails first so older cumulative exports cannot clobber fresher data
-    # before source_received guards are written.
-    collected.sort(key=_received_key, reverse=True)
-    yield from collected
 
 
 def _as_utc(value: dt.datetime | None) -> dt.datetime | None:
@@ -301,68 +283,87 @@ def import_parlour_milk_flow(
         attachment_key = (
             (message_id, filename.casefold()) if message_id else None
         )
-        if attachment_key and attachment_key in known_keys:
-            files_skipped += 1
-            skipped_files.append(f"{filename}: skipped (already imported)")
-            continue
-
-        farm = detect_farm_from_filename(filename) or source.get("mailbox_farm")
+        content = source.pop("content", None)
         try:
-            if is_rotary_entry_id_filename(filename):
-                rotary_result = import_rotary_entry_id_bytes(
-                    db,
-                    source["content"],
-                    filename=filename,
-                    farm=farm,
-                    source_message_id=message_id,
-                    source_received=source.get("received"),
-                )
-                batch_results = [rotary_result]
-            else:
-                batch_results = import_milk_flow_bytes(
-                    db,
-                    source["content"],
-                    filename=filename,
-                    farm=farm,
-                    source_message_id=message_id,
-                    source_received=source.get("received"),
-                    force=False,
-                )
-        except Exception as exc:  # noqa: BLE001
-            db.rollback()
-            files_skipped += 1
-            # UnicodeDecodeError subclasses ValueError — treat binary/.xls failures clearly.
-            if isinstance(exc, UnicodeDecodeError) or (
-                "utf-8" in str(exc).lower() and "codec" in str(exc).lower()
-            ):
-                skipped_files.append(
-                    f"{filename}: looks like Excel .xls named .csv — "
-                    "needs xlrd (pip install xlrd / redeploy). "
-                    f"Detail: {exc}"
-                )
-            else:
-                skipped_files.append(f"{filename}: {type(exc).__name__}: {exc}")
-            logger.exception("Failed to import parlour attachment %s", filename)
-            continue
+            if attachment_key and attachment_key in known_keys:
+                files_skipped += 1
+                skipped_files.append(f"{filename}: skipped (already imported)")
+                continue
 
-        applied = [r for r in batch_results if not r.get("skipped")]
-        if not applied:
-            files_skipped += 1
-            skipped_files.append(f"{filename}: skipped (older than existing import)")
-            continue
+            farm = detect_farm_from_filename(filename) or source.get("mailbox_farm")
+            try:
+                if is_rotary_entry_id_filename(filename):
+                    rotary_result = import_rotary_entry_id_bytes(
+                        db,
+                        content or b"",
+                        filename=filename,
+                        farm=farm,
+                        source_message_id=message_id,
+                        source_received=source.get("received"),
+                    )
+                    batch_results = [rotary_result]
+                else:
+                    batch_results = import_milk_flow_bytes(
+                        db,
+                        content or b"",
+                        filename=filename,
+                        farm=farm,
+                        source_message_id=message_id,
+                        source_received=source.get("received"),
+                        force=False,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                files_skipped += 1
+                # UnicodeDecodeError subclasses ValueError — treat binary/.xls failures clearly.
+                if isinstance(exc, UnicodeDecodeError) or (
+                    "utf-8" in str(exc).lower() and "codec" in str(exc).lower()
+                ):
+                    skipped_files.append(
+                        f"{filename}: looks like Excel .xls named .csv — "
+                        "needs xlrd (pip install xlrd / redeploy). "
+                        f"Detail: {exc}"
+                    )
+                else:
+                    skipped_files.append(f"{filename}: {type(exc).__name__}: {exc}")
+                logger.exception("Failed to import parlour attachment %s", filename)
+                continue
 
-        if attachment_key:
-            known_keys.add(attachment_key)
-        files_processed += 1
-        shifts_imported += len(applied)
-        rows_imported += sum(r.get("rows_imported", 0) for r in applied)
-        results.extend(batch_results)
-        with _lock:
-            if _import_status.get("status") == "running":
-                _import_status["message"] = (
-                    f"Imported {files_processed} file(s), "
-                    f"{shifts_imported} shift(s)…"
+            applied = [r for r in batch_results if not r.get("skipped")]
+            if not applied:
+                files_skipped += 1
+                skipped_files.append(f"{filename}: skipped (older than existing import)")
+                continue
+
+            if attachment_key:
+                known_keys.add(attachment_key)
+            files_processed += 1
+            shifts_imported += len(applied)
+            rows_imported += sum(r.get("rows_imported", 0) for r in applied)
+            # Keep slim summaries only — full batch payloads retain row lists.
+            for item in applied:
+                results.append(
+                    {
+                        "farm": item.get("farm"),
+                        "milking_date": item.get("milking_date"),
+                        "shift": item.get("shift"),
+                        "rows_imported": item.get("rows_imported"),
+                        "source_filename": item.get("source_filename") or filename,
+                    }
                 )
+            with _lock:
+                if _import_status.get("status") == "running":
+                    _import_status["message"] = (
+                        f"Imported {files_processed} file(s), "
+                        f"{shifts_imported} shift(s)…"
+                    )
+        finally:
+            # Release attachment bytes + ORM identity map between files so the
+            # web process (often 512MB) does not accumulate peak across a scan.
+            content = None
+            source.clear()
+            db.expire_all()
+            gc.collect()
 
     return {
         "files_processed": files_processed,

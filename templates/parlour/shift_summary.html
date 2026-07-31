@@ -1462,13 +1462,16 @@
       let days = null;
       const sinceLast = scope === "since_last";
       if (scope === "custom") {
-        const input = window.prompt("How many days back should I scan the mailboxes?", "90");
+        const input = window.prompt(
+          "How many days back should I scan the mailboxes? (max 14 — longer scans can run the server out of memory)",
+          "7"
+        );
         if (input === null) return;
         days = parseInt(input, 10);
-        if (!Number.isFinite(days) || days <= 0) {
+        if (!Number.isFinite(days) || days <= 0 || days > 14) {
           importMsg.hidden = false;
           importMsg.className = "message warn";
-          importMsg.textContent = "Enter a positive whole number of days.";
+          importMsg.textContent = "Enter a whole number of days between 1 and 14.";
           return;
         }
       }

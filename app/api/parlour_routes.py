@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.auth.deps import require_action, require_page
 from app.auth.import_key import require_import_or_action
 from app.auth.permissions import ACTION_PARLOUR_IMPORT, PAGE_PARLOUR
+from app.config import PARLOUR_LOOKBACK_DAYS
 from app.db import SessionLocal, get_db
 from app.models import ParlourMilkFlowImport, User
 from app.services.parlour_email_import import (
@@ -313,11 +314,15 @@ def api_parlour_import_status(
     return get_import_status()
 
 
+# UI/custom mailbox scans share the web process RAM; keep lookbacks modest.
+_MAX_UI_IMPORT_DAYS = 14
+
+
 @router.post("/import")
 def api_parlour_import(
     background_tasks: BackgroundTasks,
     full_history: bool = Query(False),
-    days: int | None = Query(None, ge=1),
+    days: int | None = Query(None, ge=1, le=_MAX_UI_IMPORT_DAYS),
     since_last_import: bool = Query(
         False,
         description="Scan only mail newer than the latest successful import.",
@@ -334,23 +339,33 @@ def api_parlour_import(
         )
     if is_import_running():
         return {"status": "running", "message": "Import already in progress."}
+    if full_history:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Full-history parlour import is disabled on the web service. "
+                "Use the cron script with an explicit --days value instead."
+            ),
+        )
 
-    mark_import_started(days=days, since_last_import=since_last_import)
+    # Prefer since_last; otherwise cap default "recent" scans so the web
+    # worker does not buffer weeks of Excel attachments.
+    effective_days = days
+    if not since_last_import and effective_days is None:
+        effective_days = min(PARLOUR_LOOKBACK_DAYS, _MAX_UI_IMPORT_DAYS)
+
+    mark_import_started(days=effective_days, since_last_import=since_last_import)
     background_tasks.add_task(
         run_import_in_background,
         SessionLocal,
-        full_history=full_history,
-        days=days,
+        full_history=False,
+        days=effective_days,
         since_last_import=since_last_import,
     )
     message = (
-        f"Scanning last {days} day(s)…"
-        if days
-        else (
-            "Scanning since last import…"
-            if since_last_import
-            else "Parlour milk-flow import started."
-        )
+        "Scanning since last import…"
+        if since_last_import
+        else f"Scanning last {effective_days} day(s)…"
     )
     return {"status": "started", "message": message}
 

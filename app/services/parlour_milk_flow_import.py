@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import gc
 import logging
 from typing import Any
 
@@ -196,6 +197,9 @@ def import_milk_flow_bytes(
             date_to=milking_date,
         )
     db.commit()
+    db.expire_all()
+    del reports
+    gc.collect()
     return results
 
 
