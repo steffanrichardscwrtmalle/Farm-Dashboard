@@ -48,6 +48,7 @@ from app.services.parlour_scatter import (
 from app.services.parlour_shift_summary import (
     TREND_METRIC_KEYS,
     list_shift_summaries,
+    list_stall_issues,
     milking_point_metric_trend,
     pen_metric_trend,
 )
@@ -98,6 +99,32 @@ def api_parlour_shift_summary(
         include_pens=include_pens,
         include_milking_points=include_milking_points,
         include_problem_stalls=include_problem_stalls,
+    )
+
+
+@router.get("/stall-issues")
+def api_parlour_stall_issues(
+    farm: str = Query(...),
+    date_from: dt.date | None = Query(None),
+    date_to: dt.date | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_PARLOUR)),
+):
+    farm_key = farm.upper()
+    if farm_key not in {"CM", "GAD"}:
+        raise HTTPException(status_code=400, detail="farm must be CM or GAD")
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
+    if date_from and date_to and (date_to - date_from).days > 31:
+        raise HTTPException(
+            status_code=400,
+            detail="Stall Issues date range cannot exceed 31 days.",
+        )
+    return list_stall_issues(
+        db,
+        farm=farm_key,
+        date_from=date_from,
+        date_to=date_to,
     )
 
 

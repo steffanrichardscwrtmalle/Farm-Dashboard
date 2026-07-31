@@ -16,13 +16,18 @@ from app.services.genomic_import import normalize_hbn
 
 
 def _last12_digits(value: Any) -> str | None:
-    """Return the last 12 digits of a registration string, ignoring non-digits."""
+    """Return a comparable digit key for a sire registration.
+
+    Keeps the last 12 digits (ignoring letters / spaces), then strips leading
+    zeros so genomic ``003244007413`` matches inventory ``3244007413``.
+    """
     if value is None:
         return None
     digits = re.sub(r"\D", "", str(value))
     if not digits:
         return None
-    return digits[-12:]
+    key = digits[-12:].lstrip("0")
+    return key or "0"
 
 
 def list_sire_conflicts(
@@ -33,8 +38,8 @@ def list_sire_conflicts(
     """Animals present in both inventory and genomic results whose SREG disagree.
 
     Comparison uses the last 12 digits of each registration (so differing country
-    prefixes / lengths still match). Only animals where both sides have a value and
-    the last-12 digits differ are reported as conflicts.
+    prefixes / lengths still match) and ignores leading zeros. Only animals where
+    both sides have a value and the normalised keys differ are reported as conflicts.
     """
     selected_farms = normalize_farms(farms)
     if not selected_farms:

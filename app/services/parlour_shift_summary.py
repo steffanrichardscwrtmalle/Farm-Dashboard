@@ -409,6 +409,20 @@ def _previous_shift(milking_date: dt.date, shift: str) -> tuple[dt.date, str]:
     return milking_date - dt.timedelta(days=1), SHIFT_SEQUENCE[-1]
 
 
+def _previous_existing_shift(
+    milking_date: dt.date,
+    shift: str,
+    existing: set[tuple[dt.date, str]],
+) -> tuple[dt.date, str] | None:
+    """Walk back through SHIFT_SEQUENCE until a shift that was actually milked."""
+    date_cur, shift_cur = milking_date, shift
+    for _ in range(len(SHIFT_SEQUENCE) * 3):
+        date_cur, shift_cur = _previous_shift(date_cur, shift_cur)
+        if (date_cur, shift_cur) in existing:
+            return date_cur, shift_cur
+    return None
+
+
 def _alert_metrics_for_points(points: list[dict[str, Any]]) -> dict[Any, set[str]]:
     """Map milking_point -> set of metric keys that are ≥2 SD bad within this shift."""
     alerts: dict[Any, set[str]] = defaultdict(set)
@@ -438,17 +452,20 @@ def _annotate_milking_point_outliers(
     """Add outlier_flags to each point; return problem_stall_count per (date, shift).
 
     alert = ≥2 SD bad this shift
-    problem = alert this shift AND alert on same metric in the previous shift
+    problem = alert this shift AND alert on same metric in the previous
+    milked shift (skips missing labels such as Evening when the farm runs
+    Morning / Day / Night).
     """
     alert_by_shift: dict[tuple[dt.date, str], dict[Any, set[str]]] = {}
     for key, points in by_shift.items():
         alert_by_shift[key] = _alert_metrics_for_points(points)
 
+    existing_keys = set(by_shift.keys())
     problem_counts: dict[tuple[dt.date, str], int] = {}
     for key, points in by_shift.items():
         milking_date, shift = key
-        prev_key = _previous_shift(milking_date, shift)
-        prev_alerts = alert_by_shift.get(prev_key, {})
+        prev_key = _previous_existing_shift(milking_date, shift, existing_keys)
+        prev_alerts = alert_by_shift.get(prev_key, {}) if prev_key else {}
         cur_alerts = alert_by_shift.get(key, {})
         problem_points: set[Any] = set()
         for p in points:
@@ -1383,4 +1400,146 @@ def pen_metric_trend(
         "dates": date_list,
         "series": _series_from_shift_points(by_shift),
         "point_count": len(date_list),
+    }
+
+
+def list_stall_issues(
+    db: Session,
+    *,
+    farm: str,
+    date_from: dt.date | None = None,
+    date_to: dt.date | None = None,
+) -> dict[str, Any]:
+    """Matrix of milking points × days: count of shifts each stall was a problem.
+
+    Uses the same definition as Performance: problem = ≥2 SD alert this shift
+    and the same metric alerted on the previous shift.
+    """
+    farm_key = farm.upper()
+    if date_to is None:
+        date_to = db.scalar(
+            select(func.max(ParlourMilkFlowRow.milking_date)).where(
+                ParlourMilkFlowRow.farm == farm_key
+            )
+        )
+    if date_to is None:
+        return {
+            "farm": farm_key,
+            "date_from": None,
+            "date_to": None,
+            "dates": [],
+            "rows": [],
+        }
+    if date_from is None:
+        date_from = date_to - dt.timedelta(days=6)
+
+    # Prior calendar day so Morning can compare to previous Night.
+    query_from = date_from - dt.timedelta(days=1)
+
+    stmt = select(
+        ParlourMilkFlowRow.milking_date,
+        ParlourMilkFlowRow.shift,
+        ParlourMilkFlowRow.start_seconds,
+        ParlourMilkFlowRow.duration_seconds,
+        ParlourMilkFlowRow.lag_phase_seconds,
+        ParlourMilkFlowRow.milking_point,
+        ParlourMilkFlowRow.yield_kg,
+        ParlourMilkFlowRow.flow_15s,
+        ParlourMilkFlowRow.flow_30s,
+        ParlourMilkFlowRow.flow_60s,
+        ParlourMilkFlowRow.flow_120s,
+        ParlourMilkFlowRow.pct_2_minutes,
+        ParlourMilkFlowRow.milk_yield_2_minutes,
+        ParlourMilkFlowRow.flow_rate_at_removal,
+        ParlourMilkFlowRow.average_flow,
+        ParlourMilkFlowRow.peak_flow,
+    ).where(
+        ParlourMilkFlowRow.farm == farm_key,
+        ParlourMilkFlowRow.milking_date >= query_from,
+        ParlourMilkFlowRow.milking_date <= date_to,
+    )
+
+    grouped: dict[tuple[dt.date, str], list[dict[str, Any]]] = defaultdict(list)
+    for (
+        milking_date,
+        shift_name,
+        start_s,
+        dur_s,
+        lag_s,
+        milking_point,
+        yield_kg,
+        flow_15s,
+        flow_30s,
+        flow_60s,
+        flow_120s,
+        pct_2_minutes,
+        milk_yield_2_minutes,
+        flow_rate_at_removal,
+        average_flow,
+        peak_flow,
+    ) in db.execute(stmt):
+        grouped[(milking_date, shift_name)].append(
+            {
+                "start_seconds": start_s,
+                "duration_seconds": dur_s,
+                "lag_phase_seconds": lag_s,
+                "milking_point": milking_point,
+                "yield_kg": yield_kg,
+                "flow_15s": flow_15s,
+                "flow_30s": flow_30s,
+                "flow_60s": flow_60s,
+                "flow_120s": flow_120s,
+                "pct_2_minutes": pct_2_minutes,
+                "milk_yield_2_minutes": milk_yield_2_minutes,
+                "flow_rate_at_removal": flow_rate_at_removal,
+                "average_flow": average_flow,
+                "peak_flow": peak_flow,
+            }
+        )
+
+    by_shift: dict[tuple[dt.date, str], list[dict[str, Any]]] = {
+        key: _milking_point_summary_from_cows(cows) for key, cows in grouped.items()
+    }
+    _annotate_milking_point_outliers(by_shift)
+
+    dates = [
+        date_from + dt.timedelta(days=offset)
+        for offset in range((date_to - date_from).days + 1)
+    ]
+    date_isos = [d.isoformat() for d in dates]
+
+    # milking_point -> date_iso -> problem shift count
+    counts: dict[Any, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    points_seen: set[Any] = set()
+
+    for (milking_date, _shift), points in by_shift.items():
+        if milking_date < date_from or milking_date > date_to:
+            continue
+        date_iso = milking_date.isoformat()
+        for point in points:
+            point_id = point.get("milking_point")
+            if point_id is None:
+                continue
+            points_seen.add(point_id)
+            flags = point.get("outlier_flags") or {}
+            if any(flag == "problem" for flag in flags.values()):
+                counts[point_id][date_iso] += 1
+
+    rows: list[dict[str, Any]] = []
+    for point_id in sorted(points_seen, key=lambda p: (p is None, p if p is not None else 0)):
+        by_date = {d: int(counts[point_id].get(d, 0)) for d in date_isos}
+        rows.append(
+            {
+                "milking_point": point_id,
+                "by_date": by_date,
+                "total": sum(by_date.values()),
+            }
+        )
+
+    return {
+        "farm": farm_key,
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+        "dates": date_isos,
+        "rows": rows,
     }
