@@ -229,25 +229,6 @@ def resolve_import_since(
     return now - dt.timedelta(days=PARLOUR_LOOKBACK_DAYS)
 
 
-def _known_attachment_keys(db: Session) -> set[tuple[str, str]]:
-    """Keys of (message_id, filename) already stored for milk-flow only.
-
-    Rotary Entry ID attachments are not skipped: cumulative dumps are re-applied
-    over their date window so Date+time corrections and later emails refresh lag.
-    """
-    rows = db.execute(
-        select(
-            ParlourMilkFlowImport.source_message_id,
-            ParlourMilkFlowImport.source_filename,
-        ).where(ParlourMilkFlowImport.source_message_id.isnot(None))
-    )
-    return {
-        (mid, (filename or "").casefold())
-        for mid, filename in rows
-        if mid
-    }
-
-
 def import_parlour_milk_flow(
     db: Session,
     *,
@@ -267,7 +248,6 @@ def import_parlour_milk_flow(
         days=days,
         since_last_import=since_last_import,
     )
-    known_keys = _known_attachment_keys(db)
 
     files_processed = 0
     files_skipped = 0
@@ -280,16 +260,11 @@ def import_parlour_milk_flow(
     for source in _iter_sources(warnings, since):
         filename = source.get("source_file") or "unknown"
         message_id = source.get("message_id")
-        attachment_key = (
-            (message_id, filename.casefold()) if message_id else None
-        )
         content = source.pop("content", None)
         try:
-            if attachment_key and attachment_key in known_keys:
-                files_skipped += 1
-                skipped_files.append(f"{filename}: skipped (already imported)")
-                continue
-
+            # Re-parse milk-flow attachments in the lookback window so CM Morning
+            # date corrections can apply once Day/Night peers exist. Upsert still
+            # skips older emails for the same farm/date/shift.
             farm = detect_farm_from_filename(filename) or source.get("mailbox_farm")
             try:
                 if is_rotary_entry_id_filename(filename):
@@ -335,8 +310,6 @@ def import_parlour_milk_flow(
                 skipped_files.append(f"{filename}: skipped (older than existing import)")
                 continue
 
-            if attachment_key:
-                known_keys.add(attachment_key)
             files_processed += 1
             shifts_imported += len(applied)
             rows_imported += sum(r.get("rows_imported", 0) for r in applied)

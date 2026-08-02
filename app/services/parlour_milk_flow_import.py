@@ -6,6 +6,7 @@ import datetime as dt
 import gc
 import logging
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -13,10 +14,65 @@ from sqlalchemy.orm import Session
 from app.models import ParlourMilkFlowImport, ParlourMilkFlowRow
 from app.services.parlour_milk_flow_parse import (
     ParsedMilkFlowReport,
+    detect_farm_from_filename,
     parse_milk_flow_report,
 )
 
+_UK = ZoneInfo("Europe/London")
+
 logger = logging.getLogger(__name__)
+
+
+def peer_non_morning_dates(db: Session, farm: str) -> set[dt.date]:
+    """Calendar dates that already have Day/Night/Evening imports for a farm."""
+    farm_key = (farm or "").upper()
+    if farm_key not in {"CM", "GAD"}:
+        return set()
+    rows = db.execute(
+        select(ParlourMilkFlowImport.milking_date).where(
+            ParlourMilkFlowImport.farm == farm_key,
+            ParlourMilkFlowImport.shift != "Morning",
+        )
+    ).scalars()
+    return {d for d in rows if d is not None}
+
+
+def _delete_orphan_imports_for_source(
+    db: Session,
+    *,
+    farm: str,
+    source_message_id: str,
+    source_filename: str,
+    keep: set[tuple[dt.date, str]],
+) -> int:
+    """Remove prior batches from the same email attachment that remapped dates."""
+    filename_key = (source_filename or "").casefold()
+    batches = list(
+        db.scalars(
+            select(ParlourMilkFlowImport).where(
+                ParlourMilkFlowImport.farm == farm,
+                ParlourMilkFlowImport.source_message_id == source_message_id,
+            )
+        )
+    )
+    removed = 0
+    for batch in batches:
+        if (batch.source_filename or "").casefold() != filename_key:
+            continue
+        if (batch.milking_date, batch.shift) in keep:
+            continue
+        logger.info(
+            "Removing orphan milk-flow import farm=%s date=%s shift=%s "
+            "(source remapped date)",
+            batch.farm,
+            batch.milking_date,
+            batch.shift,
+        )
+        db.delete(batch)
+        removed += 1
+    if removed:
+        db.flush()
+    return removed
 
 
 def _parse_received(value: Any) -> dt.datetime | None:
@@ -31,6 +87,22 @@ def _parse_received(value: Any) -> dt.datetime | None:
     if parsed.tzinfo is not None:
         parsed = parsed.astimezone(dt.timezone.utc).replace(tzinfo=None)
     return parsed
+
+
+def milking_date_from_received(value: Any) -> dt.date | None:
+    """UK calendar day of an email received timestamp (for missing Date columns)."""
+    if isinstance(value, dt.datetime):
+        parsed = value
+    elif not value:
+        return None
+    else:
+        try:
+            parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(_UK).date()
 
 
 def _upsert_parsed_report(
@@ -174,11 +246,25 @@ def import_milk_flow_bytes(
         match_rotary_entry_ids_to_milkings,
     )
 
-    reports = parse_milk_flow_report(content, filename=filename, farm=farm)
+    resolved_farm = (farm or detect_farm_from_filename(filename) or "").upper()
+    peers = (
+        peer_non_morning_dates(db, resolved_farm) if resolved_farm else set()
+    )
     received = _parse_received(source_received)
+    reports = parse_milk_flow_report(
+        content,
+        filename=filename,
+        farm=farm or resolved_farm or None,
+        peer_non_morning_dates=peers,
+        fallback_date=milking_date_from_received(source_received),
+    )
     results: list[dict] = []
     rematch_dates: set[tuple[str, dt.date]] = set()
+    keep_keys: set[tuple[dt.date, str]] = set()
+    report_farm = resolved_farm
     for parsed in reports:
+        report_farm = parsed.farm
+        keep_keys.add((parsed.milking_date, parsed.shift))
         result = _upsert_parsed_report(
             db,
             parsed,
@@ -188,7 +274,16 @@ def import_milk_flow_bytes(
         )
         if result is not None:
             results.append(result)
-            rematch_dates.add((parsed.farm, parsed.milking_date))
+            if not result.get("skipped"):
+                rematch_dates.add((parsed.farm, parsed.milking_date))
+    if source_message_id and report_farm and keep_keys:
+        _delete_orphan_imports_for_source(
+            db,
+            farm=report_farm,
+            source_message_id=source_message_id,
+            source_filename=filename,
+            keep=keep_keys,
+        )
     for farm_key, milking_date in sorted(rematch_dates):
         match_rotary_entry_ids_to_milkings(
             db,

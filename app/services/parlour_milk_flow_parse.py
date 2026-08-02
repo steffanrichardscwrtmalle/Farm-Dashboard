@@ -302,18 +302,80 @@ def read_milk_flow_dataframe(content: bytes) -> pd.DataFrame:
         raise ValueError(f"Could not read milk-flow report: {exc}") from exc
 
 
+MORNING_EVENING_START_SECONDS = 12 * 3600
+
+
+def _morning_looks_overnight(start_seconds_list: list[int]) -> bool | None:
+    """True if Morning rows span evening→dawn (previous-day Date stamp)."""
+    if not start_seconds_list:
+        return None
+    evening = sum(1 for s in start_seconds_list if s >= MORNING_EVENING_START_SECONDS)
+    morning = sum(1 for s in start_seconds_list if s < MORNING_EVENING_START_SECONDS)
+    if evening > 0 and morning > 0:
+        return True
+    if morning > 0 and evening == 0:
+        return False
+    if evening > 0 and morning == 0:
+        return True
+    return None
+
+
+def resolve_cm_morning_date(
+    raw_date: dt.date,
+    *,
+    peer_non_morning_dates: set[dt.date],
+    start_seconds_list: list[int] | None = None,
+) -> dt.date:
+    """Map CM Morning report Date onto the calendar milking day.
+
+    Older Dataflow exports stamp Morning with the previous calendar date (so we
+    add one day). Newer exports already use the milking day. Prefer aligning with
+    Day/Night dates from the same file or already imported for that farm; when
+    that is ambiguous, overnight start times imply a previous-day stamp.
+    """
+    bumped = raw_date + dt.timedelta(days=1)
+    raw_peer = raw_date in peer_non_morning_dates
+    bumped_peer = bumped in peer_non_morning_dates
+    if raw_peer and not bumped_peer:
+        return raw_date
+    if bumped_peer and not raw_peer:
+        return bumped
+
+    overnight = _morning_looks_overnight(start_seconds_list or [])
+    if overnight is True:
+        return bumped
+    if overnight is False:
+        return raw_date
+
+    # Both peer dates exist (e.g. previous Night + next Day): prefer the raw
+    # date — current Dataflow stamps Morning on the milking day.
+    if raw_peer:
+        return raw_date
+    # No peer / clock signal — legacy +1 for older previous-day stamps.
+    return bumped
+
+
 def parse_milk_flow_report(
     content: bytes,
     *,
     filename: str = "",
     farm: str | None = None,
+    peer_non_morning_dates: set[dt.date] | None = None,
+    fallback_date: dt.date | None = None,
 ) -> list[ParsedMilkFlowReport]:
     """Parse a milk-flow file into one report per (date, shift).
 
     Combined exports with multiple shifts (or days) are split automatically.
+
+    ``fallback_date`` is used when the Date column is missing or blank (some
+    Dataflow exports omit it). Prefer the email received calendar day in the
+    farm timezone. Dates filled from the fallback skip the CM Morning +1 quirk,
+    because received time is already on the milking day.
     """
     df = read_milk_flow_dataframe(content)
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    if "Date" in missing and fallback_date is not None:
+        missing = [c for c in missing if c != "Date"]
     if missing:
         raise ValueError(
             f"Milk flow report is missing columns: {', '.join(missing)}"
@@ -326,49 +388,107 @@ def parse_milk_flow_report(
             "filename, or pass farm explicitly."
         )
 
-    rows: list[ParsedMilkFlowRow] = []
+    draft: list[dict[str, Any]] = []
     for _, raw in df.iterrows():
         raw_shift = _to_str(raw.get("Shift"))
-        milking_date = _to_date(raw.get("Date"))
+        raw_date = _to_date(raw.get("Date")) if "Date" in df.columns else None
+        date_from_fallback = False
+        if raw_date is None and fallback_date is not None:
+            raw_date = fallback_date
+            date_from_fallback = True
         cow_id = _to_cow_id(raw.get("ID"))
         start_seconds = _to_seconds(raw.get("Cow Milking Start Time"))
         # Skip trailing summary/total rows (no shift, date, or milking start).
-        if not raw_shift or not milking_date or not cow_id or start_seconds is None:
+        if not raw_shift or not raw_date or not cow_id or start_seconds is None:
             continue
         shift = normalize_shift_name(raw_shift)
-        # CM Dataflow labels Morning shifts with the previous calendar date.
-        # GAD Morning dates are already correct — do not bump.
-        if resolved_farm == "CM" and shift.casefold() == "morning":
-            milking_date = milking_date + dt.timedelta(days=1)
-        rows.append(
-            ParsedMilkFlowRow(
-                cow_id=cow_id,
-                milking_date=milking_date,
-                shift=shift,
-                pen=_to_int(raw.get("Pen")),
-                milking_point=_to_int(raw.get("Milking Point")),
-                dim=_to_int(raw.get("DIM")),
-                yield_kg=_to_float(raw.get("Yield")),
-                average_flow=_to_float(raw.get("Average Flow")),
-                peak_flow=_to_float(raw.get("Peak Flow")),
-                time_to_peak_seconds=_to_seconds(raw.get("Time To Peak")),
-                flow_15s=_to_float(raw.get("15s Flow")),
-                flow_30s=_to_float(raw.get("30s Flow")),
-                flow_60s=_to_float(raw.get("60s Flow")),
-                flow_120s=_to_float(raw.get("120s Flow")),
-                pct_2_minutes=_to_float(raw.get("% 2 minutes")),
-                milk_yield_2_minutes=_to_float(raw.get("Milk Yield at 2 Minutes")),
-                flow_rate_at_removal=_to_float(raw.get("Flow Rate at Removal")),
-                duration_seconds=_to_seconds(raw.get("Duration")),
-                start_seconds=start_seconds,
-                identified_at_milking=_to_str(raw.get("Identified At Milking")),
-                final_detaching=_to_str(raw.get("Final Detaching")),
-                extra_attachments=_to_str(raw.get("Extra Attachments")),
-            )
+        draft.append(
+            {
+                "cow_id": cow_id,
+                "raw_date": raw_date,
+                "date_from_fallback": date_from_fallback,
+                "shift": shift,
+                "pen": _to_int(raw.get("Pen")),
+                "milking_point": _to_int(raw.get("Milking Point")),
+                "dim": _to_int(raw.get("DIM")),
+                "yield_kg": _to_float(raw.get("Yield")),
+                "average_flow": _to_float(raw.get("Average Flow")),
+                "peak_flow": _to_float(raw.get("Peak Flow")),
+                "time_to_peak_seconds": _to_seconds(raw.get("Time To Peak")),
+                "flow_15s": _to_float(raw.get("15s Flow")),
+                "flow_30s": _to_float(raw.get("30s Flow")),
+                "flow_60s": _to_float(raw.get("60s Flow")),
+                "flow_120s": _to_float(raw.get("120s Flow")),
+                "pct_2_minutes": _to_float(raw.get("% 2 minutes")),
+                "milk_yield_2_minutes": _to_float(raw.get("Milk Yield at 2 Minutes")),
+                "flow_rate_at_removal": _to_float(raw.get("Flow Rate at Removal")),
+                "duration_seconds": _to_seconds(raw.get("Duration")),
+                "start_seconds": start_seconds,
+                "identified_at_milking": _to_str(raw.get("Identified At Milking")),
+                "final_detaching": _to_str(raw.get("Final Detaching")),
+                "extra_attachments": _to_str(raw.get("Extra Attachments")),
+            }
         )
 
-    if not rows:
+    if not draft:
         raise ValueError("No valid cow milking rows found in the report.")
+
+    file_peers = {
+        item["raw_date"]
+        for item in draft
+        if str(item["shift"]).casefold() != "morning"
+    }
+    peers = set(peer_non_morning_dates or ()) | file_peers
+    morning_starts_by_date: dict[dt.date, list[int]] = {}
+    for item in draft:
+        if str(item["shift"]).casefold() != "morning":
+            continue
+        morning_starts_by_date.setdefault(item["raw_date"], []).append(
+            int(item["start_seconds"])
+        )
+
+    rows: list[ParsedMilkFlowRow] = []
+    for item in draft:
+        milking_date = item["raw_date"]
+        # CM Dataflow sometimes labels Morning with the previous calendar date.
+        # GAD Morning dates are already correct — do not bump.
+        # Skip bump when Date was filled from email received time.
+        if (
+            resolved_farm == "CM"
+            and str(item["shift"]).casefold() == "morning"
+            and not item.get("date_from_fallback")
+        ):
+            milking_date = resolve_cm_morning_date(
+                item["raw_date"],
+                peer_non_morning_dates=peers,
+                start_seconds_list=morning_starts_by_date.get(item["raw_date"]),
+            )
+        rows.append(
+            ParsedMilkFlowRow(
+                cow_id=item["cow_id"],
+                milking_date=milking_date,
+                shift=item["shift"],
+                pen=item["pen"],
+                milking_point=item["milking_point"],
+                dim=item["dim"],
+                yield_kg=item["yield_kg"],
+                average_flow=item["average_flow"],
+                peak_flow=item["peak_flow"],
+                time_to_peak_seconds=item["time_to_peak_seconds"],
+                flow_15s=item["flow_15s"],
+                flow_30s=item["flow_30s"],
+                flow_60s=item["flow_60s"],
+                flow_120s=item["flow_120s"],
+                pct_2_minutes=item["pct_2_minutes"],
+                milk_yield_2_minutes=item["milk_yield_2_minutes"],
+                flow_rate_at_removal=item["flow_rate_at_removal"],
+                duration_seconds=item["duration_seconds"],
+                start_seconds=item["start_seconds"],
+                identified_at_milking=item["identified_at_milking"],
+                final_detaching=item["final_detaching"],
+                extra_attachments=item["extra_attachments"],
+            )
+        )
 
     by_shift: dict[tuple[dt.date, str], list[ParsedMilkFlowRow]] = {}
     for row in rows:
