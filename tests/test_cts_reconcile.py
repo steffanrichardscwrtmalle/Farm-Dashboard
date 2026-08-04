@@ -9,7 +9,7 @@ from xml.etree import ElementTree as ET
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Base, CtsOnHolding, HerdInventory
+from app.models import Base, CowEvent, CtsOnHolding, HerdInventory
 from app.services.cts_client import normalize_cts_etag, parse_holding_animals_xml
 from app.services.cts_reconcile import reconcile_farm, replace_on_holding_snapshot
 
@@ -86,6 +86,15 @@ def test_reconcile_farm_buckets() -> None:
             category="Bull",
         )
     )
+    # Exit event for one CTS-only animal
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="UK000987654321",
+            event="SOLD",
+            event_date=dt.date.today() - dt.timedelta(days=12),
+        )
+    )
     session.commit()
 
     result = reconcile_farm(session, "CM")
@@ -97,6 +106,11 @@ def test_reconcile_farm_buckets() -> None:
         "UK987654321",
         "BE214283270",
     }
+    sold = next(r for r in result["cts_only"] if r["etag"] == "UK987654321")
+    assert sold["exit_event"] == "SOLD"
+    assert sold["days_since_exit"] == 12
+    no_exit = next(r for r in result["cts_only"] if r["etag"] == "BE214283270")
+    assert no_exit["days_since_exit"] is None
     assert result["inventory_only"][0]["etag"] == "UK555555555555"
     assert result["inventory_only"][0]["cow_id"] == "202"
     assert result["inventory_only"][0]["age_days"] is not None

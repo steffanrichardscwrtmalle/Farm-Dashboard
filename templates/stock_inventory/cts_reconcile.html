@@ -172,6 +172,8 @@
               <th data-sort="on_date">On date</th>
               <th data-sort="age_months">Age (m)</th>
               <th data-sort="age_days">Age (d)</th>
+              <th data-sort="exit_event">Exit</th>
+              <th data-sort="days_since_exit">Days since exit</th>
             </tr>
           </thead>
           <tbody id="cts-only-body"></tbody>
@@ -318,7 +320,7 @@
 
   function sortRows(rows, state) {
     const { key, dir } = state;
-    const numeric = key === "age_months" || key === "age_days";
+    const numeric = key === "age_months" || key === "age_days" || key === "days_since_exit";
     return [...rows].sort((a, b) => {
       let av = a[key];
       let bv = b[key];
@@ -380,7 +382,7 @@
     renderTable(
       "cts-only-body", "cts-only-empty", "cts-only-heading",
       ctsRows,
-      ["farm", "etag", "breed", "sex", "dob", "on_date", "age_months", "age_days"],
+      ["farm", "etag", "breed", "sex", "dob", "on_date", "age_months", "age_days", "exit_event", "days_since_exit"],
       agg.cts_only_count
     );
 

@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.models import CtsOnHolding, CtsSyncRun, HerdInventory
+from app.models import CowEvent, CtsOnHolding, CtsSyncRun, HerdInventory
 from app.services.cts_client import (
     CtsError,
     cts_status,
@@ -18,6 +18,8 @@ from app.services.cts_client import (
 )
 
 logger = logging.getLogger(__name__)
+
+_EXIT_EVENTS = ("SOLD", "DIED")
 
 
 def _age_days(dob: dt.date | None, *, as_of: dt.date | None = None) -> int | None:
@@ -79,11 +81,39 @@ def _cts_rows(db: Session, farm: str) -> list[CtsOnHolding]:
     )
 
 
+def _exit_by_etag(db: Session, farm: str) -> dict[str, dict[str, Any]]:
+    """Latest SOLD/DIED event per normalized etag for a farm."""
+    as_of = dt.date.today()
+    rows = db.execute(
+        select(CowEvent.etag, CowEvent.event, CowEvent.event_date).where(
+            CowEvent.farm == farm.upper(),
+            CowEvent.event.in_(_EXIT_EVENTS),
+            CowEvent.event_date.isnot(None),
+        )
+    ).all()
+    out: dict[str, dict[str, Any]] = {}
+    for etag, event, event_date in rows:
+        key = normalize_cts_etag(etag)
+        if not key or event_date is None:
+            continue
+        prev = out.get(key)
+        if prev is not None and prev["exit_date"] >= event_date:
+            continue
+        days = (as_of - event_date).days
+        out[key] = {
+            "exit_event": event,
+            "exit_date": event_date.isoformat(),
+            "days_since_exit": days if days >= 0 else None,
+        }
+    return out
+
+
 def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
     """Compare latest CTS snapshot to herd_inventory for one farm."""
     farm_key = farm.upper()
     cts_animals = _cts_rows(db, farm_key)
     inv = _inventory_etags(db, farm_key)
+    exits = _exit_by_etag(db, farm_key)
 
     cts_by_etag = {row.etag: row for row in cts_animals if row.etag}
     cts_keys = set(cts_by_etag)
@@ -111,6 +141,7 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
     as_of = dt.date.today()
 
     def _cts_dict(row: CtsOnHolding) -> dict[str, Any]:
+        exit_info = exits.get(row.etag) or {}
         return {
             "etag": row.etag,
             "breed": row.breed,
@@ -119,6 +150,9 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
             "on_date": row.on_date.isoformat() if row.on_date else None,
             "age_months": _age_months(row.dob, as_of=as_of),
             "age_days": _age_days(row.dob, as_of=as_of),
+            "exit_event": exit_info.get("exit_event"),
+            "exit_date": exit_info.get("exit_date"),
+            "days_since_exit": exit_info.get("days_since_exit"),
         }
 
     return {
