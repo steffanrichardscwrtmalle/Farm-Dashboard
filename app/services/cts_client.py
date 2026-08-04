@@ -21,6 +21,7 @@ from app.config import (
     CTS_DDTS_PASSWORD,
     CTS_DDTS_USERNAME,
     cts_ddts_is_configured,
+    cts_farm_credential_parts,
     cts_farm_credentials,
 )
 
@@ -290,11 +291,14 @@ def cts_configured_farms() -> list[str]:
 
 
 def cts_status() -> dict[str, Any]:
+    farm_parts = {farm: cts_farm_credential_parts(farm) for farm in ("CM", "GAD")}
     return {
         "ddts_configured": cts_ddts_is_configured(),
         "farms": {
-            farm: cts_farm_credentials(farm) is not None for farm in ("CM", "GAD")
+            farm: bool(parts) and all(parts.values())
+            for farm, parts in farm_parts.items()
         },
+        "farm_parts": farm_parts,
         "ready_farms": (
             cts_configured_farms() if cts_ddts_is_configured() else []
         ),

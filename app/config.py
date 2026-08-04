@@ -322,8 +322,8 @@ CTS_CTWS_PASSWORD_GAD = os.getenv("CTS_CTWS_PASSWORD_GAD", "").strip()
 CTS_HOLDING_GAD = os.getenv("CTS_HOLDING_GAD", "").strip()
 
 
-def cts_farm_credentials(farm: str) -> dict[str, str] | None:
-    """Return CTWS + holding config for CM/GAD, or None if incomplete."""
+def cts_farm_credential_parts(farm: str) -> dict[str, bool] | None:
+    """Which CTWS/holding pieces are set for a farm (booleans only; no secrets)."""
     key = (farm or "").strip().upper()
     if key == "CM":
         username, password, holding = (
@@ -339,9 +339,30 @@ def cts_farm_credentials(farm: str) -> dict[str, str] | None:
         )
     else:
         return None
-    if not (username and password and holding):
+    return {
+        "username": bool(username),
+        "password": bool(password),
+        "holding": bool(holding),
+    }
+
+
+def cts_farm_credentials(farm: str) -> dict[str, str] | None:
+    """Return CTWS + holding config for CM/GAD, or None if incomplete."""
+    key = (farm or "").strip().upper()
+    parts = cts_farm_credential_parts(key)
+    if parts is None or not all(parts.values()):
         return None
-    return {"username": username, "password": password, "holding": holding}
+    if key == "CM":
+        return {
+            "username": CTS_CTWS_USERNAME_CM,
+            "password": CTS_CTWS_PASSWORD_CM,
+            "holding": CTS_HOLDING_CM,
+        }
+    return {
+        "username": CTS_CTWS_USERNAME_GAD,
+        "password": CTS_CTWS_PASSWORD_GAD,
+        "holding": CTS_HOLDING_GAD,
+    }
 
 
 def cts_ddts_is_configured() -> bool:

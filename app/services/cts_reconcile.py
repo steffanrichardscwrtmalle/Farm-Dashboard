@@ -250,7 +250,26 @@ def sync_farms(
     warnings: list[str] = []
     for farm in requested:
         if farm not in status["farms"] or not status["farms"][farm]:
-            warnings.append(f"{farm}: CTS credentials/holding not configured — skipped")
+            parts = (status.get("farm_parts") or {}).get(farm) or {}
+            missing = [
+                name
+                for name, ok in (
+                    ("username", parts.get("username")),
+                    ("password", parts.get("password")),
+                    ("holding", parts.get("holding")),
+                )
+                if not ok
+            ]
+            detail = (
+                f"missing {', '.join(missing)}"
+                if missing
+                else "credentials/holding incomplete"
+            )
+            warnings.append(
+                f"{farm}: CTS {detail} — skipped "
+                f"(set CTS_CTWS_USERNAME_{farm}, CTS_CTWS_PASSWORD_{farm}, "
+                f"CTS_HOLDING_{farm} on the web service and redeploy)"
+            )
             continue
         try:
             results.append(sync_farm(db, farm, source=source))

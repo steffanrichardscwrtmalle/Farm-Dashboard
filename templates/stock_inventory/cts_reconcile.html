@@ -365,7 +365,13 @@
       }
       const farms = status.farms || {};
       if (farms[farm] === false) {
-        warnings.push(`${farm}: CTWS / holding not configured.`);
+        const parts = (status.farm_parts && status.farm_parts[farm]) || {};
+        const missing = ["username", "password", "holding"].filter((k) => !parts[k]);
+        warnings.push(
+          missing.length
+            ? `${farm}: missing ${missing.join(", ")} in env (CTS_CTWS_*_${farm} / CTS_HOLDING_${farm}). Redeploy after setting.`
+            : `${farm}: CTWS / holding not configured.`
+        );
       }
       if (warnings.length) setBanner("warn", warnings.join(" "));
       else setBanner("", "");
