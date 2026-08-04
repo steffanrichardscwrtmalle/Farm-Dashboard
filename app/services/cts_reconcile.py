@@ -97,14 +97,18 @@ def _exit_by_etag(db: Session, farm: str) -> dict[str, dict[str, Any]]:
         if not key or event_date is None:
             continue
         prev = out.get(key)
-        if prev is not None and prev["exit_date"] >= event_date:
+        if prev is not None and prev["_exit_date"] >= event_date:
             continue
         days = (as_of - event_date).days
         out[key] = {
+            "_exit_date": event_date,
             "exit_event": event,
             "exit_date": event_date.isoformat(),
             "days_since_exit": days if days >= 0 else None,
         }
+    # Drop internal compare helper before returning.
+    for payload in out.values():
+        payload.pop("_exit_date", None)
     return out
 
 

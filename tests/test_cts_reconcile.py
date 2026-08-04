@@ -86,7 +86,15 @@ def test_reconcile_farm_buckets() -> None:
             category="Bull",
         )
     )
-    # Exit event for one CTS-only animal
+    # Exit event for one CTS-only animal (two rows — latest should win)
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="UK000987654321",
+            event="SOLD",
+            event_date=dt.date.today() - dt.timedelta(days=40),
+        )
+    )
     session.add(
         CowEvent(
             farm="CM",
