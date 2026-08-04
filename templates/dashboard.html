@@ -2,8 +2,105 @@
 
 {% block page_heading %}Farm Dashboard{% endblock %}
 
+{% block extra_styles %}
+    .home-widgets {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+      gap: 1rem;
+      align-items: stretch;
+    }
+    .home-widget {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      color: inherit;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem 1.1rem;
+      background: #fff;
+      min-height: 7.5rem;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+    .home-widget:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+    }
+    .home-widget .widget-title {
+      font-size: 2.25rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      line-height: 1;
+      margin: 0;
+      text-align: center;
+    }
+    .home-widget.status-green {
+      background: #ecfdf5;
+      border-color: #6ee7b7;
+    }
+    .home-widget.status-green .widget-title { color: #166534; }
+    .home-widget.status-yellow {
+      background: #fffbeb;
+      border-color: #fcd34d;
+    }
+    .home-widget.status-yellow .widget-title { color: #92400e; }
+    .home-widget.status-red {
+      background: #fef2f2;
+      border-color: #fca5a5;
+    }
+    .home-widget.status-red .widget-title { color: #991b1b; }
+    .home-widget.status-unknown,
+    .home-widget.status-loading,
+    .home-widget.status-error {
+      background: #f8fafc;
+      border-color: var(--border);
+    }
+    .home-widget.status-unknown .widget-title,
+    .home-widget.status-loading .widget-title,
+    .home-widget.status-error .widget-title {
+      color: var(--muted);
+    }
+{% endblock %}
+
 {% block content %}
+  <div class="home-widgets">
+    {% if perms.page('bcms') %}
+    <a href="/bcms/record-movements" class="home-widget status-loading" id="bcms-health-widget" aria-label="BCMS status" aria-live="polite">
+      <p class="widget-title">BCMS</p>
+    </a>
+    {% else %}
     <div class="card">
       <p class="muted" style="margin:0">Use the sidebar to open a section.</p>
     </div>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block scripts %}
+{% if perms.page('bcms') %}
+<script>
+(() => {
+  const widget = document.getElementById("bcms-health-widget");
+  if (!widget) return;
+
+  async function loadHealth() {
+    try {
+      const res = await fetch("/api/cts/health");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        widget.className = "home-widget status-error";
+        return;
+      }
+      const status = data.status || "unknown";
+      widget.className = `home-widget status-${status}`;
+      if (data.href) widget.href = data.href;
+    } catch (_err) {
+      widget.className = "home-widget status-error";
+    }
+  }
+
+  loadHealth();
+})();
+</script>
+{% endif %}
 {% endblock %}

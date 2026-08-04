@@ -13,6 +13,7 @@ from app.auth.deps import require_action, require_page
 from app.auth.permissions import ACTION_CTS_SYNC, PAGE_BCMS
 from app.db import get_db
 from app.models import HERD_FARM_OPTIONS, User
+from app.services.bcms_health import get_bcms_health
 from app.services.cts_client import CtsError, cts_status
 from app.services.cts_movements import (
     list_awaiting_cts_movements,
@@ -69,6 +70,14 @@ def api_cts_status(
     _: User = Depends(require_page(PAGE_BCMS)),
 ):
     return cts_status()
+
+
+@router.get("/health")
+def api_cts_health(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BCMS)),
+) -> dict[str, Any]:
+    return get_bcms_health(db)
 
 
 @router.get("/reconcile")

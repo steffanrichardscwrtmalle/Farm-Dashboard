@@ -155,6 +155,13 @@
     .type-sale { background: #dbeafe; color: #1e40af; }
     .type-death { background: #fee2e2; color: #991b1b; }
     .type-move_on { background: #ffedd5; color: #9a3412; }
+    .cts-table tbody tr.row-overdue td {
+      background: #fef2f2;
+      color: #991b1b;
+    }
+    .cts-table tbody tr.row-overdue td .type-pill {
+      box-shadow: inset 0 0 0 1px #fca5a5;
+    }
     .empty-state { color: var(--muted); padding: 1rem 0.25rem; font-size: 0.875rem; }
     .help-note {
       margin: 0.75rem 0 0;
@@ -308,6 +315,22 @@
     return TYPE_LABELS[type] || type || "";
   }
 
+  // UK BCMS: births within 17 days; sales / deaths / on-movements within 3 days.
+  const REPORTING_DEADLINE_DAYS = {
+    birth: 17,
+    sale: 3,
+    death: 3,
+    move_on: 3,
+  };
+
+  function isOverdue(row) {
+    const days = row.days_since_event;
+    if (days == null || days === "") return false;
+    const limit = REPORTING_DEADLINE_DAYS[row.movement_type];
+    if (limit == null) return false;
+    return Number(days) > limit;
+  }
+
   function filterRows(rows) {
     const needle = (searchInput.value || "").trim().toUpperCase();
     if (!needle) return rows;
@@ -419,7 +442,7 @@
     if (helpNote) {
       helpNote.textContent = awaiting
         ? "Accepted BCMS submissions not yet reflected in cattle-on-holding. Births/move-ons stay until they appear on CTS; sales/deaths until they drop off. Sync CTS Reconcile after the overnight refresh to clear these."
-        : "Preview downloads RegBirths / RegMovs XML for the selection (password redacted). Accepted sends move to Awaiting CTS until the overnight cattle-on-holding list refreshes.";
+        : "Preview downloads RegBirths / RegMovs XML for the selection (password redacted). Accepted sends move to Awaiting CTS until the overnight cattle-on-holding list refreshes. Rows turn red when past UK reporting deadlines (births 17 days; sales/deaths/move-ons 3 days).";
     }
     emptyEl.textContent = awaiting
       ? "No accepted movements awaiting CTS refresh for this farm."
@@ -539,8 +562,9 @@
       tbody.innerHTML = rows.map((row) => {
         const checked = selected.has(row.id) ? " checked" : "";
         const typeClass = `type-${esc(row.movement_type || "")}`;
+        const overdue = isOverdue(row);
         return `
-          <tr data-id="${esc(row.id)}">
+          <tr data-id="${esc(row.id)}"${overdue ? ' class="row-overdue" title="Past UK BCMS reporting deadline"' : ""}>
             <td class="col-check"><input type="checkbox" class="row-check" data-id="${esc(row.id)}"${checked}></td>
             <td><span class="type-pill ${typeClass}">${esc(typeLabel(row.movement_type))}</span></td>
             <td>${esc(row.etag)}</td>
