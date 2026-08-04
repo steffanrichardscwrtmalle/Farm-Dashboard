@@ -41,13 +41,14 @@ def _inventory_etags(db: Session, farm: str) -> dict[str, dict[str, Any]]:
         select(
             HerdInventory.etag,
             HerdInventory.cow_id,
+            HerdInventory.sbrd,
             HerdInventory.gender,
             HerdInventory.bdat,
             HerdInventory.category,
         ).where(HerdInventory.farm == farm.upper())
     ).all()
     out: dict[str, dict[str, Any]] = {}
-    for etag, cow_id, gender, bdat, category in rows:
+    for etag, cow_id, sbrd, gender, bdat, category in rows:
         key = normalize_cts_etag(etag)
         if not key:
             continue
@@ -57,6 +58,7 @@ def _inventory_etags(db: Session, farm: str) -> dict[str, dict[str, Any]]:
             {
                 "etag": key,
                 "cow_id": cow_id or "",
+                "breed": (sbrd or "").strip().upper(),
                 "gender": gender or "",
                 "dob": bdat.isoformat() if bdat else None,
                 "category": category or "",

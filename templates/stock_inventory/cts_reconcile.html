@@ -112,7 +112,12 @@
       font-weight: 600;
       color: var(--muted);
       z-index: 1;
+      cursor: pointer;
+      user-select: none;
     }
+    .cts-table thead th:hover { color: var(--text); }
+    .cts-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
+    .cts-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
     .empty-state { color: var(--muted); padding: 1rem 0.25rem; font-size: 0.875rem; }
     .help-note {
       margin: 0.75rem 0 0;
@@ -158,15 +163,15 @@
       <div class="table-wrap">
         <table class="cts-table">
           <thead>
-            <tr>
-              <th>Farm</th>
-              <th>Ear tag</th>
-              <th>Breed</th>
-              <th>Sex</th>
-              <th>DOB</th>
-              <th>On date</th>
-              <th>Age (m)</th>
-              <th>Age (d)</th>
+            <tr id="cts-only-head">
+              <th data-sort="farm">Farm</th>
+              <th data-sort="etag">Ear tag</th>
+              <th data-sort="breed">Breed</th>
+              <th data-sort="sex">Sex</th>
+              <th data-sort="dob">DOB</th>
+              <th data-sort="on_date">On date</th>
+              <th data-sort="age_months">Age (m)</th>
+              <th data-sort="age_days">Age (d)</th>
             </tr>
           </thead>
           <tbody id="cts-only-body"></tbody>
@@ -183,15 +188,16 @@
       <div class="table-wrap">
         <table class="cts-table">
           <thead>
-            <tr>
-              <th>Farm</th>
-              <th>Ear tag</th>
-              <th>Cow ID</th>
-              <th>Gender</th>
-              <th>Category</th>
-              <th>DOB</th>
-              <th>Age (m)</th>
-              <th>Age (d)</th>
+            <tr id="inv-only-head">
+              <th data-sort="farm">Farm</th>
+              <th data-sort="etag">Ear tag</th>
+              <th data-sort="cow_id">Cow ID</th>
+              <th data-sort="breed">Breed</th>
+              <th data-sort="gender">Gender</th>
+              <th data-sort="category">Category</th>
+              <th data-sort="dob">DOB</th>
+              <th data-sort="age_months">Age (m)</th>
+              <th data-sort="age_days">Age (d)</th>
             </tr>
           </thead>
           <tbody id="inv-only-body"></tbody>
@@ -218,6 +224,11 @@
 
   const searchCts = document.getElementById("search-cts-only");
   const searchInv = document.getElementById("search-inv-only");
+
+  const sortState = {
+    cts: { key: "etag", dir: 1 },
+    inv: { key: "etag", dir: 1 },
+  };
 
   function farmParams() {
     return `farm=${encodeURIComponent(farm)}`;
@@ -305,6 +316,38 @@
     );
   }
 
+  function sortRows(rows, state) {
+    const { key, dir } = state;
+    const numeric = key === "age_months" || key === "age_days";
+    return [...rows].sort((a, b) => {
+      let av = a[key];
+      let bv = b[key];
+      if (numeric) {
+        av = av == null || av === "" ? Number.NEGATIVE_INFINITY : Number(av);
+        bv = bv == null || bv === "" ? Number.NEGATIVE_INFINITY : Number(bv);
+        if (av < bv) return -1 * dir;
+        if (av > bv) return 1 * dir;
+        return 0;
+      }
+      av = String(av ?? "").toUpperCase();
+      bv = String(bv ?? "").toUpperCase();
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+  }
+
+  function updateSortHeaders(headId, state) {
+    const head = document.getElementById(headId);
+    if (!head) return;
+    head.querySelectorAll("th[data-sort]").forEach((th) => {
+      th.classList.remove("sorted-asc", "sorted-desc");
+      if (th.dataset.sort === state.key) {
+        th.classList.add(state.dir > 0 ? "sorted-asc" : "sorted-desc");
+      }
+    });
+  }
+
   function renderTable(tbodyId, emptyId, headingId, rows, columns, count) {
     const tbody = document.getElementById(tbodyId);
     const empty = document.getElementById(emptyId);
@@ -329,7 +372,11 @@
       : "No CTS snapshot stored yet — run Sync from CTS.";
     metaLine.textContent = `${syncBit} · CTS ${agg.cts_count} · Inventory ${agg.inventory_count}`;
 
-    const ctsRows = filterRows(agg.cts_only, searchCts.value, ["etag", "breed", "farm"]);
+    const ctsRows = sortRows(
+      filterRows(agg.cts_only, searchCts.value, ["etag", "breed", "farm"]),
+      sortState.cts
+    );
+    updateSortHeaders("cts-only-head", sortState.cts);
     renderTable(
       "cts-only-body", "cts-only-empty", "cts-only-heading",
       ctsRows,
@@ -337,13 +384,34 @@
       agg.cts_only_count
     );
 
-    const invRows = filterRows(agg.inventory_only, searchInv.value, ["etag", "cow_id", "farm", "category"]);
+    const invRows = sortRows(
+      filterRows(agg.inventory_only, searchInv.value, ["etag", "cow_id", "farm", "breed", "category"]),
+      sortState.inv
+    );
+    updateSortHeaders("inv-only-head", sortState.inv);
     renderTable(
       "inv-only-body", "inv-only-empty", "inv-only-heading",
       invRows,
-      ["farm", "etag", "cow_id", "gender", "category", "dob", "age_months", "age_days"],
+      ["farm", "etag", "cow_id", "breed", "gender", "category", "dob", "age_months", "age_days"],
       agg.inventory_only_count
     );
+  }
+
+  function bindSortHeaders(headId, stateKey) {
+    const head = document.getElementById(headId);
+    if (!head) return;
+    head.querySelectorAll("th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const key = th.dataset.sort;
+        const state = sortState[stateKey];
+        if (state.key === key) state.dir *= -1;
+        else {
+          state.key = key;
+          state.dir = 1;
+        }
+        renderTables();
+      });
+    });
   }
 
   async function loadReconcile() {
@@ -426,6 +494,8 @@
   if (syncBtn) syncBtn.addEventListener("click", runSync);
   searchCts.addEventListener("input", renderTables);
   searchInv.addEventListener("input", renderTables);
+  bindSortHeaders("cts-only-head", "cts");
+  bindSortHeaders("inv-only-head", "inv");
 
   loadReconcile();
 })();
