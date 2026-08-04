@@ -11,6 +11,7 @@ from app.models import User
 PAGE_WYNNSTAY = "wynnstay"
 PAGE_PROSTOCK = "prostock"
 PAGE_STOCK_INVENTORY = "stock_inventory"
+PAGE_BCMS = "bcms"
 PAGE_EVENTS = "events"
 PAGE_FEED_RATE = "feed_rate"
 PAGE_OFFICE_ADMIN = "office_admin"
@@ -26,6 +27,7 @@ PAGE_KEYS: tuple[str, ...] = (
     PAGE_WYNNSTAY,
     PAGE_PROSTOCK,
     PAGE_STOCK_INVENTORY,
+    PAGE_BCMS,
     PAGE_EVENTS,
     PAGE_FEED_RATE,
     PAGE_OFFICE_ADMIN,
@@ -42,6 +44,7 @@ PAGE_LABELS: dict[str, str] = {
     PAGE_WYNNSTAY: "Wynnstay (Suppliers)",
     PAGE_PROSTOCK: "Prostock (Suppliers)",
     PAGE_STOCK_INVENTORY: "Stock Inventory",
+    PAGE_BCMS: "BCMS",
     PAGE_EVENTS: "Events",
     PAGE_FEED_RATE: "Feed Rate",
     PAGE_OFFICE_ADMIN: "Office Admin",
@@ -124,7 +127,7 @@ PRESET_OFFICE = "office"
 PRESETS: dict[str, dict[str, Any]] = {
     PRESET_FARM_WORKER: {
         "label": "Farm worker",
-        "pages": [PAGE_FEED_RATE, PAGE_EVENTS, PAGE_STOCK_INVENTORY],
+        "pages": [PAGE_FEED_RATE, PAGE_EVENTS, PAGE_STOCK_INVENTORY, PAGE_BCMS],
         "actions": [],
     },
     PRESET_OFFICE: {
@@ -210,6 +213,9 @@ def has_page(user: User | None, page_key: str) -> bool:
         return True
     # Xero is a top-level section; allow Office Admin users during rollout.
     if page_key == PAGE_XERO and PAGE_OFFICE_ADMIN in pages:
+        return True
+    # BCMS was previously under Stock Inventory; keep access during rollout.
+    if page_key == PAGE_BCMS and PAGE_STOCK_INVENTORY in pages:
         return True
     return False
 

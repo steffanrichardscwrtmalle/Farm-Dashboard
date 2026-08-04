@@ -53,8 +53,13 @@ def test_category_from_event_proxy() -> None:
 
 def test_category_from_inventory() -> None:
     assert category_from_inventory(1, "Holstein") == "Dairy"
+    assert category_from_inventory(1, "HF") == "Dairy"
     assert category_from_inventory(0, "Beef") == "Beef"
+    assert category_from_inventory(0, "AAX") == "Beef"
+    assert category_from_inventory(0, "HEX") == "Beef"
     assert category_from_inventory(0, "Holstein") == "Youngstock"
+    assert category_from_inventory(0, "HF") == "Youngstock"
+    assert category_from_inventory(0, "H") == "Youngstock"
 
 
 def test_on_farm_keys_reconstruction() -> None:

@@ -112,18 +112,43 @@ def _serialise_ctws(element: ET.Element) -> bytes:
     return b'<?xml version="1.0" encoding="UTF-8"?>' + body
 
 
-def _raise_if_ctws_exception(root: ET.Element) -> None:
+def _ctws_exception_info(root: ET.Element) -> tuple[str, str] | None:
     for el in root.iter():
         if el.tag.endswith("SystemException"):
             code = (el.attrib.get("ExNum") or "").strip()
             msg = (el.attrib.get("ExMsg") or "").strip() or "".join(
                 el.itertext()
             ).strip()
-            detail = f"{code}: {msg}".strip(": ").strip()
-            raise CtsError(f"CTWS error {detail}")
+            return code, msg
+    return None
 
 
-def _decode_ddts_result(raw: str) -> ET.Element:
+def raise_if_ctws_exception(
+    root: ET.Element, *, ignore_codes: frozenset[str] | None = None
+) -> None:
+    info = _ctws_exception_info(root)
+    if info is None:
+        return
+    code, msg = info
+    if ignore_codes and code in ignore_codes:
+        return
+    detail = f"{code}: {msg}".strip(": ").strip()
+    raise CtsError(f"CTWS error {detail}")
+
+
+# Back-compat alias used inside this module.
+_raise_if_ctws_exception = raise_if_ctws_exception
+
+
+def is_ctws_results_pending(root: ET.Element) -> bool:
+    """True when async validation results are not ready yet (CTWS806)."""
+    info = _ctws_exception_info(root)
+    return info is not None and info[0] == "CTWS806"
+
+
+def _decode_ddts_result(
+    raw: str, *, ignore_exception_codes: frozenset[str] | None = None
+) -> ET.Element:
     """Decode TransferDataHexResult; surface plaintext DDTS errors clearly."""
     text = (raw or "").strip()
     if not text:
@@ -149,11 +174,17 @@ def _decode_ddts_result(raw: str) -> ET.Element:
         raise CtsError(
             f"DDTS returned non-XML payload after decode: {decoded[:300]}"
         ) from exc
-    _raise_if_ctws_exception(root)
+    _raise_if_ctws_exception(root, ignore_codes=ignore_exception_codes)
     return root
 
 
-def _transfer(kind: str, request: ET.Element, *, timeout: float = 120.0) -> ET.Element:
+def _transfer(
+    kind: str,
+    request: ET.Element,
+    *,
+    timeout: float = 120.0,
+    ignore_exception_codes: frozenset[str] | None = None,
+) -> ET.Element:
     if not cts_ddts_is_configured():
         raise CtsError(
             "CTS DDTS is not configured. Set CTS_DDTS_USERNAME and CTS_DDTS_PASSWORD."
@@ -208,7 +239,26 @@ def _transfer(kind: str, request: ET.Element, *, timeout: float = 120.0) -> ET.E
             "DDTS response missing TransferDataHexResult: "
             f"{response.text[:400]}"
         )
-    return _decode_ddts_result(result_node.text)
+    return _decode_ddts_result(
+        result_node.text, ignore_exception_codes=ignore_exception_codes
+    )
+
+
+def transfer_ctws(
+    kind: str,
+    request: ET.Element,
+    *,
+    timeout: float = 120.0,
+    allow_pending: bool = False,
+) -> ET.Element:
+    """Public DDTS TransferDataHex wrapper for CTWS request/response XML."""
+    ignore = frozenset({"CTWS806"}) if allow_pending else None
+    return _transfer(
+        kind,
+        request,
+        timeout=timeout,
+        ignore_exception_codes=ignore,
+    )
 
 
 def _build_get_holding_request(

@@ -10,13 +10,12 @@ from sqlalchemy.orm import Session
 
 from app.models import CattleSaleLine, CowEvent, HERD_FARM_OPTIONS
 from app.services.cattle_sale_pdf import is_rejected_sale, normalize_etag
-from app.services.events_common import normalize_farms
+from app.services.events_common import normalize_farms, sales_classified_event_clause
 from app.services.stock_group import (
     stock_group_from_event_fields,
     valuation_category_from_stock_group,
 )
 
-SOLD_EVENT = "SOLD"
 EVENT_MATCH_WINDOW_DAYS = 14
 CATTLE_CATEGORIES: tuple[str, ...] = ("Dairy", "Youngstock", "Beef")
 BUYER_EUROFARM = "Euro Farm Wales"
@@ -122,7 +121,7 @@ def _load_sold_events(
     window_end = max_date + dt.timedelta(days=EVENT_MATCH_WINDOW_DAYS)
     rows = db.scalars(
         select(CowEvent).where(
-            CowEvent.event == SOLD_EVENT,
+            sales_classified_event_clause(),
             CowEvent.farm.in_(farms),
             CowEvent.event_date.isnot(None),
             CowEvent.event_date >= window_start,

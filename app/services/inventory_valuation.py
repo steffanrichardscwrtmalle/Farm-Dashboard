@@ -7,6 +7,24 @@ from app.services.herd_import_utils import CATEGORY_BEEF, category_from_birth
 CATEGORIES: tuple[str, ...] = ("Beef", "Dairy", "Youngstock")
 VALUE_CAP = 1800.0
 
+# DairyComp SBRD codes treated as dairy (legacy blank/"H" plus Holstein variants).
+_DAIRY_SBRD_CODES = frozenset({"", "H", "HF", "HO", "HOLSTEIN"})
+
+
+def normalize_inventory_sbrd(sbrd: str | None) -> str:
+    """Uppercase raw SBRD code from the inventory file (e.g. HF, AAX, HEX)."""
+    if sbrd is None:
+        return ""
+    text = str(sbrd).strip().upper()
+    if text in {"", "NAN", "NONE", "-"}:
+        return ""
+    return text
+
+
+def inventory_sbrd_is_beef(sbrd: str | None) -> bool:
+    """True when SBRD is a beef code (AA/AAX/HE/HEX/…) or legacy 'Beef' label."""
+    return normalize_inventory_sbrd(sbrd) not in _DAIRY_SBRD_CODES
+
 
 def _normalize_lact(lact: int | float | None) -> int:
     if lact is None:
@@ -19,12 +37,11 @@ def _normalize_lact(lact: int | float | None) -> int:
 
 def category_from_inventory(lact: int | float | None, sbrd: str | None) -> str:
     lact_n = _normalize_lact(lact)
-    sbrd_norm = (sbrd or "").strip()
     if lact_n > 0:
         return "Dairy"
-    if sbrd_norm == "Beef":
+    if inventory_sbrd_is_beef(sbrd):
         return "Beef"
-    if sbrd_norm == "Holstein" and lact_n == 0:
+    if lact_n == 0:
         return "Youngstock"
     return "Dairy"
 

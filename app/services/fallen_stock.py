@@ -9,7 +9,7 @@ from sqlalchemy import and_, case, exists, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import CowEvent, FallenStockRecord, User
-from app.services.events_common import normalize_farms
+from app.services.events_common import death_report_event_clause, normalize_farms
 
 DIED_EVENT = "DIED"
 
@@ -79,7 +79,7 @@ def _apply_died_event_filters(
     event_from: dt.date | None,
     event_to: dt.date | None,
 ):
-    query = query.where(CowEvent.event == DIED_EVENT).where(CowEvent.event_date.isnot(None))
+    query = query.where(death_report_event_clause()).where(CowEvent.event_date.isnot(None))
     query = query.where(CowEvent.farm.in_(farms))
     if dest:
         dest_value = dest.strip()

@@ -486,7 +486,24 @@
               <a href="/stock-inventory/heifer-inventory" class="{% if active_nav == 'heifer-inventory' %}active{% endif %}">Heifer Inventory</a>
               <a href="/stock-inventory/calves-due" class="{% if active_nav == 'calves-due' %}active{% endif %}">Calves Due</a>
               <a href="/stock-inventory/heifers-due" class="{% if active_nav == 'heifers-due' %}active{% endif %}">Heifers Due</a>
-              <a href="/cts/reconcile" class="{% if active_nav == 'cts-reconcile' %}active{% endif %}">CTS Reconcile</a>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if perms.page('bcms') %}
+          <div class="nav-group{% if active_nav_group == 'bcms' %} expanded{% endif %}" data-nav-group="bcms">
+            <button
+              type="button"
+              class="nav-group-toggle{% if active_nav_group == 'bcms' %} active{% endif %}"
+              aria-expanded="{% if active_nav_group == 'bcms' %}true{% else %}false{% endif %}"
+              aria-controls="bcms-nav-items"
+            >
+              <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+              <span class="nav-collapsible-label">BCMS</span>
+            </button>
+            <div class="nav-group-items" id="bcms-nav-items">
+              <a href="/bcms/reconcile" class="{% if active_nav == 'cts-reconcile' %}active{% endif %}">CTS Reconcile</a>
+              <a href="/bcms/record-movements" class="{% if active_nav == 'record-movements' %}active{% endif %}">Record Movements</a>
             </div>
           </div>
           {% endif %}
@@ -926,12 +943,11 @@
       navGroups.forEach(el => {
         const controller = initNode(el, el.dataset.navGroup, ":scope > .nav-group-toggle", () => {
           const group = el.dataset.navGroup;
-          if (
-            group === "stock-inventory"
-            && !window.location.pathname.startsWith("/stock-inventory")
-            && !window.location.pathname.startsWith("/cts/")
-          ) {
+          if (group === "stock-inventory" && !window.location.pathname.startsWith("/stock-inventory")) {
             window.location.href = "/stock-inventory/heifer-inventory";
+          }
+          if (group === "bcms" && !window.location.pathname.startsWith("/bcms")) {
+            window.location.href = "/bcms/reconcile";
           }
           if (group === "events" && !window.location.pathname.startsWith("/events")) {
             window.location.href = "/events/calvings";

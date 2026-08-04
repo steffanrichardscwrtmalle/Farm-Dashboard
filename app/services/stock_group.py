@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.models import STOCK_GROUP_BEEF, STOCK_GROUP_COWS, STOCK_GROUP_YOUNGSTOCK
 from app.services.herd_import_utils import BEEF_CBREED_MIN, CATEGORY_BEEF
+from app.services.inventory_valuation import inventory_sbrd_is_beef
 
 VALUATION_CATEGORY_BY_STOCK_GROUP: dict[str, str] = {
     STOCK_GROUP_COWS: "Dairy",
@@ -52,12 +53,9 @@ def stock_group_from_inventory(lact: int | float | None, sbrd: str | None) -> st
     lact_n = _normalize_lact(lact)
     if lact_n > 0:
         return STOCK_GROUP_COWS
-    sbrd_norm = (sbrd or "").strip()
-    if sbrd_norm == "Beef":
+    if inventory_sbrd_is_beef(sbrd):
         return STOCK_GROUP_BEEF
-    if sbrd_norm == "Holstein":
-        return STOCK_GROUP_YOUNGSTOCK
-    return STOCK_GROUP_BEEF
+    return STOCK_GROUP_YOUNGSTOCK
 
 
 def stock_group_from_birth(

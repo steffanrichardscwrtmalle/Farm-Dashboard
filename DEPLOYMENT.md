@@ -332,7 +332,7 @@ Office preset users receive all pages/actions including HR. Assign `hr` page and
 
 ## 6a. CTS on-holding reconcile
 
-Stock Inventory → **CTS Reconcile** (`/cts/reconcile`) pulls cattle currently on each farm’s BCMS holding via DEFRA DDTS / CTWS and compares ear tags to `herd_inventory`.
+BCMS → **CTS Reconcile** (`/bcms/reconcile`) pulls cattle currently on each farm’s BCMS holding via DEFRA DDTS / CTWS and compares ear tags to `herd_inventory`.
 
 This is **read-only** (list on holding + reconcile). Movement reporting is out of scope for v1.
 
@@ -354,8 +354,8 @@ If DDTS or a farm’s CTWS/holding is unset, that farm is skipped with a warning
 ### Operator steps
 
 1. Set the env vars above on the web service and redeploy.
-2. Grant users **Stock Inventory** page access and **CTS — sync cattle on holding** as needed.
-3. Open **CTS Reconcile**, choose CM or GAD, click **Sync from CTS**.
+2. Grant users the **BCMS** page and **CTS — sync cattle on holding** as needed.
+3. Open **BCMS → CTS Reconcile**, choose CM or GAD, click **Sync from CTS**.
 
 ### Cron (2am UK)
 

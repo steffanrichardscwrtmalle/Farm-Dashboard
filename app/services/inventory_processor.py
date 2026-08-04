@@ -8,7 +8,11 @@ from typing import Any
 import pandas as pd
 
 from app.services.herd_import_utils import HERD_DATE_FORMAT
-from app.services.inventory_valuation import category_from_inventory, compute_value
+from app.services.inventory_valuation import (
+    category_from_inventory,
+    compute_value,
+    normalize_inventory_sbrd,
+)
 
 INVENTORY_ENCODING = "windows-1252"
 INVENTORY_DATE_COLUMNS = ("BDAT", "FDAT", "HDAT", "DUE", "GTEST", "SUBD")
@@ -145,12 +149,10 @@ def process_inventory_file(df: pd.DataFrame, farm: str) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip()
 
+    # Keep raw DairyComp SBRD codes (HF, AAX, HEX, …). Category uses dairy/beef rules.
     if "SBRD" in df.columns:
-        df["SBRD"] = df["SBRD"].apply(
-            lambda x: "Holstein"
-            if (x == "H" or pd.isna(x) or x == "" or str(x).strip() == "")
-            else "Beef"
-        )
+        df["SBRD"] = df["SBRD"].map(normalize_inventory_sbrd)
+        df["SBRD"] = df["SBRD"].where(df["SBRD"] != "", None)
 
     if "LSBRD" in df.columns:
         df["LSBRD"] = df["LSBRD"].apply(_standardize_lsbrd)

@@ -67,13 +67,12 @@ def _clean_events_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         df["Parity"] = None
 
     event = df["Event"] if "Event" in df.columns else pd.Series([""] * len(df), index=df.index)
-    remark = df["Remark"] if "Remark" in df.columns else pd.Series([""] * len(df), index=df.index)
-    sold_mask = (event == "DIED") & remark.isin(["TB", "OFS"])
-    df["Event"] = event.where(~sold_mask, "SOLD")
+    # Keep original DairyComp SOLD/DIED. Sales reporting treats DIED+TB/OFS as
+    # sales via sales_classified_event_clause(); BCMS needs the true DIED type.
 
     if {"FDAT", "Date", "LACT"}.issubset(df.columns):
         fresh_mask = (
-            df["Event"].str.upper().eq("ABORT")
+            event.str.upper().eq("ABORT")
             & df["FDAT"].notna()
             & df["Date"].notna()
             & (df["FDAT"] == df["Date"])

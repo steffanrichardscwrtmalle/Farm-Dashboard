@@ -1806,6 +1806,33 @@ class CtsOnHolding(Base):
     )
 
 
+class CtsReportedMovement(Base):
+    """Movements/births already submitted (or acknowledged) to BCMS."""
+
+    __tablename__ = "cts_reported_movements"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm",
+            "movement_type",
+            "etag",
+            "event_date",
+            name="uq_cts_reported_movement",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    movement_type: Mapped[str] = mapped_column(String(16), index=True)
+    etag: Mapped[str] = mapped_column(String(64), index=True)
+    event_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="sent", index=True)
+    receipt: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reported_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+
+
 def _str_or_none(value: Any) -> str | None:
     if value is None:
         return None

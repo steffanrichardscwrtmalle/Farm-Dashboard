@@ -19,8 +19,12 @@ def test_stock_group_from_event_fields() -> None:
 
 def test_stock_group_from_inventory() -> None:
     assert stock_group_from_inventory(1, "Holstein") == STOCK_GROUP_COWS
+    assert stock_group_from_inventory(1, "HF") == STOCK_GROUP_COWS
     assert stock_group_from_inventory(0, "Beef") == STOCK_GROUP_BEEF
+    assert stock_group_from_inventory(0, "AAX") == STOCK_GROUP_BEEF
+    assert stock_group_from_inventory(0, "HEX") == STOCK_GROUP_BEEF
     assert stock_group_from_inventory(0, "Holstein") == STOCK_GROUP_YOUNGSTOCK
+    assert stock_group_from_inventory(0, "HF") == STOCK_GROUP_YOUNGSTOCK
 
 
 def test_stock_group_from_birth() -> None:

@@ -27,6 +27,7 @@ from app.services.events_common import (
     _iter_month_starts,
     _sales_reason_expression,
     normalize_farms,
+    sales_classified_event_clause,
 )
 from app.services.herd_import_utils import BEEF_CBREED_MIN, CATEGORY_BEEF, CATEGORY_DAIRY
 from app.services.stock_purchases import normalize_stock_group
@@ -84,7 +85,7 @@ def _fetch_sales_by_month(
             reason_expr.label("reason"),
             func.count(),
         )
-        .where(CowEvent.event == "SOLD")
+        .where(sales_classified_event_clause())
         .where(CowEvent.event_date.isnot(None))
         .where(CowEvent.farm == farm)
         .where(CowEvent.event_date >= month_from)

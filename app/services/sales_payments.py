@@ -17,8 +17,9 @@ from app.services.events_common import (
     SALES_TABLE_REASON_ORDER,
     SALES_TB_REMARKS,
     _sales_reason_expression,
+    normalize_farms,
+    sales_classified_event_clause,
 )
-from app.services.events_common import normalize_farms
 
 SOLD_EVENT = "SOLD"
 
@@ -99,7 +100,9 @@ def _apply_sold_event_filters(
     event_from: dt.date | None,
     event_to: dt.date | None,
 ):
-    query = query.where(CowEvent.event == SOLD_EVENT).where(CowEvent.event_date.isnot(None))
+    query = query.where(sales_classified_event_clause()).where(
+        CowEvent.event_date.isnot(None)
+    )
     query = query.where(CowEvent.farm.in_(farms))
     reason_filter = _reason_filter_conditions(reasons)
     if reason_filter is not None:

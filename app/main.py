@@ -57,6 +57,7 @@ from app.auth.permissions import (
     PAGE_OFFICE_ADMIN,
     PAGE_XERO,
     PAGE_PROSTOCK,
+    PAGE_BCMS,
     PAGE_STOCK_INVENTORY,
     PAGE_WYNNSTAY,
     PermissionContext,
@@ -128,6 +129,10 @@ _PROSTOCK_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/prosto
 _STOCK_INVENTORY_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/stock-inventory/heifer-inventory">Stock Inventory</a>'
+)
+_BCMS_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/bcms/reconcile">BCMS</a>'
 )
 _EVENTS_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
@@ -241,6 +246,19 @@ def _stock_inventory_context(title: str, active_nav: str, page_name: str | None 
         "title": title,
         "active_nav_group": "stock-inventory",
         "active_section": "stock-inventory",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _bcms_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _BCMS_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "bcms",
+        "active_section": "bcms",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -745,27 +763,55 @@ def stock_inventory_heifers_due_page(request: Request):
     )
 
 
-@app.get("/cts/reconcile", response_class=HTMLResponse)
-def cts_reconcile_page(request: Request):
-    if denied := _page_guard(request, PAGE_STOCK_INVENTORY):
+@app.get("/bcms/reconcile", response_class=HTMLResponse)
+def bcms_reconcile_page(request: Request):
+    if denied := _page_guard(request, PAGE_BCMS):
         return denied
     from app.models import HERD_FARM_OPTIONS
 
     return templates.TemplateResponse(
         request,
-        "stock_inventory/cts_reconcile.html",
+        "bcms/cts_reconcile.html",
         _template_ctx(
             request,
             page_heading="CTS Reconcile",
             farm_options=list(HERD_FARM_OPTIONS),
             can_sync=has_action(request.state.user, ACTION_CTS_SYNC),
-            **_stock_inventory_context(
+            **_bcms_context(
                 "CTS Reconcile",
                 "cts-reconcile",
                 "CTS Reconcile",
             ),
         ),
     )
+
+
+@app.get("/bcms/record-movements", response_class=HTMLResponse)
+def bcms_record_movements_page(request: Request):
+    if denied := _page_guard(request, PAGE_BCMS):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "bcms/record_movements.html",
+        _template_ctx(
+            request,
+            page_heading="Record Movements",
+            farm_options=list(HERD_FARM_OPTIONS),
+            can_send=has_action(request.state.user, ACTION_CTS_SYNC),
+            **_bcms_context(
+                "Record Movements",
+                "record-movements",
+                "Record Movements",
+            ),
+        ),
+    )
+
+
+@app.get("/cts/reconcile", response_class=HTMLResponse)
+def cts_reconcile_redirect():
+    return RedirectResponse(url="/bcms/reconcile", status_code=307)
 
 
 def _events_page_response(

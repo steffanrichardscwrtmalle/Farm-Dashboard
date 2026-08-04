@@ -52,8 +52,34 @@ SALES_TABLE_REASON_ORDER: tuple[str, ...] = ("CULL", "TB", "OFS", "Beef", "Dairy
 SALES_DAIRY_REMARKS: tuple[str, ...] = ("CAR18", "CAR19")
 SALES_TB_REMARKS: tuple[str, ...] = ("CAR11", "TB")
 SALES_MAPPED_REMARKS: tuple[str, ...] = ("OFS", *SALES_TB_REMARKS, "CAR16", *SALES_DAIRY_REMARKS)
+# DairyComp DIED + these remarks used to be rewritten to SOLD on import for sales
+# reporting. We now keep the original DIED event for BCMS, and still treat them as
+# sales in reporting via sales_classified_event_clause().
+DIED_AS_SALES_REMARKS: tuple[str, ...] = ("TB", "OFS")
 BREEDINGS_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy", "unknown")
 BREEDINGS_CHART_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy")
+
+
+def sales_classified_event_clause():
+    """SOLD, plus DIED events that sales reporting treats as TB/OFS sales."""
+    return or_(
+        CowEvent.event == "SOLD",
+        and_(
+            CowEvent.event == "DIED",
+            CowEvent.remark.in_(list(DIED_AS_SALES_REMARKS)),
+        ),
+    )
+
+
+def death_report_event_clause():
+    """True DIED events for deaths/fallen-stock reports (exclude TB/OFS sales-deaths)."""
+    return and_(
+        CowEvent.event == "DIED",
+        or_(
+            CowEvent.remark.is_(None),
+            CowEvent.remark.notin_(list(DIED_AS_SALES_REMARKS)),
+        ),
+    )
 
 # Deaths report: for youngstock (lact == 0) exclude very-early deaths and
 # deaths recorded with generic/unwanted reasons so they don't skew the report.
@@ -273,7 +299,7 @@ def _build_sales_table_rows(
             CowEvent.farm,
             func.count(),
         )
-        .where(CowEvent.event == "SOLD")
+        .where(sales_classified_event_clause())
         .where(CowEvent.event_date.isnot(None))
         .where(CowEvent.farm.in_(selected_farms))
         .where(CowEvent.event_date >= effective_from)
@@ -839,7 +865,7 @@ def _build_deaths_pivot(
             CowEvent.event_date,
             CowEvent.bdat,
         )
-        .where(CowEvent.event == "DIED")
+        .where(death_report_event_clause())
         .where(CowEvent.event_date.isnot(None))
         .where(CowEvent.farm.in_(selected_farms))
         .where(CowEvent.event_date >= effective_from)
@@ -873,6 +899,7 @@ def _build_standard_event_pivot(
     selected_parity_groups: list[str] | None,
     fiscal_year: int | None,
     split_beef: bool = False,
+    sales_classified: bool = False,
 ) -> dict[str, dict[str, int]]:
     counts_query = (
         select(
@@ -880,12 +907,15 @@ def _build_standard_event_pivot(
             CowEvent.farm,
             func.count(),
         )
-        .where(CowEvent.event.in_(list(event_types)))
         .where(CowEvent.event_date.isnot(None))
         .where(CowEvent.farm.in_(selected_farms))
         .where(CowEvent.event_date >= effective_from)
         .where(CowEvent.event_date <= effective_to)
     )
+    if sales_classified:
+        counts_query = counts_query.where(sales_classified_event_clause())
+    else:
+        counts_query = counts_query.where(CowEvent.event.in_(list(event_types)))
     counts_query = _apply_lact_groups(counts_query, selected_lact_groups)
     counts_query = _apply_parity_groups(
         counts_query, selected_parity_groups, split_beef=split_beef
@@ -1626,6 +1656,7 @@ def build_events_report(
             selected_parity_groups=selected_parity_groups,
             fiscal_year=fiscal_year,
             split_beef=include_sales_reason_breakdown,
+            sales_classified=include_sales_reason_breakdown,
         )
 
     rows = _zero_fill_rows(pivot, effective_from, effective_to)
@@ -1715,6 +1746,9 @@ def build_events_page_report(
 ) -> dict[str, Any]:
     event_types = resolve_page_event_types(page_slug, disease)
     page_event_types = EVENT_PAGE_TYPES.get(page_slug, event_types)
+    # Sales slider/bounds also need DIED+TB/OFS rows now kept as DIED in cow_events.
+    if page_slug == "sales":
+        page_event_types = ("SOLD", "DIED")
     return build_events_report(
         db,
         event_types=event_types,
