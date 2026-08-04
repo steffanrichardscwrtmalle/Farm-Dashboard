@@ -73,6 +73,22 @@ services:
         sync: false
       - key: DOCUSEAL_GREENACRE_EMAIL_BODY
         sync: false
+      - key: CTS_DDTS_USERNAME
+        sync: false
+      - key: CTS_DDTS_PASSWORD
+        sync: false
+      - key: CTS_CTWS_USERNAME_CM
+        sync: false
+      - key: CTS_CTWS_PASSWORD_CM
+        sync: false
+      - key: CTS_HOLDING_CM
+        sync: false
+      - key: CTS_CTWS_USERNAME_GAD
+        sync: false
+      - key: CTS_CTWS_PASSWORD_GAD
+        sync: false
+      - key: CTS_HOLDING_GAD
+        sync: false
     domains:
       - dashboard.cwrtmalle.co.uk
 
@@ -219,6 +235,62 @@ services:
           name: farm-dashboard
           type: web
           envVarKey: HERD_EXPORT_BASE_PATH
+
+  # CTS cattle-on-holding sync at 2am UK time.
+  # Runs hourly (UTC); the script exits immediately unless Europe/London hour
+  # is 2 — so BST/GMT stay correct year-round.
+  - type: cron
+    name: farm-dashboard-cts-sync
+    runtime: docker
+    schedule: "10 * * * *"
+    dockerCommand: python scripts/sync_cts_holding.py --only-at-uk-hours 2
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: farm-dashboard-db
+          property: connectionString
+      - key: ENVIRONMENT
+        value: production
+      - key: CTS_DDTS_USERNAME
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_DDTS_USERNAME
+      - key: CTS_DDTS_PASSWORD
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_DDTS_PASSWORD
+      - key: CTS_CTWS_USERNAME_CM
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_CTWS_USERNAME_CM
+      - key: CTS_CTWS_PASSWORD_CM
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_CTWS_PASSWORD_CM
+      - key: CTS_HOLDING_CM
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_HOLDING_CM
+      - key: CTS_CTWS_USERNAME_GAD
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_CTWS_USERNAME_GAD
+      - key: CTS_CTWS_PASSWORD_GAD
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_CTWS_PASSWORD_GAD
+      - key: CTS_HOLDING_GAD
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_HOLDING_GAD
 
 databases:
   - name: farm-dashboard-db

@@ -308,3 +308,41 @@ def docuseal_email_for(business: str | None) -> tuple[str, str]:
     return (DOCUSEAL_EMAIL_SUBJECT, DOCUSEAL_EMAIL_BODY)
 
 COOKIE_SECURE = IS_PRODUCTION or os.getenv("COOKIE_SECURE", "").lower() in ("1", "true", "yes")
+
+# BCMS Cattle Tracing System (CTS) via DEFRA DDTS SOAP.
+# Protocol adapted from arachsys/cts-tool (MIT). DDTS is shared software identity;
+# CTWS username/password + CPH holding are per farm.
+CTS_DDTS_USERNAME = os.getenv("CTS_DDTS_USERNAME", "").strip()
+CTS_DDTS_PASSWORD = os.getenv("CTS_DDTS_PASSWORD", "").strip()
+CTS_CTWS_USERNAME_CM = os.getenv("CTS_CTWS_USERNAME_CM", "").strip()
+CTS_CTWS_PASSWORD_CM = os.getenv("CTS_CTWS_PASSWORD_CM", "").strip()
+CTS_HOLDING_CM = os.getenv("CTS_HOLDING_CM", "").strip()
+CTS_CTWS_USERNAME_GAD = os.getenv("CTS_CTWS_USERNAME_GAD", "").strip()
+CTS_CTWS_PASSWORD_GAD = os.getenv("CTS_CTWS_PASSWORD_GAD", "").strip()
+CTS_HOLDING_GAD = os.getenv("CTS_HOLDING_GAD", "").strip()
+
+
+def cts_farm_credentials(farm: str) -> dict[str, str] | None:
+    """Return CTWS + holding config for CM/GAD, or None if incomplete."""
+    key = (farm or "").strip().upper()
+    if key == "CM":
+        username, password, holding = (
+            CTS_CTWS_USERNAME_CM,
+            CTS_CTWS_PASSWORD_CM,
+            CTS_HOLDING_CM,
+        )
+    elif key == "GAD":
+        username, password, holding = (
+            CTS_CTWS_USERNAME_GAD,
+            CTS_CTWS_PASSWORD_GAD,
+            CTS_HOLDING_GAD,
+        )
+    else:
+        return None
+    if not (username and password and holding):
+        return None
+    return {"username": username, "password": password, "holding": holding}
+
+
+def cts_ddts_is_configured() -> bool:
+    return bool(CTS_DDTS_USERNAME and CTS_DDTS_PASSWORD)

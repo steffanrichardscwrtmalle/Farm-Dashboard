@@ -25,6 +25,7 @@ from app.api.feed_rate_routes import router as feed_rate_api_router
 from app.api.feedlync_routes import router as feedlync_api_router
 from app.api.xero_routes import router as xero_api_router
 from app.api.stock_inventory_routes import router as stock_inventory_api_router
+from app.api.cts_routes import router as cts_api_router
 from app.api.admin_routes import router as admin_api_router
 from app.api.herd_routes import router as herd_api_router
 from app.api.hr_routes import router as hr_api_router
@@ -34,6 +35,7 @@ from app.auth.deps import require_admin
 from app.auth.middleware import AuthMiddleware
 from app.auth.passwords import verify_password
 from app.auth.permissions import (
+    ACTION_CTS_SYNC,
     ACTION_GENETICS_PEDIGREE,
     ACTION_GENETICS_PENDING_RESULTS,
     ACTION_HERD_IMPORT,
@@ -105,6 +107,7 @@ app.include_router(api_router)
 app.include_router(prostock_api_router)
 app.include_router(herd_api_router)
 app.include_router(stock_inventory_api_router)
+app.include_router(cts_api_router)
 app.include_router(events_api_router)
 app.include_router(feed_rate_api_router)
 app.include_router(feedlync_api_router)
@@ -737,6 +740,29 @@ def stock_inventory_heifers_due_page(request: Request):
                 "Heifers Due",
                 "heifers-due",
                 "Heifers Due",
+            ),
+        ),
+    )
+
+
+@app.get("/cts/reconcile", response_class=HTMLResponse)
+def cts_reconcile_page(request: Request):
+    if denied := _page_guard(request, PAGE_STOCK_INVENTORY):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "stock_inventory/cts_reconcile.html",
+        _template_ctx(
+            request,
+            page_heading="CTS Reconcile",
+            farm_options=list(HERD_FARM_OPTIONS),
+            can_sync=has_action(request.state.user, ACTION_CTS_SYNC),
+            **_stock_inventory_context(
+                "CTS Reconcile",
+                "cts-reconcile",
+                "CTS Reconcile",
             ),
         ),
     )

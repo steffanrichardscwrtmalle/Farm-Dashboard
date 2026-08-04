@@ -71,6 +71,7 @@ ACTION_BENCHMARKING_EDIT = "benchmarking.edit"
 ACTION_HR_ENROLL = "hr.enroll"
 ACTION_HR_VIEW_SENSITIVE = "hr.view_sensitive"
 ACTION_PARLOUR_IMPORT = "parlour.import"
+ACTION_CTS_SYNC = "cts.sync"
 
 ACTION_KEYS: tuple[str, ...] = (
     ACTION_WYNNSTAY_IMPORT,
@@ -90,6 +91,7 @@ ACTION_KEYS: tuple[str, ...] = (
     ACTION_HR_ENROLL,
     ACTION_HR_VIEW_SENSITIVE,
     ACTION_PARLOUR_IMPORT,
+    ACTION_CTS_SYNC,
 )
 
 ACTION_LABELS: dict[str, str] = {
@@ -110,6 +112,7 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_HR_ENROLL: "HR — enroll new staff",
     ACTION_HR_VIEW_SENSITIVE: "HR — view sensitive PII (NI, pay details)",
     ACTION_PARLOUR_IMPORT: "Parlour — import milk flow shift reports",
+    ACTION_CTS_SYNC: "CTS — sync cattle on holding",
 }
 
 ALL_PAGES = list(PAGE_KEYS)

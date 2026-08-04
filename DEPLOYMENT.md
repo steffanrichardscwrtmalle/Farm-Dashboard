@@ -330,6 +330,50 @@ Office preset users receive all pages/actions including HR. Assign `hr` page and
 
 ---
 
+## 6a. CTS on-holding reconcile
+
+Stock Inventory → **CTS Reconcile** (`/cts/reconcile`) pulls cattle currently on each farm’s BCMS holding via DEFRA DDTS / CTWS and compares ear tags to `herd_inventory`.
+
+This is **read-only** (list on holding + reconcile). Movement reporting is out of scope for v1.
+
+Protocol adapted from [arachsys/cts-tool](https://github.com/arachsys/cts-tool) (MIT).
+
+### Environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `CTS_DDTS_USERNAME` | Shared DEFRA DDTS webservice username |
+| `CTS_DDTS_PASSWORD` | Shared DEFRA DDTS password (sent as MD5 hex, as required by DDTS) |
+| `CTS_CTWS_USERNAME_CM` / `CTS_CTWS_PASSWORD_CM` | CTWS online credentials for CM |
+| `CTS_HOLDING_CM` | CM holding `CC/PPP/HHHH` or `CC/PPP/HHHH-NN` |
+| `CTS_CTWS_USERNAME_GAD` / `CTS_CTWS_PASSWORD_GAD` | CTWS online credentials for GAD |
+| `CTS_HOLDING_GAD` | GAD holding (same format) |
+
+If DDTS or a farm’s CTWS/holding is unset, that farm is skipped with a warning on the page. Sync requires the **cts.sync** action (assign under Users → Permissions). Page access uses the Stock Inventory permission.
+
+### Operator steps
+
+1. Set the env vars above on the web service and redeploy.
+2. Grant users **Stock Inventory** page access and **CTS — sync cattle on holding** as needed.
+3. Open **CTS Reconcile**, choose CM or GAD, click **Sync from CTS**.
+
+### Cron (2am UK)
+
+Render cron `farm-dashboard-cts-sync` runs hourly and only syncs when UK local hour is **2**:
+
+`python scripts/sync_cts_holding.py --only-at-uk-hours 2`
+
+It pulls cattle on holding for every farm with complete CTWS/holding config and replaces the `cts_on_holding` snapshot. CTS credentials are copied from the web service env vars.
+
+Manual:
+
+```bash
+python scripts/sync_cts_holding.py
+python scripts/sync_cts_holding.py --farm CM
+```
+
+---
+
 ## 7. Security checklist
 
 - [ ] `ADMIN_PASSWORD` is strong and not committed to git

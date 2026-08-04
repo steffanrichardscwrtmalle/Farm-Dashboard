@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<GetHoldingResults xmlns="http://defra.bcms.ctws/holding_request_results" SchemaVersion="1.0">
+  <Animals>
+    <Animal Etg="UK 123456 789012" Brd="HO" Sex="F" Dob="2020-03-15" OnDate="2021-06-01"/>
+    <Animal Etg="UK000987654321" Brd="JE" Sex="F" Dob="15/04/2019" OnDate="2020-01-10"/>
+    <Animal Etg="?" Brd="HO" Sex="M" Dob="2022-01-01" OnDate="2022-02-01"/>
+    <Animal Etg="BE 00021428 3270" Brd="BB" Sex="M" Dob="2021-08-20" OnDate="2023-05-12"/>
+  </Animals>
+</GetHoldingResults>

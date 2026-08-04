@@ -1762,6 +1762,50 @@ class EmployeeDocument(Base):
     employee: Mapped[Employee] = relationship(back_populates="documents")
 
 
+class CtsSyncRun(Base):
+    """One CTS GetHolding sync attempt for a farm."""
+
+    __tablename__ = "cts_sync_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="running", index=True)
+    animal_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(32), default="manual")
+    started_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+    finished_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+
+
+class CtsOnHolding(Base):
+    """Latest CTS cattle-on-holding snapshot row for a farm."""
+
+    __tablename__ = "cts_on_holding"
+    __table_args__ = (
+        UniqueConstraint("farm", "etag", name="uq_cts_on_holding_farm_etag"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    etag: Mapped[str] = mapped_column(String(64), index=True)
+    breed: Mapped[str] = mapped_column(String(16), default="")
+    sex: Mapped[str] = mapped_column(String(8), default="")
+    dob: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    on_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    synced_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+    sync_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cts_sync_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+
 def _str_or_none(value: Any) -> str | None:
     if value is None:
         return None

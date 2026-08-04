@@ -486,6 +486,7 @@
               <a href="/stock-inventory/heifer-inventory" class="{% if active_nav == 'heifer-inventory' %}active{% endif %}">Heifer Inventory</a>
               <a href="/stock-inventory/calves-due" class="{% if active_nav == 'calves-due' %}active{% endif %}">Calves Due</a>
               <a href="/stock-inventory/heifers-due" class="{% if active_nav == 'heifers-due' %}active{% endif %}">Heifers Due</a>
+              <a href="/cts/reconcile" class="{% if active_nav == 'cts-reconcile' %}active{% endif %}">CTS Reconcile</a>
             </div>
           </div>
           {% endif %}
@@ -925,7 +926,11 @@
       navGroups.forEach(el => {
         const controller = initNode(el, el.dataset.navGroup, ":scope > .nav-group-toggle", () => {
           const group = el.dataset.navGroup;
-          if (group === "stock-inventory" && !window.location.pathname.startsWith("/stock-inventory")) {
+          if (
+            group === "stock-inventory"
+            && !window.location.pathname.startsWith("/stock-inventory")
+            && !window.location.pathname.startsWith("/cts/")
+          ) {
             window.location.href = "/stock-inventory/heifer-inventory";
           }
           if (group === "events" && !window.location.pathname.startsWith("/events")) {
