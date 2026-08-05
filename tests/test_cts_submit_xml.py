@@ -98,7 +98,7 @@ def test_reg_births_xml_redacts_password_and_includes_fields(_creds) -> None:
     assert birth.attrib["Sex"] == "f"
     assert birth.attrib["Brd"] == "HF"
     assert birth.attrib["GdEtg"] == "UK222222222222"
-    assert birth.attrib["SIETG"] == "UK333333333333"
+    assert birth.attrib["SiEtg"] == "UK333333333333"
     assert birth.attrib["BLoc"] == "55/013/0048"
     assert birth.attrib["PLoc"] == "55/013/0048"
     assert birth.attrib["IWarn"] == "n"
