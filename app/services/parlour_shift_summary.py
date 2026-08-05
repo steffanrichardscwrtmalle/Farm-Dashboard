@@ -629,6 +629,131 @@ def _attach_milking_point_annotations(
                     shift_row["milking_points"] = farm_points.get(key, [])
 
 
+# Keep farm-metric charts useful without loading unbounded history (Render 512MB).
+MAX_SHIFT_SUMMARY_SPAN_DAYS = 45
+MAX_PEN_BREAKDOWN_SPAN_DAYS = 7
+_SHIFT_SUMMARY_YIELD_PER = 2000
+
+
+def resolve_shift_summary_dates(
+    date_from: dt.date | None,
+    date_to: dt.date | None,
+    *,
+    include_pens: bool = False,
+) -> tuple[dt.date, dt.date]:
+    """Apply defaults and enforce span caps. Raises ValueError on bad ranges."""
+    today = dt.date.today()
+    if date_to is None:
+        date_to = today
+    if date_from is None:
+        date_from = date_to - dt.timedelta(days=MAX_SHIFT_SUMMARY_SPAN_DAYS)
+    if date_from > date_to:
+        raise ValueError("date_from must be on or before date_to")
+    span_days = (date_to - date_from).days
+    if include_pens and span_days > MAX_PEN_BREAKDOWN_SPAN_DAYS:
+        raise ValueError(
+            f"Pen breakdown date range cannot exceed {MAX_PEN_BREAKDOWN_SPAN_DAYS} days."
+        )
+    if span_days > MAX_SHIFT_SUMMARY_SPAN_DAYS:
+        raise ValueError(
+            f"Shift summary date range cannot exceed {MAX_SHIFT_SUMMARY_SPAN_DAYS} days."
+        )
+    return date_from, date_to
+
+
+def _slim_cow_from_row(
+    start_s: int | None,
+    dur_s: int | None,
+    lag_s: int | None,
+    milking_point: int | None,
+    yield_kg: float | None,
+    flow_15s: float | None,
+    flow_30s: float | None,
+    flow_60s: float | None,
+    flow_120s: float | None,
+    pct_2_minutes: float | None,
+    milk_yield_2_minutes: float | None,
+    flow_rate_at_removal: float | None,
+    average_flow: float | None,
+    peak_flow: float | None,
+) -> dict[str, Any]:
+    return {
+        "start_seconds": start_s,
+        "duration_seconds": dur_s,
+        "lag_phase_seconds": lag_s,
+        "milking_point": milking_point,
+        "yield_kg": yield_kg,
+        "flow_15s": flow_15s,
+        "flow_30s": flow_30s,
+        "flow_60s": flow_60s,
+        "flow_120s": flow_120s,
+        "pct_2_minutes": pct_2_minutes,
+        "milk_yield_2_minutes": milk_yield_2_minutes,
+        "flow_rate_at_removal": flow_rate_at_removal,
+        "average_flow": average_flow,
+        "peak_flow": peak_flow,
+    }
+
+
+def _append_shift_to_days(
+    days: dict[tuple[str, dt.date], dict],
+    *,
+    farm_key: str,
+    milking_date: dt.date,
+    shift_name: str,
+    summary: dict[str, Any],
+) -> None:
+    day_key = (farm_key, milking_date)
+    if day_key not in days:
+        days[day_key] = {
+            "farm": farm_key,
+            "milking_date": milking_date.isoformat(),
+            "shifts": [],
+            "total_yield_kg": 0.0,
+            "total_cows": 0,
+        }
+    days[day_key]["shifts"].append({"shift": shift_name, **summary})
+    days[day_key]["total_yield_kg"] = round(
+        days[day_key]["total_yield_kg"] + summary["yield_kg"], 1
+    )
+    days[day_key]["total_cows"] += summary["cow_count"]
+
+
+def _finalize_slim_shift(
+    days: dict[tuple[str, dt.date], dict],
+    point_map: dict[tuple[str, dt.date, str], list[dict[str, Any]]],
+    *,
+    need_points: bool,
+    farm_key: str,
+    milking_date: dt.date,
+    shift_name: str,
+    cows: list[dict[str, Any]],
+) -> None:
+    pairs = [
+        (c["start_seconds"], c["duration_seconds"])
+        for c in cows
+        if c["start_seconds"] is not None
+    ]
+    summary = _shift_summary_core(
+        yield_kg=sum(c["yield_kg"] or 0.0 for c in cows),
+        cow_count=len(cows),
+        start_duration_pairs=pairs,
+        cows=cows,
+        yield_values=[c.get("yield_kg") for c in cows],
+    )
+    _append_shift_to_days(
+        days,
+        farm_key=farm_key,
+        milking_date=milking_date,
+        shift_name=shift_name,
+        summary=summary,
+    )
+    if need_points:
+        point_map[(farm_key, milking_date, shift_name)] = (
+            _milking_point_summary_from_cows(cows)
+        )
+
+
 def list_shift_summaries(
     db: Session,
     *,
@@ -640,190 +765,166 @@ def list_shift_summaries(
     include_milking_points: bool = False,
     include_problem_stalls: bool = False,
 ) -> dict:
+    date_from, date_to = resolve_shift_summary_dates(
+        date_from, date_to, include_pens=include_pens
+    )
     need_points = include_milking_points or include_problem_stalls
-    # Pen breakdown still uses ORM (cohort correction). Problem-stall / stall
-    # drilldowns use slim column loads so Performance can load ~45 days safely.
+    # Pen breakdown still uses ORM (cohort correction). Slim column streaming
+    # keeps peak memory to ~one shift of cows (Render 512MB).
     need_orm = include_pens
     # Need prior calendar day so Morning can compare to previous Night.
     requested_from = date_from
     query_from = (
-        date_from - dt.timedelta(days=1)
-        if need_points and date_from is not None
-        else date_from
+        date_from - dt.timedelta(days=1) if need_points else date_from
     )
     # Keep all shifts when annotating problems so "previous shift" exists.
     query_shift = None if need_points else shift
 
+    days: dict[tuple[str, dt.date], dict] = {}
+    point_map: dict[tuple[str, dt.date, str], list[dict[str, Any]]] = {}
+
     if not need_orm:
-        stmt = select(
-            ParlourMilkFlowRow.farm,
-            ParlourMilkFlowRow.milking_date,
-            ParlourMilkFlowRow.shift,
-            ParlourMilkFlowRow.start_seconds,
-            ParlourMilkFlowRow.duration_seconds,
-            ParlourMilkFlowRow.lag_phase_seconds,
-            ParlourMilkFlowRow.milking_point,
-            ParlourMilkFlowRow.yield_kg,
-            ParlourMilkFlowRow.flow_15s,
-            ParlourMilkFlowRow.flow_30s,
-            ParlourMilkFlowRow.flow_60s,
-            ParlourMilkFlowRow.flow_120s,
-            ParlourMilkFlowRow.pct_2_minutes,
-            ParlourMilkFlowRow.milk_yield_2_minutes,
-            ParlourMilkFlowRow.flow_rate_at_removal,
-            ParlourMilkFlowRow.average_flow,
-            ParlourMilkFlowRow.peak_flow,
+        stmt = (
+            select(
+                ParlourMilkFlowRow.farm,
+                ParlourMilkFlowRow.milking_date,
+                ParlourMilkFlowRow.shift,
+                ParlourMilkFlowRow.start_seconds,
+                ParlourMilkFlowRow.duration_seconds,
+                ParlourMilkFlowRow.lag_phase_seconds,
+                ParlourMilkFlowRow.milking_point,
+                ParlourMilkFlowRow.yield_kg,
+                ParlourMilkFlowRow.flow_15s,
+                ParlourMilkFlowRow.flow_30s,
+                ParlourMilkFlowRow.flow_60s,
+                ParlourMilkFlowRow.flow_120s,
+                ParlourMilkFlowRow.pct_2_minutes,
+                ParlourMilkFlowRow.milk_yield_2_minutes,
+                ParlourMilkFlowRow.flow_rate_at_removal,
+                ParlourMilkFlowRow.average_flow,
+                ParlourMilkFlowRow.peak_flow,
+            )
+            .where(ParlourMilkFlowRow.milking_date >= query_from)
+            .where(ParlourMilkFlowRow.milking_date <= date_to)
+            .order_by(
+                ParlourMilkFlowRow.farm,
+                ParlourMilkFlowRow.milking_date,
+                ParlourMilkFlowRow.shift,
+            )
+            .execution_options(yield_per=_SHIFT_SUMMARY_YIELD_PER)
         )
         if farm:
             stmt = stmt.where(ParlourMilkFlowRow.farm == farm.upper())
-        if query_from:
-            stmt = stmt.where(ParlourMilkFlowRow.milking_date >= query_from)
-        if date_to:
-            stmt = stmt.where(ParlourMilkFlowRow.milking_date <= date_to)
         if query_shift:
             stmt = stmt.where(ParlourMilkFlowRow.shift == query_shift)
 
-        grouped_vals: dict[tuple[str, dt.date, str], list[dict[str, Any]]] = defaultdict(
-            list
-        )
-        for (
-            farm_key,
-            milking_date,
-            shift_name,
-            start_s,
-            dur_s,
-            lag_s,
-            milking_point,
-            yield_kg,
-            flow_15s,
-            flow_30s,
-            flow_60s,
-            flow_120s,
-            pct_2_minutes,
-            milk_yield_2_minutes,
-            flow_rate_at_removal,
-            average_flow,
-            peak_flow,
-        ) in db.execute(stmt):
-            grouped_vals[(farm_key, milking_date, shift_name)].append(
-                {
-                    "start_seconds": start_s,
-                    "duration_seconds": dur_s,
-                    "lag_phase_seconds": lag_s,
-                    "milking_point": milking_point,
-                    "yield_kg": yield_kg,
-                    "flow_15s": flow_15s,
-                    "flow_30s": flow_30s,
-                    "flow_60s": flow_60s,
-                    "flow_120s": flow_120s,
-                    "pct_2_minutes": pct_2_minutes,
-                    "milk_yield_2_minutes": milk_yield_2_minutes,
-                    "flow_rate_at_removal": flow_rate_at_removal,
-                    "average_flow": average_flow,
-                    "peak_flow": peak_flow,
-                }
+        current_key: tuple[str, dt.date, str] | None = None
+        current_cows: list[dict[str, Any]] = []
+        for row in db.execute(stmt):
+            key = (row[0], row[1], row[2])
+            if current_key is not None and key != current_key:
+                _finalize_slim_shift(
+                    days,
+                    point_map,
+                    need_points=need_points,
+                    farm_key=current_key[0],
+                    milking_date=current_key[1],
+                    shift_name=current_key[2],
+                    cows=current_cows,
+                )
+                current_cows = []
+            current_key = key
+            current_cows.append(
+                _slim_cow_from_row(
+                    row[3],
+                    row[4],
+                    row[5],
+                    row[6],
+                    row[7],
+                    row[8],
+                    row[9],
+                    row[10],
+                    row[11],
+                    row[12],
+                    row[13],
+                    row[14],
+                    row[15],
+                    row[16],
+                )
             )
-
-        days: dict[tuple[str, dt.date], dict] = {}
-        for (farm_key, milking_date, shift_name), values in sorted(
-            grouped_vals.items(),
-            key=lambda item: (item[0][1], item[0][0], item[0][2]),
-            reverse=True,
-        ):
-            day_key = (farm_key, milking_date)
-            if day_key not in days:
-                days[day_key] = {
-                    "farm": farm_key,
-                    "milking_date": milking_date.isoformat(),
-                    "shifts": [],
-                    "total_yield_kg": 0.0,
-                    "total_cows": 0,
-                }
-            pairs = [
-                (c["start_seconds"], c["duration_seconds"])
-                for c in values
-                if c["start_seconds"] is not None
-            ]
-            yield_total = sum(c["yield_kg"] or 0.0 for c in values)
-            summary = _shift_summary_core(
-                yield_kg=yield_total,
-                cow_count=len(values),
-                start_duration_pairs=pairs,
-                cows=values,
-                yield_values=[c.get("yield_kg") for c in values],
-            )
-            days[day_key]["shifts"].append({"shift": shift_name, **summary})
-            days[day_key]["total_yield_kg"] = round(
-                days[day_key]["total_yield_kg"] + summary["yield_kg"], 1
-            )
-            days[day_key]["total_cows"] += summary["cow_count"]
-
-        if need_points:
-            point_map = {
-                key: _milking_point_summary_from_cows(values)
-                for key, values in grouped_vals.items()
-            }
-            _attach_milking_point_annotations(
+        if current_key is not None:
+            _finalize_slim_shift(
                 days,
                 point_map,
-                include_milking_points=include_milking_points,
+                need_points=need_points,
+                farm_key=current_key[0],
+                milking_date=current_key[1],
+                shift_name=current_key[2],
+                cows=current_cows,
             )
     else:
-        stmt_orm = select(ParlourMilkFlowRow)
+        stmt_orm = (
+            select(ParlourMilkFlowRow)
+            .where(ParlourMilkFlowRow.milking_date >= query_from)
+            .where(ParlourMilkFlowRow.milking_date <= date_to)
+            .order_by(
+                ParlourMilkFlowRow.farm,
+                ParlourMilkFlowRow.milking_date,
+                ParlourMilkFlowRow.shift,
+            )
+            .execution_options(yield_per=_SHIFT_SUMMARY_YIELD_PER)
+        )
         if farm:
             stmt_orm = stmt_orm.where(ParlourMilkFlowRow.farm == farm.upper())
-        if query_from:
-            stmt_orm = stmt_orm.where(ParlourMilkFlowRow.milking_date >= query_from)
-        if date_to:
-            stmt_orm = stmt_orm.where(ParlourMilkFlowRow.milking_date <= date_to)
         if query_shift:
             stmt_orm = stmt_orm.where(ParlourMilkFlowRow.shift == query_shift)
 
-        rows = list(db.scalars(stmt_orm).all())
-        grouped: dict[tuple[str, dt.date, str], list[ParlourMilkFlowRow]] = defaultdict(
-            list
-        )
-        for row in rows:
-            grouped[(row.farm, row.milking_date, row.shift)].append(row)
-
-        days = {}
-        for (farm_key, milking_date, shift_name), shift_rows in sorted(
-            grouped.items(),
-            key=lambda item: (item[0][1], item[0][0], item[0][2]),
-            reverse=True,
-        ):
-            day_key = (farm_key, milking_date)
-            if day_key not in days:
-                days[day_key] = {
-                    "farm": farm_key,
-                    "milking_date": milking_date.isoformat(),
-                    "shifts": [],
-                    "total_yield_kg": 0.0,
-                    "total_cows": 0,
-                }
+        current_orm_key: tuple[str, dt.date, str] | None = None
+        current_orm_rows: list[ParlourMilkFlowRow] = []
+        for row in db.scalars(stmt_orm):
+            key = (row.farm, row.milking_date, row.shift)
+            if current_orm_key is not None and key != current_orm_key:
+                summary = _shift_summary(
+                    current_orm_rows,
+                    include_pens=include_pens,
+                    include_milking_points=False,
+                )
+                _append_shift_to_days(
+                    days,
+                    farm_key=current_orm_key[0],
+                    milking_date=current_orm_key[1],
+                    shift_name=current_orm_key[2],
+                    summary=summary,
+                )
+                if need_points:
+                    point_map[current_orm_key] = _milking_point_summary(
+                        current_orm_rows
+                    )
+                current_orm_rows = []
+            current_orm_key = key
+            current_orm_rows.append(row)
+        if current_orm_key is not None:
             summary = _shift_summary(
-                shift_rows,
+                current_orm_rows,
                 include_pens=include_pens,
                 include_milking_points=False,
             )
-            days[day_key]["shifts"].append(
-                {
-                    "shift": shift_name,
-                    **summary,
-                }
-            )
-            days[day_key]["total_yield_kg"] = round(
-                days[day_key]["total_yield_kg"] + summary["yield_kg"], 1
-            )
-            days[day_key]["total_cows"] += summary["cow_count"]
-
-        if need_points:
-            point_map = _shift_summaries_from_point_rows(rows)
-            _attach_milking_point_annotations(
+            _append_shift_to_days(
                 days,
-                point_map,
-                include_milking_points=include_milking_points,
+                farm_key=current_orm_key[0],
+                milking_date=current_orm_key[1],
+                shift_name=current_orm_key[2],
+                summary=summary,
             )
+            if need_points:
+                point_map[current_orm_key] = _milking_point_summary(current_orm_rows)
+
+    if need_points:
+        _attach_milking_point_annotations(
+            days,
+            point_map,
+            include_milking_points=include_milking_points,
+        )
 
     # Sort shifts within each day: Morning → Day → Night (legacy Evening/Afternoon kept)
     shift_order = {
@@ -833,13 +934,12 @@ def list_shift_summaries(
         "Evening": 3,
         "Night": 4,
     }
-    day_list = list(days.values())
-    if requested_from is not None:
-        day_list = [
-            d
-            for d in day_list
-            if dt.date.fromisoformat(d["milking_date"]) >= requested_from
-        ]
+    day_list = [
+        d
+        for d in days.values()
+        if dt.date.fromisoformat(d["milking_date"]) >= requested_from
+    ]
+    day_list.sort(key=lambda d: d["milking_date"], reverse=True)
     for day in day_list:
         day["shifts"].sort(
             key=lambda s: (shift_order.get(s["shift"], 99), s["shift"])

@@ -90,16 +90,19 @@ def api_parlour_shift_summary(
     farm_key = farm.upper() if farm else None
     if farm_key and farm_key not in {"CM", "GAD"}:
         raise HTTPException(status_code=400, detail="farm must be CM or GAD")
-    return list_shift_summaries(
-        db,
-        farm=farm_key,
-        date_from=date_from,
-        date_to=date_to,
-        shift=shift,
-        include_pens=include_pens,
-        include_milking_points=include_milking_points,
-        include_problem_stalls=include_problem_stalls,
-    )
+    try:
+        return list_shift_summaries(
+            db,
+            farm=farm_key,
+            date_from=date_from,
+            date_to=date_to,
+            shift=shift,
+            include_pens=include_pens,
+            include_milking_points=include_milking_points,
+            include_problem_stalls=include_problem_stalls,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/stall-issues")

@@ -1312,10 +1312,13 @@
     const params = new URLSearchParams();
     if (farm) params.set("farm", farm);
     // Load all shifts once for the farm; slicer filters client-side.
-    const since = new Date();
+    // Cap at 45 calendar days (server also enforces) so Render stays under 512MB.
+    const until = new Date();
+    const since = new Date(until);
     since.setDate(since.getDate() - 45);
     params.set("date_from", isoDate(since));
-    params.set("v", "quality-5");
+    params.set("date_to", isoDate(until));
+    params.set("v", "quality-6");
     if (!isPenDrilldown) params.set("include_problem_stalls", "true");
     try {
       const res = await fetch("/api/parlour/shift-summary?" + params.toString());
