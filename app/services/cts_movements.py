@@ -425,19 +425,27 @@ def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:
             movement_type = "move_on"
             event_date = purchase.edat
             sex = purchase.gndr or inv.gender or ""
-            breed = _breed_label(inv.sbrd, cbrd=purchase.cbrd if purchase.cbrd is not None else inv.cbrd)
+            breed = _breed_label(
+                inv.sbrd,
+                cbrd=(
+                    inv.cbrd
+                    if inv.cbrd is not None
+                    else (purchase.cbrd if purchase.cbrd is not None else None)
+                ),
+            )
             dob = purchase.bdat or inv.bdat
             source = "inventory not on cts + purchase"
         else:
             movement_type = "birth"
             event_date = (birth.bdat if birth is not None else None) or inv.bdat
             sex = (birth.gndr if birth is not None else None) or inv.gender or ""
+            # Prefer current inventory CBRD (mapped to BCMS); birth CBRD only if INV has none.
             breed = _breed_label(
                 inv.sbrd,
                 cbrd=(
-                    birth.cbrd
-                    if birth is not None and birth.cbrd is not None
-                    else inv.cbrd
+                    inv.cbrd
+                    if inv.cbrd is not None
+                    else (birth.cbrd if birth is not None else None)
                 ),
             )
             dob = (birth.bdat if birth is not None else None) or inv.bdat
@@ -545,9 +553,9 @@ def _display_row_for_reported(
             breed = _breed_label(
                 inv.sbrd if inv is not None else None,
                 cbrd=(
-                    purchase.cbrd
-                    if purchase.cbrd is not None
-                    else (inv.cbrd if inv is not None else None)
+                    inv.cbrd
+                    if inv is not None and inv.cbrd is not None
+                    else (purchase.cbrd if purchase.cbrd is not None else None)
                 ),
             )
             dob = purchase.bdat or (inv.bdat if inv is not None else None)
@@ -560,9 +568,9 @@ def _display_row_for_reported(
             breed = _breed_label(
                 inv.sbrd if inv is not None else None,
                 cbrd=(
-                    birth.cbrd
-                    if birth is not None and birth.cbrd is not None
-                    else (inv.cbrd if inv is not None else None)
+                    inv.cbrd
+                    if inv is not None and inv.cbrd is not None
+                    else (birth.cbrd if birth is not None else None)
                 ),
             )
             dob = (birth.bdat if birth is not None else None) or (

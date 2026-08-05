@@ -195,6 +195,39 @@ def test_list_pending_movements_buckets() -> None:
     assert move_on["sreg"] == "UK777777777777"
 
 
+def test_pending_birth_prefers_inventory_cbrd_over_birth_cbrd() -> None:
+    """INV CBRD corrections should show on Pending without a births re-import."""
+    session = _session()
+    today = dt.date.today()
+    session.add(
+        HerdBirth(
+            farm="GAD",
+            etag="UK613345000001",
+            cow_id="613345",
+            bdat=today - dt.timedelta(days=2),
+            gndr="F",
+            cbrd=101,  # birth still HF
+        )
+    )
+    session.add(
+        HerdInventory(
+            farm="GAD",
+            etag="UK613345000001",
+            cow_id="613345",
+            gender="F",
+            sbrd="HF",  # letter code stale; CBRD is source of truth
+            cbrd=121,  # AAX
+            bdat=today - dt.timedelta(days=2),
+        )
+    )
+    session.commit()
+
+    pending = list_pending_movements(session, "GAD")
+    assert pending["total"] == 1
+    assert pending["rows"][0]["breed"] == "AAX"
+    assert pending["rows"][0]["cow_id"] == "613345"
+
+
 def test_mark_movements_reported_drops_from_pending() -> None:
     session = _session()
     today = dt.date.today()
