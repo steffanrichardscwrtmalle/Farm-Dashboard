@@ -729,6 +729,27 @@ def stock_inventory_heifer_page(request: Request):
     )
 
 
+@app.get("/stock-inventory/beef-inventory", response_class=HTMLResponse)
+def stock_inventory_beef_page(request: Request):
+    if denied := _page_guard(request, PAGE_STOCK_INVENTORY):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "stock_inventory/beef_inventory.html",
+        _template_ctx(
+            request,
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_stock_inventory_context(
+                "Beef Inventory",
+                "beef-inventory",
+                "Beef Inventory",
+            ),
+        ),
+    )
+
+
 @app.get("/stock-inventory/calves-due", response_class=HTMLResponse)
 def stock_inventory_calves_due_page(request: Request):
     if denied := _page_guard(request, PAGE_STOCK_INVENTORY):
