@@ -1,9 +1,9 @@
 """Sync cattle on holding from BCMS CTS (DDTS / CTWS).
 
-Designed for Render cron at 2am UK time. Schedule hourly and pass
-``--only-at-uk-hours 2`` so BST/GMT stay correct year-round:
+Designed for Render cron at 5am UK time. Schedule hourly and pass
+``--only-at-uk-hours 5`` so BST/GMT stay correct year-round:
 
-    python scripts/sync_cts_holding.py --only-at-uk-hours 2
+    python scripts/sync_cts_holding.py --only-at-uk-hours 5
 
 Manual run (both farms that are configured):
 

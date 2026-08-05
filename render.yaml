@@ -236,14 +236,54 @@ services:
           type: web
           envVarKey: HERD_EXPORT_BASE_PATH
 
-  # CTS cattle-on-holding sync at 2am UK time.
+  # Inventory-only OneDrive import (CMINV / GADINV). Runs hourly; skips when
+  # both files' last-modified fingerprints are unchanged since last import.
+  - type: cron
+    name: farm-dashboard-inventory-import
+    runtime: docker
+    schedule: "20 * * * *"
+    dockerCommand: python scripts/import_herd_inventory.py
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: farm-dashboard-db
+          property: connectionString
+      - key: ENVIRONMENT
+        value: production
+      - key: GRAPH_TENANT_ID
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_TENANT_ID
+      - key: GRAPH_CLIENT_ID
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_CLIENT_ID
+      - key: GRAPH_CLIENT_SECRET
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_CLIENT_SECRET
+      - key: GRAPH_DRIVE_USER_EMAIL
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_DRIVE_USER_EMAIL
+      - key: HERD_EXPORT_BASE_PATH
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: HERD_EXPORT_BASE_PATH
+
+  # CTS cattle-on-holding sync at 5am UK time.
   # Runs hourly (UTC); the script exits immediately unless Europe/London hour
-  # is 2 — so BST/GMT stay correct year-round.
+  # is 5 — so BST/GMT stay correct year-round.
   - type: cron
     name: farm-dashboard-cts-sync
     runtime: docker
     schedule: "10 * * * *"
-    dockerCommand: python scripts/sync_cts_holding.py --only-at-uk-hours 2
+    dockerCommand: python scripts/sync_cts_holding.py --only-at-uk-hours 5
     envVars:
       - key: DATABASE_URL
         fromDatabase:

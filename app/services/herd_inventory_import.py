@@ -4,19 +4,32 @@ from __future__ import annotations
 
 import datetime as dt
 import gc
+import json
+import logging
 from typing import Any
 
 import pandas as pd
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.models import HerdInventory, PedigreeRegistrationRecord
-from app.services.graph_onedrive import download_herd_file, graph_is_configured
+from app.models import AppSetting, HerdInventory, PedigreeRegistrationRecord
+from app.services.graph_onedrive import (
+    download_herd_file,
+    graph_is_configured,
+    herd_file_meta,
+)
 from app.services.herd_import_utils import bulk_insert_dataframe, parse_date_series
 from app.services.inventory_processor import load_inventory_csv, process_inventory_file
 
+logger = logging.getLogger(__name__)
+
 CM_INVENTORY_FILE = "DCEXPORTCM/CMINV.CSV"
 GAD_INVENTORY_FILE = "DCEXPORTGAD/GADINV.CSV"
+INVENTORY_SOURCE_SETTING_KEY = "herd_inventory.source_fingerprint"
+_INVENTORY_FILES = (
+    (CM_INVENTORY_FILE, "CM"),
+    (GAD_INVENTORY_FILE, "GAD"),
+)
 
 
 def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[dict[str, Any]]:
@@ -123,6 +136,41 @@ def _sync_pedigree_records(db: Session) -> int:
     return synced
 
 
+def _fingerprint_sources(sources: list[dict[str, str]]) -> str:
+    return json.dumps({"files": sources}, separators=(",", ":"), sort_keys=True)
+
+
+def _load_stored_fingerprint(db: Session) -> str | None:
+    row = db.scalar(
+        select(AppSetting).where(AppSetting.key == INVENTORY_SOURCE_SETTING_KEY)
+    )
+    value = (row.value if row else None) or ""
+    return value.strip() or None
+
+
+def _store_fingerprint(db: Session, fingerprint: str) -> None:
+    row = db.scalar(
+        select(AppSetting).where(AppSetting.key == INVENTORY_SOURCE_SETTING_KEY)
+    )
+    if row is None:
+        db.add(AppSetting(key=INVENTORY_SOURCE_SETTING_KEY, value=fingerprint))
+    else:
+        row.value = fingerprint
+
+
+def _inventory_source_metas() -> list[dict[str, str]]:
+    metas: list[dict[str, str]] = []
+    for relative_path, _farm in _INVENTORY_FILES:
+        meta = herd_file_meta(relative_path)
+        metas.append(
+            {
+                "source_file": meta["relative_path"],
+                "last_modified": meta.get("last_modified") or "",
+            }
+        )
+    return metas
+
+
 def _import_farm_file(
     db: Session, relative_path: str, farm: str, import_time: dt.datetime
 ) -> int:
@@ -138,24 +186,53 @@ def _import_farm_file(
     return rows
 
 
-def import_herd_inventory(db: Session) -> dict[str, Any]:
-    """Download CM + GAD inventory CSVs, clean, and replace herd_inventory table."""
+def import_herd_inventory(db: Session, *, force: bool = True) -> dict[str, Any]:
+    """Download CM + GAD inventory CSVs, clean, and replace herd_inventory table.
+
+    When ``force=False``, skips download/replace if both source files' path +
+    last-modified fingerprints match the previous successful import (same idea
+    as genomic results). Manual / full-herd imports keep ``force=True``.
+    """
     if not graph_is_configured():
         raise ValueError(
             "Herd import is not configured. Set Graph API variables or LOCAL_HERD_EXPORT_DIR."
         )
 
+    sources = _inventory_source_metas()
+    fingerprint = _fingerprint_sources(sources)
+    source_files = [item["source_file"] for item in sources]
+    all_have_mtime = all(item.get("last_modified") for item in sources)
+
+    if not force and all_have_mtime:
+        stored = _load_stored_fingerprint(db)
+        if stored == fingerprint:
+            row_count = db.scalar(select(func.count()).select_from(HerdInventory)) or 0
+            farm_counts = dict(
+                db.execute(
+                    select(HerdInventory.farm, func.count()).group_by(HerdInventory.farm)
+                ).all()
+            )
+            logger.info("Herd inventory unchanged; skipping import")
+            return {
+                "skipped": True,
+                "reason": "source_unchanged",
+                "rows_imported": int(row_count),
+                "pedigree_records_synced": 0,
+                "farm_counts": farm_counts,
+                "imported_at": None,
+                "source_files": source_files,
+                "sources": sources,
+            }
+
     import_time = dt.datetime.now()
     db.execute(delete(HerdInventory))
 
     rows_imported = 0
-    for relative_path, farm in (
-        (CM_INVENTORY_FILE, "CM"),
-        (GAD_INVENTORY_FILE, "GAD"),
-    ):
+    for relative_path, farm in _INVENTORY_FILES:
         rows_imported += _import_farm_file(db, relative_path, farm, import_time)
 
     pedigree_synced = _sync_pedigree_records(db)
+    _store_fingerprint(db, fingerprint)
     db.commit()
 
     farm_counts = dict(
@@ -165,9 +242,11 @@ def import_herd_inventory(db: Session) -> dict[str, Any]:
     )
 
     return {
+        "skipped": False,
         "rows_imported": rows_imported,
         "pedigree_records_synced": pedigree_synced,
         "farm_counts": farm_counts,
         "imported_at": import_time.isoformat(timespec="seconds"),
-        "source_files": [CM_INVENTORY_FILE, GAD_INVENTORY_FILE],
+        "source_files": source_files,
+        "sources": sources,
     }

@@ -357,11 +357,11 @@ If DDTS or a farm’s CTWS/holding is unset, that farm is skipped with a warning
 2. Grant users the **BCMS** page and **CTS — sync cattle on holding** as needed.
 3. Open **BCMS → CTS Reconcile**, choose CM or GAD, click **Sync from CTS**.
 
-### Cron (2am UK)
+### Cron (5am UK)
 
-Render cron `farm-dashboard-cts-sync` runs hourly and only syncs when UK local hour is **2**:
+Render cron `farm-dashboard-cts-sync` runs hourly and only syncs when UK local hour is **5**:
 
-`python scripts/sync_cts_holding.py --only-at-uk-hours 2`
+`python scripts/sync_cts_holding.py --only-at-uk-hours 5`
 
 It pulls cattle on holding for every farm with complete CTWS/holding config and replaces the `cts_on_holding` snapshot. CTS credentials are copied from the web service env vars.
 

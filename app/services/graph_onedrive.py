@@ -187,6 +187,48 @@ def find_newest_herd_file(folder_relative_path: str, *, suffix: str | None = Non
     ]
 
 
+def herd_file_meta(relative_path: str) -> dict[str, str]:
+    """Return metadata for a fixed herd export file (no content download).
+
+    Keys: ``relative_path``, ``name``, ``last_modified`` (ISO-8601).
+    """
+    from datetime import datetime, timezone
+
+    if LOCAL_HERD_EXPORT_DIR:
+        local_path = Path(LOCAL_HERD_EXPORT_DIR).joinpath(*relative_path.split("/"))
+        if not local_path.is_file():
+            raise FileNotFoundError(f"Local herd file not found: {local_path}")
+        mtime = datetime.fromtimestamp(local_path.stat().st_mtime, tz=timezone.utc)
+        return {
+            "relative_path": relative_path,
+            "name": local_path.name,
+            "last_modified": mtime.isoformat().replace("+00:00", "Z"),
+        }
+
+    _require_graph_config()
+    full_path = herd_file_relative_path(relative_path)
+    encoded_path = quote(full_path, safe="/")
+    url = (
+        f"https://graph.microsoft.com/v1.0/users/{GRAPH_DRIVE_USER_EMAIL}"
+        f"/drive/root:/{encoded_path}"
+        "?$select=name,file,lastModifiedDateTime"
+    )
+    token = get_access_token()
+    with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+        response = client.get(url, headers={"Authorization": f"Bearer {token}"})
+        if response.status_code == 404:
+            raise FileNotFoundError(f"OneDrive file not found: {full_path}")
+        response.raise_for_status()
+        payload = response.json()
+    if not payload.get("file"):
+        raise FileNotFoundError(f"OneDrive path is not a file: {full_path}")
+    return {
+        "relative_path": relative_path,
+        "name": str(payload.get("name") or Path(relative_path).name),
+        "last_modified": str(payload.get("lastModifiedDateTime") or ""),
+    }
+
+
 def download_herd_file(relative_path: str) -> bytes:
     """
     Load a herd export file from OneDrive (Graph) or a local synced folder.
