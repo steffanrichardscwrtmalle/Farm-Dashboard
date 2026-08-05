@@ -118,6 +118,10 @@
     .cts-table thead th:hover { color: var(--text); }
     .cts-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
     .cts-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
+    .cts-table tbody tr.row-overdue td {
+      background: #fef2f2;
+      color: #991b1b;
+    }
     .empty-state { color: var(--muted); padding: 1rem 0.25rem; font-size: 0.875rem; }
     .help-note {
       margin: 0.75rem 0 0;
@@ -165,7 +169,7 @@
           <thead>
             <tr id="cts-only-head">
               <th data-sort="farm">Farm</th>
-              <th data-sort="etag">Ear tag</th>
+              <th data-sort="etag_tail">Ear tag</th>
               <th data-sort="breed">Breed</th>
               <th data-sort="sex">Sex</th>
               <th data-sort="dob">DOB</th>
@@ -192,7 +196,7 @@
           <thead>
             <tr id="inv-only-head">
               <th data-sort="farm">Farm</th>
-              <th data-sort="etag">Ear tag</th>
+              <th data-sort="etag_tail">Ear tag</th>
               <th data-sort="cow_id">Cow ID</th>
               <th data-sort="breed">Breed</th>
               <th data-sort="gender">Gender</th>
@@ -228,8 +232,8 @@
   const searchInv = document.getElementById("search-inv-only");
 
   const sortState = {
-    cts: { key: "etag", dir: 1 },
-    inv: { key: "etag", dir: 1 },
+    cts: { key: "etag_tail", dir: 1 },
+    inv: { key: "etag_tail", dir: 1 },
   };
 
   function farmParams() {
@@ -318,12 +322,25 @@
     );
   }
 
+  function etagTail(etag) {
+    const digits = String(etag ?? "").replace(/\D/g, "");
+    if (!digits) return Number.POSITIVE_INFINITY;
+    return Number(digits.slice(-5));
+  }
+
   function sortRows(rows, state) {
     const { key, dir } = state;
-    const numeric = key === "age_months" || key === "age_days" || key === "days_since_exit";
+    const numeric = key === "age_months" || key === "age_days" || key === "days_since_exit" || key === "etag_tail";
     return [...rows].sort((a, b) => {
-      let av = a[key];
-      let bv = b[key];
+      let av;
+      let bv;
+      if (key === "etag_tail") {
+        av = etagTail(a.etag);
+        bv = etagTail(b.etag);
+      } else {
+        av = a[key];
+        bv = b[key];
+      }
       if (numeric) {
         av = av == null || av === "" ? Number.NEGATIVE_INFINITY : Number(av);
         bv = bv == null || bv === "" ? Number.NEGATIVE_INFINITY : Number(bv);
@@ -350,7 +367,19 @@
     });
   }
 
-  function renderTable(tbodyId, emptyId, headingId, rows, columns, count) {
+  function isCtsOnlyOverdue(row) {
+    const days = row.days_since_exit;
+    if (days == null || days === "") return true;
+    return Number(days) >= 3;
+  }
+
+  function isInventoryOnlyOverdue(row) {
+    const days = row.age_days;
+    if (days == null || days === "") return false;
+    return Number(days) > 3;
+  }
+
+  function renderTable(tbodyId, emptyId, headingId, rows, columns, count, isOverdue) {
     const tbody = document.getElementById(tbodyId);
     const empty = document.getElementById(emptyId);
     const heading = document.getElementById(headingId);
@@ -361,9 +390,11 @@
       return;
     }
     empty.hidden = true;
-    tbody.innerHTML = rows.map((row) => `
-      <tr>${columns.map((c) => `<td>${esc(cellValue(row, c))}</td>`).join("")}</tr>
-    `).join("");
+    tbody.innerHTML = rows.map((row) => {
+      const overdue = typeof isOverdue === "function" && isOverdue(row);
+      const cls = overdue ? ' class="row-overdue"' : "";
+      return `<tr${cls}>${columns.map((c) => `<td>${esc(cellValue(row, c))}</td>`).join("")}</tr>`;
+    }).join("");
   }
 
   function renderTables() {
@@ -383,7 +414,8 @@
       "cts-only-body", "cts-only-empty", "cts-only-heading",
       ctsRows,
       ["farm", "etag", "breed", "sex", "dob", "on_date", "age_months", "age_days", "exit_event", "days_since_exit"],
-      agg.cts_only_count
+      agg.cts_only_count,
+      isCtsOnlyOverdue
     );
 
     const invRows = sortRows(
@@ -395,7 +427,8 @@
       "inv-only-body", "inv-only-empty", "inv-only-heading",
       invRows,
       ["farm", "etag", "cow_id", "breed", "gender", "category", "dob", "age_months", "age_days"],
-      agg.inventory_only_count
+      agg.inventory_only_count,
+      isInventoryOnlyOverdue
     );
   }
 

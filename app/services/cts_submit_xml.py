@@ -110,7 +110,7 @@ def build_reg_births_element(
             raise CtsSubmitXmlError(
                 f"Birth row missing dam ear tag (required as GdEtg): {row.get('id')}"
             )
-        # Match Dairy Comp RegBirths core attrs; SireEtg is optional when known.
+        # Match Dairy Comp RegBirths core attrs; SIETG (sire ear tag) is optional.
         attrs: dict[str, str] = {
             "RowNum": str(index),
             "Etg": etag,
@@ -124,7 +124,7 @@ def build_reg_births_element(
         }
         sire = normalize_cts_etag(row.get("sreg"))
         if sire:
-            attrs["SireEtg"] = sire
+            attrs["SIETG"] = sire
         ET.SubElement(births_el, "Birth", **attrs)
 
     return root

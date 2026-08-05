@@ -69,9 +69,10 @@ from app.auth.permissions import (
 )
 from app.auth.roles import ROLE_LABELS, ROLES
 from app.auth.users import get_user_by_email, seed_admin_user
-from app.config import COOKIE_SECURE, SECRET_KEY, SESSION_MAX_AGE_SECONDS
+from app.config import COOKIE_SECURE, IS_PRODUCTION, SECRET_KEY, SESSION_MAX_AGE_SECONDS
 from app.db import SessionLocal, get_db, init_db
 from app.models import User
+from app.services.graph_onedrive import graph_is_configured
 from app.services.invoice_ops import ensure_mappings_seeded
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -507,6 +508,12 @@ def admin_users_page(
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
+    user = getattr(request.state, "user", None)
+    can_refresh_onedrive = (
+        (not IS_PRODUCTION)
+        and graph_is_configured()
+        and has_action(user, ACTION_HERD_IMPORT)
+    )
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -516,6 +523,7 @@ def dashboard(request: Request):
             active_nav="home",
             active_section=None,
             active_nav_group=None,
+            can_refresh_onedrive=can_refresh_onedrive,
         ),
     )
 

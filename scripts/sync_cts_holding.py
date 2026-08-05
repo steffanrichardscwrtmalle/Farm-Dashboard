@@ -120,12 +120,21 @@ def main() -> int:
         for warning in result.get("warnings") or []:
             print(f"Warning: {warning}", flush=True)
         for farm_result in result.get("results") or []:
+            archived = farm_result.get("archived_confirmed", 0)
+            requeued = farm_result.get("requeued_stale_awaiting", 0)
+            extras = []
+            if archived:
+                extras.append(f"archived_confirmed={archived}")
+            if requeued:
+                extras.append(f"requeued_stale_awaiting={requeued}")
+            extra_bit = f"; {', '.join(extras)}" if extras else ""
             print(
                 f"{farm_result.get('farm')}: "
                 f"cts={farm_result.get('cts_count')} "
                 f"matched={farm_result.get('matched_count')} "
                 f"cts_only={farm_result.get('cts_only_count')} "
-                f"inventory_only={farm_result.get('inventory_only_count')}",
+                f"inventory_only={farm_result.get('inventory_only_count')}"
+                f"{extra_bit}",
                 flush=True,
             )
         if not result.get("ok"):

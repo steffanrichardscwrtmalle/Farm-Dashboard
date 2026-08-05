@@ -17,6 +17,7 @@ from app.services.genomic_import import (
 )
 from app.services.herd_birth_import import import_herd_births
 from app.services.herd_events_import import import_cow_events
+from app.services.herd_full_import import refresh_herd_from_onedrive
 from app.services.herd_inventory_import import import_herd_inventory
 
 router = APIRouter(prefix="/api/herd")
@@ -28,6 +29,18 @@ def _import_error_handler(exc: Exception) -> HTTPException:
     if isinstance(exc, ValueError):
         return HTTPException(status_code=400, detail=str(exc))
     raise exc
+
+
+@router.post("/refresh-onedrive")
+def api_refresh_herd_from_onedrive(
+    db: Session = Depends(get_db),
+    _: None = Depends(require_import_or_action(ACTION_HERD_IMPORT)),
+):
+    """Full OneDrive herd refresh: events, inventory, births, snapshots, genomics."""
+    try:
+        return refresh_herd_from_onedrive(db, include_genomics=True)
+    except (FileNotFoundError, ValueError) as exc:
+        raise _import_error_handler(exc) from exc
 
 
 @router.post("/events/import")

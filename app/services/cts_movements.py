@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,7 +23,17 @@ from app.models import (
 from app.services.cts_client import normalize_cts_etag
 from app.services.bcms_breeds import bcms_breed_from_cbrd
 
+logger = logging.getLogger(__name__)
+
 MOVEMENT_TYPES = ("birth", "sale", "death", "move_on")
+_UK = ZoneInfo("Europe/London")
+_ACTIVE_REPORT_STATUSES = ("sent", "ok", "accepted")
+_SUPPRESS_PENDING_STATUSES = ("sent", "ok", "accepted", "archived")
+_STALE_AWAITING_MESSAGE = (
+    "Not reflected on CTS cattle-on-holding after overnight refresh; "
+    "returned to pending to retry."
+)
+_ARCHIVED_MESSAGE = "Confirmed on CTS cattle-on-holding."
 
 
 def _holding_for(farm: str) -> str:
@@ -47,6 +59,15 @@ def _breed_label(
     return ""
 
 
+def _uk_calendar_date(when: dt.datetime | None) -> dt.date | None:
+    """Interpret naive datetimes as UTC (how reported_at is stored)."""
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return when.astimezone(_UK).date()
+
+
 def _reported_keys(db: Session, farm: str) -> set[tuple[str, str, dt.date]]:
     rows = db.execute(
         select(
@@ -55,7 +76,7 @@ def _reported_keys(db: Session, farm: str) -> set[tuple[str, str, dt.date]]:
             CtsReportedMovement.event_date,
         ).where(
             CtsReportedMovement.farm == farm.upper(),
-            CtsReportedMovement.status.in_(("sent", "ok", "accepted")),
+            CtsReportedMovement.status.in_(_SUPPRESS_PENDING_STATUSES),
         )
     ).all()
     return {
@@ -63,6 +84,141 @@ def _reported_keys(db: Session, farm: str) -> set[tuple[str, str, dt.date]]:
         for movement_type, etag, event_date in rows
         if movement_type and etag and event_date
     }
+
+
+def _still_awaiting_cts(
+    *,
+    movement_type: str,
+    etag: str,
+    on_cts: set[str],
+) -> bool:
+    if movement_type in {"birth", "move_on"}:
+        return etag not in on_cts
+    if movement_type in {"sale", "death"}:
+        return etag in on_cts
+    return False
+
+
+def archive_confirmed_movements(db: Session, farm: str) -> dict[str, Any]:
+    """Move accepted sends into Archive once CTS holding reflects them.
+
+    - birth / move_on: ear tag now present on ``cts_on_holding``
+    - sale / death: ear tag no longer present on ``cts_on_holding``
+    """
+    farm_key = farm.upper()
+    if farm_key not in {"CM", "GAD"}:
+        raise ValueError(f"Unsupported farm: {farm}")
+
+    on_cts = _cts_etag_set(db, farm_key)
+    reported_rows = db.scalars(
+        select(CtsReportedMovement).where(
+            CtsReportedMovement.farm == farm_key,
+            CtsReportedMovement.status.in_(_ACTIVE_REPORT_STATUSES),
+        )
+    ).all()
+
+    archived: list[dict[str, Any]] = []
+    for reported in reported_rows:
+        movement_type = (reported.movement_type or "").strip().lower()
+        etag = normalize_cts_etag(reported.etag)
+        if not movement_type or not etag or reported.event_date is None:
+            continue
+        if _still_awaiting_cts(
+            movement_type=movement_type, etag=etag, on_cts=on_cts
+        ):
+            continue
+        reported.status = "archived"
+        reported.error_message = _ARCHIVED_MESSAGE
+        archived.append(
+            {
+                "movement_type": movement_type,
+                "etag": etag,
+                "event_date": reported.event_date.isoformat(),
+                "reported_at": (
+                    reported.reported_at.isoformat(sep=" ", timespec="minutes")
+                    if reported.reported_at is not None
+                    else None
+                ),
+            }
+        )
+
+    if archived:
+        db.commit()
+        logger.info(
+            "Archived %s CTS-confirmed movement(s) for %s",
+            len(archived),
+            farm_key,
+        )
+    return {
+        "farm": farm_key,
+        "archived_count": len(archived),
+        "archived": archived,
+    }
+
+
+def requeue_stale_awaiting_movements(
+    db: Session,
+    farm: str,
+    *,
+    as_of: dt.date | None = None,
+) -> dict[str, Any]:
+    """Mark stale accepted sends as failed so they return to Pending.
+
+    After a successful CTS cattle-on-holding sync, any birth/move-on still missing
+    from the snapshot (or sale/death still present) whose UK send date is before
+    today is treated as failed. Status becomes ``failed``, which removes the row
+    from Awaiting CTS and from the reported suppress-list used by Pending.
+    """
+    farm_key = farm.upper()
+    if farm_key not in {"CM", "GAD"}:
+        raise ValueError(f"Unsupported farm: {farm}")
+
+    today_uk = as_of or dt.datetime.now(_UK).date()
+    on_cts = _cts_etag_set(db, farm_key)
+    reported_rows = db.scalars(
+        select(CtsReportedMovement).where(
+            CtsReportedMovement.farm == farm_key,
+            CtsReportedMovement.status.in_(_ACTIVE_REPORT_STATUSES),
+        )
+    ).all()
+
+    requeued: list[dict[str, Any]] = []
+    for reported in reported_rows:
+        movement_type = (reported.movement_type or "").strip().lower()
+        etag = normalize_cts_etag(reported.etag)
+        if not movement_type or not etag or reported.event_date is None:
+            continue
+        if not _still_awaiting_cts(
+            movement_type=movement_type, etag=etag, on_cts=on_cts
+        ):
+            continue
+        sent_uk = _uk_calendar_date(reported.reported_at)
+        if sent_uk is None or sent_uk >= today_uk:
+            # Same UK calendar day as send — give CTS the overnight refresh.
+            continue
+        reported.status = "failed"
+        reported.error_message = _STALE_AWAITING_MESSAGE
+        requeued.append(
+            {
+                "movement_type": movement_type,
+                "etag": etag,
+                "event_date": reported.event_date.isoformat(),
+                "reported_at": (
+                    reported.reported_at.isoformat(sep=" ", timespec="minutes")
+                    if reported.reported_at is not None
+                    else None
+                ),
+            }
+        )
+
+    if requeued:
+        db.commit()
+        logger.info(
+            "Requeued %s stale awaiting CTS movement(s) for %s",
+            len(requeued),
+            farm_key,
+        )
+    return {"farm": farm_key, "requeued_count": len(requeued), "requeued": requeued}
 
 
 def _cts_etag_set(db: Session, farm: str) -> set[str]:
@@ -330,37 +486,157 @@ def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:
     }
 
 
+def _reported_list_context(db: Session, farm_key: str) -> dict[str, Any]:
+    return {
+        "on_cts": _cts_etag_set(db, farm_key),
+        "inventory": _inventory_by_etag(db, farm_key),
+        "pedigree_tags": _pedigree_tags_by_etag(db, farm_key),
+        "exits": _exit_events_by_etag(db, farm_key),
+        "births": _births_by_etag(db, farm_key),
+        "purchases": _purchases_by_etag(db, farm_key),
+        "cts_by_etag": {
+            row.etag: row
+            for row in db.scalars(
+                select(CtsOnHolding).where(CtsOnHolding.farm == farm_key)
+            ).all()
+            if row.etag
+        },
+    }
+
+
+def _display_row_for_reported(
+    reported: CtsReportedMovement,
+    *,
+    farm_key: str,
+    ctx: dict[str, Any],
+    source: str,
+) -> dict[str, Any] | None:
+    movement_type = (reported.movement_type or "").strip().lower()
+    etag = normalize_cts_etag(reported.etag)
+    event_date = reported.event_date
+    if not movement_type or not etag or event_date is None:
+        return None
+
+    inv = ctx["inventory"].get(etag)
+    cts = ctx["cts_by_etag"].get(etag)
+    tags = ctx["pedigree_tags"].get(etag) or {}
+    exit_ev = ctx["exits"].get(etag)
+    birth = ctx["births"].get(etag)
+    purchase = ctx["purchases"].get(etag)
+
+    if movement_type in {"sale", "death"}:
+        cow_id = (exit_ev.cow_id if exit_ev is not None else "") or ""
+        sex = (cts.sex if cts is not None else "") or (
+            exit_ev.gndr if exit_ev is not None else ""
+        )
+        breed = _breed_label(
+            cts.breed if cts is not None else None,
+            cbrd=exit_ev.cbrd if exit_ev is not None else None,
+        )
+        dob = (cts.dob if cts is not None else None) or (
+            exit_ev.bdat if exit_ev is not None else None
+        )
+        dreg = tags.get("dreg", "")
+        sreg = tags.get("sreg", "")
+    else:
+        cow_id = (inv.cow_id if inv is not None else "") or ""
+        if movement_type == "move_on" and purchase is not None:
+            sex = purchase.gndr or (inv.gender if inv is not None else "") or ""
+            breed = _breed_label(
+                inv.sbrd if inv is not None else None,
+                cbrd=(
+                    purchase.cbrd
+                    if purchase.cbrd is not None
+                    else (inv.cbrd if inv is not None else None)
+                ),
+            )
+            dob = purchase.bdat or (inv.bdat if inv is not None else None)
+        else:
+            sex = (
+                (birth.gndr if birth is not None else None)
+                or (inv.gender if inv is not None else "")
+                or ""
+            )
+            breed = _breed_label(
+                inv.sbrd if inv is not None else None,
+                cbrd=(
+                    birth.cbrd
+                    if birth is not None and birth.cbrd is not None
+                    else (inv.cbrd if inv is not None else None)
+                ),
+            )
+            dob = (birth.bdat if birth is not None else None) or (
+                inv.bdat if inv is not None else None
+            )
+        dreg = (
+            (inv.dreg if inv is not None else "") or ""
+        ).strip() or tags.get("dreg", "")
+        sreg = (
+            (inv.sreg if inv is not None else "") or ""
+        ).strip() or tags.get("sreg", "")
+
+    row = _row(
+        movement_type=movement_type,
+        farm=farm_key,
+        etag=etag,
+        cow_id=cow_id,
+        event_date=event_date,
+        sex=sex,
+        breed=breed,
+        dob=dob,
+        dreg=dreg,
+        sreg=sreg,
+        source=source,
+    )
+    if not row:
+        return None
+    row["receipt"] = (reported.receipt or "").strip()
+    row["status"] = (reported.status or "").strip()
+    reported_at = reported.reported_at
+    if reported_at is not None:
+        row["reported_at"] = reported_at.isoformat(sep=" ", timespec="minutes")
+    else:
+        row["reported_at"] = None
+    return row
+
+
+def _sort_and_count_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    type_order = {name: idx for idx, name in enumerate(MOVEMENT_TYPES)}
+    rows.sort(
+        key=lambda r: (
+            type_order.get(r["movement_type"], 99),
+            r["event_date"] or "",
+            r["etag"],
+        )
+    )
+    counts = {name: 0 for name in MOVEMENT_TYPES}
+    for row in rows:
+        counts[row["movement_type"]] = counts.get(row["movement_type"], 0) + 1
+    return rows, counts
+
+
 def list_awaiting_cts_movements(db: Session, farm: str) -> dict[str, Any]:
     """Accepted BCMS submissions not yet reflected in the CTS holding snapshot.
 
     CTS cattle-on-holding often lags until the next overnight refresh, so:
     - birth / move_on: accepted, but ear tag still missing from ``cts_on_holding``
     - sale / death: accepted, but ear tag still present on ``cts_on_holding``
+
+    Confirmed rows are promoted to Archive before this list is built.
     """
     farm_key = farm.upper()
     if farm_key not in {"CM", "GAD"}:
         raise ValueError(f"Unsupported farm: {farm}")
 
-    holding = _holding_for(farm_key)
-    on_cts = _cts_etag_set(db, farm_key)
-    inventory = _inventory_by_etag(db, farm_key)
-    pedigree_tags = _pedigree_tags_by_etag(db, farm_key)
-    exits = _exit_events_by_etag(db, farm_key)
-    births = _births_by_etag(db, farm_key)
-    purchases = _purchases_by_etag(db, farm_key)
-    cts_by_etag = {
-        row.etag: row
-        for row in db.scalars(
-            select(CtsOnHolding).where(CtsOnHolding.farm == farm_key)
-        ).all()
-        if row.etag
-    }
+    archive_confirmed_movements(db, farm_key)
 
+    holding = _holding_for(farm_key)
+    ctx = _reported_list_context(db, farm_key)
     reported_rows = db.scalars(
         select(CtsReportedMovement)
         .where(
             CtsReportedMovement.farm == farm_key,
-            CtsReportedMovement.status.in_(("sent", "ok", "accepted")),
+            CtsReportedMovement.status.in_(_ACTIVE_REPORT_STATUSES),
         )
         .order_by(CtsReportedMovement.reported_at.desc())
     ).all()
@@ -369,120 +645,68 @@ def list_awaiting_cts_movements(db: Session, farm: str) -> dict[str, Any]:
     for reported in reported_rows:
         movement_type = (reported.movement_type or "").strip().lower()
         etag = normalize_cts_etag(reported.etag)
-        event_date = reported.event_date
-        if not movement_type or not etag or event_date is None:
+        if not movement_type or not etag or reported.event_date is None:
             continue
-
-        if movement_type in {"birth", "move_on"}:
-            if etag in on_cts:
-                continue
-        elif movement_type in {"sale", "death"}:
-            if etag not in on_cts:
-                continue
-        else:
+        if not _still_awaiting_cts(
+            movement_type=movement_type, etag=etag, on_cts=ctx["on_cts"]
+        ):
             continue
-
-        inv = inventory.get(etag)
-        cts = cts_by_etag.get(etag)
-        tags = pedigree_tags.get(etag) or {}
-        exit_ev = exits.get(etag)
-        birth = births.get(etag)
-        purchase = purchases.get(etag)
-
-        if movement_type in {"sale", "death"}:
-            cow_id = (exit_ev.cow_id if exit_ev is not None else "") or ""
-            sex = (cts.sex if cts is not None else "") or (
-                exit_ev.gndr if exit_ev is not None else ""
-            )
-            breed = _breed_label(
-                cts.breed if cts is not None else None,
-                cbrd=exit_ev.cbrd if exit_ev is not None else None,
-            )
-            dob = (cts.dob if cts is not None else None) or (
-                exit_ev.bdat if exit_ev is not None else None
-            )
-            dreg = tags.get("dreg", "")
-            sreg = tags.get("sreg", "")
-        else:
-            cow_id = (inv.cow_id if inv is not None else "") or ""
-            if movement_type == "move_on" and purchase is not None:
-                sex = purchase.gndr or (inv.gender if inv is not None else "") or ""
-                breed = _breed_label(
-                    inv.sbrd if inv is not None else None,
-                    cbrd=(
-                        purchase.cbrd
-                        if purchase.cbrd is not None
-                        else (inv.cbrd if inv is not None else None)
-                    ),
-                )
-                dob = purchase.bdat or (inv.bdat if inv is not None else None)
-            else:
-                sex = (
-                    (birth.gndr if birth is not None else None)
-                    or (inv.gender if inv is not None else "")
-                    or ""
-                )
-                breed = _breed_label(
-                    inv.sbrd if inv is not None else None,
-                    cbrd=(
-                        birth.cbrd
-                        if birth is not None and birth.cbrd is not None
-                        else (inv.cbrd if inv is not None else None)
-                    ),
-                )
-                dob = (birth.bdat if birth is not None else None) or (
-                    inv.bdat if inv is not None else None
-                )
-            dreg = (
-                (inv.dreg if inv is not None else "") or ""
-            ).strip() or tags.get("dreg", "")
-            sreg = (
-                (inv.sreg if inv is not None else "") or ""
-            ).strip() or tags.get("sreg", "")
-
-        row = _row(
-            movement_type=movement_type,
-            farm=farm_key,
-            etag=etag,
-            cow_id=cow_id,
-            event_date=event_date,
-            sex=sex,
-            breed=breed,
-            dob=dob,
-            dreg=dreg,
-            sreg=sreg,
+        row = _display_row_for_reported(
+            reported,
+            farm_key=farm_key,
+            ctx=ctx,
             source="accepted awaiting cts refresh",
         )
-        if not row:
-            continue
-        row["receipt"] = (reported.receipt or "").strip()
-        row["status"] = (reported.status or "").strip()
-        reported_at = reported.reported_at
-        if reported_at is not None:
-            row["reported_at"] = reported_at.isoformat(sep=" ", timespec="minutes")
-        else:
-            row["reported_at"] = None
-        awaiting.append(row)
+        if row:
+            awaiting.append(row)
 
-    type_order = {name: idx for idx, name in enumerate(MOVEMENT_TYPES)}
-    awaiting.sort(
-        key=lambda r: (
-            type_order.get(r["movement_type"], 99),
-            r["event_date"] or "",
-            r["etag"],
-        )
-    )
-
-    counts = {name: 0 for name in MOVEMENT_TYPES}
-    for row in awaiting:
-        counts[row["movement_type"]] = counts.get(row["movement_type"], 0) + 1
-
+    awaiting, counts = _sort_and_count_rows(awaiting)
     return {
         "farm": farm_key,
         "holding": holding,
         "counts": counts,
         "total": len(awaiting),
         "rows": awaiting,
+    }
+
+
+def list_archived_movements(db: Session, farm: str) -> dict[str, Any]:
+    """BCMS submissions confirmed against the CTS cattle-on-holding snapshot."""
+    farm_key = farm.upper()
+    if farm_key not in {"CM", "GAD"}:
+        raise ValueError(f"Unsupported farm: {farm}")
+
+    archive_confirmed_movements(db, farm_key)
+
+    holding = _holding_for(farm_key)
+    ctx = _reported_list_context(db, farm_key)
+    reported_rows = db.scalars(
+        select(CtsReportedMovement)
+        .where(
+            CtsReportedMovement.farm == farm_key,
+            CtsReportedMovement.status == "archived",
+        )
+        .order_by(CtsReportedMovement.reported_at.desc())
+    ).all()
+
+    archived: list[dict[str, Any]] = []
+    for reported in reported_rows:
+        row = _display_row_for_reported(
+            reported,
+            farm_key=farm_key,
+            ctx=ctx,
+            source="archived confirmed on cts",
+        )
+        if row:
+            archived.append(row)
+
+    archived, counts = _sort_and_count_rows(archived)
+    return {
+        "farm": farm_key,
+        "holding": holding,
+        "counts": counts,
+        "total": len(archived),
+        "rows": archived,
     }
 
 

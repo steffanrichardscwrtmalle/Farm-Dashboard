@@ -16,6 +16,10 @@ from app.services.cts_client import (
     list_cattle_on_holding,
     normalize_cts_etag,
 )
+from app.services.cts_movements import (
+    archive_confirmed_movements,
+    requeue_stale_awaiting_movements,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +270,12 @@ def sync_farm(
         logger.exception("CTS sync failed farm=%s", farm_key)
         raise CtsError(str(exc)) from exc
 
-    return reconcile_farm(db, farm_key)
+    archived = archive_confirmed_movements(db, farm_key)
+    requeue = requeue_stale_awaiting_movements(db, farm_key)
+    result = reconcile_farm(db, farm_key)
+    result["archived_confirmed"] = archived.get("archived_count", 0)
+    result["requeued_stale_awaiting"] = requeue.get("requeued_count", 0)
+    return result
 
 
 def sync_farms(

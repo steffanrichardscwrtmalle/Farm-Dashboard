@@ -60,6 +60,17 @@
     .home-widget.status-error .widget-title {
       color: var(--muted);
     }
+    .home-offline-tools {
+      margin-top: 1.25rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1rem;
+    }
+    .home-offline-tools .message {
+      margin: 0;
+      flex: 1 1 16rem;
+    }
 {% endblock %}
 
 {% block content %}
@@ -74,6 +85,15 @@
     </div>
     {% endif %}
   </div>
+
+  {% if can_refresh_onedrive %}
+  <div class="home-offline-tools">
+    <button type="button" class="secondary" id="refresh-onedrive-btn">
+      Refresh OneDrive reports
+    </button>
+    <p id="onedrive-refresh-status" class="message" aria-live="polite"></p>
+  </div>
+  {% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -100,6 +120,59 @@
   }
 
   loadHealth();
+})();
+</script>
+{% endif %}
+{% if can_refresh_onedrive %}
+<script>
+(() => {
+  const btn = document.getElementById("refresh-onedrive-btn");
+  const status = document.getElementById("onedrive-refresh-status");
+  if (!btn || !status) return;
+
+  function setStatus(text, isError) {
+    status.textContent = text || "";
+    status.className = "message" + (isError ? " err" : text ? " ok" : "");
+  }
+
+  btn.addEventListener("click", async () => {
+    if (btn.disabled) return;
+    const ok = window.confirm(
+      "Refresh all OneDrive herd reports into this local database?\n\n"
+      + "This imports events, inventory, births, stock snapshots, and genomics. "
+      + "It can take several minutes."
+    );
+    if (!ok) return;
+
+    btn.disabled = true;
+    setStatus("Refreshing from OneDrive… this can take a few minutes.", false);
+    try {
+      const res = await fetch("/api/herd/refresh-onedrive", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail || data.message || res.statusText || "Refresh failed.";
+        setStatus(typeof detail === "string" ? detail : JSON.stringify(detail), true);
+        return;
+      }
+      const events = (data.events && data.events.rows_imported) || 0;
+      const inventory = (data.inventory && data.inventory.rows_imported) || 0;
+      const births = (data.births && data.births.rows_imported) || 0;
+      const genomics = data.genomics && data.genomics.rows_imported;
+      let msg =
+        `Refresh complete: ${events.toLocaleString()} events, `
+        + `${inventory.toLocaleString()} inventory, `
+        + `${births.toLocaleString()} births`;
+      if (genomics != null) {
+        msg += `, ${Number(genomics).toLocaleString()} genomic rows`;
+      }
+      msg += ".";
+      setStatus(msg, false);
+    } catch (err) {
+      setStatus(err && err.message ? err.message : "Refresh failed.", true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
 })();
 </script>
 {% endif %}

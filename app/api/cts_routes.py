@@ -16,6 +16,7 @@ from app.models import HERD_FARM_OPTIONS, User
 from app.services.bcms_health import get_bcms_health
 from app.services.cts_client import CtsError, cts_status
 from app.services.cts_movements import (
+    list_archived_movements,
     list_awaiting_cts_movements,
     list_pending_movements,
 )
@@ -127,6 +128,21 @@ def api_cts_movements_awaiting_cts(
         raise HTTPException(status_code=400, detail="Invalid farm. Use CM or GAD.")
     try:
         return list_awaiting_cts_movements(db, farm_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/movements/archive")
+def api_cts_movements_archive(
+    farm: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BCMS)),
+) -> dict[str, Any]:
+    farm_key = farm.strip().upper()
+    if farm_key not in HERD_FARM_OPTIONS:
+        raise HTTPException(status_code=400, detail="Invalid farm. Use CM or GAD.")
+    try:
+        return list_archived_movements(db, farm_key)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

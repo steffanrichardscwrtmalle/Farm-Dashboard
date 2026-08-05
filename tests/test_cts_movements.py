@@ -18,9 +18,12 @@ from app.models import (
     StockPurchaseAnimal,
 )
 from app.services.cts_movements import (
+    archive_confirmed_movements,
+    list_archived_movements,
     list_awaiting_cts_movements,
     list_pending_movements,
     mark_movements_reported,
+    requeue_stale_awaiting_movements,
 )
 
 
@@ -261,7 +264,7 @@ def test_list_awaiting_cts_birth_until_on_holding() -> None:
     assert awaiting["rows"][0]["receipt"] == "43719899"
     assert awaiting["counts"]["birth"] == 1
 
-    # Once CTS holding catches up overnight, it drops off.
+    # Once CTS holding catches up overnight, it moves to Archive.
     session.add(
         CtsOnHolding(
             farm="CM",
@@ -274,6 +277,10 @@ def test_list_awaiting_cts_birth_until_on_holding() -> None:
     session.commit()
     after = list_awaiting_cts_movements(session, "CM")
     assert after["total"] == 0
+    archived = list_archived_movements(session, "CM")
+    assert archived["total"] == 1
+    assert archived["rows"][0]["etag"] == "UK222222222222"
+    assert archived["rows"][0]["status"] == "archived"
 
 
 def test_list_awaiting_cts_death_until_off_holding() -> None:
@@ -305,7 +312,7 @@ def test_list_awaiting_cts_death_until_off_holding() -> None:
     assert awaiting["total"] == 1
     assert awaiting["rows"][0]["movement_type"] == "death"
 
-    # Cleared from CTS holding → no longer awaiting.
+    # Cleared from CTS holding → archived as confirmed.
     holding = session.scalar(
         select(CtsOnHolding).where(CtsOnHolding.etag == "UK555555555555")
     )
@@ -314,3 +321,183 @@ def test_list_awaiting_cts_death_until_off_holding() -> None:
     session.commit()
     after = list_awaiting_cts_movements(session, "CM")
     assert after["total"] == 0
+    archived = list_archived_movements(session, "CM")
+    assert archived["total"] == 1
+    assert archived["rows"][0]["movement_type"] == "death"
+
+
+def test_archive_confirmed_birth_promotes_from_awaiting() -> None:
+    session = _session()
+    today = dt.date.today()
+    etag = "UK666666666666"
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag=etag,
+            cow_id="606",
+            gender="F",
+            bdat=today - dt.timedelta(days=3),
+            cbrd=101,
+        )
+    )
+    session.add(
+        CtsReportedMovement(
+            farm="CM",
+            movement_type="birth",
+            etag=etag,
+            event_date=today - dt.timedelta(days=3),
+            status="accepted",
+            receipt="123",
+        )
+    )
+    session.add(
+        CtsOnHolding(
+            farm="CM",
+            etag=etag,
+            breed="HF",
+            sex="F",
+            dob=today - dt.timedelta(days=3),
+        )
+    )
+    session.commit()
+
+    result = archive_confirmed_movements(session, "CM")
+    assert result["archived_count"] == 1
+    assert list_awaiting_cts_movements(session, "CM")["total"] == 0
+    archived = list_archived_movements(session, "CM")
+    assert archived["total"] == 1
+    assert archived["rows"][0]["receipt"] == "123"
+    # Archived keys stay suppressed from pending even if inventory mismatches briefly.
+    assert list_pending_movements(session, "CM")["total"] == 0
+
+
+def test_requeue_stale_awaiting_birth_back_to_pending() -> None:
+    session = _session()
+    today = dt.date.today()
+    etag = "UK222222222222"
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag=etag,
+            cow_id="202",
+            gender="F",
+            bdat=today - dt.timedelta(days=5),
+            cbrd=101,
+        )
+    )
+    session.add(
+        HerdBirth(
+            farm="CM",
+            etag=etag,
+            cow_id="202",
+            bdat=today - dt.timedelta(days=5),
+            gndr="F",
+            cbrd=101,
+        )
+    )
+    reported = CtsReportedMovement(
+        farm="CM",
+        movement_type="birth",
+        etag=etag,
+        event_date=today - dt.timedelta(days=5),
+        status="accepted",
+        receipt="43719899",
+        reported_at=dt.datetime.combine(
+            today - dt.timedelta(days=1), dt.time(12, 0)
+        ),
+    )
+    session.add(reported)
+    session.commit()
+
+    assert list_awaiting_cts_movements(session, "CM")["total"] == 1
+    assert list_pending_movements(session, "CM")["total"] == 0
+
+    result = requeue_stale_awaiting_movements(session, "CM", as_of=today)
+    assert result["requeued_count"] == 1
+    session.refresh(reported)
+    assert reported.status == "failed"
+    assert reported.error_message
+
+    assert list_awaiting_cts_movements(session, "CM")["total"] == 0
+    pending = list_pending_movements(session, "CM")
+    assert pending["total"] == 1
+    assert pending["rows"][0]["etag"] == etag
+    assert pending["rows"][0]["movement_type"] == "birth"
+
+
+def test_requeue_skips_same_uk_day_sends() -> None:
+    session = _session()
+    today = dt.date.today()
+    etag = "UK333333333333"
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag=etag,
+            cow_id="303",
+            gender="F",
+            bdat=today,
+            cbrd=101,
+        )
+    )
+    session.add(
+        CtsReportedMovement(
+            farm="CM",
+            movement_type="birth",
+            etag=etag,
+            event_date=today,
+            status="accepted",
+            reported_at=dt.datetime.combine(today, dt.time(10, 0)),
+        )
+    )
+    session.commit()
+
+    result = requeue_stale_awaiting_movements(session, "CM", as_of=today)
+    assert result["requeued_count"] == 0
+    assert list_awaiting_cts_movements(session, "CM")["total"] == 1
+    assert list_pending_movements(session, "CM")["total"] == 0
+
+
+def test_requeue_skips_when_cts_already_reflects() -> None:
+    session = _session()
+    today = dt.date.today()
+    etag = "UK444444444444"
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag=etag,
+            cow_id="404",
+            gender="F",
+            bdat=today - dt.timedelta(days=5),
+            cbrd=101,
+        )
+    )
+    session.add(
+        CtsOnHolding(
+            farm="CM",
+            etag=etag,
+            breed="HF",
+            sex="F",
+            dob=today - dt.timedelta(days=5),
+        )
+    )
+    session.add(
+        CtsReportedMovement(
+            farm="CM",
+            movement_type="birth",
+            etag=etag,
+            event_date=today - dt.timedelta(days=5),
+            status="accepted",
+            reported_at=dt.datetime.combine(
+                today - dt.timedelta(days=1), dt.time(12, 0)
+            ),
+        )
+    )
+    session.commit()
+
+    # Sync path archives confirmed rows before requeue considers them.
+    archived = archive_confirmed_movements(session, "CM")
+    assert archived["archived_count"] == 1
+    result = requeue_stale_awaiting_movements(session, "CM", as_of=today)
+    assert result["requeued_count"] == 0
+    assert list_awaiting_cts_movements(session, "CM")["total"] == 0
+    assert list_archived_movements(session, "CM")["total"] == 1
