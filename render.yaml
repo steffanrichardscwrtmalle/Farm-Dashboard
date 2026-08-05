@@ -236,8 +236,8 @@ services:
           type: web
           envVarKey: HERD_EXPORT_BASE_PATH
 
-  # Inventory-only OneDrive import (CMINV / GADINV). Runs hourly; skips when
-  # both files' last-modified fingerprints are unchanged since last import.
+  # Inventory-only OneDrive import (CMINV / GADINV). Runs hourly; each farm is
+  # checked independently and skipped when that file's fingerprint is unchanged.
   - type: cron
     name: farm-dashboard-inventory-import
     runtime: docker

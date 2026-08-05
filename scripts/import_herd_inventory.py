@@ -4,8 +4,8 @@ Designed for a frequent Render cron (inventory is lighter than full herd import)
 
     python scripts/import_herd_inventory.py
 
-Skips download/replace when both CMINV and GADINV fingerprints are unchanged.
-Use ``--force`` to reload anyway.
+Each farm (CM / GAD) is checked independently — only changed inventory files
+are downloaded and replaced. Use ``--force`` to reload both anyway.
 """
 
 from __future__ import annotations
@@ -36,12 +36,15 @@ def main() -> int:
     _configure_stdio()
 
     parser = argparse.ArgumentParser(
-        description="Import CM/GAD inventory CSVs from OneDrive (skip if unchanged)."
+        description=(
+            "Import CM/GAD inventory CSVs from OneDrive "
+            "(per-farm skip if that file is unchanged)."
+        )
     )
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Reload even when source file fingerprints are unchanged.",
+        help="Reload both farms even when source fingerprints are unchanged.",
     )
     args = parser.parse_args()
 
@@ -59,19 +62,27 @@ def main() -> int:
     try:
         print("Step: checking / importing herd inventory…", flush=True)
         result = import_herd_inventory(db, force=args.force)
+        imported = result.get("farms_imported") or []
+        skipped = result.get("farms_skipped") or []
         if result.get("skipped"):
             print(
                 "Skipped herd inventory (unchanged): "
-                + ", ".join(result.get("source_files") or []),
+                + ", ".join(skipped or result.get("source_files") or []),
                 flush=True,
             )
         else:
-            print(
-                f"Imported {result.get('rows_imported', 0):,} inventory rows "
-                f"(CM: {result.get('farm_counts', {}).get('CM', 0):,}, "
-                f"GAD: {result.get('farm_counts', {}).get('GAD', 0):,})",
-                flush=True,
+            bits = [
+                f"Imported {result.get('rows_imported', 0):,} inventory rows"
+            ]
+            if imported:
+                bits.append(f"updated={','.join(imported)}")
+            if skipped:
+                bits.append(f"skipped={','.join(skipped)}")
+            counts = result.get("farm_counts") or {}
+            bits.append(
+                f"(CM: {counts.get('CM', 0):,}, GAD: {counts.get('GAD', 0):,})"
             )
+            print(" ".join(bits), flush=True)
         return 0
     except Exception as exc:  # noqa: BLE001
         db.rollback()
