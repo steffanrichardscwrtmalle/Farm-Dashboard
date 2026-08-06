@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
 from app.auth.import_key import require_import_or_action, require_import_or_any_action
-from app.auth.permissions import ACTION_GENETICS_PENDING_RESULTS, ACTION_HERD_IMPORT
+from app.auth.permissions import (
+    ACTION_CTS_SYNC,
+    ACTION_GENETICS_PENDING_RESULTS,
+    ACTION_HERD_IMPORT,
+)
 from app.db import get_db
 from app.models import AppSetting, CowEvent, GenomicResult, HerdBirth, HerdInventory, User
 from app.services.genomic_import import (
@@ -76,8 +80,11 @@ def api_cow_events_status(
 @router.post("/inventory/import")
 def api_import_herd_inventory(
     db: Session = Depends(get_db),
-    _: None = Depends(require_import_or_action(ACTION_HERD_IMPORT)),
+    _: None = Depends(
+        require_import_or_any_action(ACTION_HERD_IMPORT, ACTION_CTS_SYNC)
+    ),
 ):
+    """Import CM/GAD inventory CSVs (inventory cron / DC305 sync on CTS Reconcile)."""
     try:
         return import_herd_inventory(db)
     except (FileNotFoundError, ValueError) as exc:

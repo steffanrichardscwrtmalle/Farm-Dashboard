@@ -806,7 +806,10 @@ def bcms_reconcile_page(request: Request):
             page_heading="CTS Reconcile",
             farm_options=list(HERD_FARM_OPTIONS),
             can_sync=has_action(request.state.user, ACTION_CTS_SYNC),
-            can_dc305_sync=has_action(request.state.user, ACTION_HERD_IMPORT),
+            can_dc305_sync=(
+                has_action(request.state.user, ACTION_CTS_SYNC)
+                or has_action(request.state.user, ACTION_HERD_IMPORT)
+            ),
             **_bcms_context(
                 "CTS Reconcile",
                 "cts-reconcile",
