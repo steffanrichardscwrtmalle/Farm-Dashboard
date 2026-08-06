@@ -52,6 +52,12 @@
       cursor: pointer;
     }
     .sync-btn:disabled { opacity: 0.6; cursor: wait; }
+    .sync-meta {
+      margin: 0.35rem 0 0;
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.35;
+    }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin: 0 0 0.5rem; }
     .status-banner {
       padding: 0.65rem 0.85rem;
@@ -144,13 +150,22 @@
           {% endfor %}
         </div>
       </div>
-      {% if can_sync %}
       <div class="filter-section">
         <span class="section-label">CTS sync</span>
+        {% if can_sync %}
         <button type="button" class="sync-btn" id="sync-btn">Sync from CTS</button>
         <p class="help-note">Pulls cattle on holding from BCMS, then shows only mismatches vs herd inventory.</p>
+        {% endif %}
+        <p class="sync-meta" id="cts-sync-meta">Last sync: —</p>
       </div>
-      {% endif %}
+      <div class="filter-section">
+        <span class="section-label">DC305 sync</span>
+        {% if can_dc305_sync %}
+        <button type="button" class="sync-btn" id="dc305-sync-btn">DC305 sync</button>
+        <p class="help-note">Imports the latest CM/GAD inventory CSVs from OneDrive (same as the inventory cron).</p>
+        {% endif %}
+        <p class="sync-meta" id="dc305-sync-meta">Last sync: —</p>
+      </div>
     </div>
   </aside>
 
@@ -219,11 +234,15 @@
 <script>
 (() => {
   const CAN_SYNC = {{ can_sync | tojson }};
+  const CAN_DC305_SYNC = {{ can_dc305_sync | tojson }};
   let farm = "CM";
   let payload = null;
 
   const farmSlicer = document.getElementById("farm-slicer");
   const syncBtn = document.getElementById("sync-btn");
+  const dc305SyncBtn = document.getElementById("dc305-sync-btn");
+  const ctsSyncMeta = document.getElementById("cts-sync-meta");
+  const dc305SyncMeta = document.getElementById("dc305-sync-meta");
   const statusBanner = document.getElementById("status-banner");
   const metaLine = document.getElementById("meta-line");
   const countsEl = document.getElementById("counts");
@@ -273,6 +292,38 @@
     return row[key];
   }
 
+  function formatSyncStamp(iso) {
+    if (!iso) return "never";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) {
+      return String(iso).replace("T", " ").slice(0, 19);
+    }
+    return d.toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function selectedFarmResult() {
+    const results = (payload && payload.results) || [];
+    return results.find((r) => r.farm === farm) || results[0] || null;
+  }
+
+  function updateSyncMeta() {
+    const row = selectedFarmResult();
+    if (ctsSyncMeta) {
+      ctsSyncMeta.textContent = `Last sync: ${formatSyncStamp(row && row.synced_at)}`;
+    }
+    if (dc305SyncMeta) {
+      dc305SyncMeta.textContent = `Last sync: ${formatSyncStamp(
+        row && row.inventory_imported_at
+      )}`;
+    }
+  }
+
   function aggregate() {
     const results = (payload && payload.results) || [];
     const agg = {
@@ -282,6 +333,7 @@
       cts_only_count: 0,
       inventory_only_count: 0,
       synced_at: null,
+      inventory_imported_at: null,
       cts_only: [],
       inventory_only: [],
     };
@@ -293,6 +345,12 @@
       agg.inventory_only_count += r.inventory_only_count || 0;
       if (r.synced_at && (!agg.synced_at || r.synced_at > agg.synced_at)) {
         agg.synced_at = r.synced_at;
+      }
+      if (
+        r.inventory_imported_at &&
+        (!agg.inventory_imported_at || r.inventory_imported_at > agg.inventory_imported_at)
+      ) {
+        agg.inventory_imported_at = r.inventory_imported_at;
       }
       for (const row of r.cts_only || []) agg.cts_only.push({ ...row, farm: r.farm });
       for (const row of r.inventory_only || []) agg.inventory_only.push({ ...row, farm: r.farm });
@@ -399,9 +457,10 @@
 
   function renderTables() {
     const agg = aggregate();
+    updateSyncMeta();
     renderCounts(agg);
     const syncBit = agg.synced_at
-      ? `Last CTS snapshot: ${agg.synced_at.replace("T", " ").slice(0, 19)} UTC`
+      ? `Last CTS snapshot: ${formatSyncStamp(agg.synced_at)}`
       : "No CTS snapshot stored yet — run Sync from CTS.";
     metaLine.textContent = `${syncBit} · CTS ${agg.cts_count} · Inventory ${agg.inventory_count}`;
 
@@ -516,6 +575,47 @@
     }
   }
 
+  function formatDc305Result(data) {
+    const imported = data.farms_imported || [];
+    const skipped = data.farms_skipped || [];
+    const counts = data.farm_counts || {};
+    const countBit = `CM ${counts.CM ?? 0}, GAD ${counts.GAD ?? 0}`;
+    if (data.skipped) {
+      return `DC305 inventory unchanged (${countBit}).`;
+    }
+    const bits = [];
+    if (imported.length) bits.push(`updated ${imported.join(", ")}`);
+    if (skipped.length) bits.push(`skipped ${skipped.join(", ")}`);
+    bits.push(`${(data.rows_imported || 0).toLocaleString("en-GB")} rows`);
+    bits.push(countBit);
+    return `DC305 sync complete — ${bits.join(" · ")}.`;
+  }
+
+  async function runDc305Sync() {
+    if (!CAN_DC305_SYNC || !dc305SyncBtn) return;
+    dc305SyncBtn.disabled = true;
+    dc305SyncBtn.textContent = "Syncing…";
+    if (syncBtn) syncBtn.disabled = true;
+    setBanner("", "");
+    try {
+      const res = await fetch("/api/herd/inventory/import", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail || data.message || `DC305 sync failed (${res.status})`;
+        setBanner("error", typeof detail === "string" ? detail : JSON.stringify(detail));
+        return;
+      }
+      setBanner("ok", formatDc305Result(data));
+      await loadReconcile();
+    } catch (err) {
+      setBanner("error", err.message || "DC305 sync failed");
+    } finally {
+      dc305SyncBtn.disabled = false;
+      dc305SyncBtn.textContent = "DC305 sync";
+      if (syncBtn) syncBtn.disabled = false;
+    }
+  }
+
   farmSlicer.addEventListener("click", (ev) => {
     const btn = ev.target.closest(".slicer-btn");
     if (!btn) return;
@@ -527,6 +627,7 @@
   });
 
   if (syncBtn) syncBtn.addEventListener("click", runSync);
+  if (dc305SyncBtn) dc305SyncBtn.addEventListener("click", runDc305Sync);
   searchCts.addEventListener("input", renderTables);
   searchInv.addEventListener("input", renderTables);
   bindSortHeaders("cts-only-head", "cts");

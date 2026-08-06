@@ -146,6 +146,12 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
     if synced_at is None and last_sync and last_sync.finished_at:
         synced_at = last_sync.finished_at
 
+    inventory_imported_at = db.scalar(
+        select(func.max(HerdInventory.import_timestamp)).where(
+            HerdInventory.farm == farm_key
+        )
+    )
+
     as_of = dt.date.today()
 
     def _cts_dict(row: CtsOnHolding) -> dict[str, Any]:
@@ -166,6 +172,9 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
     return {
         "farm": farm_key,
         "synced_at": synced_at.isoformat() if synced_at else None,
+        "inventory_imported_at": (
+            inventory_imported_at.isoformat() if inventory_imported_at else None
+        ),
         "cts_count": len(cts_keys),
         "inventory_count": len(inv_keys),
         "matched_count": len(matched_keys),
