@@ -431,6 +431,7 @@ def _migrate_herd_inventory_schema() -> None:
         "gid": "VARCHAR(64)",
         "gtest": "DATE",
         "subd": "DATE",
+        "edat": "DATE",
     }
     with engine.begin() as conn:
         for name, col_type in new_columns.items():

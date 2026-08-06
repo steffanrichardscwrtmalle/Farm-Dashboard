@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime as dt
 import gc
-import json
 import logging
 from typing import Any
 
@@ -12,13 +11,20 @@ import pandas as pd
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.models import AppSetting, HerdInventory, PedigreeRegistrationRecord
+from app.models import HerdInventory, PedigreeRegistrationRecord
 from app.services.graph_onedrive import (
     download_herd_file,
     graph_is_configured,
     herd_file_meta,
 )
-from app.services.herd_import_utils import bulk_insert_dataframe, parse_date_series
+from app.services.herd_import_utils import (
+    FP_INVENTORY,
+    bulk_insert_dataframe,
+    load_source_fingerprint,
+    parse_date_series,
+    source_fingerprint,
+    store_source_fingerprint,
+)
 from app.services.inventory_processor import load_inventory_csv, process_inventory_file
 
 logger = logging.getLogger(__name__)
@@ -29,10 +35,6 @@ _INVENTORY_FILES = (
     (CM_INVENTORY_FILE, "CM"),
     (GAD_INVENTORY_FILE, "GAD"),
 )
-
-
-def _fingerprint_setting_key(farm: str) -> str:
-    return f"herd_inventory.source_fingerprint.{farm.upper()}"
 
 
 def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[dict[str, Any]]:
@@ -62,6 +64,7 @@ def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[d
             "cow_id": series_str("ID"),
             "etag": series_str("ETAG"),
             "bdat": series_date("BDAT"),
+            "edat": series_date("EDAT"),
             "cbrd": series_float("CBRD"),
             "sbrd": series_str("SBRD"),
             "fdat": series_date("FDAT"),
@@ -145,29 +148,16 @@ def _sync_pedigree_records(db: Session, *, farm: str | None = None) -> int:
     return synced
 
 
-def _farm_fingerprint(source_file: str, last_modified: str) -> str:
-    return json.dumps(
-        {"source_file": source_file, "last_modified": last_modified},
-        separators=(",", ":"),
-        sort_keys=True,
-    )
+# Backward-compatible aliases used by tests.
+_farm_fingerprint = source_fingerprint
 
 
 def _load_farm_fingerprint(db: Session, farm: str) -> str | None:
-    row = db.scalar(
-        select(AppSetting).where(AppSetting.key == _fingerprint_setting_key(farm))
-    )
-    value = (row.value if row else None) or ""
-    return value.strip() or None
+    return load_source_fingerprint(db, FP_INVENTORY, farm)
 
 
 def _store_farm_fingerprint(db: Session, farm: str, fingerprint: str) -> None:
-    key = _fingerprint_setting_key(farm)
-    row = db.scalar(select(AppSetting).where(AppSetting.key == key))
-    if row is None:
-        db.add(AppSetting(key=key, value=fingerprint))
-    else:
-        row.value = fingerprint
+    store_source_fingerprint(db, FP_INVENTORY, farm, fingerprint)
 
 
 def _import_farm_file(
@@ -207,7 +197,7 @@ def import_herd_inventory(db: Session, *, force: bool = True) -> dict[str, Any]:
     for relative_path, farm in _INVENTORY_FILES:
         meta = herd_file_meta(relative_path)
         last_modified = meta.get("last_modified") or ""
-        fingerprint = _farm_fingerprint(meta["relative_path"], last_modified)
+        fingerprint = source_fingerprint(meta["relative_path"], last_modified)
         sources.append(
             {
                 "farm": farm,

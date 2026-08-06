@@ -195,6 +195,62 @@ def test_list_pending_movements_buckets() -> None:
     assert move_on["sreg"] == "UK777777777777"
 
 
+def test_pending_move_on_from_inventory_edat() -> None:
+    """Inventory EDAT != BDAT classifies as move-on without a purchase row."""
+    session = _session()
+    today = dt.date.today()
+    bdat = dt.date(2023, 1, 15)
+    edat = today - dt.timedelta(days=4)
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag="UK555555555555",
+            cow_id="505",
+            gender="F",
+            category="Youngstock",
+            bdat=bdat,
+            edat=edat,
+            sbrd="HE",
+            cbrd=110,
+        )
+    )
+    session.commit()
+
+    result = list_pending_movements(session, "CM")
+    move_ons = [r for r in result["rows"] if r["movement_type"] == "move_on"]
+    assert len(move_ons) == 1
+    assert move_ons[0]["etag"] == "UK555555555555"
+    assert move_ons[0]["event_date"] == edat.isoformat()
+    assert move_ons[0]["dob"] == bdat.isoformat()
+    assert "inv edat" in move_ons[0]["source"]
+
+
+def test_pending_birth_when_inventory_edat_equals_bdat() -> None:
+    session = _session()
+    today = dt.date.today()
+    bdat = today - dt.timedelta(days=6)
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag="UK666666666661",
+            cow_id="661",
+            gender="F",
+            sbrd="HF",
+            cbrd=1,
+            bdat=bdat,
+            edat=bdat,
+        )
+    )
+    session.commit()
+
+    result = list_pending_movements(session, "CM")
+    assert result["counts"]["move_on"] == 0
+    assert result["counts"]["birth"] == 1
+    birth = next(r for r in result["rows"] if r["movement_type"] == "birth")
+    assert birth["etag"] == "UK666666666661"
+    assert birth["event_date"] == bdat.isoformat()
+
+
 def test_pending_birth_prefers_inventory_cbrd_over_birth_cbrd() -> None:
     """INV CBRD corrections should show on Pending without a births re-import."""
     session = _session()

@@ -15,7 +15,7 @@ from app.services.inventory_valuation import (
 )
 
 INVENTORY_ENCODING = "windows-1252"
-INVENTORY_DATE_COLUMNS = ("BDAT", "FDAT", "HDAT", "DUE", "GTEST", "SUBD")
+INVENTORY_DATE_COLUMNS = ("BDAT", "EDAT", "FDAT", "HDAT", "DUE", "GTEST", "SUBD")
 
 
 def load_inventory_csv(file_bytes: bytes) -> pd.DataFrame:

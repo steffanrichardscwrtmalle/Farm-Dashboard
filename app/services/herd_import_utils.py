@@ -3,16 +3,59 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from typing import Any, Callable
 
 import pandas as pd
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from app.models import AppSetting
 
 HERD_DATE_FORMAT = "%d/%m/%y"
 BATCH_SIZE = 2000
 BEEF_CBREED_MIN = 102
 CATEGORY_DAIRY = "Dairy"
 CATEGORY_BEEF = "Beef"
+
+# AppSetting key prefixes for per-farm OneDrive source fingerprints.
+FP_INVENTORY = "herd_inventory.source_fingerprint"
+FP_EVENTS = "herd_events.source_fingerprint"
+FP_BIRTHS = "herd_births.source_fingerprint"
+
+
+def source_fingerprint(source_file: str, last_modified: str) -> str:
+    """Stable JSON fingerprint of a herd export file identity + mtime."""
+    return json.dumps(
+        {"source_file": source_file, "last_modified": last_modified},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def fingerprint_setting_key(prefix: str, farm: str) -> str:
+    return f"{prefix}.{farm.upper()}"
+
+
+def load_source_fingerprint(db: Session, prefix: str, farm: str) -> str | None:
+    row = db.scalar(
+        select(AppSetting).where(
+            AppSetting.key == fingerprint_setting_key(prefix, farm)
+        )
+    )
+    value = (row.value if row else None) or ""
+    return value.strip() or None
+
+
+def store_source_fingerprint(
+    db: Session, prefix: str, farm: str, fingerprint: str
+) -> None:
+    key = fingerprint_setting_key(prefix, farm)
+    row = db.scalar(select(AppSetting).where(AppSetting.key == key))
+    if row is None:
+        db.add(AppSetting(key=key, value=fingerprint))
+    else:
+        row.value = fingerprint
 
 
 def category_from_birth(cbrd: int | float | None, gndr: str | None) -> str:

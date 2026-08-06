@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import gc
 import io
+import logging
 from typing import Any
 
 import pandas as pd
@@ -12,12 +13,29 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models import CowEvent
-from app.services.graph_onedrive import download_herd_file, graph_is_configured
-from app.services.herd_import_utils import dedupe_exit_event_rows, dedupe_fresh_event_rows
+from app.services.graph_onedrive import (
+    download_herd_file,
+    graph_is_configured,
+    herd_file_meta,
+)
+from app.services.herd_import_utils import (
+    FP_EVENTS,
+    dedupe_exit_event_rows,
+    dedupe_fresh_event_rows,
+    load_source_fingerprint,
+    source_fingerprint,
+    store_source_fingerprint,
+)
 from app.services.stock_purchase_derivation import rebuild_stock_purchases
+
+logger = logging.getLogger(__name__)
 
 CM_EVENTS_FILE = "DCEXPORTCM/CMEVENTS.CSV"
 GAD_EVENTS_FILE = "DCEXPORTGAD/GADEVENTS.CSV"
+_EVENT_FILES = (
+    (CM_EVENTS_FILE, "CM"),
+    (GAD_EVENTS_FILE, "GAD"),
+)
 
 _BATCH_SIZE = 2000
 _CSV_CHUNK_SIZE = 25_000
@@ -223,43 +241,94 @@ def _import_farm_file(
     return rows_imported
 
 
-def import_cow_events(db: Session) -> dict[str, Any]:
-    """Download CM + GAD event CSVs, clean, and replace cow_events table."""
+def import_cow_events(db: Session, *, force: bool = True) -> dict[str, Any]:
+    """Download CM / GAD event CSVs and replace those farms' cow_events rows.
+
+    When ``force=False``, each farm is checked independently against its stored
+    OneDrive last-modified fingerprint. Unchanged farms are left alone.
+    """
     if not graph_is_configured():
         raise ValueError(
             "Herd import is not configured. Set Graph API variables or LOCAL_HERD_EXPORT_DIR."
         )
 
     import_time = dt.datetime.now()
-    db.execute(delete(CowEvent))
-
+    sources: list[dict[str, str]] = []
+    farms_imported: list[str] = []
+    farms_skipped: list[str] = []
     rows_imported = 0
-    for relative_path, farm in (
-        (CM_EVENTS_FILE, "CM"),
-        (GAD_EVENTS_FILE, "GAD"),
-    ):
-        rows_imported += _import_farm_file(db, relative_path, farm, import_time)
 
-    duplicate_fresh_dropped = remove_duplicate_fresh_cow_events(db)
-    duplicate_exit_dropped = remove_duplicate_exit_cow_events(db)
-    purchase_stats = rebuild_stock_purchases(db)
-    db.commit()
+    for relative_path, farm in _EVENT_FILES:
+        meta = herd_file_meta(relative_path)
+        last_modified = meta.get("last_modified") or ""
+        fingerprint = source_fingerprint(meta["relative_path"], last_modified)
+        sources.append(
+            {
+                "farm": farm,
+                "source_file": meta["relative_path"],
+                "last_modified": last_modified,
+            }
+        )
+
+        if not force and last_modified:
+            stored = load_source_fingerprint(db, FP_EVENTS, farm)
+            if stored == fingerprint:
+                farms_skipped.append(farm)
+                logger.info("Herd events %s unchanged; skipping", farm)
+                continue
+
+        db.execute(delete(CowEvent).where(CowEvent.farm == farm))
+        rows_imported += _import_farm_file(db, relative_path, farm, import_time)
+        store_source_fingerprint(db, FP_EVENTS, farm, fingerprint)
+        farms_imported.append(farm)
+
+    if farms_imported:
+        duplicate_fresh_dropped = remove_duplicate_fresh_cow_events(db)
+        duplicate_exit_dropped = remove_duplicate_exit_cow_events(db)
+        purchase_stats = rebuild_stock_purchases(db)
+        db.commit()
+    else:
+        duplicate_fresh_dropped = 0
+        duplicate_exit_dropped = 0
+        purchase_stats = {}
 
     farm_counts = dict(
         db.execute(
             select(CowEvent.farm, func.count()).group_by(CowEvent.farm)
         ).all()
     )
-
     latest_date = db.scalar(select(func.max(CowEvent.event_date)))
+    source_files = [item["source_file"] for item in sources]
+    all_skipped = bool(farms_skipped) and not farms_imported
+
+    if all_skipped:
+        return {
+            "skipped": True,
+            "reason": "source_unchanged",
+            "rows_imported": sum(int(v) for v in farm_counts.values()),
+            "duplicate_fresh_dropped": 0,
+            "duplicate_exit_dropped": 0,
+            "farm_counts": farm_counts,
+            "farms_imported": [],
+            "farms_skipped": farms_skipped,
+            "latest_event_date": latest_date.isoformat() if latest_date else None,
+            "imported_at": None,
+            "source_files": source_files,
+            "sources": sources,
+            "purchase_stats": {},
+        }
 
     return {
+        "skipped": False,
         "rows_imported": rows_imported,
         "duplicate_fresh_dropped": duplicate_fresh_dropped,
         "duplicate_exit_dropped": duplicate_exit_dropped,
         "farm_counts": farm_counts,
+        "farms_imported": farms_imported,
+        "farms_skipped": farms_skipped,
         "latest_event_date": latest_date.isoformat() if latest_date else None,
         "imported_at": import_time.isoformat(timespec="seconds"),
-        "source_files": [CM_EVENTS_FILE, GAD_EVENTS_FILE],
+        "source_files": source_files,
+        "sources": sources,
         "purchase_stats": purchase_stats,
     }

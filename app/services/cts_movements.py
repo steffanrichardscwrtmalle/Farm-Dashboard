@@ -36,6 +36,16 @@ _STALE_AWAITING_MESSAGE = (
 _ARCHIVED_MESSAGE = "Confirmed on CTS cattle-on-holding."
 
 
+def _inventory_is_move_on(inv: HerdInventory) -> bool:
+    """Bought-in / enrolled: inventory EDAT present and different from BDAT.
+
+    Born-on-farm animals have EDAT = BDAT. Prefer inventory EDAT over events.
+    """
+    if inv.edat is None or inv.bdat is None:
+        return False
+    return inv.edat != inv.bdat
+
+
 def _holding_for(farm: str) -> str:
     creds = cts_farm_credentials(farm)
     return (creds or {}).get("holding") or ""
@@ -416,25 +426,33 @@ def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:
             pending.append(row)
 
     # Births / move-ons: in DairyComp inventory, not on CTS.
+    # Prefer inventory EDAT (EDAT != BDAT → move_on); fall back to stock purchases.
     for etag, inv in inventory.items():
         if etag in on_cts:
             continue
         purchase = purchases.get(etag)
         birth = births.get(etag)
-        if purchase is not None:
+        inv_move_on = _inventory_is_move_on(inv)
+        if inv_move_on or purchase is not None:
             movement_type = "move_on"
-            event_date = purchase.edat
-            sex = purchase.gndr or inv.gender or ""
+            event_date = inv.edat if inv_move_on else None
+            if event_date is None and purchase is not None:
+                event_date = purchase.edat
+            sex = inv.gender or (purchase.gndr if purchase is not None else "") or ""
             breed = _breed_label(
                 inv.sbrd,
                 cbrd=(
                     inv.cbrd
                     if inv.cbrd is not None
-                    else (purchase.cbrd if purchase.cbrd is not None else None)
+                    else (purchase.cbrd if purchase is not None else None)
                 ),
             )
-            dob = purchase.bdat or inv.bdat
-            source = "inventory not on cts + purchase"
+            dob = inv.bdat or (purchase.bdat if purchase is not None else None)
+            source = (
+                "inventory not on cts + inv edat"
+                if inv_move_on
+                else "inventory not on cts + purchase"
+            )
         else:
             movement_type = "birth"
             event_date = (birth.bdat if birth is not None else None) or inv.bdat
@@ -548,17 +566,25 @@ def _display_row_for_reported(
         sreg = tags.get("sreg", "")
     else:
         cow_id = (inv.cow_id if inv is not None else "") or ""
-        if movement_type == "move_on" and purchase is not None:
-            sex = purchase.gndr or (inv.gender if inv is not None else "") or ""
+        if movement_type == "move_on" and (
+            (inv is not None and _inventory_is_move_on(inv)) or purchase is not None
+        ):
+            sex = (
+                (inv.gender if inv is not None else "")
+                or (purchase.gndr if purchase is not None else "")
+                or ""
+            )
             breed = _breed_label(
                 inv.sbrd if inv is not None else None,
                 cbrd=(
                     inv.cbrd
                     if inv is not None and inv.cbrd is not None
-                    else (purchase.cbrd if purchase.cbrd is not None else None)
+                    else (purchase.cbrd if purchase is not None else None)
                 ),
             )
-            dob = purchase.bdat or (inv.bdat if inv is not None else None)
+            dob = (inv.bdat if inv is not None else None) or (
+                purchase.bdat if purchase is not None else None
+            )
         else:
             sex = (
                 (birth.gndr if birth is not None else None)

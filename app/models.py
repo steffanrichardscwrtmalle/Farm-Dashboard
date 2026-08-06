@@ -836,6 +836,7 @@ class HerdInventory(Base):
     cow_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     etag: Mapped[str | None] = mapped_column(String(64), nullable=True)
     bdat: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    edat: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     cbrd: Mapped[float | None] = mapped_column(Float, nullable=True)
     sbrd: Mapped[str | None] = mapped_column(String(16), nullable=True)
     fdat: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)

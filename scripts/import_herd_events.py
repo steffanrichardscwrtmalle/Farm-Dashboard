@@ -4,13 +4,17 @@ Import herd data from OneDrive CSV exports into the database.
 For Render cron (e.g. daily):
   python scripts/import_herd_events.py
 
-Imports cow events, inventory, and birth records, then rebuilds stock snapshots.
+Imports cow events, inventory, and birth records (skipping each farm whose
+OneDrive file fingerprint is unchanged), then rebuilds stock snapshots when
+anything changed. Use ``--force`` to reload all farms anyway.
+
 Genomic results are imported separately via scripts/import_genomic_results.py.
 Requires Graph API env vars or LOCAL_HERD_EXPORT_DIR for local synced files.
 """
 
 from __future__ import annotations
 
+import argparse
 import gc
 import sys
 import traceback
@@ -40,6 +44,22 @@ def _release_memory(db: Session) -> None:
     gc.collect()
 
 
+def _log_import_result(label: str, result: dict) -> None:
+    imported = result.get("farms_imported") or []
+    skipped = result.get("farms_skipped") or []
+    if result.get("skipped"):
+        _log(f"Skipped {label} (unchanged): {', '.join(skipped) or 'all'}")
+        return
+    bits = [f"Imported {result.get('rows_imported', 0):,} {label}"]
+    if imported:
+        bits.append(f"updated={','.join(imported)}")
+    if skipped:
+        bits.append(f"skipped={','.join(skipped)}")
+    counts = result.get("farm_counts") or {}
+    bits.append(f"(CM: {counts.get('CM', 0):,}, GAD: {counts.get('GAD', 0):,})")
+    _log(" ".join(bits))
+
+
 def main() -> int:
     # Cron pipes are block-buffered; force line buffering so logs are not lost on crash.
     try:
@@ -48,18 +68,30 @@ def main() -> int:
     except (AttributeError, ValueError):
         pass
 
+    parser = argparse.ArgumentParser(
+        description=(
+            "Import CM/GAD events, inventory, and births from OneDrive "
+            "(per-farm skip if that file is unchanged)."
+        )
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Reload all farms even when source fingerprints are unchanged.",
+    )
+    args = parser.parse_args()
+
     init_db()
     db = SessionLocal()
     step = "starting"
+    anything_changed = False
     try:
         step = "cow events"
-        _log("Step: importing cow events...")
-        events = import_cow_events(db)
-        _log(
-            f"Imported {events['rows_imported']:,} cow events "
-            f"(CM: {events['farm_counts'].get('CM', 0):,}, "
-            f"GAD: {events['farm_counts'].get('GAD', 0):,})"
-        )
+        _log("Step: checking / importing cow events...")
+        events = import_cow_events(db, force=args.force)
+        _log_import_result("cow events", events)
+        if not events.get("skipped"):
+            anything_changed = True
         if events.get("latest_event_date"):
             _log(f"Latest event date: {events['latest_event_date']}")
         purchase_stats = events.get("purchase_stats") or {}
@@ -79,32 +111,34 @@ def main() -> int:
         _release_memory(db)
 
         step = "inventory"
-        _log("Step: importing inventory...")
-        inventory = import_herd_inventory(db)
-        _log(
-            f"Imported {inventory['rows_imported']:,} inventory rows "
-            f"(CM: {inventory['farm_counts'].get('CM', 0):,}, "
-            f"GAD: {inventory['farm_counts'].get('GAD', 0):,})"
-        )
+        _log("Step: checking / importing inventory...")
+        inventory = import_herd_inventory(db, force=args.force)
+        _log_import_result("inventory rows", inventory)
+        if not inventory.get("skipped"):
+            anything_changed = True
         _release_memory(db)
 
         step = "births"
-        _log("Step: importing births...")
-        births = import_herd_births(db)
-        _log(
-            f"Imported {births['rows_imported']:,} birth records "
-            f"(CM: {births['farm_counts'].get('CM', 0):,}, "
-            f"GAD: {births['farm_counts'].get('GAD', 0):,})"
-        )
+        _log("Step: checking / importing births...")
+        births = import_herd_births(db, force=args.force)
+        _log_import_result("birth records", births)
+        if not births.get("skipped"):
+            anything_changed = True
         if births.get("duplicate_rows_dropped", 0) > 0:
             by_farm = births.get("duplicate_rows_dropped_by_farm", {})
-            farm_detail = ", ".join(f"{farm}: {count:,}" for farm, count in sorted(by_farm.items()))
+            farm_detail = ", ".join(
+                f"{farm}: {count:,}" for farm, count in sorted(by_farm.items())
+            )
             _log(
                 f"Dropped {births['duplicate_rows_dropped']:,} duplicate birth rows"
                 + (f" ({farm_detail})" if farm_detail else "")
             )
         if births.get("latest_birth_date"):
             _log(f"Latest birth date: {births['latest_birth_date']}")
+
+        if not anything_changed:
+            _log("All herd sources unchanged; skipping stock snapshot rebuild.")
+            return 0
 
         # Valuation rebuild loads all herd events; use a clean session first.
         db.close()
