@@ -207,7 +207,7 @@
         <span class="section-label">Farm</span>
         <div class="farm-slicer" id="farm-slicer">
           {% for farm in farm_options %}
-          <button type="button" class="slicer-btn{% if farm == 'CM' %} selected{% endif %}" data-value="{{ farm }}">{{ farm }}</button>
+          <button type="button" class="slicer-btn" data-value="{{ farm }}">{{ farm }}</button>
           {% endfor %}
         </div>
       </div>
@@ -260,7 +260,9 @@
 <script>
 (() => {
   const CAN_SEND = {{ can_send | tojson }};
-  let farm = "CM";
+  const FARM_OPTIONS = {{ farm_options | tojson }};
+  const farmParam = (new URLSearchParams(window.location.search).get("farm") || "").toUpperCase();
+  let farm = FARM_OPTIONS.includes(farmParam) ? farmParam : (FARM_OPTIONS[0] || "CM");
   let mode = "pending"; // pending | awaiting | archive
   let payload = null;
   const selected = new Set();
@@ -776,6 +778,9 @@
     farmSlicer.querySelectorAll(".slicer-btn").forEach((b) => {
       b.classList.toggle("selected", b === btn);
     });
+    const url = new URL(window.location.href);
+    url.searchParams.set("farm", farm);
+    window.history.replaceState({}, "", url);
     loadList();
   });
 
@@ -811,6 +816,9 @@
     previewMovementsBtn.addEventListener("click", () => downloadPreview("movements"));
   }
 
+  farmSlicer.querySelectorAll(".slicer-btn").forEach((b) => {
+    b.classList.toggle("selected", b.dataset.value === farm);
+  });
   syncModeUi();
   loadList();
 })();

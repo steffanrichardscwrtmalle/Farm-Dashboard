@@ -4,30 +4,42 @@
 
 {% block extra_styles %}
     .home-widgets {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
-      gap: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
       align-items: stretch;
     }
     .home-widget {
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
+      gap: 0.2rem;
       text-decoration: none;
       color: inherit;
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1.25rem 1.1rem;
+      border-radius: 8px;
+      padding: 0.65rem 0.85rem;
       background: #fff;
-      min-height: 7.5rem;
+      min-width: 5.5rem;
+      min-height: 4.25rem;
       transition: transform 0.12s ease, box-shadow 0.12s ease;
     }
     .home-widget:hover {
       transform: translateY(-1px);
       box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
     }
+    .home-widget .widget-kicker {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      line-height: 1;
+      margin: 0;
+      color: var(--muted);
+    }
     .home-widget .widget-title {
-      font-size: 2.25rem;
+      font-size: 1.35rem;
       font-weight: 800;
       letter-spacing: 0.04em;
       line-height: 1;
@@ -39,16 +51,19 @@
       border-color: #6ee7b7;
     }
     .home-widget.status-green .widget-title { color: #166534; }
+    .home-widget.status-green .widget-kicker { color: #15803d; }
     .home-widget.status-yellow {
       background: #fffbeb;
       border-color: #fcd34d;
     }
     .home-widget.status-yellow .widget-title { color: #92400e; }
+    .home-widget.status-yellow .widget-kicker { color: #a16207; }
     .home-widget.status-red {
       background: #fef2f2;
       border-color: #fca5a5;
     }
     .home-widget.status-red .widget-title { color: #991b1b; }
+    .home-widget.status-red .widget-kicker { color: #b91c1c; }
     .home-widget.status-unknown,
     .home-widget.status-loading,
     .home-widget.status-error {
@@ -76,8 +91,13 @@
 {% block content %}
   <div class="home-widgets">
     {% if perms.page('bcms') %}
-    <a href="/bcms/record-movements" class="home-widget status-loading" id="bcms-health-widget" aria-label="BCMS status" aria-live="polite">
-      <p class="widget-title">BCMS</p>
+    <a href="/bcms/record-movements?farm=CM" class="home-widget status-loading" id="bcms-health-widget-cm" data-farm="CM" aria-label="BCMS CM status" aria-live="polite">
+      <p class="widget-kicker">BCMS</p>
+      <p class="widget-title">CM</p>
+    </a>
+    <a href="/bcms/record-movements?farm=GAD" class="home-widget status-loading" id="bcms-health-widget-gad" data-farm="GAD" aria-label="BCMS GAD status" aria-live="polite">
+      <p class="widget-kicker">BCMS</p>
+      <p class="widget-title">GAD</p>
     </a>
     {% else %}
     <div class="card">
@@ -100,22 +120,32 @@
 {% if perms.page('bcms') %}
 <script>
 (() => {
-  const widget = document.getElementById("bcms-health-widget");
-  if (!widget) return;
+  const widgets = Array.from(document.querySelectorAll("[data-farm].home-widget"));
+  if (!widgets.length) return;
+
+  function applyStatus(widget, status) {
+    widget.className = `home-widget status-${status || "unknown"}`;
+  }
 
   async function loadHealth() {
     try {
       const res = await fetch("/api/cts/health");
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        widget.className = "home-widget status-error";
+        widgets.forEach((w) => applyStatus(w, "error"));
         return;
       }
-      const status = data.status || "unknown";
-      widget.className = `home-widget status-${status}`;
-      if (data.href) widget.href = data.href;
+      const byFarm = Object.fromEntries(
+        (data.farms || []).map((f) => [String(f.farm || "").toUpperCase(), f])
+      );
+      widgets.forEach((widget) => {
+        const farm = (widget.dataset.farm || "").toUpperCase();
+        const summary = byFarm[farm];
+        applyStatus(widget, summary ? summary.status : data.status || "unknown");
+        widget.href = `/bcms/record-movements?farm=${encodeURIComponent(farm)}`;
+      });
     } catch (_err) {
-      widget.className = "home-widget status-error";
+      widgets.forEach((w) => applyStatus(w, "error"));
     }
   }
 
