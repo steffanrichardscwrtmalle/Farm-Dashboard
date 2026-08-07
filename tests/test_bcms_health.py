@@ -134,6 +134,85 @@ def test_health_red_for_unexplained_cts_only() -> None:
     assert health["mismatch_count"] == 1
 
 
+def test_health_green_for_cts_only_while_events_lag_inventory() -> None:
+    """Sold in DC after events pull: inventory drops them before events catch up."""
+    session = _session()
+    today = dt.date.today()
+    yesterday = today - dt.timedelta(days=1)
+    # Still on farm — carries inventory import timestamp without creating a mismatch.
+    session.add(
+        CtsOnHolding(farm="CM", etag="UK111111111111", sex="F")
+    )
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag="UK111111111111",
+            cow_id="1",
+            gender="F",
+            bdat=today - dt.timedelta(days=400),
+            import_timestamp=dt.datetime.combine(today, dt.time(7, 0)),
+        )
+    )
+    # Sold in DC after events export — gone from inventory, no SOLD event yet.
+    session.add(
+        CtsOnHolding(farm="CM", etag="UK666666666666", sex="F")
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="UK111111111111",
+            event="FRESH",
+            event_date=yesterday,
+            cow_id="1",
+            import_timestamp=dt.datetime.combine(yesterday, dt.time(6, 0)),
+        )
+    )
+    session.commit()
+
+    health = get_bcms_health(session, farms=["CM"], as_of=today)
+    assert health["status"] == "green"
+    assert health["max_days"] == 1
+    assert health["mismatch_count"] == 1
+    assert health["farms"][0]["status"] == "green"
+
+
+def test_health_red_for_cts_only_when_events_are_fresh() -> None:
+    """Once events have caught up with inventory, missing exits are unexplained."""
+    session = _session()
+    today = dt.date.today()
+    session.add(
+        CtsOnHolding(farm="CM", etag="UK111111111111", sex="F")
+    )
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag="UK111111111111",
+            cow_id="1",
+            gender="F",
+            bdat=today - dt.timedelta(days=400),
+            import_timestamp=dt.datetime.combine(today, dt.time(7, 0)),
+        )
+    )
+    session.add(
+        CtsOnHolding(farm="CM", etag="UK666666666666", sex="F")
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="UK111111111111",
+            event="FRESH",
+            event_date=today,
+            cow_id="1",
+            import_timestamp=dt.datetime.combine(today, dt.time(8, 0)),
+        )
+    )
+    session.commit()
+
+    health = get_bcms_health(session, farms=["CM"], as_of=today)
+    assert health["status"] == "red"
+    assert health["mismatch_count"] == 1
+
+
 def test_health_uses_purchase_date_for_move_on() -> None:
     session = _session()
     today = dt.date.today()

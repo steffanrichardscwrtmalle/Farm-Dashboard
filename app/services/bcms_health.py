@@ -5,14 +5,18 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import HERD_FARM_OPTIONS, StockPurchaseAnimal
+from app.models import HERD_FARM_OPTIONS, CowEvent, HerdInventory, StockPurchaseAnimal
 from app.services.cts_client import normalize_cts_etag
 from app.services.cts_reconcile import reconcile_farm
 
 HealthLevel = Literal["green", "yellow", "red", "unknown"]
+
+# Sales entered in DairyComp after the events export can drop out of inventory
+# before the next events pull. While inventory is newer than events, treat
+# unexplained CTS-only as aged from the last events import (≤1 day stays green).
 
 
 def _purchases_by_etag(db: Session, farm: str) -> dict[str, dt.date]:
@@ -29,11 +33,37 @@ def _purchases_by_etag(db: Session, farm: str) -> dict[str, dt.date]:
     return out
 
 
+def _latest_import_at(db: Session, model: type, farm: str) -> dt.datetime | None:
+    return db.scalar(
+        select(func.max(model.import_timestamp)).where(model.farm == farm.upper())
+    )
+
+
 def _age_days(value: dt.date | None, *, as_of: dt.date) -> int | None:
     if value is None:
         return None
     days = (as_of - value).days
     return days if days >= 0 else None
+
+
+def _cts_only_awaiting_events_days(
+    db: Session,
+    farm: str,
+    *,
+    as_of: dt.date,
+) -> int | None:
+    """Days since last events import, only while inventory is newer than events.
+
+    Returns None when the events lag grace does not apply (treat as unexplained).
+    """
+    events_at = _latest_import_at(db, CowEvent, farm)
+    inventory_at = _latest_import_at(db, HerdInventory, farm)
+    if events_at is None or inventory_at is None:
+        return None
+    if inventory_at <= events_at:
+        # Events are at least as fresh as inventory — still no exit => unexplained.
+        return None
+    return _age_days(events_at.date(), as_of=as_of)
 
 
 def _farm_mismatch_ages(
@@ -45,6 +75,7 @@ def _farm_mismatch_ages(
 ) -> list[dict[str, Any]]:
     """Classify each CTS↔inventory mismatch with an event age in days."""
     purchases = _purchases_by_etag(db, farm)
+    awaiting_events_days = _cts_only_awaiting_events_days(db, farm, as_of=as_of)
     items: list[dict[str, Any]] = []
 
     for row in recon.get("cts_only") or []:
@@ -56,6 +87,17 @@ def _farm_mismatch_ages(
                     "etag": row.get("etag"),
                     "kind": "exit",
                     "days": int(days),
+                    "explainable": True,
+                }
+            )
+        elif awaiting_events_days is not None:
+            # Inventory dropped the animal before the next events pull caught up.
+            items.append(
+                {
+                    "farm": farm,
+                    "etag": row.get("etag"),
+                    "kind": "cts_only_awaiting_events",
+                    "days": int(awaiting_events_days),
                     "explainable": True,
                 }
             )
