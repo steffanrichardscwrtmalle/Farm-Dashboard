@@ -117,8 +117,10 @@ def test_reconcile_farm_buckets() -> None:
     sold = next(r for r in result["cts_only"] if r["etag"] == "UK987654321")
     assert sold["exit_event"] == "SOLD"
     assert sold["days_since_exit"] == 12
+    assert sold["awaiting_events"] is False
     no_exit = next(r for r in result["cts_only"] if r["etag"] == "BE214283270")
     assert no_exit["days_since_exit"] is None
+    assert no_exit["awaiting_events"] is False
     assert result["inventory_only"][0]["etag"] == "UK555555555555"
     assert result["inventory_only"][0]["cow_id"] == "202"
     assert result["inventory_only"][0]["age_days"] is not None
@@ -127,3 +129,43 @@ def test_reconcile_farm_buckets() -> None:
     assert (
         session.query(CtsOnHolding).filter(CtsOnHolding.farm == "CM").count() == 3
     )
+
+
+def test_reconcile_marks_cts_only_awaiting_events_when_inventory_newer() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    today = dt.date.today()
+    yesterday = today - dt.timedelta(days=1)
+
+    session.add(CtsOnHolding(farm="CM", etag="UK666666666666", sex="F"))
+    session.add(
+        CtsOnHolding(farm="CM", etag="UK111111111111", sex="F")
+    )
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag="UK111111111111",
+            cow_id="1",
+            gender="F",
+            bdat=today - dt.timedelta(days=400),
+            import_timestamp=dt.datetime.combine(today, dt.time(7, 0)),
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="UK111111111111",
+            event="FRESH",
+            event_date=yesterday,
+            cow_id="1",
+            import_timestamp=dt.datetime.combine(yesterday, dt.time(6, 0)),
+        )
+    )
+    session.commit()
+
+    result = reconcile_farm(session, "CM")
+    pending = next(r for r in result["cts_only"] if r["etag"] == "UK666666666666")
+    assert pending["exit_event"] is None
+    assert pending["awaiting_events"] is True
+    assert pending["awaiting_events_days"] == 1

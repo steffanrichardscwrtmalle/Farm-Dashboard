@@ -287,6 +287,10 @@
   }
 
   function cellValue(row, key) {
+    if (key === "exit_event") {
+      if (row.awaiting_events && !row.exit_event) return "pending";
+      return row.exit_event == null ? "" : row.exit_event;
+    }
     if (key === "dob" || key === "on_date") return fmtDateUk(row[key]);
     if (row[key] == null) return "";
     return row[key];
@@ -426,6 +430,12 @@
   }
 
   function isCtsOnlyOverdue(row) {
+    // Grace: inventory ahead of events — show pending, not red, for ≤1 day.
+    if (row.awaiting_events) {
+      const lag = row.awaiting_events_days;
+      if (lag == null || lag === "") return false;
+      return Number(lag) >= 3;
+    }
     const days = row.days_since_exit;
     if (days == null || days === "") return true;
     return Number(days) >= 3;

@@ -40,6 +40,33 @@ def _age_months(dob: dt.date | None, *, as_of: dt.date | None = None) -> int | N
     return days // 30
 
 
+def _latest_import_at(db: Session, model: type, farm: str) -> dt.datetime | None:
+    return db.scalar(
+        select(func.max(model.import_timestamp)).where(model.farm == farm.upper())
+    )
+
+
+def cts_only_awaiting_events_days(
+    db: Session,
+    farm: str,
+    *,
+    as_of: dt.date | None = None,
+) -> int | None:
+    """Days since last events import while inventory is newer than events.
+
+    Sales entered in DairyComp after the events export can drop out of inventory
+    before the next events pull. Returns None when that lag does not apply.
+    """
+    today = as_of or dt.date.today()
+    events_at = _latest_import_at(db, CowEvent, farm)
+    inventory_at = _latest_import_at(db, HerdInventory, farm)
+    if events_at is None or inventory_at is None:
+        return None
+    if inventory_at <= events_at:
+        return None
+    return _age_days(events_at.date(), as_of=today)
+
+
 def _inventory_etags(db: Session, farm: str) -> dict[str, dict[str, Any]]:
     """Map normalized etag -> inventory summary for a farm."""
     as_of = dt.date.today()
@@ -153,9 +180,17 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
     )
 
     as_of = dt.date.today()
+    awaiting_events_days = cts_only_awaiting_events_days(db, farm_key, as_of=as_of)
 
     def _cts_dict(row: CtsOnHolding) -> dict[str, Any]:
         exit_info = exits.get(row.etag) or {}
+        exit_event = exit_info.get("exit_event")
+        days_since_exit = exit_info.get("days_since_exit")
+        awaiting_events = (
+            exit_event is None
+            and days_since_exit is None
+            and awaiting_events_days is not None
+        )
         return {
             "etag": row.etag,
             "breed": row.breed,
@@ -164,9 +199,11 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
             "on_date": row.on_date.isoformat() if row.on_date else None,
             "age_months": _age_months(row.dob, as_of=as_of),
             "age_days": _age_days(row.dob, as_of=as_of),
-            "exit_event": exit_info.get("exit_event"),
+            "exit_event": exit_event,
             "exit_date": exit_info.get("exit_date"),
-            "days_since_exit": exit_info.get("days_since_exit"),
+            "days_since_exit": days_since_exit,
+            "awaiting_events": awaiting_events,
+            "awaiting_events_days": awaiting_events_days if awaiting_events else None,
         }
 
     return {
