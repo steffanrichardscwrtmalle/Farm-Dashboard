@@ -335,11 +335,11 @@
     return TYPE_LABELS[type] || type || "";
   }
 
-  // UK BCMS: births within 17 days; sales / deaths / on-movements within 3 days.
+  // UK BCMS: births within 17 days; sales / on-movements within 3 days; deaths within 7 days.
   const REPORTING_DEADLINE_DAYS = {
     birth: 17,
     sale: 3,
-    death: 3,
+    death: 7,
     move_on: 3,
   };
 
@@ -490,10 +490,10 @@
           "Accepted BCMS submissions not yet reflected in cattle-on-holding. Births/move-ons stay until they appear on CTS; sales/deaths until they drop off — then they move to Archive. After the next UK-day CTS sync, anything still unmatched is marked failed and moved back to Pending.";
       } else if (isArchive()) {
         helpNote.textContent =
-          "Confirmed on CTS after BCMS acceptance. Rows are green if reported within the UK deadline (births 17 days; sales/deaths/move-ons 3 days from the event), red if reported late.";
+          "Confirmed on CTS after BCMS acceptance. Rows are green if reported within the UK deadline (births 17 days; sales/move-ons 3 days; deaths 7 days from the event), red if reported late.";
       } else {
         helpNote.textContent =
-          "Preview downloads RegBirths / RegMovs XML for the selection (password redacted). Accepted sends move to Awaiting CTS, then to Archive once CTS confirms them. If still unmatched after the next UK-day CTS sync, they are marked failed and return here to retry. Rows turn red when past UK reporting deadlines (births 17 days; sales/deaths/move-ons 3 days).";
+          "Preview downloads RegBirths / RegMovs XML for the selection (password redacted). Accepted sends move to Awaiting CTS, then to Archive once CTS confirms them. If still unmatched after the next UK-day CTS sync, they are marked failed and return here to retry. Rows turn red when past UK reporting deadlines (births 17 days; sales/move-ons 3 days; deaths 7 days).";
       }
     }
     if (isAwaiting()) {
