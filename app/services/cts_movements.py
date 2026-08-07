@@ -34,6 +34,9 @@ _STALE_AWAITING_MESSAGE = (
     "returned to pending to retry."
 )
 _ARCHIVED_MESSAGE = "Confirmed on CTS cattle-on-holding."
+# Off-CTS exit queue (slaughterhouse death clears holding before we report):
+# only include SOLD/DIED from this date onwards.
+_OFF_CTS_EXIT_PENDING_FROM = dt.date(2026, 8, 5)
 
 
 def _inventory_is_move_on(inv: HerdInventory) -> bool:
@@ -377,6 +380,8 @@ def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:
 
     - Birth / move-on: in herd inventory, not on BCMS holding
     - Sale / death: on BCMS holding, not in herd inventory (with SOLD/DIED event)
+    - Sale / death: also when already off CTS (from 2026-08-05), so same-day
+      slaughterhouse registration still queues an off-move
     """
     farm_key = farm.upper()
     if farm_key not in {"CM", "GAD"}:
@@ -392,6 +397,7 @@ def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:
     purchases = _purchases_by_etag(db, farm_key)
 
     pending: list[dict[str, Any]] = []
+    pending_exit_keys: set[tuple[str, str, dt.date]] = set()
 
     # Sales / deaths: on CTS, not in DairyComp inventory.
     cts_rows = db.scalars(
@@ -424,6 +430,37 @@ def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:
         )
         if row:
             pending.append(row)
+            pending_exit_keys.add(key)
+
+    # Sales / deaths already cleared from CTS (e.g. buyer registered death same day).
+    for etag, exit_ev in exits.items():
+        if not etag or etag in inventory or etag in on_cts:
+            continue
+        if exit_ev.event_date is None:
+            continue
+        if exit_ev.event_date < _OFF_CTS_EXIT_PENDING_FROM:
+            continue
+        movement_type = "death" if exit_ev.event == "DIED" else "sale"
+        key = (movement_type, etag, exit_ev.event_date)
+        if key in reported or key in pending_exit_keys:
+            continue
+        tags = pedigree_tags.get(etag) or {}
+        row = _row(
+            movement_type=movement_type,
+            farm=farm_key,
+            etag=etag,
+            cow_id=exit_ev.cow_id or "",
+            event_date=exit_ev.event_date,
+            sex=exit_ev.gndr or "",
+            breed=_breed_label(None, cbrd=exit_ev.cbrd),
+            dob=exit_ev.bdat,
+            dreg=tags.get("dreg", ""),
+            sreg=tags.get("sreg", ""),
+            source="cow_events off inventory and cts",
+        )
+        if row:
+            pending.append(row)
+            pending_exit_keys.add(key)
 
     # Births / move-ons: in DairyComp inventory, not on CTS.
     # Prefer inventory EDAT (EDAT != BDAT → move_on); fall back to stock purchases.

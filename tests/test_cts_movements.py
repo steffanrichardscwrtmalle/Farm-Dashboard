@@ -310,6 +310,87 @@ def test_mark_movements_reported_drops_from_pending() -> None:
     assert after["total"] == 0
 
 
+def test_list_pending_includes_sale_already_off_cts_from_cutoff() -> None:
+    """Buyer death can clear CTS before we report; still queue the off-move."""
+    session = _session()
+    # No CtsOnHolding row — already gone from holding.
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="UK777777777777",
+            cow_id="707",
+            event="SOLD",
+            event_date=dt.date(2026, 8, 5),
+            gndr="F",
+            cbrd=1,
+            bdat=dt.date(2022, 1, 1),
+        )
+    )
+    session.add(
+        PedigreeRegistrationRecord(
+            farm="CM",
+            etag="UK777777777777",
+            dreg="UK777700000001",
+            sreg="UK888888888888",
+        )
+    )
+    session.commit()
+
+    pending = list_pending_movements(session, "CM")
+    assert pending["counts"]["sale"] == 1
+    sale = next(r for r in pending["rows"] if r["movement_type"] == "sale")
+    assert sale["etag"] == "UK777777777777"
+    assert sale["event_date"] == "2026-08-05"
+    assert sale["source"] == "cow_events off inventory and cts"
+    assert sale["dreg"] == "UK777700000001"
+    assert sale["breed"] == "HF"
+
+
+def test_list_pending_excludes_off_cts_exit_before_cutoff() -> None:
+    session = _session()
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="UK777777777778",
+            cow_id="708",
+            event="SOLD",
+            event_date=dt.date(2026, 8, 4),
+            gndr="F",
+        )
+    )
+    session.commit()
+
+    pending = list_pending_movements(session, "CM")
+    assert pending["total"] == 0
+
+
+def test_list_pending_suppresses_reported_off_cts_exit() -> None:
+    session = _session()
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="UK777777777779",
+            cow_id="709",
+            event="DIED",
+            event_date=dt.date(2026, 8, 6),
+            gndr="F",
+        )
+    )
+    session.add(
+        CtsReportedMovement(
+            farm="CM",
+            movement_type="death",
+            etag="UK777777777779",
+            event_date=dt.date(2026, 8, 6),
+            status="accepted",
+        )
+    )
+    session.commit()
+
+    pending = list_pending_movements(session, "CM")
+    assert pending["total"] == 0
+
+
 def test_list_awaiting_cts_birth_until_on_holding() -> None:
     session = _session()
     today = dt.date.today()
