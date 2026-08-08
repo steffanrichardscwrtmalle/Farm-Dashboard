@@ -382,6 +382,11 @@
   let cacheFarm = null;
   /** Pen breakdown cache keyed by farm|date|shift */
   let penCache = {};
+  /** Ignore stale progressive fetches when farm/force-reload changes. */
+  let summaryLoadToken = 0;
+  const SHIFT_SUMMARY_FULL_DAYS = 45;
+  // Enough calendar days for ~7 milking days + prior day (problem-stall compare).
+  const SHIFT_SUMMARY_FAST_DAYS = 12;
 
   function fmtNum(n, digits) {
     if (n == null || Number.isNaN(n)) return "—";
@@ -1291,7 +1296,8 @@
     return true;
   }
 
-  function showCached() {
+  function showCached(options) {
+    const opts = options || {};
     const data = cachedByFarm[farm];
     if (!data) return false;
     if (!dataHasQualityMetrics(data)) {
@@ -1299,35 +1305,99 @@
       return false;
     }
     const latest = data.latest_import ? new Date(data.latest_import).toLocaleString() : "never";
-    meta.textContent = `${farm} · ${shift} · up to 7 most recent milking days · last import ${latest}`;
+    const loadingMore = opts.loadingMore ? " · loading more history…" : "";
+    meta.textContent =
+      `${farm} · ${shift} · up to 7 most recent milking days · last import ${latest}${loadingMore}`;
     renderTable(data);
     if (selectedDate) loadDrilldown(selectedDate);
+    refreshOpenFarmMetricTrend();
     return true;
+  }
+
+  function refreshOpenFarmMetricTrend() {
+    if (!selectedFarmMetric || !isPenDrilldown) return;
+    const metricDef = DAY_METRICS.find((m) => m.metricKey === selectedFarmMetric);
+    if (!metricDef) return;
+    const trendData = buildFarmMetricTrendFromCache(metricDef);
+    if (!trendData) return;
+    renderTrendChart(trendData, metricDef.label);
+  }
+
+  function shiftSummaryParams(dateFrom, dateTo) {
+    const params = new URLSearchParams();
+    if (farm) params.set("farm", farm);
+    params.set("date_from", isoDate(dateFrom));
+    params.set("date_to", isoDate(dateTo));
+    params.set("v", "quality-6");
+    if (!isPenDrilldown) params.set("include_problem_stalls", "true");
+    return params;
+  }
+
+  function mergeShiftSummaryDays(recent, older) {
+    const byDate = new Map();
+    for (const day of [...(older.days || []), ...(recent.days || [])]) {
+      byDate.set(day.milking_date, day);
+    }
+    const days = [...byDate.values()].sort((a, b) =>
+      String(a.milking_date).localeCompare(String(b.milking_date))
+    );
+    return {
+      days,
+      day_count: days.length,
+      import_count: recent.import_count ?? older.import_count,
+      latest_import: recent.latest_import || older.latest_import,
+    };
   }
 
   async function loadSummary(forceReload) {
     if (!forceReload && showCached()) return;
 
+    const loadId = ++summaryLoadToken;
+    const requestedFarm = farm;
     meta.textContent = "Loading…";
-    const params = new URLSearchParams();
-    if (farm) params.set("farm", farm);
-    // Load all shifts once for the farm; slicer filters client-side.
-    // Cap at 45 calendar days (server also enforces) so Render stays under 512MB.
+
+    // Fast path: recent window so the last 7 milking days paint quickly.
+    // Background path: older days within the 45-day cap for farm metric trends.
     const until = new Date();
-    const since = new Date(until);
-    since.setDate(since.getDate() - 45);
-    params.set("date_from", isoDate(since));
-    params.set("date_to", isoDate(until));
-    params.set("v", "quality-6");
-    if (!isPenDrilldown) params.set("include_problem_stalls", "true");
+    const sinceFast = new Date(until);
+    sinceFast.setDate(sinceFast.getDate() - SHIFT_SUMMARY_FAST_DAYS);
+    const sinceFull = new Date(until);
+    sinceFull.setDate(sinceFull.getDate() - SHIFT_SUMMARY_FULL_DAYS);
+
     try {
-      const res = await fetch("/api/parlour/shift-summary?" + params.toString());
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      cachedByFarm[farm] = data;
-      cacheFarm = farm;
+      const fastRes = await fetch(
+        "/api/parlour/shift-summary?" + shiftSummaryParams(sinceFast, until).toString()
+      );
+      if (!fastRes.ok) throw new Error(await fastRes.text());
+      const fastData = await fastRes.json();
+      if (loadId !== summaryLoadToken || farm !== requestedFarm) return;
+      cachedByFarm[requestedFarm] = fastData;
+      cacheFarm = requestedFarm;
+      showCached({ loadingMore: true });
+
+      const olderTo = new Date(sinceFast);
+      olderTo.setDate(olderTo.getDate() - 1);
+      if (sinceFull > olderTo) {
+        showCached();
+        return;
+      }
+
+      const olderRes = await fetch(
+        "/api/parlour/shift-summary?" + shiftSummaryParams(sinceFull, olderTo).toString()
+      );
+      if (loadId !== summaryLoadToken || farm !== requestedFarm) return;
+      if (!olderRes.ok) {
+        showCached();
+        console.error(await olderRes.text());
+        return;
+      }
+      const olderData = await olderRes.json();
+      if (loadId !== summaryLoadToken || farm !== requestedFarm) return;
+      cachedByFarm[requestedFarm] = mergeShiftSummaryDays(fastData, olderData);
+      cacheFarm = requestedFarm;
       showCached();
     } catch (err) {
+      if (loadId !== summaryLoadToken) return;
       meta.textContent = "Failed to load";
       root.innerHTML = `<div class="empty-state">Could not load shift summary.</div>`;
       clearPenSelection();
@@ -1336,6 +1406,7 @@
   }
 
   function invalidateCache() {
+    summaryLoadToken += 1;
     cachedByFarm = {};
     cacheFarm = null;
     penCache = {};

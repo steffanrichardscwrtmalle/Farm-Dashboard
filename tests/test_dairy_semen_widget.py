@@ -116,7 +116,7 @@ def test_counts_dairy_only_both_farms_excluding_today() -> None:
     assert result["from"] == "2026-07-08"
     assert result["to"] == "2026-08-06"
     assert result["from_120"] == "2026-04-09"
-    assert result["href"] == "/events/breedings"
+    assert result["href"] == "/events/breedings?semen=dairy"
     assert result["label"] == "Dairy Semen - 30 Days"
 
 

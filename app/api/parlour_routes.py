@@ -39,8 +39,10 @@ from app.services.parlour_rotation import (
 )
 from app.services.parlour_scatter import (
     ATTACHMENT_METRIC_KEY,
+    LAG_PHASE_XY_METRIC_KEYS,
     SCATTER_METRIC_KEYS,
     list_attachment_time_bins,
+    list_lag_phase_xy_points,
     list_scatter_metrics,
     list_scatter_points,
     scatter_date_bounds,
@@ -235,9 +237,28 @@ def api_parlour_scatter(
             shifts=shift_list,
         )
 
+    if metric in LAG_PHASE_XY_METRIC_KEYS:
+        try:
+            return list_lag_phase_xy_points(
+                db,
+                farm=farm_key,
+                metric=metric,
+                date_from=date_from,
+                date_to=date_to,
+                shifts=shift_list,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     if metric not in SCATTER_METRIC_KEYS:
         allowed = ", ".join(
-            sorted({*SCATTER_METRIC_KEYS, ATTACHMENT_METRIC_KEY})
+            sorted(
+                {
+                    *SCATTER_METRIC_KEYS,
+                    ATTACHMENT_METRIC_KEY,
+                    *LAG_PHASE_XY_METRIC_KEYS,
+                }
+            )
         )
         raise HTTPException(
             status_code=400,

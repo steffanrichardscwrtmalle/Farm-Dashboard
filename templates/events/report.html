@@ -1356,7 +1356,10 @@
         .map(btn => btn.dataset.value);
     }
 
+    let semenFilterFromUrl = false;
+
     function resetSemenSlicers() {
+      semenFilterFromUrl = false;
       document.querySelectorAll(".semen-slicer .slicer-btn").forEach(btn => {
         if (btn.hidden) {
           btn.classList.remove("selected");
@@ -1365,6 +1368,24 @@
         }
         btn.classList.add("selected");
         btn.setAttribute("aria-pressed", "true");
+      });
+    }
+
+    function applySemenSlicersFromUrl() {
+      if (!SHOW_BREEDINGS_SEMEN_CHART) return;
+      const allowed = new Set(["beef", "dairy", "unknown"]);
+      const wanted = new Set(
+        new URLSearchParams(window.location.search)
+          .getAll("semen")
+          .map((value) => String(value || "").trim().toLowerCase())
+          .filter((value) => allowed.has(value))
+      );
+      if (!wanted.size) return;
+      semenFilterFromUrl = true;
+      document.querySelectorAll(".semen-slicer .slicer-btn").forEach((btn) => {
+        const on = wanted.has(btn.dataset.value);
+        btn.classList.toggle("selected", on);
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
       });
     }
 
@@ -1384,7 +1405,7 @@
         btn.setAttribute("aria-pressed", "false");
         return false;
       }
-      if (wasHidden) {
+      if (wasHidden && !semenFilterFromUrl) {
         // Newly available again — select by default and refetch so it is included.
         btn.classList.add("selected");
         btn.setAttribute("aria-pressed", "true");
@@ -1396,6 +1417,7 @@
     function bindSemenSlicers() {
       document.querySelectorAll(".semen-slicer .slicer-btn").forEach(btn => {
         btn.addEventListener("click", () => {
+          semenFilterFromUrl = false;
           btn.classList.toggle("selected");
           btn.setAttribute(
             "aria-pressed",
@@ -2733,6 +2755,7 @@
     }
     if (SHOW_BREEDINGS_SEMEN_CHART) {
       bindSemenSlicers();
+      applySemenSlicersFromUrl();
     }
     if (SHOW_HOOFTRIMMING_CHARTS) {
       bindProtocolDropdown();

@@ -75,6 +75,6 @@ def get_dairy_semen_30d(
         "to": effective_to.isoformat(),
         "from_120": from_120.isoformat(),
         "as_of": today.isoformat(),
-        "href": "/events/breedings",
+        "href": "/events/breedings?semen=dairy",
         "label": "Dairy Semen - 30 Days",
     }

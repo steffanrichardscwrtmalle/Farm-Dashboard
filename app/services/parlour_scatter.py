@@ -60,8 +60,26 @@ SCATTER_METRICS: dict[str, dict[str, Any]] = {
 
 SCATTER_METRIC_KEYS = frozenset(SCATTER_METRICS)
 
+# Lag-phase relationship metrics (X = lag phase) selectable from the dropdown.
+LAG_PHASE_X_METRIC = "lag_phase_seconds"
+LAG_PHASE_XY_METRICS: dict[str, str] = {
+    "lag_vs_pct_2_minutes": "pct_2_minutes",
+    "lag_vs_peak_flow": "peak_flow",
+    "lag_vs_duration_seconds": "duration_seconds",
+    "lag_vs_flow_rate_at_removal": "flow_rate_at_removal",
+}
+LAG_PHASE_XY_METRIC_KEYS = frozenset(LAG_PHASE_XY_METRICS)
+
 
 def list_scatter_metrics() -> list[dict[str, str]]:
+    lag_items = [
+        {
+            "key": key,
+            "label": f"Lag phase vs {SCATTER_METRICS[y_key]['label']}",
+            "chart": "lag_xy",
+        }
+        for key, y_key in LAG_PHASE_XY_METRICS.items()
+    ]
     return [
         {
             "key": ATTACHMENT_METRIC_KEY,
@@ -72,6 +90,7 @@ def list_scatter_metrics() -> list[dict[str, str]]:
             {"key": key, "label": meta["label"], "chart": "scatter"}
             for key, meta in SCATTER_METRICS.items()
         ],
+        *lag_items,
     ]
 
 
@@ -264,6 +283,115 @@ def list_scatter_points(
         "truncated": False,
         "points": points,
         "shift_day_averages": shift_day_averages,
+    }
+
+
+def list_lag_phase_xy_points(
+    db: Session,
+    *,
+    farm: str,
+    metric: str,
+    date_from: dt.date | None = None,
+    date_to: dt.date | None = None,
+    shifts: list[str] | None = None,
+) -> dict[str, Any]:
+    """Cow-level scatter: lag phase (X) vs one Y metric, for dropdown selection."""
+    if metric not in LAG_PHASE_XY_METRICS:
+        raise ValueError(f"Unsupported lag-phase metric: {metric}")
+    y_key = LAG_PHASE_XY_METRICS[metric]
+    farm_key = farm.upper()
+    x_meta = SCATTER_METRICS[LAG_PHASE_X_METRIC]
+    y_meta = SCATTER_METRICS[y_key]
+    x_scale = float(x_meta.get("scale") or 1.0)
+    y_scale = float(y_meta.get("scale") or 1.0)
+    x_digits = int(x_meta["digits"])
+    y_digits = int(y_meta["digits"])
+    bounds = scatter_date_bounds(db, farm=farm_key)
+    metric_label = f"Lag phase vs {y_meta['label']}"
+
+    empty = {
+        "farm": farm_key,
+        "metric": metric,
+        "metric_label": metric_label,
+        "chart": "lag_xy",
+        "x_metric": LAG_PHASE_X_METRIC,
+        "x_label": x_meta["label"],
+        "x_unit": x_meta["unit"],
+        "y_metric": y_key,
+        "y_label": y_meta["label"],
+        "unit": y_meta["unit"],
+        "digits": y_digits,
+        "date_min": bounds["date_min"],
+        "date_max": bounds["date_max"],
+        "point_count": 0,
+        "points": [],
+    }
+    if shifts is not None and len(shifts) == 0:
+        return empty
+
+    stmt = select(
+        ParlourMilkFlowRow.shift,
+        ParlourMilkFlowRow.cow_id,
+        ParlourMilkFlowRow.milking_point,
+        ParlourMilkFlowRow.milking_date,
+        _metric_column(LAG_PHASE_X_METRIC),
+        _metric_column(y_key),
+        ParlourMilkFlowRow.yield_kg,
+    ).where(
+        ParlourMilkFlowRow.farm == farm_key,
+        _metric_column(LAG_PHASE_X_METRIC).isnot(None),
+        _metric_column(y_key).isnot(None),
+    )
+    if date_from:
+        stmt = stmt.where(ParlourMilkFlowRow.milking_date >= date_from)
+    if date_to:
+        stmt = stmt.where(ParlourMilkFlowRow.milking_date <= date_to)
+    if shifts:
+        stmt = stmt.where(ParlourMilkFlowRow.shift.in_(shifts))
+
+    points: list[dict[str, Any]] = []
+    for (
+        shift,
+        cow_id,
+        milking_point,
+        milking_date,
+        raw_x,
+        raw_y,
+        yield_kg,
+    ) in db.execute(stmt).all():
+        cleaned_x = scatter_metric_value(LAG_PHASE_X_METRIC, raw_x, yield_kg=yield_kg)
+        if cleaned_x is None:
+            continue
+        cleaned_y = scatter_metric_value(y_key, raw_y, yield_kg=yield_kg)
+        if cleaned_y is None:
+            continue
+        points.append(
+            {
+                "x": round(float(cleaned_x) * x_scale, x_digits + 2),
+                "y": round(float(cleaned_y) * y_scale, y_digits + 2),
+                "shift": shift,
+                "cow_id": cow_id,
+                "milking_point": milking_point,
+                "milking_date": milking_date.isoformat() if milking_date else None,
+            }
+        )
+
+    return {
+        "farm": farm_key,
+        "metric": metric,
+        "metric_label": metric_label,
+        "chart": "lag_xy",
+        "x_metric": LAG_PHASE_X_METRIC,
+        "x_label": x_meta["label"],
+        "x_unit": x_meta["unit"],
+        "y_metric": y_key,
+        "y_label": y_meta["label"],
+        "unit": y_meta["unit"],
+        "digits": y_digits,
+        "date_min": bounds["date_min"],
+        "date_max": bounds["date_max"],
+        "point_count": len(points),
+        "points": points,
     }
 
 

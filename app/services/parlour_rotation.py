@@ -18,7 +18,9 @@ from app.services.parlour_milk_flow_parse import (
 
 # Plausible rotary cycle bounds (seconds). Outside = empty stall / shift gap / glitch.
 MIN_ROTATION_SECONDS = 180  # 3 min
-MAX_ROTATION_SECONDS = 1500  # 25 min
+MAX_ROTATION_SECONDS = 1500  # 25 min (shift summary / general stats)
+# Efficiency page: drop stall cycles longer than 13 minutes.
+EFFICIENCY_MAX_ROTATION_SECONDS = 780  # 13 min
 DEFAULT_MA_WINDOW = 40
 MAX_POINTS = 25000
 
@@ -128,7 +130,7 @@ def list_rotation_series(
     shifts: list[str] | None = None,
     ma_window: int = DEFAULT_MA_WINDOW,
     min_seconds: int = MIN_ROTATION_SECONDS,
-    max_seconds: int = MAX_ROTATION_SECONDS,
+    max_seconds: int = EFFICIENCY_MAX_ROTATION_SECONDS,
 ) -> dict[str, Any]:
     farm_key = farm.upper()
     window = max(5, min(int(ma_window or DEFAULT_MA_WINDOW), 500))

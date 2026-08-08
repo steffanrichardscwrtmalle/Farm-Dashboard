@@ -519,7 +519,7 @@
         `${farm} · ${formatShortDate(dateFrom)} – ${formatShortDate(dateTo)} · ${shiftLabel}` +
         (data.truncated ? " · plot sampled" : "");
       help.textContent =
-        `Gaps outside ${Math.round((data.min_seconds || 180) / 60)}–${Math.round((data.max_seconds || 1500) / 60)} min are dropped. ` +
+        `Gaps outside ${Math.round((data.min_seconds || 180) / 60)}–${Math.round((data.max_seconds || 780) / 60)} min are dropped. ` +
         `Raw cycles ${Number(data.gap_count_raw || 0).toLocaleString()}, kept ${Number(data.gap_count_clean || 0).toLocaleString()}. ` +
         "Drag a box to zoom; Reset zoom to return.";
 

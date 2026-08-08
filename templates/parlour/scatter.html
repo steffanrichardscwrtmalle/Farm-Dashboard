@@ -235,6 +235,8 @@
   const BIN_MS = 5 * 60 * 1000;
   const GAP_COLOR = "#b45309";
 
+  const REGRESSION_COLOR = "#ec4899";
+
   let farm = "CM";
   let selectedShifts = new Set(["Morning", "Day", "Night"]);
   let dateList = [];
@@ -464,6 +466,35 @@
       chart.destroy();
       chart = null;
     }
+  }
+
+  function linearRegression(points) {
+    if (!points || points.length < 2) return null;
+    let sumX = 0;
+    let sumY = 0;
+    let sumXY = 0;
+    let sumXX = 0;
+    const n = points.length;
+    for (const p of points) {
+      sumX += p.x;
+      sumY += p.y;
+      sumXY += p.x * p.y;
+      sumXX += p.x * p.x;
+    }
+    const denom = n * sumXX - sumX * sumX;
+    if (denom === 0) return null;
+    const slope = (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+    const meanY = sumY / n;
+    let ssTot = 0;
+    let ssRes = 0;
+    for (const p of points) {
+      const predicted = slope * p.x + intercept;
+      ssRes += (p.y - predicted) ** 2;
+      ssTot += (p.y - meanY) ** 2;
+    }
+    const r2 = ssTot === 0 ? 1 : 1 - ssRes / ssTot;
+    return { slope, intercept, r2 };
   }
 
   function resetZoom() {
@@ -753,6 +784,146 @@
     bindRightClickPan(chart, "x");
   }
 
+  function renderLagXyChart(data) {
+    destroyChart();
+    const digits = data.digits != null ? data.digits : 1;
+    const unit = data.unit || "";
+    const xLabel = data.x_label || "Lag phase";
+    const xUnit = data.x_unit || "s";
+    const yLabel = data.y_label || data.metric_label || "Metric";
+    const points = (data.points || []).map((p) => ({
+      x: p.x,
+      y: p.y,
+      shift: normalizeShift(p.shift),
+      cow_id: p.cow_id,
+      milking_point: p.milking_point,
+      milking_date: p.milking_date,
+    }));
+
+    const byShift = {};
+    for (const shift of SHIFT_ORDER) byShift[shift] = [];
+    for (const p of points) {
+      if (!byShift[p.shift]) byShift[p.shift] = [];
+      byShift[p.shift].push(p);
+    }
+
+    const datasets = SHIFT_ORDER.filter((s) => byShift[s] && byShift[s].length).map(
+      (shift) => ({
+        type: "scatter",
+        label: shift,
+        data: byShift[shift],
+        backgroundColor: SHIFT_COLORS[shift] || "#666",
+        borderColor: SHIFT_COLORS[shift] || "#666",
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        order: 2,
+      })
+    );
+
+    const fit = linearRegression(points);
+    let fitText = "";
+    if (fit) {
+      const xs = points.map((p) => p.x);
+      let xMin = Math.min(...xs);
+      let xMax = Math.max(...xs);
+      // Avoid a zero-width line when every point shares the same X.
+      if (xMin === xMax) {
+        const pad = Math.abs(xMin) * 0.05 || 1;
+        xMin -= pad;
+        xMax += pad;
+      }
+      datasets.unshift({
+        type: "line",
+        label: "Regression",
+        data: [
+          { x: xMin, y: fit.slope * xMin + fit.intercept, isFit: true },
+          { x: xMax, y: fit.slope * xMax + fit.intercept, isFit: true },
+        ],
+        borderColor: REGRESSION_COLOR,
+        backgroundColor: "transparent",
+        borderWidth: 2.5,
+        borderDash: [6, 4],
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        showLine: true,
+        fill: false,
+        tension: 0,
+        order: 0,
+      });
+      fitText = ` · R²=${fit.r2.toFixed(3)}`;
+    }
+
+    meta.textContent =
+      `${farm} · ${data.metric_label || "Lag phase"} · ${formatShortDate(selectedDateFrom())} – ${formatShortDate(selectedDateTo())} · ${shiftLabelText()} · ${points.length.toLocaleString()} point(s)${fitText}`;
+    help.textContent =
+      "Each point is one cow milking. X = lag phase. Pink dashed line = linear regression. Left-drag to zoom; right-drag to pan; Reset zoom to return.";
+
+    chart = new Chart(canvas, {
+      type: "scatter",
+      data: { datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { position: "top" },
+          tooltip: {
+            callbacks: {
+              title: () => xLabel,
+              label: (ctx) => {
+                const raw = ctx.raw || {};
+                if (raw.isFit || ctx.dataset.type === "line") {
+                  return `Fit: ${Number(ctx.parsed.y).toFixed(digits)}${unit ? ` ${unit}` : ""}`;
+                }
+                const xText = `${Number(ctx.parsed.x).toLocaleString(undefined, {
+                  maximumFractionDigits: 0,
+                })}${xUnit ? ` ${xUnit}` : ""}`;
+                const yText = `${Number(ctx.parsed.y).toLocaleString(undefined, {
+                  maximumFractionDigits: digits,
+                  minimumFractionDigits: 0,
+                })}${unit ? ` ${unit}` : ""}`;
+                const point =
+                  raw.milking_point != null ? ` · Point ${raw.milking_point}` : "";
+                return `${ctx.dataset.label}: lag ${xText}, ${yText} · Cow ${raw.cow_id || "?"}${point}`;
+              },
+            },
+          },
+          zoom: {
+            pan: { enabled: false },
+            zoom: {
+              wheel: { enabled: true },
+              pinch: { enabled: true },
+              drag: {
+                enabled: true,
+                backgroundColor: "rgba(30,58,95,0.15)",
+                borderColor: "rgba(30,58,95,0.6)",
+                borderWidth: 1,
+              },
+              mode: "xy",
+            },
+          },
+        },
+        scales: {
+          x: {
+            type: "linear",
+            title: {
+              display: true,
+              text: xUnit ? `${xLabel} (${xUnit})` : xLabel,
+            },
+          },
+          y: {
+            title: {
+              display: true,
+              text: unit ? `${yLabel} (${unit})` : yLabel,
+            },
+            beginAtZero: false,
+          },
+        },
+      },
+    });
+    bindRightClickPan(chart, "xy");
+  }
+
   async function loadBoundsAndChart(resetDates) {
     meta.textContent = "Loading…";
     try {
@@ -806,6 +977,19 @@
           return;
         }
         renderAttachmentBars(data);
+        return;
+      }
+
+      if (data.chart === "lag_xy" || String(metric).startsWith("lag_vs_")) {
+        if (!data.point_count) {
+          destroyChart();
+          meta.textContent =
+            `${farm} · ${data.metric_label || "Lag phase"} · ${formatShortDate(dateFrom)} – ${formatShortDate(dateTo)} · ${shiftLabelText()} · 0 point(s)`;
+          help.textContent =
+            "Each point is one cow milking. X = lag phase. Pink line = linear regression.";
+          return;
+        }
+        renderLagXyChart(data);
         return;
       }
 
