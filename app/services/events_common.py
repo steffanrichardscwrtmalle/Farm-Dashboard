@@ -25,7 +25,8 @@ DISEASE_EVENT_LABELS: dict[str, str] = {
     "ILL": "Illness",
     "SCOURS": "Scours",
     "LAME": "Lameness",
-    "MAST": "Mastitis",
+    "MAST": "Mastitis (all)",
+    "MAST_ABX": "Mastitis - Abx",
     "METR": "Metritis",
     "RESP": "Respiratory",
     "INJURY": "Injury",
@@ -35,7 +36,25 @@ DISEASE_EVENT_LABELS: dict[str, str] = {
     "DIED": "Died",
 }
 
-DISEASE_FILTER_OPTIONS: tuple[str, ...] = EVENT_PAGE_TYPES["disease"] + ("DIED",)
+# Virtual disease filters that query a base DairyComp event plus an extra predicate.
+DISEASE_VIRTUAL_EVENT_MAP: dict[str, str] = {
+    "MAST_ABX": "MAST",
+}
+
+DISEASE_FILTER_OPTIONS: tuple[str, ...] = (
+    "ILL",
+    "SCOURS",
+    "LAME",
+    "MAST",
+    "MAST_ABX",
+    "METR",
+    "RESP",
+    "INJURY",
+    "ABORT",
+    "DA",
+    "MF",
+    "DIED",
+)
 
 DEFAULT_DISEASE_EPISODE_GAP_DAYS = 7
 
@@ -129,6 +148,19 @@ def normalize_disease_type(disease: str | None) -> str | None:
     if disease not in DISEASE_FILTER_OPTIONS:
         return None
     return disease
+
+
+def disease_db_event_types(event_types: tuple[str, ...]) -> tuple[str, ...]:
+    """Map disease filter codes (incl. virtual) to CowEvent.event values."""
+    mapped = [DISEASE_VIRTUAL_EVENT_MAP.get(code, code) for code in event_types]
+    return tuple(dict.fromkeys(mapped))
+
+
+def is_loxicom_only_mastitis_remark(remark: str | None) -> bool:
+    """True when the DairyComp remark marks a Loxicom-only mastitis treatment."""
+    if remark is None:
+        return False
+    return remark.strip().upper() == "LOXICOM"
 
 
 def normalize_semen_types(semen_types: list[str] | None) -> list[str] | None:
@@ -498,6 +530,8 @@ def _fetch_disease_event_records(
     selected_parity_groups: list[str] | None,
     fiscal_year: int | None,
 ) -> list[dict[str, Any]]:
+    db_event_types = disease_db_event_types(event_types)
+    mastitis_abx_only = event_types == ("MAST_ABX",)
     events_query = (
         select(
             CowEvent.cow_id,
@@ -511,12 +545,17 @@ def _fetch_disease_event_records(
             CowEvent.month_label,
             CowEvent.remark,
         )
-        .where(CowEvent.event.in_(list(event_types)))
+        .where(CowEvent.event.in_(list(db_event_types)))
         .where(CowEvent.event_date.isnot(None))
         .where(CowEvent.farm.in_(selected_farms))
         .where(CowEvent.event_date >= effective_from)
         .where(CowEvent.event_date <= effective_to)
     )
+    if mastitis_abx_only:
+        # Exclude Loxicom-only mastitis (Remark = LOXICOM); keep antibiotic / other cases.
+        events_query = events_query.where(
+            func.upper(func.trim(func.coalesce(CowEvent.remark, ""))) != "LOXICOM"
+        )
     events_query = _apply_parity_groups(events_query, selected_parity_groups)
     events_query = _apply_fiscal_year(events_query, fiscal_year)
     rows = db.execute(events_query).all()
