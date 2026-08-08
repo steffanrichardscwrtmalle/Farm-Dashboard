@@ -1,7 +1,7 @@
 """
-Import herd data from OneDrive CSV exports into the database.
+Import DC305 herd CSV exports from OneDrive into the database.
 
-For Render cron (e.g. daily):
+Render cron ``farm-dashboard-import-dc305`` (daily):
   python scripts/import_herd_events.py
 
 Imports cow events, inventory, and birth records (skipping each farm whose

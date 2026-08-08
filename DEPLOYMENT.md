@@ -98,12 +98,14 @@ After deploying schema changes (e.g. new `supplier` column), Render runs migrati
 ### Herd data (events, inventory, birth from OneDrive)
 
 1. Complete Microsoft Entra app registration (see `.env.example` for `GRAPH_*` variables).
-2. Add env vars to the web service and a **Cron Job** on Render (e.g. the existing
-   `Farm-Dashboard` cron):
-   - **Schedule:** e.g. `0 4 * * *` (daily 04:00 UTC)
+2. Blueprint cron **`farm-dashboard-import-dc305`** in [`render.yaml`](render.yaml)
+   (Import DC305 files):
+   - **Schedule:** `0 4 * * *` (daily 04:00 UTC)
    - **Command:** `python scripts/import_herd_events.py`
    - Same env vars as the web service (`DATABASE_URL`, `GRAPH_*`, `HERD_EXPORT_BASE_PATH`, `GRAPH_DRIVE_USER_EMAIL`)
-3. The herd cron imports:
+   - If an older manually created `Farm-Dashboard` cron still exists, suspend or
+     delete it so DC305 files are not imported twice.
+3. The DC305 cron imports:
    - `CMEVENTS.CSV` / `GADEVENTS.CSV` → `cow_events`
    - `CMINV.CSV` / `GADINV.CSV` → `herd_inventory`
    - `CMBORN.CSV` / `GADBORN.CSV` → `herd_births`
