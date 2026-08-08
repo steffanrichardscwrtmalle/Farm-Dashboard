@@ -630,7 +630,7 @@
             <td>${esc(row.dreg)}</td>
             <td>${esc(row.sreg)}</td>
             <td>${esc(row.receipt)}</td>
-            <td>${esc(row.reported_at || "")}</td>
+            <td>${esc(fmtDateUk(row.reported_at))}</td>
           </tr>
         `;
       }).join("");

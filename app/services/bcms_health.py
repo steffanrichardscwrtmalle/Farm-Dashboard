@@ -16,7 +16,19 @@ HealthLevel = Literal["green", "yellow", "red", "unknown"]
 
 # Sales entered in DairyComp after the events export can drop out of inventory
 # before the next events pull. While inventory is newer than events, treat
-# unexplained CTS-only as aged from the last events import (≤1 day stays green).
+# unexplained CTS-only as aged from the last events import (sale urgency bands).
+
+# Per-kind send-urgency thresholds: (yellow_at_days, red_at_days).
+_URGENCY_THRESHOLDS: dict[str, tuple[int, int]] = {
+    "death": (3, 6),
+    "birth": (3, 6),
+    "sale": (2, 3),
+    "move_on": (2, 3),
+    # Inventory dropped before events caught up — treat like a sale off-move.
+    "cts_only_awaiting_events": (2, 3),
+}
+
+_STATUS_RANK = {"green": 0, "yellow": 1, "red": 2}
 
 
 def _purchases_by_etag(db: Session, farm: str) -> dict[str, dt.date]:
@@ -40,6 +52,12 @@ def _age_days(value: dt.date | None, *, as_of: dt.date) -> int | None:
     return days if days >= 0 else None
 
 
+def _exit_kind(exit_event: str | None) -> str:
+    if (exit_event or "").strip().upper() == "DIED":
+        return "death"
+    return "sale"
+
+
 def _farm_mismatch_ages(
     db: Session,
     farm: str,
@@ -59,7 +77,7 @@ def _farm_mismatch_ages(
                 {
                     "farm": farm,
                     "etag": row.get("etag"),
-                    "kind": "exit",
+                    "kind": _exit_kind(row.get("exit_event")),
                     "days": int(days),
                     "explainable": True,
                 }
@@ -126,8 +144,17 @@ def _farm_mismatch_ages(
     return items
 
 
+def _item_status(kind: str, days: int) -> HealthLevel:
+    yellow_at, red_at = _URGENCY_THRESHOLDS.get(kind, (3, 3))
+    if days >= red_at:
+        return "red"
+    if days >= yellow_at:
+        return "yellow"
+    return "green"
+
+
 def _status_from_ages(items: list[dict[str, Any]]) -> tuple[HealthLevel, str, int | None]:
-    """Return (level, label, max_days)."""
+    """Return (level, label, max_days) from send-urgency bands per mismatch kind."""
     if not items:
         return "green", "Healthy", None
 
@@ -135,11 +162,18 @@ def _status_from_ages(items: list[dict[str, Any]]) -> tuple[HealthLevel, str, in
     if unexplained:
         return "red", "Unhealthy", None
 
-    max_days = max(int(i["days"]) for i in items)
-    if max_days <= 1:
-        # Perfect-enough: only sold / died / born / moved on today or yesterday.
+    worst: HealthLevel = "green"
+    max_days = 0
+    for item in items:
+        days = int(item["days"])
+        max_days = max(max_days, days)
+        level = _item_status(str(item.get("kind") or ""), days)
+        if _STATUS_RANK[level] > _STATUS_RANK[worst]:
+            worst = level
+
+    if worst == "green":
         return "green", "Healthy", max_days
-    if max_days == 2:
+    if worst == "yellow":
         return "yellow", "Attention", max_days
     return "red", "Unhealthy", max_days
 
