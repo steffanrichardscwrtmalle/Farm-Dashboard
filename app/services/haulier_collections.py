@@ -153,12 +153,36 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         if r.get("collection_date") and r.get("volume_litres") is not None
     }
     avg_daily_volume = round(total_volume / len(collection_days)) if collection_days else None
+    by_day: dict[tuple[str, str], dict[str, float | None]] = {}
+    for row in rows:
+        date = row.get("collection_date")
+        volume = row.get("volume_litres")
+        if not date or volume is None:
+            continue
+        key = (row.get("farm") or "", str(date))
+        bucket = by_day.setdefault(key, {"vol": 0.0, "cows": None})
+        bucket["vol"] = float(bucket["vol"] or 0.0) + float(volume)
+        cows = row.get("cows_in_milk")
+        if cows is not None:
+            try:
+                bucket["cows"] = float(cows)
+            except (TypeError, ValueError):
+                pass
+    daily_per_cow = [
+        float(bucket["vol"]) / float(bucket["cows"])
+        for bucket in by_day.values()
+        if bucket.get("cows") and float(bucket["cows"]) > 0
+    ]
+    avg_litres_per_cow = (
+        round(sum(daily_per_cow) / len(daily_per_cow), 1) if daily_per_cow else None
+    )
     return {
         "count": len(rows),
         "latest_collection_date": latest,
         "total_volume": total_volume,
         "avg_volume": round(sum(volumes) / len(volumes)) if volumes else None,
         "avg_daily_volume": avg_daily_volume,
+        "avg_litres_per_cow": avg_litres_per_cow,
         "days": len(collection_days),
         "avg_temp": avg("temp_c", 2),
         "matched_count": sum(1 for r in rows if r.get("matched")),

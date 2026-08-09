@@ -558,9 +558,9 @@
 
     function renderSummary(summary) {
       const cards = [
-        { label: 'Loads', value: summary.count || 0 },
         { label: 'Total volume (L)', value: intFmt(summary.total_volume) || '0' },
         { label: 'Avg daily volume (L)', value: intFmt(summary.avg_daily_volume) || '—' },
+        { label: 'Avg milk / cow (L)', value: num(summary.avg_litres_per_cow, 1) || '—' },
         { label: 'Avg load (L)', value: intFmt(summary.avg_volume) || '—' },
         { label: 'Avg temp °C', value: num(summary.avg_temp, 2) || '—' },
         { label: 'Matched to NML', value: (summary.matched_count || 0) + ' / ' + (summary.count || 0) },
@@ -625,11 +625,25 @@
           .map(r => r.collection_date)
       ).size;
       const dates = sampleRows.map(r => r.collection_date).filter(Boolean).sort();
+      const byDay = {};
+      sampleRows.forEach((r) => {
+        if (!r.collection_date || r.volume_litres === null || r.volume_litres === undefined) return;
+        const key = (r.farm || '') + '|' + r.collection_date;
+        if (!byDay[key]) byDay[key] = { vol: 0, cows: null };
+        byDay[key].vol += Number(r.volume_litres);
+        if (r.cows_in_milk != null && r.cows_in_milk !== undefined) {
+          byDay[key].cows = Number(r.cows_in_milk);
+        }
+      });
+      const dailyPerCow = Object.values(byDay)
+        .filter((d) => d.cows && d.cows > 0)
+        .map((d) => d.vol / d.cows);
       return {
         count: sampleRows.length,
         latest_collection_date: dates.length ? dates[dates.length - 1] : '',
         total_volume: Math.round(totalVol),
         avg_daily_volume: days ? Math.round(totalVol / days) : null,
+        avg_litres_per_cow: mean(dailyPerCow, 1),
         avg_volume: vol.length ? Math.round(totalVol / vol.length) : null,
         avg_temp: mean(cappedValues(sampleRows, 'temp_c'), 2),
         matched_count: sampleRows.filter(r => r.matched).length,
