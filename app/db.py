@@ -64,6 +64,7 @@ def init_db() -> None:
     _migrate_parlour_schema()
     _seed_financial_forecasts()
     _seed_hp_schedules()
+    _seed_gad_milk_collections()
 
 
 def _migrate_parlour_schema() -> None:
@@ -267,6 +268,13 @@ def _seed_hp_schedules() -> None:
 
     with SessionLocal() as db:
         seed_hp_schedules_if_empty(db)
+
+
+def _seed_gad_milk_collections() -> None:
+    from app.services.gad_milk_seed import seed_gad_milk_collections
+
+    with SessionLocal() as db:
+        seed_gad_milk_collections(db)
 
 
 def _migrate_benchmarking_schema() -> None:
@@ -496,6 +504,10 @@ def _migrate_milk_collections_schema() -> None:
             conn.execute(
                 text("ALTER TABLE milk_collections ADD COLUMN source_received TIMESTAMP")
             )
+        if "cows_in_milk" not in columns:
+            conn.execute(
+                text("ALTER TABLE milk_collections ADD COLUMN cows_in_milk INTEGER")
+            )
 
     # Sample numbers may be blank; make the column nullable so blanks store as
     # NULL (NULLs are distinct in the unique constraint, so several sample-less
@@ -531,7 +543,11 @@ def _rebuild_milk_collections_sqlite() -> None:
     """Recreate milk_collections so sample_id is nullable (SQLite can't ALTER)."""
     from app.models import MilkCollection
 
-    copy_cols = (
+    old_cols = {
+        col["name"]
+        for col in inspect(engine).get_columns("milk_collections")
+    }
+    copy_cols = [
         "id",
         "farm",
         "collection_date",
@@ -546,7 +562,9 @@ def _rebuild_milk_collections_sqlite() -> None:
         "source_file",
         "source_received",
         "imported_at",
-    )
+    ]
+    if "cows_in_milk" in old_cols:
+        copy_cols.insert(copy_cols.index("temp_raw") + 1, "cows_in_milk")
     col_list = ", ".join(copy_cols)
     with engine.begin() as conn:
         conn.execute(

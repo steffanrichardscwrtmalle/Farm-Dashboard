@@ -1016,6 +1016,8 @@ class MilkCollection(Base):
     volume_litres: Mapped[int | None] = mapped_column(Integer, nullable=True)
     temp_c: Mapped[float | None] = mapped_column(Float, nullable=True)
     temp_raw: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    # Day-level herd size; stored on each load row for that collection day.
+    cows_in_milk: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_message_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     source_file: Mapped[str | None] = mapped_column(String(256), nullable=True)
     # When the source email was received; used to keep the newest email's data

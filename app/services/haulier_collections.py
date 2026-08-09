@@ -14,15 +14,33 @@ from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import MilkCollection, NmlMilkResult
+from app.models import HERD_FARM_OPTIONS, MilkCollection, NmlMilkResult
 from app.services.events_common import normalize_farms
 
 XLSX_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+
+# Provenance markers for user/seed loads (kept through email month-dedupe).
+MANUAL_SOURCE_FILE = "manual"
+SEED_GAD_MILK_SOURCE_FILE = "seed:gadmilk.xlsx"
+EDITABLE_COLLECTION_SOURCES = frozenset(
+    {MANUAL_SOURCE_FILE, SEED_GAD_MILK_SOURCE_FILE}
+)
+
+# Stable synthetic arrival times so Load 1/2/3 stay unique without sample IDs.
+_MANUAL_LOAD_ARRIVALS = (
+    dt.time(1, 0),
+    dt.time(2, 0),
+    dt.time(3, 0),
+)
+
+
+def is_editable_collection_source(source_file: str | None) -> bool:
+    return (source_file or "") in EDITABLE_COLLECTION_SOURCES
 
 _HEADERS = (
     "Farm",
@@ -35,6 +53,7 @@ _HEADERS = (
     "Volume (L)",
     "Temp (°C)",
     "Temp detail",
+    "Cows in milk",
     "Butterfat %",
     "Protein %",
     "SCC",
@@ -96,6 +115,7 @@ def _row_to_dict(
     collection: MilkCollection, nml: NmlMilkResult | None
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
+        "id": collection.id,
         "farm": collection.farm or "",
         "collection_date": collection.collection_date.isoformat()
         if collection.collection_date
@@ -108,8 +128,10 @@ def _row_to_dict(
         "volume_litres": collection.volume_litres,
         "temp_c": collection.temp_c,
         "temp_raw": collection.temp_raw or "",
+        "cows_in_milk": collection.cows_in_milk,
         "matched": nml is not None,
         "antibiotic_pass": nml.antibiotic_pass if nml else None,
+        "manual": is_editable_collection_source(collection.source_file),
     }
     for field in _NML_FIELDS:
         row[field] = getattr(nml, field) if nml else None
@@ -222,6 +244,204 @@ def list_collections(
     }
 
 
+def get_manual_collection_day(
+    db: Session,
+    *,
+    farm: str,
+    collection_date: dt.date,
+) -> dict[str, Any]:
+    """Return manual loads for one farm/day (for the edit form)."""
+    farm_key = (farm or "").strip().upper()
+    if farm_key not in HERD_FARM_OPTIONS:
+        raise ValueError("farm must be CM or GAD")
+    rows = db.scalars(
+        select(MilkCollection)
+        .where(
+            MilkCollection.farm == farm_key,
+            MilkCollection.collection_date == collection_date,
+            MilkCollection.source_file.in_(EDITABLE_COLLECTION_SOURCES),
+        )
+        .order_by(MilkCollection.arrival_time.asc(), MilkCollection.id.asc())
+    ).all()
+    if not rows:
+        raise ValueError("No manual collection found for that farm and date")
+    cows = next((r.cows_in_milk for r in rows if r.cows_in_milk is not None), None)
+    loads = [
+        {
+            "volume_litres": row.volume_litres,
+            "temp_c": row.temp_c,
+            "sample_id": row.sample_id or "",
+        }
+        for row in rows[:3]
+    ]
+    while len(loads) < 3:
+        loads.append({"volume_litres": None, "temp_c": None, "sample_id": ""})
+    return {
+        "farm": farm_key,
+        "collection_date": collection_date.isoformat(),
+        "cows_in_milk": cows,
+        "loads": loads,
+    }
+
+
+def delete_manual_collection_day(
+    db: Session,
+    *,
+    farm: str,
+    collection_date: dt.date,
+) -> dict[str, Any]:
+    """Delete editable (manual/seed) loads for one farm/day."""
+    farm_key = (farm or "").strip().upper()
+    if farm_key not in HERD_FARM_OPTIONS:
+        raise ValueError("farm must be CM or GAD")
+    result = db.execute(
+        delete(MilkCollection).where(
+            MilkCollection.farm == farm_key,
+            MilkCollection.collection_date == collection_date,
+            MilkCollection.source_file.in_(EDITABLE_COLLECTION_SOURCES),
+        )
+    )
+    deleted = int(result.rowcount or 0)
+    if deleted <= 0:
+        raise ValueError("No manual collection found for that farm and date")
+    db.commit()
+    return {
+        "farm": farm_key,
+        "collection_date": collection_date.isoformat(),
+        "loads_deleted": deleted,
+    }
+
+
+def create_manual_collection(
+    db: Session,
+    *,
+    collection_date: dt.date,
+    farm: str,
+    loads: list[dict[str, Any]],
+    cows_in_milk: int | None = None,
+    replace_farm: str | None = None,
+    replace_date: dt.date | None = None,
+) -> dict[str, Any]:
+    """Insert manual Load 1–3 rows for one farm/day (replaces prior manuals that day)."""
+    farm_key = (farm or "").strip().upper()
+    if farm_key not in HERD_FARM_OPTIONS:
+        raise ValueError("farm must be CM or GAD")
+    if cows_in_milk is not None and cows_in_milk < 0:
+        raise ValueError("cows_in_milk must be zero or greater")
+
+    cleaned_loads: list[dict[str, Any]] = []
+    seen_samples: set[str] = set()
+    for raw in (loads or [])[:3]:
+        volume = raw.get("volume_litres")
+        temp = raw.get("temp_c")
+        sample_raw = str(raw.get("sample_id") or "").strip()
+        sample_id = sample_raw or None
+        if volume is None and temp is None and not sample_id:
+            continue
+        vol_int: int | None = None
+        if volume is not None and volume != "":
+            try:
+                vol_int = int(round(float(volume)))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("volume_litres must be a number") from exc
+            if vol_int < 0:
+                raise ValueError("volume_litres must be zero or greater")
+        temp_f: float | None = None
+        if temp is not None and temp != "":
+            try:
+                temp_f = round(float(temp), 2)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("temp_c must be a number") from exc
+        if sample_id:
+            key = sample_id.lstrip("0") or "0"
+            if key in seen_samples:
+                raise ValueError(f"Duplicate sample number: {sample_id}")
+            seen_samples.add(key)
+        cleaned_loads.append(
+            {
+                "volume_litres": vol_int,
+                "temp_c": temp_f,
+                "sample_id": sample_id,
+            }
+        )
+
+    if not cleaned_loads:
+        raise ValueError("Enter at least one load volume, temperature, or sample")
+
+    # Clear previous manuals for this save target and, when editing, the original day.
+    clear_keys = {(farm_key, collection_date)}
+    if replace_farm and replace_date:
+        replace_key = (replace_farm.strip().upper(), replace_date)
+        if replace_key[0] in HERD_FARM_OPTIONS:
+            clear_keys.add(replace_key)
+    for clear_farm, clear_date in clear_keys:
+        db.execute(
+            delete(MilkCollection).where(
+                MilkCollection.farm == clear_farm,
+                MilkCollection.collection_date == clear_date,
+                MilkCollection.source_file.in_(EDITABLE_COLLECTION_SOURCES),
+            )
+        )
+
+    for load in cleaned_loads:
+        sample_id = load["sample_id"]
+        if not sample_id:
+            continue
+        clash = db.scalar(
+            select(MilkCollection.id).where(
+                MilkCollection.farm == farm_key,
+                MilkCollection.collection_date == collection_date,
+                MilkCollection.sample_id == sample_id,
+            )
+        )
+        if clash is not None:
+            raise ValueError(
+                f"Sample {sample_id} already exists for {farm_key} on "
+                f"{collection_date.isoformat()}"
+            )
+
+    now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+    created: list[dict[str, Any]] = []
+    for index, load in enumerate(cleaned_loads):
+        arrival = _MANUAL_LOAD_ARRIVALS[index]
+        row = MilkCollection(
+            farm=farm_key,
+            collection_date=collection_date,
+            sample_id=load["sample_id"],
+            driver=None,
+            vehicle_reg=None,
+            arrival_time=arrival,
+            depart_time=None,
+            volume_litres=load["volume_litres"],
+            temp_c=load["temp_c"],
+            temp_raw=None,
+            cows_in_milk=cows_in_milk,
+            source_message_id=f"manual:{farm_key}:{collection_date.isoformat()}",
+            source_file=MANUAL_SOURCE_FILE,
+            source_received=now,
+        )
+        db.add(row)
+        created.append(
+            {
+                "farm": farm_key,
+                "collection_date": collection_date.isoformat(),
+                "load": index + 1,
+                "volume_litres": load["volume_litres"],
+                "temp_c": load["temp_c"],
+                "sample_id": load["sample_id"] or "",
+                "cows_in_milk": cows_in_milk,
+            }
+        )
+    db.commit()
+    return {
+        "farm": farm_key,
+        "collection_date": collection_date.isoformat(),
+        "cows_in_milk": cows_in_milk,
+        "loads_created": len(created),
+        "rows": created,
+    }
+
+
 def _export_cells(row: dict[str, Any]) -> list[Any]:
     return [
         row.get("farm", ""),
@@ -234,6 +454,7 @@ def _export_cells(row: dict[str, Any]) -> list[Any]:
         row.get("volume_litres"),
         row.get("temp_c"),
         row.get("temp_raw", ""),
+        row.get("cows_in_milk"),
         row.get("butterfat_pct"),
         row.get("protein_pct"),
         row.get("scc"),
@@ -260,7 +481,7 @@ def build_collections_xlsx(rows: list[dict[str, Any]]) -> bytes:
     for row in rows:
         ws.append(_export_cells(row))
 
-    widths = [8, 12, 10, 16, 12, 9, 9, 11, 10, 14, 11, 10, 8, 11, 8, 7]
+    widths = [8, 12, 10, 16, 12, 9, 9, 11, 10, 14, 12, 11, 10, 8, 11, 8, 7]
     for index, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(index)].width = width
     for cell in ws[1]:

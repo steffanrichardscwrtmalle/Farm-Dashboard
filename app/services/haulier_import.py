@@ -39,6 +39,7 @@ from app.config import (
 from app.models import MilkCollection
 from app.services.graph_mail import iter_attachments
 from app.services.graph_onedrive import get_access_token_for, graph_is_configured
+from app.services.haulier_collections import is_editable_collection_source
 
 _FIELDS = (
     "farm",
@@ -306,6 +307,9 @@ def _dedupe_month_emails(db: Session, farms: set[str]) -> int:
     by_month: dict[tuple[str, int, int], list[MilkCollection]] = defaultdict(list)
     for row in rows:
         if row.collection_date is None:
+            continue
+        # Manual/seed entries are kept alongside emailed haulier sheets.
+        if is_editable_collection_source(row.source_file):
             continue
         month = (row.collection_date.year, row.collection_date.month)
         by_month[(row.farm or "", *month)].append(row)

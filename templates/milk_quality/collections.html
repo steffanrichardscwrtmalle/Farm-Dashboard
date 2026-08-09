@@ -109,6 +109,87 @@
     .pill.fail { background: #fee2e2; color: #991b1b; }
     .pill.yes { background: #dcfce7; color: #166534; }
     .pill.no { background: #f3f4f6; color: #6b7280; }
+    .add-modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .add-modal-backdrop.open { display: flex; }
+    .add-modal {
+      background: var(--card);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      max-width: 560px;
+      width: 100%;
+      max-height: 90vh;
+      overflow: auto;
+      padding: 1.25rem;
+    }
+    .add-modal h2 { margin: 0 0 0.85rem; font-size: 1.1rem; }
+    .add-form-grid {
+      display: grid;
+      gap: 0.75rem;
+    }
+    .add-form-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .add-form-grid input, .add-form-grid select {
+      margin: 0;
+      width: 100%;
+      padding: 0.4rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text);
+    }
+    .load-row {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr 0.9fr;
+      gap: 0.5rem;
+    }
+    .sidebar-add-btn {
+      width: 100%;
+      margin-top: 0.75rem;
+    }
+    .link-btn {
+      border: none;
+      background: none;
+      color: #1e3a5f;
+      font: inherit;
+      font-weight: 600;
+      text-decoration: underline;
+      cursor: pointer;
+      padding: 0;
+    }
+    .link-btn:hover { color: #0f2744; }
+    .add-modal-actions {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: flex-end;
+      align-items: center;
+      margin-top: 1rem;
+    }
+    .add-modal-actions .danger {
+      margin-right: auto;
+      background: #fff;
+      border: 1px solid #b91c1c;
+      color: #b91c1c;
+    }
+    .add-modal-actions .danger:hover {
+      background: #fef2f2;
+    }
+    .add-modal-error { color: #b91c1c; font-size: 0.8125rem; margin: 0.5rem 0 0; }
 {% endblock %}
 
 {% block content %}
@@ -130,6 +211,7 @@
             <label>From <select id="date-from"></select></label>
             <label>To <select id="date-to"></select></label>
           </div>
+          <button type="button" class="primary small sidebar-add-btn" id="add-collection-btn">Add Collection</button>
         </div>
       </aside>
       <aside class="filter-panel">
@@ -235,7 +317,7 @@
         <button type="button" class="secondary small" id="download-csv-btn">Export CSV</button>
         <button type="button" class="secondary small" id="download-xlsx-btn">Export XLSX</button>
         {% if can_import %}
-        <button type="button" class="primary small" id="import-btn">Import from email</button>
+        <button type="button" class="secondary small" id="import-btn">Import from email</button>
         <label class="import-scope">
           <span>Range</span>
           <select id="import-scope" title="How far back to scan the mailbox">
@@ -259,6 +341,7 @@
               <th data-sort="depart_time">Depart</th>
               <th data-sort="volume_litres">Volume (L)</th>
               <th data-sort="temp_c">Temp °C</th>
+              <th data-sort="cows_in_milk">Cows in milk</th>
               <th data-sort="butterfat_pct">Butterfat %</th>
               <th data-sort="protein_pct">Protein %</th>
               <th data-sort="scc">SCC</th>
@@ -266,14 +349,88 @@
               <th data-sort="urea_pct">Urea %</th>
               <th data-sort="antibiotic_pass">A/B</th>
               <th data-sort="matched">NML</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="table-body">
-            <tr><td colspan="16" class="empty-state">Loading…</td></tr>
+            <tr><td colspan="18" class="empty-state">Loading…</td></tr>
           </tbody>
         </table>
       </div>
     </section>
+  </div>
+
+  <div class="add-modal-backdrop" id="add-collection-modal" aria-hidden="true">
+    <div class="add-modal" role="dialog" aria-labelledby="add-collection-title">
+      <h2 id="add-collection-title">Add Collection</h2>
+      <form id="add-collection-form" class="add-form-grid">
+        <input type="hidden" id="add-replace-farm" value="">
+        <input type="hidden" id="add-replace-date" value="">
+        <label>
+          Date
+          <input type="date" id="add-date" required>
+        </label>
+        <label>
+          Farm
+          <select id="add-farm">
+            <option value="GAD" selected>GAD</option>
+            <option value="CM">CM</option>
+          </select>
+        </label>
+        <div class="load-row">
+          <label>
+            Load 1 (L)
+            <input type="number" id="add-load1-vol" min="0" step="1" inputmode="numeric">
+          </label>
+          <label>
+            Temp (°C)
+            <input type="number" id="add-load1-temp" step="0.1" inputmode="decimal">
+          </label>
+          <label>
+            Sample
+            <input type="text" id="add-load1-sample" maxlength="16" autocomplete="off">
+          </label>
+        </div>
+        <div class="load-row">
+          <label>
+            Load 2 (L)
+            <input type="number" id="add-load2-vol" min="0" step="1" inputmode="numeric">
+          </label>
+          <label>
+            Temp (°C)
+            <input type="number" id="add-load2-temp" step="0.1" inputmode="decimal">
+          </label>
+          <label>
+            Sample
+            <input type="text" id="add-load2-sample" maxlength="16" autocomplete="off">
+          </label>
+        </div>
+        <div class="load-row">
+          <label>
+            Load 3 (L)
+            <input type="number" id="add-load3-vol" min="0" step="1" inputmode="numeric">
+          </label>
+          <label>
+            Temp (°C)
+            <input type="number" id="add-load3-temp" step="0.1" inputmode="decimal">
+          </label>
+          <label>
+            Sample
+            <input type="text" id="add-load3-sample" maxlength="16" autocomplete="off">
+          </label>
+        </div>
+        <label>
+          Cows In Milk
+          <input type="number" id="add-cows" min="0" step="1" inputmode="numeric">
+        </label>
+        <p class="add-modal-error" id="add-collection-error" hidden></p>
+        <div class="add-modal-actions">
+          <button type="button" class="secondary small danger" id="add-collection-delete" hidden>Delete</button>
+          <button type="button" class="secondary small" id="add-collection-cancel">Cancel</button>
+          <button type="submit" class="primary small" id="add-collection-save">Save</button>
+        </div>
+      </form>
+    </div>
   </div>
 {% endblock %}
 
@@ -843,14 +1000,21 @@
       });
     }
 
+    let editOriginal = null; // { farm, collection_date } when editing
+
     function renderTable() {
       const tbody = document.getElementById('table-body');
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="16" class="empty-state">No collections match the current filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="18" class="empty-state">No collections match the current filters.</td></tr>';
         return;
       }
       tbody.innerHTML = sortRows(rows).map(row => {
         const cls = row.antibiotic_pass === false ? ' class="fail"' : (row.matched ? '' : ' class="unmatched"');
+        const editCell = row.manual
+          ? '<button type="button" class="link-btn edit-manual-btn" data-farm="' +
+            escapeHtml(row.farm) + '" data-date="' + escapeHtml(row.collection_date) +
+            '">Edit</button>'
+          : '';
         return '<tr' + cls + '>' +
           '<td>' + escapeHtml(row.farm) + '</td>' +
           '<td>' + escapeHtml(formatDate(row.collection_date)) + '</td>' +
@@ -861,6 +1025,7 @@
           '<td>' + escapeHtml(row.depart_time) + '</td>' +
           '<td class="num">' + escapeHtml(intFmt(row.volume_litres)) + '</td>' +
           '<td class="num">' + escapeHtml(num(row.temp_c, 1)) + '</td>' +
+          '<td class="num">' + escapeHtml(intFmt(row.cows_in_milk)) + '</td>' +
           '<td class="num">' + escapeHtml(num(row.butterfat_pct, 2)) + '</td>' +
           '<td class="num">' + escapeHtml(num(row.protein_pct, 2)) + '</td>' +
           '<td class="num">' + escapeHtml(num(row.scc)) + '</td>' +
@@ -868,6 +1033,7 @@
           '<td class="num">' + escapeHtml(num(row.urea_pct, 3)) + '</td>' +
           '<td>' + abCell(row.antibiotic_pass) + '</td>' +
           '<td>' + matchedCell(row.matched) + '</td>' +
+          '<td>' + editCell + '</td>' +
           '</tr>';
       }).join('');
     }
@@ -876,7 +1042,7 @@
       showMessage('');
       document.getElementById('meta-line').textContent = 'Loading…';
       document.getElementById('table-body').innerHTML =
-        '<tr><td colspan="16" class="empty-state">Loading…</td></tr>';
+        '<tr><td colspan="18" class="empty-state">Loading…</td></tr>';
       try {
         const res = await fetch('/api/haulier/collections?' + buildQuery(), {
           signal: AbortSignal.timeout(30000),
@@ -898,10 +1064,219 @@
       } catch (err) {
         document.getElementById('meta-line').textContent = '';
         document.getElementById('table-body').innerHTML =
-          '<tr><td colspan="16" class="empty-state">Could not load collections.</td></tr>';
+          '<tr><td colspan="18" class="empty-state">Could not load collections.</td></tr>';
         showMessage(err && err.message ? err.message : String(err), true);
       }
     }
+
+    function todayIsoLocal() {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return y + '-' + m + '-' + day;
+    }
+
+    function clearAddCollectionForm() {
+      document.getElementById('add-date').value = todayIsoLocal();
+      document.getElementById('add-farm').value = 'GAD';
+      document.getElementById('add-replace-farm').value = '';
+      document.getElementById('add-replace-date').value = '';
+      [1, 2, 3].forEach((n) => {
+        document.getElementById('add-load' + n + '-vol').value = '';
+        document.getElementById('add-load' + n + '-temp').value = '';
+        document.getElementById('add-load' + n + '-sample').value = '';
+      });
+      document.getElementById('add-cows').value = '';
+      const err = document.getElementById('add-collection-error');
+      err.hidden = true;
+      err.textContent = '';
+      editOriginal = null;
+    }
+
+    function fillAddCollectionForm(data) {
+      document.getElementById('add-date').value = data.collection_date || todayIsoLocal();
+      document.getElementById('add-farm').value = data.farm || 'GAD';
+      document.getElementById('add-replace-farm').value = data.farm || '';
+      document.getElementById('add-replace-date').value = data.collection_date || '';
+      const loads = data.loads || [];
+      [1, 2, 3].forEach((n, idx) => {
+        const load = loads[idx] || {};
+        document.getElementById('add-load' + n + '-vol').value =
+          load.volume_litres != null ? load.volume_litres : '';
+        document.getElementById('add-load' + n + '-temp').value =
+          load.temp_c != null ? load.temp_c : '';
+        document.getElementById('add-load' + n + '-sample').value = load.sample_id || '';
+      });
+      document.getElementById('add-cows').value =
+        data.cows_in_milk != null ? data.cows_in_milk : '';
+    }
+
+    function setDeleteButtonVisible(visible) {
+      const btn = document.getElementById('add-collection-delete');
+      btn.hidden = !visible;
+      btn.disabled = false;
+    }
+
+    function openAddCollectionModal() {
+      clearAddCollectionForm();
+      document.getElementById('add-collection-title').textContent = 'Add Collection';
+      setDeleteButtonVisible(false);
+      const modal = document.getElementById('add-collection-modal');
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+      document.getElementById('add-load1-vol').focus();
+    }
+
+    async function openEditCollectionModal(farm, collectionDate) {
+      const err = document.getElementById('add-collection-error');
+      err.hidden = true;
+      err.textContent = '';
+      try {
+        const params = new URLSearchParams({
+          farm,
+          collection_date: collectionDate,
+        });
+        const res = await fetch('/api/haulier/collections/manual?' + params.toString());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || ('Could not load collection (' + res.status + ')'));
+        editOriginal = { farm: data.farm, collection_date: data.collection_date };
+        fillAddCollectionForm(data);
+        document.getElementById('add-collection-title').textContent = 'Edit Collection';
+        setDeleteButtonVisible(true);
+        const modal = document.getElementById('add-collection-modal');
+        modal.classList.add('open');
+        modal.setAttribute('aria-hidden', 'false');
+        document.getElementById('add-load1-vol').focus();
+      } catch (errObj) {
+        showMessage(errObj && errObj.message ? errObj.message : String(errObj), true);
+      }
+    }
+
+    function closeAddCollectionModal() {
+      const modal = document.getElementById('add-collection-modal');
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden', 'true');
+      editOriginal = null;
+      setDeleteButtonVisible(false);
+    }
+
+    function parseOptionalNumber(value) {
+      const text = String(value ?? '').trim();
+      if (!text) return null;
+      const n = Number(text);
+      return Number.isFinite(n) ? n : NaN;
+    }
+
+    document.getElementById('add-collection-btn').addEventListener('click', openAddCollectionModal);
+    document.getElementById('add-collection-cancel').addEventListener('click', closeAddCollectionModal);
+    document.getElementById('add-collection-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'add-collection-modal') closeAddCollectionModal();
+    });
+    document.getElementById('table-body').addEventListener('click', (e) => {
+      const btn = e.target.closest('.edit-manual-btn');
+      if (!btn) return;
+      openEditCollectionModal(btn.dataset.farm, btn.dataset.date);
+    });
+    document.getElementById('add-collection-delete').addEventListener('click', async () => {
+      if (!editOriginal) return;
+      const farm = editOriginal.farm;
+      const collectionDate = editOriginal.collection_date;
+      const label = (farm || '') + ' on ' + formatDate(collectionDate || '');
+      if (!window.confirm('Delete all loads for ' + label + '? This cannot be undone.')) {
+        return;
+      }
+      const errEl = document.getElementById('add-collection-error');
+      errEl.hidden = true;
+      errEl.textContent = '';
+      const deleteBtn = document.getElementById('add-collection-delete');
+      const saveBtn = document.getElementById('add-collection-save');
+      deleteBtn.disabled = true;
+      saveBtn.disabled = true;
+      try {
+        const params = new URLSearchParams({
+          farm,
+          collection_date: collectionDate,
+        });
+        const res = await fetch('/api/haulier/collections/manual?' + params.toString(), {
+          method: 'DELETE',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.detail || ('Delete failed (' + res.status + ')'));
+        }
+        closeAddCollectionModal();
+        showMessage(
+          'Deleted ' + (data.loads_deleted || 0) + ' load(s) for ' + label,
+          false
+        );
+        await loadResults();
+      } catch (err) {
+        errEl.textContent = err && err.message ? err.message : String(err);
+        errEl.hidden = false;
+        deleteBtn.disabled = false;
+        saveBtn.disabled = false;
+      }
+    });
+    document.getElementById('add-collection-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('add-collection-error');
+      errEl.hidden = true;
+      errEl.textContent = '';
+      const loads = [1, 2, 3].map((n) => ({
+        volume_litres: parseOptionalNumber(document.getElementById('add-load' + n + '-vol').value),
+        temp_c: parseOptionalNumber(document.getElementById('add-load' + n + '-temp').value),
+        sample_id: String(document.getElementById('add-load' + n + '-sample').value || '').trim(),
+      }));
+      if (loads.some((load) => Number.isNaN(load.volume_litres) || Number.isNaN(load.temp_c))) {
+        errEl.textContent = 'Volumes and temperatures must be numbers.';
+        errEl.hidden = false;
+        return;
+      }
+      const cows = parseOptionalNumber(document.getElementById('add-cows').value);
+      if (Number.isNaN(cows)) {
+        errEl.textContent = 'Cows in milk must be a number.';
+        errEl.hidden = false;
+        return;
+      }
+      const saveBtn = document.getElementById('add-collection-save');
+      saveBtn.disabled = true;
+      const farm = document.getElementById('add-farm').value;
+      const collectionDate = document.getElementById('add-date').value;
+      const body = {
+        collection_date: collectionDate,
+        farm,
+        loads,
+        cows_in_milk: cows,
+      };
+      if (editOriginal) {
+        body.replace_farm = editOriginal.farm;
+        body.replace_date = editOriginal.collection_date;
+      }
+      try {
+        const res = await fetch('/api/haulier/collections', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.detail || ('Save failed (' + res.status + ')'));
+        }
+        closeAddCollectionModal();
+        showMessage(
+          'Saved ' + (data.loads_created || 0) + ' load(s) for ' +
+          (data.farm || '') + ' on ' + formatDate(data.collection_date || ''),
+          false
+        );
+        await loadResults();
+      } catch (err) {
+        errEl.textContent = err && err.message ? err.message : String(err);
+        errEl.hidden = false;
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
 
     document.getElementById('download-csv-btn').addEventListener('click', () => {
       window.location.href = '/api/haulier/collections/export.csv?' + buildQuery();
