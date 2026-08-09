@@ -127,11 +127,11 @@ LOCAL_STATEMENTS_DIR = os.getenv("LOCAL_STATEMENTS_DIR", "").strip()
 # 2 days covers yesterday and today when the job runs each morning.
 MILK_CRON_LOOKBACK_DAYS = int(os.getenv("MILK_CRON_LOOKBACK_DAYS", "2"))
 
-# Cattle sale remittance PDFs (Eurofarm / Pathway / Buitelaar).
+# Cattle sale remittance PDFs (Eurofarm / Pathway / Buitelaar / Game Changer).
 # Comma-separated sender domains are scanned from each farm mailbox.
 CATTLE_SALES_SENDER_DOMAIN = os.getenv(
     "CATTLE_SALES_SENDER_DOMAIN",
-    "eurofarmwales.co.uk,pathwayfarming.co.uk,buit.ie",
+    "eurofarmwales.co.uk,pathwayfarming.co.uk,buit.ie,gamechangerfarming.com",
 ).strip().lower().lstrip("@")
 CATTLE_SALES_MAILBOX_GAD = _env_mailbox(
     "CATTLE_SALES_MAILBOX_GAD", NML_MAILBOX_GAD

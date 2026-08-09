@@ -138,7 +138,7 @@ python scripts/import_genomic_results.py --force
 ### Milk email imports (collections, NML, statements)
 
 A single daily cron imports haulier XLSX, NML PDFs, buyer statement PDFs, and
-cattle-sale remittance PDFs (Eurofarm / Pathway / Buitelaar) from the configured
+cattle-sale remittance PDFs (Eurofarm / Pathway / Buitelaar / Game Changer) from the configured
 mailboxes. Because it runs every day, it only scans **the last 2 days** of mail
 (yesterday and today).
 

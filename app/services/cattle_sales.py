@@ -21,7 +21,13 @@ CATTLE_CATEGORIES: tuple[str, ...] = ("Dairy", "Youngstock", "Beef")
 BUYER_EUROFARM = "Euro Farm Wales"
 BUYER_PATHWAY = "Pathway"
 BUYER_BUITELAAR = "Buitelaar"
-KNOWN_BUYERS: tuple[str, ...] = (BUYER_EUROFARM, BUYER_PATHWAY, BUYER_BUITELAAR)
+BUYER_GAME_CHANGER = "Game Changer"
+KNOWN_BUYERS: tuple[str, ...] = (
+    BUYER_EUROFARM,
+    BUYER_PATHWAY,
+    BUYER_BUITELAAR,
+    BUYER_GAME_CHANGER,
+)
 
 
 def infer_cattle_sale_buyer(
@@ -39,6 +45,13 @@ def infer_cattle_sale_buyer(
         return BUYER_PATHWAY
     if "buitelaar" in name or "vendbill" in name:
         return BUYER_BUITELAAR
+    if (
+        "gamechanger" in name.replace(" ", "")
+        or "game changer" in name
+        or "paymentadvice" in name.replace(" ", "").replace("_", "")
+        or name.startswith("paymentadvice")
+    ):
+        return BUYER_GAME_CHANGER
     if "cheque" in name or "eurofarm" in name or "euro farm" in name:
         return BUYER_EUROFARM
     return None

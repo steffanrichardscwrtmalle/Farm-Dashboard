@@ -1,0 +1,322 @@
+"""Parse Game Changer Farming calf payment advice PDFs.
+
+Columns used: Eartag, Weight, Price.
+Weight is stored as cold_weight_kg (liveweight for calves) and Price as amount_gbp.
+Sale date is the Date from the advice header (ISO or short form).
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import re
+from typing import Any
+
+from app.services.cattle_sale_pdf import (
+    _TAG_RE,
+    _cell_text,
+    _extract_tables,
+    _extract_text,
+    _parse_short_date,
+    _to_float,
+    is_acceptable_sale_line,
+    normalize_etag,
+)
+
+_DATE_ISO_RE = re.compile(
+    r"Date\s+(\d{4}-\d{2}-\d{2})(?:T[\d:.]*)?",
+    re.IGNORECASE,
+)
+_DATE_SHORT_RE = re.compile(
+    r"Date\s+(\d{1,2}/\d{1,2}/\d{2,4})",
+    re.IGNORECASE,
+)
+_REFERENCE_RE = re.compile(
+    r"Reference\s*no\.?\s*(\S+)",
+    re.IGNORECASE,
+)
+# Tag … Weight … Haulage Price — take the last money figure as Price.
+_LINE_TAIL_RE = re.compile(
+    r"(?P<weight>\d{1,3}(?:\.\d{1,2})?)\s+"
+    r".*?"
+    r"[^\d]*?(?P<amount>[\d,]+\.\d{2})\s*$",
+)
+_SKIP_LINE_MARKERS = (
+    "no. of calves",
+    "no of calves",
+    "haulage (exc",
+    "vat reg",
+    "registered in",
+    "anglo beef",
+    "eartag breed",
+)
+
+
+def looks_like_game_changer_pdf(text: str) -> bool:
+    """True for Game Changer / GameChanger Farming payment advices."""
+    low = text.lower()
+    compact = re.sub(r"\s+", "", low)
+    if "gamechanger" in compact or "game changer" in low:
+        return True
+    return (
+        "payment advice" in low
+        and "eartag" in compact
+        and "weight" in low
+        and "price" in low
+        and "haulage" in low
+    )
+
+
+def _farm_from_game_changer(
+    *,
+    mailbox_farm: str | None,
+    source_file: str | None,
+    text: str,
+) -> str | None:
+    if mailbox_farm:
+        return mailbox_farm
+    name_low = (source_file or "").lower()
+    if "gad" in name_low or "green acre" in name_low:
+        return "GAD"
+    if "cm" in name_low or "cwrt" in name_low or "malle" in name_low:
+        return "CM"
+
+    ref_match = _REFERENCE_RE.search(text)
+    if ref_match:
+        ref = ref_match.group(1).upper()
+        # e.g. ABP3383GD010826 → GAD; ABP3383CM… → Cwrt Malle.
+        if re.search(r"(?<![A-Z])GD(?![A-Z])", ref) and not re.search(
+            r"(?<![A-Z])CM(?![A-Z])", ref
+        ):
+            return "GAD"
+        if re.search(r"(?<![A-Z])CM(?![A-Z])", ref):
+            return "CM"
+
+    farm_text = text.lower()
+    has_gad = "green acre" in farm_text
+    has_cm = "cwrt malle" in farm_text or "cwrtmalle" in farm_text
+    if has_gad and has_cm:
+        # Company name and site address often both appear; do not guess.
+        return None
+    if has_gad:
+        return "GAD"
+    if has_cm:
+        return "CM"
+    return None
+
+
+def _advice_date(text: str) -> dt.date | None:
+    iso = _DATE_ISO_RE.search(text)
+    if iso:
+        try:
+            return dt.date.fromisoformat(iso.group(1))
+        except ValueError:
+            pass
+    short = _DATE_SHORT_RE.search(text)
+    if short:
+        return _parse_short_date(short.group(1))
+    return None
+
+
+def _sale_line(
+    etag: str,
+    weight: float,
+    amount: float,
+    sale_date: dt.date | None,
+) -> dict[str, Any]:
+    return {
+        "etag": etag,
+        "cold_weight_kg": round(weight, 2),
+        "amount_gbp": round(amount, 2),
+        "reject_kg": None,
+        "kill_date": sale_date,
+        "is_rejected": False,
+    }
+
+
+def _header_indices(header_row: list[str | None]) -> dict[str, int] | None:
+    labels = [re.sub(r"\s+", "", _cell_text(c).lower()) for c in header_row]
+    tag_idx = next(
+        (
+            i
+            for i, label in enumerate(labels)
+            if label in {"eartag", "ear tag", "tag", "tagnumber"} or "eartag" in label
+        ),
+        None,
+    )
+    weight_idx = next(
+        (i for i, label in enumerate(labels) if "weight" in label),
+        None,
+    )
+    amount_idx = next(
+        (i for i, label in enumerate(labels) if label == "price" or "price" in label),
+        None,
+    )
+    if tag_idx is None or weight_idx is None or amount_idx is None:
+        return None
+    return {"tag": tag_idx, "weight": weight_idx, "amount": amount_idx}
+
+
+def _find_header(table: list[list[str | None]]) -> tuple[dict[str, int], int] | None:
+    for idx, row in enumerate(table):
+        joined = " ".join(_cell_text(c).lower() for c in row)
+        compact = joined.replace(" ", "")
+        if "eartag" in compact and "weight" in joined and "price" in joined:
+            header = _header_indices(row)
+            if header is not None:
+                return header, idx
+    return None
+
+
+def _parse_table_rows(
+    table: list[list[str | None]],
+    *,
+    header: dict[str, int] | None,
+    sale_date: dt.date | None,
+    warnings: list[str],
+) -> tuple[list[dict[str, Any]], dict[str, int] | None]:
+    start = 0
+    active_header = header
+    if active_header is None:
+        found = _find_header(table)
+        if found is None:
+            return [], None
+        active_header, header_row_idx = found
+        start = header_row_idx + 1
+
+    lines: list[dict[str, Any]] = []
+    for row in table[start:]:
+        if not row:
+            continue
+        tag_cell = (
+            _cell_text(row[active_header["tag"]])
+            if active_header["tag"] < len(row)
+            else ""
+        )
+        tag_match = _TAG_RE.search(tag_cell) or _TAG_RE.search(
+            " ".join(_cell_text(c) for c in row)
+        )
+        if not tag_match:
+            continue
+        etag = normalize_etag(tag_match.group(0))
+        weight = (
+            _to_float(_cell_text(row[active_header["weight"]]))
+            if active_header["weight"] < len(row)
+            else None
+        )
+        amount = (
+            _to_float(_cell_text(row[active_header["amount"]]))
+            if active_header["amount"] < len(row)
+            else None
+        )
+        if weight is None or amount is None:
+            warnings.append(f"Skipped incomplete Game Changer row for {etag}")
+            continue
+        if not is_acceptable_sale_line(weight, None, amount):
+            warnings.append(f"Skipped implausible Game Changer row for {etag}")
+            continue
+        lines.append(_sale_line(etag, weight, amount, sale_date))
+    return lines, active_header
+
+
+def _parse_text_lines(
+    text: str,
+    *,
+    sale_date: dt.date | None,
+    warnings: list[str],
+) -> list[dict[str, Any]]:
+    lines: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_line in text.splitlines():
+        low = raw_line.lower()
+        if any(marker in low for marker in _SKIP_LINE_MARKERS):
+            continue
+        if low.strip().startswith("total"):
+            continue
+        tag_match = _TAG_RE.search(raw_line)
+        if not tag_match:
+            continue
+        etag = normalize_etag(tag_match.group(0))
+        if etag in seen:
+            continue
+        after_tag = raw_line[tag_match.end() :]
+        tail = _LINE_TAIL_RE.search(after_tag)
+        if not tail:
+            continue
+        weight = _to_float(tail.group("weight"))
+        amount = _to_float(tail.group("amount"))
+        if weight is None or amount is None:
+            warnings.append(f"Skipped incomplete Game Changer row for {etag}")
+            continue
+        if not is_acceptable_sale_line(weight, None, amount):
+            warnings.append(f"Skipped implausible Game Changer row for {etag}")
+            continue
+        seen.add(etag)
+        lines.append(_sale_line(etag, weight, amount, sale_date))
+    return lines
+
+
+def parse_game_changer_pdf(
+    content: bytes,
+    *,
+    mailbox_farm: str | None = None,
+    fallback_sale_date: dt.date | None = None,
+    source_file: str | None = None,
+) -> dict[str, Any]:
+    """Parse a Game Changer Farming payment advice PDF.
+
+    Returns ``{farm, sale_date, lines, warnings}`` with the same line shape as
+    Eurofarm / Pathway / Buitelaar parses.
+    """
+    warnings: list[str] = []
+    text = _extract_text(content)
+    if not text.strip():
+        return {
+            "farm": mailbox_farm,
+            "sale_date": fallback_sale_date,
+            "lines": [],
+            "warnings": ["PDF contained no extractable text"],
+        }
+
+    if not looks_like_game_changer_pdf(text):
+        warnings.append("PDF does not look like a Game Changer remittance")
+
+    sale_date = _advice_date(text) or fallback_sale_date
+    farm = _farm_from_game_changer(
+        mailbox_farm=mailbox_farm, source_file=source_file, text=text
+    )
+    if farm is None and ("green acre" in text.lower() and "cwrt malle" in text.lower()):
+        warnings.append(
+            "Could not determine farm: Green Acre and Cwrt Malle both appear "
+            "(use mailbox import or a filename hint)"
+        )
+
+    lines: list[dict[str, Any]] = []
+    shared_header: dict[str, int] | None = None
+    for table in _extract_tables(content):
+        table_lines, shared_header = _parse_table_rows(
+            table,
+            header=shared_header,
+            sale_date=sale_date,
+            warnings=warnings,
+        )
+        lines.extend(table_lines)
+
+    if not lines:
+        lines = _parse_text_lines(text, sale_date=sale_date, warnings=warnings)
+
+    by_etag: dict[str, dict[str, Any]] = {}
+    for line in lines:
+        by_etag[line["etag"]] = line
+    lines = list(by_etag.values())
+
+    if not lines:
+        warnings.append("No sale lines extracted from Game Changer PDF")
+    if sale_date is None:
+        warnings.append("Could not parse date from Game Changer PDF")
+
+    return {
+        "farm": farm,
+        "sale_date": sale_date,
+        "lines": lines,
+        "warnings": warnings,
+    }

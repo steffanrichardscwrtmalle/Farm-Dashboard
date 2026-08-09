@@ -1,7 +1,7 @@
 """Import cattle-sale remittance PDFs from email into the database.
 
 Supports Eurofarm Wales cheque reports, Pathway Farming calf remittances,
-and Buitelaar self-billing invoices.
+Buitelaar self-billing invoices, and Game Changer payment advices.
 """
 
 from __future__ import annotations
@@ -41,7 +41,12 @@ from app.services.buitelaar_pdf import (
 from app.services.cattle_sales import (
     BUYER_BUITELAAR,
     BUYER_EUROFARM,
+    BUYER_GAME_CHANGER,
     BUYER_PATHWAY,
+)
+from app.services.game_changer_pdf import (
+    looks_like_game_changer_pdf,
+    parse_game_changer_pdf,
 )
 from app.services.graph_mail import iter_attachments
 from app.services.graph_onedrive import get_access_token_for, graph_is_configured
@@ -119,7 +124,7 @@ def _parse_sale_pdf(
     mailbox_farm: str | None,
     source_file: str | None,
 ) -> dict[str, Any]:
-    """Dispatch Eurofarm / Pathway / Buitelaar remittances by PDF content."""
+    """Dispatch Eurofarm / Pathway / Buitelaar / Game Changer remittances."""
     text = _extract_text(content)
     if looks_like_pathway_pdf(text):
         result = parse_pathway_farming_pdf(
@@ -136,6 +141,14 @@ def _parse_sale_pdf(
             source_file=source_file,
         )
         result["buyer"] = BUYER_BUITELAAR
+        return result
+    if looks_like_game_changer_pdf(text):
+        result = parse_game_changer_pdf(
+            content,
+            mailbox_farm=mailbox_farm,
+            source_file=source_file,
+        )
+        result["buyer"] = BUYER_GAME_CHANGER
         return result
     result = parse_cattle_sale_pdf(
         content,
@@ -458,7 +471,8 @@ def import_cattle_sales(
     ):
         warnings.append(
             "No cattle-sale PDFs found in the mailboxes for this date range "
-            "(Eurofarm / Pathway / Buitelaar). Try a longer Range, or Upload PDFs."
+            "(Eurofarm / Pathway / Buitelaar / Game Changer). "
+            "Try a longer Range, or Upload PDFs."
         )
 
     return _import_result(

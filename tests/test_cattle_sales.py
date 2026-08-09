@@ -18,6 +18,7 @@ from app.services.cattle_sale_pdf import (
 )
 from app.services.cattle_sales import (
     BUYER_BUITELAAR,
+    BUYER_GAME_CHANGER,
     compute_dim_at_cull,
     compute_price_per_kg,
     format_age_years_months,
@@ -635,3 +636,89 @@ def test_list_cattle_sales_matches_buitelaar_calf_line() -> None:
     assert row["buyer"] == BUYER_BUITELAAR
 
     session.close()
+
+
+def _game_changer_fixture_path():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent
+    candidates = [
+        root / "fixtures" / "PaymentAdvice_20260728.pdf",
+        root.parent / "PaymentAdvice_20260728.pdf",
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+def test_parse_game_changer_pdf_sample():
+    from app.services.game_changer_pdf import parse_game_changer_pdf
+
+    path = _game_changer_fixture_path()
+    assert path is not None, "Game Changer sample PDF fixture missing"
+    result = parse_game_changer_pdf(path.read_bytes(), source_file=path.name)
+    # Reference ABP3383GD… → GAD; mailbox/filename still override when present.
+    assert result["farm"] == "GAD"
+    assert result["sale_date"] == dt.date(2026, 7, 28)
+    assert len(result["lines"]) == 30
+    assert abs(sum(line["amount_gbp"] for line in result["lines"]) - 11190.0) < 0.01
+    first = next(line for line in result["lines"] if line["etag"] == "UK752261613268")
+    assert first["cold_weight_kg"] == 52.0
+    assert first["amount_gbp"] == 420.0
+    assert first["kill_date"] == dt.date(2026, 7, 28)
+    female = next(line for line in result["lines"] if line["etag"] == "UK752261213257")
+    assert female["cold_weight_kg"] == 49.0
+    assert female["amount_gbp"] == 315.0
+    page2 = next(line for line in result["lines"] if line["etag"] == "UK752261713269")
+    assert page2["cold_weight_kg"] == 53.0
+    assert page2["amount_gbp"] == 420.0
+
+
+def test_parse_game_changer_pdf_mailbox_farm_wins():
+    from app.services.game_changer_pdf import parse_game_changer_pdf
+
+    path = _game_changer_fixture_path()
+    assert path is not None, "Game Changer sample PDF fixture missing"
+    result = parse_game_changer_pdf(
+        path.read_bytes(),
+        mailbox_farm="CM",
+        source_file=path.name,
+    )
+    assert result["farm"] == "CM"
+    assert len(result["lines"]) == 30
+
+
+def test_parse_sale_pdf_dispatches_game_changer():
+    from app.services.cattle_sales_import import _parse_sale_pdf
+
+    path = _game_changer_fixture_path()
+    assert path is not None, "Game Changer sample PDF fixture missing"
+    result = _parse_sale_pdf(
+        path.read_bytes(),
+        mailbox_farm=None,
+        source_file=path.name,
+    )
+    assert result["buyer"] == BUYER_GAME_CHANGER
+    assert result["farm"] == "GAD"
+    assert len(result["lines"]) == 30
+
+
+def test_infer_cattle_sale_buyer_game_changer_filename():
+    assert (
+        infer_cattle_sale_buyer(source_file="PaymentAdvice_20260728.pdf")
+        == BUYER_GAME_CHANGER
+    )
+    assert (
+        infer_cattle_sale_buyer(source_file="gamechanger-advice.pdf")
+        == BUYER_GAME_CHANGER
+    )
+
+
+def test_looks_like_game_changer_pdf():
+    from app.services.game_changer_pdf import looks_like_game_changer_pdf
+
+    assert looks_like_game_changer_pdf(
+        "PAYMENT ADVICE\nABP UK T/A GameChanger Farming\nEartag Breed Sex Weight"
+    )
+    assert not looks_like_game_changer_pdf("Eurofarm Wales Cheque Payment Report")
