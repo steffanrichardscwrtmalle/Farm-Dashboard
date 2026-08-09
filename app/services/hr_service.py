@@ -208,7 +208,7 @@ def _build_employee(
         business=_clean("business"),
         title=_clean("title"),
         employee_number=employee_number,
-        full_name=payload["full_name"].strip(),
+        full_name=_titlecase(payload["full_name"]),
         email=payload["email"].strip().lower(),
         phone=_clean("phone"),
         dob=payload.get("dob"),
@@ -473,7 +473,7 @@ def update_employee(
                     db, employee_number, exclude_id=employee.id
                 )
             employee.employee_number = employee_number
-    employee.full_name = payload["full_name"].strip()
+    employee.full_name = _titlecase(payload["full_name"])
     employee.email = payload["email"].strip().lower()
     employee.phone = _clean("phone")
     employee.dob = payload.get("dob")
@@ -787,7 +787,7 @@ def _employee_summary(employee: Employee) -> dict[str, Any]:
         "business": employee.business,
         "title": employee.title,
         "employee_number": employee.employee_number,
-        "full_name": employee.full_name,
+        "full_name": _titlecase(employee.full_name),
         "email": employee.email,
         "role_title": employee.role_title,
         "start_date": employee.start_date.isoformat(),
