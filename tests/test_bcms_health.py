@@ -7,7 +7,14 @@ import datetime as dt
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Base, CowEvent, CtsOnHolding, HerdInventory, StockPurchaseAnimal
+from app.models import (
+    Base,
+    CowEvent,
+    CtsOnHolding,
+    CtsReportedMovement,
+    HerdInventory,
+    StockPurchaseAnimal,
+)
 from app.services.bcms_health import get_bcms_health
 
 
@@ -339,6 +346,41 @@ def test_health_unknown_when_no_cts_snapshot() -> None:
     health = get_bcms_health(session, farms=["CM"], as_of=today)
     assert health["status"] == "unknown"
     assert health["label"] == "No CTS sync"
+
+
+def test_health_green_after_movement_sent_awaiting_cts() -> None:
+    """Accepted BCMS sends should clear home-widget urgency before CTS sync."""
+    session = _session()
+    today = dt.date.today()
+    etag = "UK444444444444"
+    session.add(CtsOnHolding(farm="GAD", etag=etag, sex="F"))
+    session.add(
+        CowEvent(
+            farm="GAD",
+            etag=etag,
+            event="SOLD",
+            event_date=today - dt.timedelta(days=2),
+            cow_id="4",
+        )
+    )
+    session.commit()
+    assert get_bcms_health(session, farms=["GAD"], as_of=today)["status"] == "yellow"
+
+    session.add(
+        CtsReportedMovement(
+            farm="GAD",
+            movement_type="sale",
+            etag=etag,
+            event_date=today - dt.timedelta(days=2),
+            status="accepted",
+        )
+    )
+    session.commit()
+
+    health = get_bcms_health(session, farms=["GAD"], as_of=today)
+    assert health["status"] == "green"
+    assert health["mismatch_count"] == 0
+    assert health["farms"][0]["status"] == "green"
 
 
 def test_worst_mismatch_wins_across_kinds() -> None:

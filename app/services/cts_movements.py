@@ -99,6 +99,25 @@ def _reported_keys(db: Session, farm: str) -> set[tuple[str, str, dt.date]]:
     }
 
 
+def active_awaiting_cts_etags(db: Session, farm: str) -> set[str]:
+    """Normalised eartags with a send still awaiting CTS holding catch-up.
+
+    Statuses ``sent`` / ``ok`` / ``accepted`` mean the farm has already reported
+    the movement; overnight holding sync has not confirmed it yet.
+    """
+    rows = db.execute(
+        select(CtsReportedMovement.etag).where(
+            CtsReportedMovement.farm == farm.upper(),
+            CtsReportedMovement.status.in_(_ACTIVE_REPORT_STATUSES),
+        )
+    ).all()
+    return {
+        key
+        for (etag,) in rows
+        if (key := normalize_cts_etag(etag))
+    }
+
+
 def _still_awaiting_cts(
     *,
     movement_type: str,

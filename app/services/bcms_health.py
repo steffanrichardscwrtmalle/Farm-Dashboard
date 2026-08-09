@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models import HERD_FARM_OPTIONS, StockPurchaseAnimal
 from app.services.cts_client import normalize_cts_etag
+from app.services.cts_movements import active_awaiting_cts_etags
 from app.services.cts_reconcile import cts_only_awaiting_events_days, reconcile_farm
 
 HealthLevel = Literal["green", "yellow", "red", "unknown"]
@@ -65,18 +66,26 @@ def _farm_mismatch_ages(
     *,
     as_of: dt.date,
 ) -> list[dict[str, Any]]:
-    """Classify each CTS↔inventory mismatch with an event age in days."""
+    """Classify each CTS↔inventory mismatch with an event age in days.
+
+    Mismatches already reported to BCMS (Awaiting CTS) are excluded so the home
+    widget turns green after a successful send, before overnight holding sync.
+    """
     purchases = _purchases_by_etag(db, farm)
     awaiting_events_days = cts_only_awaiting_events_days(db, farm, as_of=as_of)
+    awaiting_cts = active_awaiting_cts_etags(db, farm)
     items: list[dict[str, Any]] = []
 
     for row in recon.get("cts_only") or []:
+        etag = normalize_cts_etag(row.get("etag"))
+        if etag and etag in awaiting_cts:
+            continue
         days = row.get("days_since_exit")
         if days is not None:
             items.append(
                 {
                     "farm": farm,
-                    "etag": row.get("etag"),
+                    "etag": etag or row.get("etag"),
                     "kind": _exit_kind(row.get("exit_event")),
                     "days": int(days),
                     "explainable": True,
@@ -87,7 +96,7 @@ def _farm_mismatch_ages(
             items.append(
                 {
                     "farm": farm,
-                    "etag": row.get("etag"),
+                    "etag": etag or row.get("etag"),
                     "kind": "cts_only_awaiting_events",
                     "days": int(awaiting_events_days),
                     "explainable": True,
@@ -97,7 +106,7 @@ def _farm_mismatch_ages(
             items.append(
                 {
                     "farm": farm,
-                    "etag": row.get("etag"),
+                    "etag": etag or row.get("etag"),
                     "kind": "cts_only_unexplained",
                     "days": None,
                     "explainable": False,
@@ -105,8 +114,10 @@ def _farm_mismatch_ages(
             )
 
     for row in recon.get("inventory_only") or []:
-        etag = row.get("etag") or ""
-        purchase_date = purchases.get(etag)
+        etag = normalize_cts_etag(row.get("etag")) or (row.get("etag") or "")
+        if etag and normalize_cts_etag(etag) in awaiting_cts:
+            continue
+        purchase_date = purchases.get(normalize_cts_etag(etag) or etag)
         if purchase_date is not None:
             days = _age_days(purchase_date, as_of=as_of)
             items.append(
