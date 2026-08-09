@@ -1,279 +1,353 @@
-{% extends "base.html" %}
-
-{% block page_heading %}Farm Dashboard{% endblock %}
-
-{% block extra_styles %}
-    .home-widgets {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.65rem;
-      align-items: stretch;
-    }
-    .home-widget {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 0.2rem;
-      text-decoration: none;
-      color: inherit;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.65rem 0.85rem;
-      background: #fff;
-      min-width: 5.5rem;
-      min-height: 4.25rem;
-      transition: transform 0.12s ease, box-shadow 0.12s ease;
-    }
-    .home-widget.home-widget-wide {
-      min-width: 9.5rem;
-      padding: 0.7rem 1rem;
-    }
-    .home-widget:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
-    }
-    .home-widget .widget-kicker {
-      font-size: 0.7rem;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      line-height: 1.15;
-      margin: 0;
-      color: var(--muted);
-      text-align: center;
-    }
-    .home-widget .widget-title {
-      font-size: 1.35rem;
-      font-weight: 800;
-      letter-spacing: 0.04em;
-      line-height: 1;
-      margin: 0;
-      text-align: center;
-    }
-    .home-widget .widget-sub {
-      font-size: 0.8rem;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      line-height: 1;
-      margin: 0.15rem 0 0;
-      text-align: center;
-      color: var(--muted);
-    }
-    .home-widget .widget-sub.tone-red { color: #b91c1c; }
-    .home-widget .widget-sub.tone-yellow { color: #a16207; }
-    .home-widget .widget-sub.tone-green { color: #15803d; }
-    .home-widget .widget-sub.tone-purple { color: #6d28d9; }
-    .home-widget.status-green {
-      background: #ecfdf5;
-      border-color: #6ee7b7;
-    }
-    .home-widget.status-green .widget-title { color: #166534; }
-    .home-widget.status-green .widget-kicker { color: #15803d; }
-    .home-widget.status-yellow {
-      background: #fffbeb;
-      border-color: #fcd34d;
-    }
-    .home-widget.status-yellow .widget-title { color: #92400e; }
-    .home-widget.status-yellow .widget-kicker { color: #a16207; }
-    .home-widget.status-red {
-      background: #fef2f2;
-      border-color: #fca5a5;
-    }
-    .home-widget.status-red .widget-title { color: #991b1b; }
-    .home-widget.status-red .widget-kicker { color: #b91c1c; }
-    .home-widget.status-purple {
-      background: #f5f3ff;
-      border-color: #c4b5fd;
-    }
-    .home-widget.status-purple .widget-title { color: #5b21b6; }
-    .home-widget.status-purple .widget-kicker { color: #6d28d9; }
-    .home-widget.status-unknown,
-    .home-widget.status-loading,
-    .home-widget.status-error {
-      background: #f8fafc;
-      border-color: var(--border);
-    }
-    .home-widget.status-unknown .widget-title,
-    .home-widget.status-loading .widget-title,
-    .home-widget.status-error .widget-title {
-      color: var(--muted);
-    }
-    .home-offline-tools {
-      margin-top: 1.25rem;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.75rem 1rem;
-    }
-    .home-offline-tools .message {
-      margin: 0;
-      flex: 1 1 16rem;
-    }
-{% endblock %}
-
-{% block content %}
-  <div class="home-widgets">
-    {% if perms.page('bcms') %}
-    <a href="/bcms/record-movements?farm=CM" class="home-widget status-loading" id="bcms-health-widget-cm" data-farm="CM" aria-label="BCMS CM status" aria-live="polite">
-      <p class="widget-kicker">BCMS</p>
-      <p class="widget-title">CM</p>
-    </a>
-    <a href="/bcms/record-movements?farm=GAD" class="home-widget status-loading" id="bcms-health-widget-gad" data-farm="GAD" aria-label="BCMS GAD status" aria-live="polite">
-      <p class="widget-kicker">BCMS</p>
-      <p class="widget-title">GAD</p>
-    </a>
-    {% endif %}
-    {% if perms.page('events') %}
-    <a href="/events/breedings?semen=dairy" class="home-widget home-widget-wide status-loading" id="dairy-semen-widget" aria-label="Dairy semen used in the last 30 days" aria-live="polite">
-      <p class="widget-kicker">Dairy Semen - 30 Days</p>
-      <p class="widget-title" id="dairy-semen-count">—</p>
-      <p class="widget-sub" id="dairy-semen-avg" title="120-day dairy semen ÷ 4 (avg per 30 days)">—</p>
-    </a>
-    {% endif %}
-    {% if not perms.page('bcms') and not perms.page('events') %}
-    <div class="card">
-      <p class="muted" style="margin:0">Use the sidebar to open a section.</p>
-    </div>
-    {% endif %}
-  </div>
-
-  {% if can_refresh_onedrive %}
-  <div class="home-offline-tools">
-    <button type="button" class="secondary" id="refresh-onedrive-btn">
-      Refresh OneDrive reports
-    </button>
-    <p id="onedrive-refresh-status" class="message" aria-live="polite"></p>
-  </div>
-  {% endif %}
-{% endblock %}
-
-{% block scripts %}
-{% if perms.page('bcms') %}
-<script>
-(() => {
-  const widgets = Array.from(document.querySelectorAll("[data-farm].home-widget"));
-  if (!widgets.length) return;
-
-  function applyStatus(widget, status) {
-    widget.className = `home-widget status-${status || "unknown"}`;
-  }
-
-  async function loadHealth() {
-    try {
-      const res = await fetch("/api/cts/health");
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        widgets.forEach((w) => applyStatus(w, "error"));
-        return;
-      }
-      const byFarm = Object.fromEntries(
-        (data.farms || []).map((f) => [String(f.farm || "").toUpperCase(), f])
-      );
-      widgets.forEach((widget) => {
-        const farm = (widget.dataset.farm || "").toUpperCase();
-        const summary = byFarm[farm];
-        applyStatus(widget, summary ? summary.status : data.status || "unknown");
-        widget.href = `/bcms/record-movements?farm=${encodeURIComponent(farm)}`;
-      });
-    } catch (_err) {
-      widgets.forEach((w) => applyStatus(w, "error"));
-    }
-  }
-
-  loadHealth();
-})();
-</script>
-{% endif %}
-{% if perms.page('events') %}
-<script>
-(() => {
-  const widget = document.getElementById("dairy-semen-widget");
-  const countEl = document.getElementById("dairy-semen-count");
-  const avgEl = document.getElementById("dairy-semen-avg");
-  if (!widget || !countEl || !avgEl) return;
-
-  function formatAvg(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return "—";
-    return Math.round(n).toLocaleString("en-GB");
-  }
-
-  async function loadDairySemen() {
-    try {
-      const res = await fetch("/api/events/dairy-semen-30d");
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        widget.className = "home-widget home-widget-wide status-error";
-        return;
-      }
-      const status = data.status || "unknown";
-      widget.className = `home-widget home-widget-wide status-${status}`;
-      countEl.textContent = Number(data.count || 0).toLocaleString("en-GB");
-      avgEl.textContent = formatAvg(data.avg_30d_120);
-      const avgTone = data.avg_status || "unknown";
-      avgEl.className = `widget-sub tone-${avgTone}`;
-      if (data.href) widget.href = data.href;
-    } catch (_err) {
-      widget.className = "home-widget home-widget-wide status-error";
-    }
-  }
-
-  loadDairySemen();
-})();
-</script>
-{% endif %}
-{% if can_refresh_onedrive %}
-<script>
-(() => {
-  const btn = document.getElementById("refresh-onedrive-btn");
-  const status = document.getElementById("onedrive-refresh-status");
-  if (!btn || !status) return;
-
-  function setStatus(text, isError) {
-    status.textContent = text || "";
-    status.className = "message" + (isError ? " err" : text ? " ok" : "");
-  }
-
-  btn.addEventListener("click", async () => {
-    if (btn.disabled) return;
-    const ok = window.confirm(
-      "Refresh all OneDrive herd reports into this local database?\n\n"
-      + "This imports events, inventory, births, stock snapshots, and genomics. "
-      + "It can take several minutes."
-    );
-    if (!ok) return;
-
-    btn.disabled = true;
-    setStatus("Refreshing from OneDrive… this can take a few minutes.", false);
-    try {
-      const res = await fetch("/api/herd/refresh-onedrive", { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const detail = data.detail || data.message || res.statusText || "Refresh failed.";
-        setStatus(typeof detail === "string" ? detail : JSON.stringify(detail), true);
-        return;
-      }
-      const events = (data.events && data.events.rows_imported) || 0;
-      const inventory = (data.inventory && data.inventory.rows_imported) || 0;
-      const births = (data.births && data.births.rows_imported) || 0;
-      const genomics = data.genomics && data.genomics.rows_imported;
-      let msg =
-        `Refresh complete: ${events.toLocaleString()} events, `
-        + `${inventory.toLocaleString()} inventory, `
-        + `${births.toLocaleString()} births`;
-      if (genomics != null) {
-        msg += `, ${Number(genomics).toLocaleString()} genomic rows`;
-      }
-      msg += ".";
-      setStatus(msg, false);
-    } catch (err) {
-      setStatus(err && err.message ? err.message : "Refresh failed.", true);
-    } finally {
-      btn.disabled = false;
-    }
-  });
-})();
-</script>
-{% endif %}
-{% endblock %}
+{% extends "base.html" %}
+
+{% block page_heading %}Farm Dashboard{% endblock %}
+
+{% block extra_styles %}
+    .home-widgets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      align-items: stretch;
+    }
+    .home-widget {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.2rem;
+      text-decoration: none;
+      color: inherit;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.65rem 0.85rem;
+      background: #fff;
+      min-width: 5.5rem;
+      min-height: 4.25rem;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+    .home-widget.home-widget-wide {
+      min-width: 9.5rem;
+      padding: 0.7rem 1rem;
+    }
+    .home-widget:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+    }
+    .home-widget .widget-kicker {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      line-height: 1.15;
+      margin: 0;
+      color: var(--muted);
+      text-align: center;
+    }
+    .home-widget .widget-title {
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      line-height: 1;
+      margin: 0;
+      text-align: center;
+    }
+    .home-widget .widget-sub {
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 1;
+      margin: 0.15rem 0 0;
+      text-align: center;
+      color: var(--muted);
+    }
+    .home-widget .widget-sub.tone-red { color: #b91c1c; }
+    .home-widget .widget-sub.tone-yellow { color: #a16207; }
+    .home-widget .widget-sub.tone-green { color: #15803d; }
+    .home-widget .widget-sub.tone-purple { color: #6d28d9; }
+    .home-widget.status-green {
+      background: #ecfdf5;
+      border-color: #6ee7b7;
+    }
+    .home-widget.status-green .widget-title { color: #166534; }
+    .home-widget.status-green .widget-kicker { color: #15803d; }
+    .home-widget.status-yellow {
+      background: #fffbeb;
+      border-color: #fcd34d;
+    }
+    .home-widget.status-yellow .widget-title { color: #92400e; }
+    .home-widget.status-yellow .widget-kicker { color: #a16207; }
+    .home-widget.status-red {
+      background: #fef2f2;
+      border-color: #fca5a5;
+    }
+    .home-widget.status-red .widget-title { color: #991b1b; }
+    .home-widget.status-red .widget-kicker { color: #b91c1c; }
+    .home-widget.status-purple {
+      background: #f5f3ff;
+      border-color: #c4b5fd;
+    }
+    .home-widget.status-purple .widget-title { color: #5b21b6; }
+    .home-widget.status-purple .widget-kicker { color: #6d28d9; }
+    .home-widget.status-unknown,
+    .home-widget.status-loading,
+    .home-widget.status-error {
+      background: #f8fafc;
+      border-color: var(--border);
+    }
+    .home-widget.status-unknown .widget-title,
+    .home-widget.status-loading .widget-title,
+    .home-widget.status-error .widget-title {
+      color: var(--muted);
+    }
+    .home-section {
+      margin-top: 1.35rem;
+    }
+    .home-section-heading {
+      margin: 0 0 0.65rem;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #1e3a5f;
+      letter-spacing: 0.02em;
+    }
+    .home-farm-block + .home-farm-block {
+      margin-top: 0.85rem;
+    }
+    .home-farm-label {
+      margin: 0 0 0.4rem;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .home-production .home-widget {
+      min-width: 6.75rem;
+      flex: 1 1 6.75rem;
+      max-width: 10rem;
+    }
+    @media (max-width: 560px) {
+      .home-production .home-widget {
+        max-width: none;
+      }
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="home-widgets">
+    {% if perms.page('bcms') %}
+    <a href="/bcms/record-movements?farm=CM" class="home-widget status-loading" id="bcms-health-widget-cm" data-farm="CM" aria-label="BCMS CM status" aria-live="polite">
+      <p class="widget-kicker">BCMS</p>
+      <p class="widget-title">CM</p>
+    </a>
+    <a href="/bcms/record-movements?farm=GAD" class="home-widget status-loading" id="bcms-health-widget-gad" data-farm="GAD" aria-label="BCMS GAD status" aria-live="polite">
+      <p class="widget-kicker">BCMS</p>
+      <p class="widget-title">GAD</p>
+    </a>
+    {% endif %}
+    {% if perms.page('events') %}
+    <a href="/events/breedings?semen=dairy" class="home-widget home-widget-wide status-loading" id="dairy-semen-widget" aria-label="Dairy semen used in the last 30 days" aria-live="polite">
+      <p class="widget-kicker">Dairy Semen - 30 Days</p>
+      <p class="widget-title" id="dairy-semen-count">—</p>
+      <p class="widget-sub" id="dairy-semen-avg" title="120-day dairy semen ÷ 4 (avg per 30 days)">—</p>
+    </a>
+    {% endif %}
+    {% if not perms.page('bcms') and not perms.page('events') and not perms.page('milk_quality') %}
+    <div class="card">
+      <p class="muted" style="margin:0">Use the sidebar to open a section.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if perms.page('milk_quality') %}
+  <section class="home-section home-production" id="home-production" aria-label="Production" aria-live="polite">
+    <h2 class="home-section-heading">Production</h2>
+    {% for farm in ['CM', 'GAD'] %}
+    <div class="home-farm-block" data-production-farm="{{ farm }}">
+      <h3 class="home-farm-label">{{ farm }}</h3>
+      <div class="home-widgets">
+        <a href="/milk-quality/collections" class="home-widget status-loading" data-metric="milk_per_cow" aria-label="{{ farm }} milk per cow">
+          <p class="widget-kicker">Milk / cow</p>
+          <p class="widget-title">—</p>
+          <p class="widget-sub" title="30-day average">—</p>
+        </a>
+        <a href="/milk-quality/collections" class="home-widget status-loading" data-metric="milk_per_day" aria-label="{{ farm }} milk per day">
+          <p class="widget-kicker">Milk / day</p>
+          <p class="widget-title">—</p>
+          <p class="widget-sub" title="30-day average">—</p>
+        </a>
+        <a href="/milk-quality/collections" class="home-widget status-loading" data-metric="butterfat_pct" aria-label="{{ farm }} fat percent">
+          <p class="widget-kicker">Fat %</p>
+          <p class="widget-title">—</p>
+          <p class="widget-sub" title="30-day average">—</p>
+        </a>
+        <a href="/milk-quality/collections" class="home-widget status-loading" data-metric="protein_pct" aria-label="{{ farm }} protein percent">
+          <p class="widget-kicker">Protein %</p>
+          <p class="widget-title">—</p>
+          <p class="widget-sub" title="30-day average">—</p>
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if perms.page('bcms') %}
+<script>
+(() => {
+  const widgets = Array.from(document.querySelectorAll("[data-farm].home-widget"));
+  if (!widgets.length) return;
+
+  function applyStatus(widget, status) {
+    widget.className = `home-widget status-${status || "unknown"}`;
+  }
+
+  async function loadHealth() {
+    try {
+      const res = await fetch("/api/cts/health");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        widgets.forEach((w) => applyStatus(w, "error"));
+        return;
+      }
+      const byFarm = Object.fromEntries(
+        (data.farms || []).map((f) => [String(f.farm || "").toUpperCase(), f])
+      );
+      widgets.forEach((widget) => {
+        const farm = (widget.dataset.farm || "").toUpperCase();
+        const summary = byFarm[farm];
+        applyStatus(widget, summary ? summary.status : data.status || "unknown");
+        widget.href = `/bcms/record-movements?farm=${encodeURIComponent(farm)}`;
+      });
+    } catch (_err) {
+      widgets.forEach((w) => applyStatus(w, "error"));
+    }
+  }
+
+  loadHealth();
+})();
+</script>
+{% endif %}
+{% if perms.page('events') %}
+<script>
+(() => {
+  const widget = document.getElementById("dairy-semen-widget");
+  const countEl = document.getElementById("dairy-semen-count");
+  const avgEl = document.getElementById("dairy-semen-avg");
+  if (!widget || !countEl || !avgEl) return;
+
+  function formatAvg(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "—";
+    return Math.round(n).toLocaleString("en-GB");
+  }
+
+  async function loadDairySemen() {
+    try {
+      const res = await fetch("/api/events/dairy-semen-30d");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        widget.className = "home-widget home-widget-wide status-error";
+        return;
+      }
+      const status = data.status || "unknown";
+      widget.className = `home-widget home-widget-wide status-${status}`;
+      countEl.textContent = Number(data.count || 0).toLocaleString("en-GB");
+      avgEl.textContent = formatAvg(data.avg_30d_120);
+      const avgTone = data.avg_status || "unknown";
+      avgEl.className = `widget-sub tone-${avgTone}`;
+      if (data.href) widget.href = data.href;
+    } catch (_err) {
+      widget.className = "home-widget home-widget-wide status-error";
+    }
+  }
+
+  loadDairySemen();
+})();
+</script>
+{% endif %}
+{% if perms.page('milk_quality') %}
+<script>
+(() => {
+  const root = document.getElementById("home-production");
+  if (!root) return;
+  const farmBlocks = Array.from(root.querySelectorAll("[data-production-farm]"));
+
+  function fmtInt(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "—";
+    return Math.round(n).toLocaleString("en-GB");
+  }
+
+  function fmtFixed(value, dp) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "—";
+    return n.toLocaleString("en-GB", {
+      minimumFractionDigits: dp,
+      maximumFractionDigits: dp,
+    });
+  }
+
+  function formatMetric(metric, value) {
+    if (value === null || value === undefined || value === "") return "—";
+    if (metric === "milk_per_day") return fmtInt(value);
+    if (metric === "milk_per_cow") return fmtFixed(value, 1);
+    return fmtFixed(value, 2);
+  }
+
+  function setWidget(widget, main, sub, href) {
+    const title = widget.querySelector(".widget-title");
+    const subEl = widget.querySelector(".widget-sub");
+    if (title) title.textContent = main;
+    if (subEl) subEl.textContent = sub === "—" ? "—" : `30d ${sub}`;
+    widget.className = "home-widget status-unknown";
+    if (href) widget.href = href;
+  }
+
+  function markError() {
+    farmBlocks.forEach((block) => {
+      block.querySelectorAll(".home-widget").forEach((widget) => {
+        widget.className = "home-widget status-error";
+      });
+    });
+  }
+
+  async function loadProduction() {
+    try {
+      const res = await fetch("/api/haulier/production-summary");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        markError();
+        return;
+      }
+      const href = data.href || "/milk-quality/collections";
+      const byFarm = Object.fromEntries(
+        (data.farms || []).map((f) => [String(f.farm || "").toUpperCase(), f])
+      );
+      farmBlocks.forEach((block) => {
+        const farm = (block.dataset.productionFarm || "").toUpperCase();
+        const row = byFarm[farm] || {};
+        const d7 = row.d7 || {};
+        const d30 = row.d30 || {};
+        block.querySelectorAll(".home-widget[data-metric]").forEach((widget) => {
+          const metric = widget.dataset.metric;
+          setWidget(
+            widget,
+            formatMetric(metric, d7[metric]),
+            formatMetric(metric, d30[metric]),
+            href
+          );
+        });
+      });
+    } catch (_err) {
+      markError();
+    }
+  }
+
+  loadProduction();
+})();
+</script>
+{% endif %}
+{% endblock %}

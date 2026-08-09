@@ -99,6 +99,12 @@
     }
     #coll-table tbody tr.fail td { background: #fff1f2; }
     #coll-table tbody tr.unmatched td { color: var(--muted); }
+    #coll-table tbody tr.duplicate td {
+      background: #fee2e2;
+      color: #991b1b;
+      font-weight: 600;
+    }
+    #coll-table tbody tr.fail.duplicate td { background: #fecaca; }
     .empty-state { padding: 1.5rem; color: var(--muted); }
     .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
     .message { margin-bottom: 0.75rem; }
@@ -1027,14 +1033,76 @@
 
     let editOriginal = null; // { farm, collection_date } when editing
 
+    // Day number from YYYY-MM-DD (UTC) for inclusive |d1-d2| <= 2 checks.
+    function collectionDayNumber(value) {
+      if (!value) return null;
+      const parts = String(value).split('T')[0].split('-').map(Number);
+      if (parts.length < 3 || !parts[0] || !parts[1] || !parts[2]) return null;
+      return Date.UTC(parts[0], parts[1] - 1, parts[2]) / 86400000;
+    }
+
+    // Rows that share farm + non-blank sample_id with collection dates within 2 days.
+    function findDuplicateRows(data) {
+      const groups = new Map();
+      data.forEach((row, idx) => {
+        const sample = String(row.sample_id == null ? '' : row.sample_id).trim();
+        if (!sample) return;
+        const key = (row.farm || '') + '\0' + sample;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(idx);
+      });
+
+      const duplicates = new Set();
+      groups.forEach((indices) => {
+        if (indices.length < 2) return;
+        const items = indices
+          .map((i) => ({ i, day: collectionDayNumber(data[i].collection_date) }))
+          .filter((x) => x.day !== null);
+        const n = items.length;
+        if (n < 2) return;
+
+        const parent = items.map((_, i) => i);
+        function find(a) {
+          return parent[a] === a ? a : (parent[a] = find(parent[a]));
+        }
+        function union(a, b) {
+          parent[find(a)] = find(b);
+        }
+
+        for (let a = 0; a < n; a++) {
+          for (let b = a + 1; b < n; b++) {
+            if (Math.abs(items[a].day - items[b].day) <= 2) union(a, b);
+          }
+        }
+
+        const comps = new Map();
+        for (let a = 0; a < n; a++) {
+          const root = find(a);
+          if (!comps.has(root)) comps.set(root, []);
+          comps.get(root).push(items[a].i);
+        }
+        comps.forEach((members) => {
+          if (members.length > 1) {
+            members.forEach((i) => duplicates.add(data[i]));
+          }
+        });
+      });
+      return duplicates;
+    }
+
     function renderTable() {
       const tbody = document.getElementById('table-body');
       if (!rows.length) {
         tbody.innerHTML = '<tr><td colspan="18" class="empty-state">No collections match the current filters.</td></tr>';
         return;
       }
+      const duplicates = findDuplicateRows(rows);
       tbody.innerHTML = sortRows(rows).map(row => {
-        const cls = row.antibiotic_pass === false ? ' class="fail"' : (row.matched ? '' : ' class="unmatched"');
+        const classes = [];
+        if (row.antibiotic_pass === false) classes.push('fail');
+        else if (!row.matched) classes.push('unmatched');
+        if (duplicates.has(row)) classes.push('duplicate');
+        const cls = classes.length ? ' class="' + classes.join(' ') + '"' : '';
         const editCell = row.manual
           ? '<button type="button" class="link-btn edit-manual-btn" data-farm="' +
             escapeHtml(row.farm) + '" data-date="' + escapeHtml(row.collection_date) +

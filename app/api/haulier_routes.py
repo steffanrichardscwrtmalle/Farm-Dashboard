@@ -25,6 +25,7 @@ from app.services.haulier_collections import (
     list_collections,
 )
 from app.services.haulier_import import import_haulier_collections
+from app.services.production_summary import get_production_summary
 
 router = APIRouter(prefix="/api/haulier")
 
@@ -54,6 +55,15 @@ def api_haulier_collections(
     _user: User = Depends(require_page(PAGE_MILK_QUALITY)),
 ):
     return list_collections(db, farms=farm, date_from=date_from, date_to=date_to)
+
+
+@router.get("/production-summary")
+def api_haulier_production_summary(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_MILK_QUALITY)),
+):
+    """Home widget: per-farm 7d/30d milk production averages."""
+    return get_production_summary(db)
 
 
 @router.get("/collections/manual")

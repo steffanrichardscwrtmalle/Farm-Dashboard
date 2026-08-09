@@ -21,8 +21,9 @@ from app.services.genomic_import import (
 )
 from app.services.herd_birth_import import import_herd_births
 from app.services.herd_events_import import import_cow_events
-from app.services.herd_full_import import refresh_herd_from_onedrive
+from app.config import IS_PRODUCTION
 from app.services.herd_inventory_import import import_herd_inventory
+from app.services.offline_refresh_all import refresh_all_cron_jobs
 
 router = APIRouter(prefix="/api/herd")
 
@@ -40,9 +41,14 @@ def api_refresh_herd_from_onedrive(
     db: Session = Depends(get_db),
     _: None = Depends(require_import_or_action(ACTION_HERD_IMPORT)),
 ):
-    """Full OneDrive herd refresh: events, inventory, births, snapshots, genomics."""
+    """Offline-only: run every cron-equivalent refresh (milk, herd, CTS, …)."""
+    if IS_PRODUCTION:
+        raise HTTPException(
+            status_code=403,
+            detail="Refresh all is only available on the offline app.",
+        )
     try:
-        return refresh_herd_from_onedrive(db, include_genomics=True)
+        return refresh_all_cron_jobs(db)
     except (FileNotFoundError, ValueError) as exc:
         raise _import_error_handler(exc) from exc
 
