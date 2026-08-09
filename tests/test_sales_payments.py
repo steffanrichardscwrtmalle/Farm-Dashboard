@@ -249,7 +249,7 @@ def test_list_sales_payments_matches_buitelaar_calf_amount(db: Session) -> None:
 
 
 def test_list_sales_payments_includes_game_event(db: Session) -> None:
-    """GAME JV exits appear on the sales payments queue."""
+    """GAME JV exits appear on the sales payments queue with DEST=GAME."""
     db.add(
         CowEvent(
             farm="GAD",
@@ -269,11 +269,11 @@ def test_list_sales_payments_includes_game_event(db: Session) -> None:
     assert "UK752261210200" in etags
     row = next(r for r in result["rows"] if r["etag"] == "UK752261210200")
     assert row["event_date"] == "2026-05-15"
-    assert row["dest"] == "GAMECHANGER"
+    assert row["dest"] == "GAME"
 
 
 def test_list_sales_payments_includes_path_event(db: Session) -> None:
-    """PATH JV exits appear on the sales payments queue."""
+    """PATH JV exits appear on the sales payments queue with DEST=PATH."""
     db.add(
         CowEvent(
             farm="CM",
@@ -291,6 +291,44 @@ def test_list_sales_payments_includes_path_event(db: Session) -> None:
     result = list_sales_payments(db, farms=["CM"])
     etags = {row["etag"] for row in result["rows"]}
     assert "UK740651135300" in etags
+    row = next(r for r in result["rows"] if r["etag"] == "UK740651135300")
+    assert row["dest"] == "PATH"
+
+
+def test_list_sales_payments_jv_exit_dest_is_event_name(db: Session) -> None:
+    """GAME/PATH/PATHWAY payment rows use the event name as DEST; SOLD keeps event.dest."""
+    db.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="210400",
+            etag="UK752261210400",
+            event="GAME",
+            event_date=dt.date(2026, 5, 1),
+            dest=None,
+            gndr="M",
+            bdat=dt.date(2024, 1, 1),
+        )
+    )
+    db.add(
+        CowEvent(
+            farm="CM",
+            cow_id="135400",
+            etag="UK740651135400",
+            event="PATHWAY",
+            event_date=dt.date(2026, 5, 2),
+            dest="SOMETHING_ELSE",
+            gndr="M",
+            bdat=dt.date(2025, 1, 1),
+        )
+    )
+    db.commit()
+
+    result = list_sales_payments(db, farms=["CM", "GAD"])
+    by_etag = {row["etag"]: row for row in result["rows"]}
+    assert by_etag["UK752261210400"]["dest"] == "GAME"
+    assert by_etag["UK740651135400"]["dest"] == "PATHWAY"
+    # Fixture SOLD rows keep CowEvent.dest unchanged
+    assert by_etag["UK740651125211"]["dest"] == "EUROFARM"
 
 
 def test_list_sales_payments_later_sold_after_game_appears_again(db: Session) -> None:

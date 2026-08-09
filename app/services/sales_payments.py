@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.models import CattleSaleLine, CowEvent, SalesPaymentRecord, User
 from app.services.cattle_sale_pdf import is_rejected_sale, normalize_etag
 from app.services.cattle_sales import (
+    CATTLE_SALES_JV_EXIT_EVENTS,
     EVENT_MATCH_WINDOW_DAYS,
     cattle_sales_exit_event_clause,
 )
@@ -24,6 +25,14 @@ from app.services.events_common import (
 )
 
 SOLD_EVENT = "SOLD"
+
+
+def _payments_dest_expression():
+    """DEST on payments rows: JV exit event name, else CowEvent.dest (SOLD etc.)."""
+    return case(
+        (CowEvent.event.in_(list(CATTLE_SALES_JV_EXIT_EVENTS)), CowEvent.event),
+        else_=CowEvent.dest,
+    )
 
 
 def _normalize_key_part(value: str | None) -> str:
@@ -114,7 +123,7 @@ def _apply_sold_event_filters(
     if dest:
         dest_value = dest.strip()
         if dest_value:
-            query = query.where(CowEvent.dest == dest_value)
+            query = query.where(_payments_dest_expression() == dest_value)
     if event_from is not None:
         query = query.where(CowEvent.event_date >= event_from)
     if event_to is not None:
@@ -289,7 +298,8 @@ def list_sales_payments(
         return {"rows": [], "total": 0, "status": status, "date_bounds": None}
 
     reason_expr = _sales_reason_expression()
-    dest_nulls_last = case((CowEvent.dest.is_(None), 1), else_=0)
+    dest_expr = _payments_dest_expression()
+    dest_nulls_last = case((dest_expr.is_(None), 1), else_=0)
     etag_suffix = func.substr(func.coalesce(CowEvent.etag, ""), -5)
 
     if status == "archived":
@@ -298,7 +308,7 @@ def list_sales_payments(
                 CowEvent.farm,
                 CowEvent.cow_id,
                 CowEvent.etag,
-                CowEvent.dest,
+                dest_expr.label("dest"),
                 CowEvent.event_date,
                 reason_expr.label("sales_reason"),
                 CowEvent.gndr,
@@ -314,7 +324,7 @@ def list_sales_payments(
             CowEvent.farm,
             CowEvent.cow_id,
             CowEvent.etag,
-            CowEvent.dest,
+            dest_expr.label("dest"),
             CowEvent.event_date,
             reason_expr.label("sales_reason"),
             CowEvent.gndr,
@@ -335,7 +345,7 @@ def list_sales_payments(
     query = query.order_by(
         CowEvent.event_date.asc(),
         dest_nulls_last.asc(),
-        CowEvent.dest.asc(),
+        dest_expr.asc(),
         etag_suffix.asc(),
     )
 
@@ -428,8 +438,9 @@ def list_dest_filter_options(
     if not selected_farms:
         return {"dest_options": [], "date_bounds": None}
 
-    dest_query = select(func.distinct(CowEvent.dest)).where(CowEvent.dest.isnot(None)).where(
-        func.trim(CowEvent.dest) != ""
+    dest_expr = _payments_dest_expression()
+    dest_query = select(func.distinct(dest_expr)).where(dest_expr.isnot(None)).where(
+        func.trim(dest_expr) != ""
     )
     if status == "archived":
         dest_query = dest_query.select_from(CowEvent).join(
@@ -445,7 +456,7 @@ def list_dest_filter_options(
         event_to=None,
     )
     dest_query = _apply_status_filter(dest_query, status)
-    dest_query = dest_query.order_by(CowEvent.dest.asc())
+    dest_query = dest_query.order_by(dest_expr.asc())
     dest_rows = db.execute(dest_query).all()
     date_bounds = _compute_date_bounds(
         db,
