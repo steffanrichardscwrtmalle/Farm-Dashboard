@@ -1665,6 +1665,9 @@ class Employee(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     business: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     title: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    employee_number: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
     full_name: Mapped[str] = mapped_column(String(255), index=True)
     email: Mapped[str] = mapped_column(String(255), index=True)
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)

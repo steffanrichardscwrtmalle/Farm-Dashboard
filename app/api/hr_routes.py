@@ -58,6 +58,7 @@ router = APIRouter(prefix="/api/hr")
 class EnrollStaffBody(BaseModel):
     business: str = Field(min_length=2, max_length=64)
     title: str | None = Field(default=None, max_length=16)
+    employee_number: str | None = Field(default=None, max_length=64)
     full_name: str = Field(min_length=2, max_length=255)
     email: EmailStr
     phone: str | None = Field(default=None, max_length=64)
@@ -88,6 +89,7 @@ class DraftStaffBody(BaseModel):
 
     business: str = Field(min_length=2, max_length=64)
     title: str | None = Field(default=None, max_length=16)
+    employee_number: str | None = Field(default=None, max_length=64)
     full_name: str = Field(min_length=2, max_length=255)
     email: EmailStr
     phone: str | None = Field(default=None, max_length=64)

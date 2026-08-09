@@ -37,7 +37,7 @@
       <div class="hr-toolbar">
         <label>
           Search
-          <input type="search" id="search-input" placeholder="Name, email, role…" autocomplete="off">
+          <input type="search" id="search-input" placeholder="Name, email, role, emp. no.…" autocomplete="off">
         </label>
         <label>
           Business
@@ -73,6 +73,7 @@
         <table>
           <thead>
             <tr>
+              <th>Emp. no.</th>
               <th>Name</th>
               <th>Business</th>
               <th>Role</th>
@@ -82,7 +83,7 @@
             </tr>
           </thead>
           <tbody id="staff-body">
-            <tr><td colspan="6" class="muted">Loading…</td></tr>
+            <tr><td colspan="7" class="muted">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -111,7 +112,7 @@
 
   async function loadStaff() {
     showMessage('');
-    staffBody.innerHTML = '<tr><td colspan="6" class="muted">Loading…</td></tr>';
+    staffBody.innerHTML = '<tr><td colspan="7" class="muted">Loading…</td></tr>';
     const params = new URLSearchParams();
     const q = searchInput.value.trim();
     const status = statusFilter.value;
@@ -128,11 +129,12 @@
       const data = await res.json();
       const rows = data.staff || [];
       if (!rows.length) {
-        staffBody.innerHTML = '<tr><td colspan="6" class="muted">No staff found.</td></tr>';
+        staffBody.innerHTML = '<tr><td colspan="7" class="muted">No staff found.</td></tr>';
         return;
       }
       staffBody.innerHTML = rows.map(function (s) {
         return '<tr class="staff-row" data-id="' + s.id + '">' +
+          '<td>' + escapeHtml(s.employee_number || '—') + '</td>' +
           '<td>' + escapeHtml(s.full_name) + '</td>' +
           '<td>' + escapeHtml(s.business || '—') + '</td>' +
           '<td>' + escapeHtml(s.role_title) + '</td>' +
@@ -142,7 +144,7 @@
           '</tr>';
       }).join('');
     } catch (err) {
-      staffBody.innerHTML = '<tr><td colspan="6" class="muted">Could not load staff.</td></tr>';
+      staffBody.innerHTML = '<tr><td colspan="7" class="muted">Could not load staff.</td></tr>';
       showMessage(err.message, true);
     }
   }

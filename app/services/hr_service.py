@@ -41,6 +41,21 @@ class HRServiceError(Exception):
     """HR operation failed."""
 
 
+def _ensure_employee_number_unique(
+    db: Session,
+    employee_number: str,
+    *,
+    exclude_id: int | None = None,
+) -> None:
+    query = select(Employee).where(Employee.employee_number == employee_number)
+    if exclude_id is not None:
+        query = query.where(Employee.id != exclude_id)
+    if db.scalars(query).first() is not None:
+        raise HRServiceError(
+            f"Employee number '{employee_number}' is already assigned to another staff member."
+        )
+
+
 def parse_hr_team_emails(business: str | None = None) -> list[str]:
     raw = hr_team_emails_for(business)
     return [e.strip() for e in raw.split(",") if e.strip()]
@@ -132,6 +147,7 @@ def list_staff(
                 Employee.full_name.ilike(term),
                 Employee.email.ilike(term),
                 Employee.role_title.ilike(term),
+                Employee.employee_number.ilike(term),
             )
         )
     rows = db.scalars(query).all()
@@ -158,6 +174,7 @@ def list_employee_contracts(db: Session, employee_id: int) -> list[dict[str, Any
 
 
 def _build_employee(
+    db: Session,
     payload: dict[str, Any],
     user: User,
     *,
@@ -168,9 +185,14 @@ def _build_employee(
     def _clean(key: str) -> str | None:
         return (payload.get(key) or "").strip() or None
 
+    employee_number = _clean("employee_number")
+    if employee_number:
+        _ensure_employee_number_unique(db, employee_number)
+
     return Employee(
         business=_clean("business"),
         title=_clean("title"),
+        employee_number=employee_number,
         full_name=payload["full_name"].strip(),
         email=payload["email"].strip().lower(),
         phone=_clean("phone"),
@@ -354,6 +376,7 @@ def save_draft(
             raise HRServiceError("Contract template not found or inactive.")
 
     employee = _build_employee(
+        db,
         payload,
         user,
         pay_type=pay_type,
@@ -389,6 +412,7 @@ def enroll_employee(
         )
 
     employee = _build_employee(
+        db,
         payload,
         user,
         pay_type=pay_type,
@@ -426,6 +450,14 @@ def update_employee(
 
     employee.business = _clean("business") or employee.business
     employee.title = _clean("title")
+    if "employee_number" in payload:
+        employee_number = _clean("employee_number")
+        if employee_number != employee.employee_number:
+            if employee_number:
+                _ensure_employee_number_unique(
+                    db, employee_number, exclude_id=employee.id
+                )
+            employee.employee_number = employee_number
     employee.full_name = payload["full_name"].strip()
     employee.email = payload["email"].strip().lower()
     employee.phone = _clean("phone")
@@ -739,6 +771,7 @@ def _employee_summary(employee: Employee) -> dict[str, Any]:
         "id": employee.id,
         "business": employee.business,
         "title": employee.title,
+        "employee_number": employee.employee_number,
         "full_name": employee.full_name,
         "email": employee.email,
         "role_title": employee.role_title,

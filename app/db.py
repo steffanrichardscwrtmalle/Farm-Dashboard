@@ -1072,6 +1072,7 @@ def _migrate_hr_schema() -> None:
         new_columns = {
             "business": "VARCHAR(64)",
             "title": "VARCHAR(16)",
+            "employee_number": "VARCHAR(64)",
             "working_days_per_week": "FLOAT",
             "working_hours_per_day": "FLOAT",
             "driving_license_number_enc": "TEXT",
@@ -1092,6 +1093,13 @@ def _migrate_hr_schema() -> None:
                     conn.execute(
                         text(f"ALTER TABLE employees ADD COLUMN {name} {ddl_type}")
                     )
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ix_employees_employee_number ON employees (employee_number)"
+                )
+            )
 
     if "contract_templates" not in inspector.get_table_names():
         return

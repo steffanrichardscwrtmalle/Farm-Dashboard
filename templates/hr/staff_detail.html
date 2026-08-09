@@ -231,6 +231,7 @@
     profileGrid.innerHTML =
       sectionHeading('Role &amp; personal') +
       detailItem('Business', escapeHtml(emp.business || '—')) +
+      detailItem('Employee number', escapeHtml(emp.employee_number || '—')) +
       detailItem('Full name', escapeHtml(fmtName(emp) || '—')) +
       detailItem('Job title', escapeHtml(emp.role_title || '—')) +
       detailItem('Email', escapeHtml(emp.email || '—')) +

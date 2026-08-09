@@ -246,6 +246,11 @@
               <input type="date" id="start_date" required>
             </label>
             <label>
+              Employee number
+              <input type="text" id="employee_number" maxlength="64" autocomplete="off"
+                placeholder="After first wages paid">
+            </label>
+            <label>
               Payment type *
               <select id="pay_type" required>
                 <option value="hourly">Hourly</option>
@@ -471,6 +476,7 @@
       ni_number: val('ni_number') || null,
       role_title: val('role_title'),
       start_date: val('start_date'),
+      employee_number: val('employee_number') || null,
       pay_type: val('pay_type'),
       pay_rate: val('pay_rate') || null,
       working_days_per_week: numOrNull('working_days_per_week'),
@@ -741,6 +747,7 @@
       await refreshJobTitles(emp.role_title || '');
       setVal('role_title', emp.role_title);
       setVal('start_date', emp.start_date);
+      setVal('employee_number', emp.employee_number);
       setVal('pay_type', emp.pay_type || 'hourly');
       updatePayLabel();
       setVal('working_days_per_week', emp.working_days_per_week);
