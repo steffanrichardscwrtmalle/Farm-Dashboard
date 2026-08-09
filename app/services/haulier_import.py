@@ -7,10 +7,9 @@ Sources, in priority order:
 
 Rows are keyed by (farm, collection_date, sample_id) so re-importing the same
 report (the haulier resends a running monthly sheet near-daily) updates rather
-than duplicates. After upsert, a dedupe pass makes each (farm, month) reflect
-only the most recent email for that month: that email is treated as the
-authoritative snapshot, so any loads left over from earlier emails (re-dated or
-withdrawn) are removed.
+than duplicates. After upsert, stale keys within each imported month are pruned
+(so re-dated loads do not linger on the old day), then a dedupe pass keeps only
+the most recent email's rows for that month.
 """
 
 from __future__ import annotations
@@ -237,7 +236,9 @@ def import_haulier_collections(
                 parsed_by_key[key] = record
 
     inserted, updated = _upsert(db, parsed_by_key)
-    removed = _dedupe_month_emails(db, {key[0] for key in parsed_by_key})
+    farms = {key[0] for key in parsed_by_key}
+    stale_removed = _prune_stale_month_rows(db, parsed_by_key)
+    removed = _dedupe_month_emails(db, farms) + stale_removed
     db.commit()
 
     return {
@@ -288,6 +289,54 @@ def _email_recency(row: MilkCollection) -> tuple:
         row.source_received or dt.datetime.min,
         row.imported_at or dt.datetime.min,
     )
+
+
+def _prune_stale_month_rows(
+    db: Session, parsed_by_key: dict[tuple, dict[str, Any]]
+) -> int:
+    """Drop haulier rows that are no longer in this import's month snapshot.
+
+    Upsert keys include collection_date, so a re-dated load (e.g. sample 093
+    moved from 24 Jul to 25 Jul after a parser fix) inserts the new row but
+    leaves the old one. For every (farm, month) present in ``parsed_by_key``,
+    delete non-manual rows whose natural key is absent from that snapshot.
+    """
+    if not parsed_by_key:
+        return 0
+
+    months: set[tuple[str, int, int]] = set()
+    for farm, collection_date, *_rest in parsed_by_key:
+        if collection_date is None:
+            continue
+        months.add((farm, collection_date.year, collection_date.month))
+
+    removed = 0
+    for farm, year, month in months:
+        month_start = dt.date(year, month, 1)
+        if month == 12:
+            month_end = dt.date(year + 1, 1, 1)
+        else:
+            month_end = dt.date(year, month + 1, 1)
+        rows = db.scalars(
+            select(MilkCollection).where(
+                MilkCollection.farm == farm,
+                MilkCollection.collection_date >= month_start,
+                MilkCollection.collection_date < month_end,
+            )
+        ).all()
+        for row in rows:
+            if is_editable_collection_source(row.source_file):
+                continue
+            key = _row_key(
+                row.farm or "",
+                row.collection_date,
+                (row.sample_id or "").strip(),
+                row.arrival_time,
+            )
+            if key not in parsed_by_key:
+                db.delete(row)
+                removed += 1
+    return removed
 
 
 def _dedupe_month_emails(db: Session, farms: set[str]) -> int:
