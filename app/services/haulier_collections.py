@@ -18,6 +18,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models import HERD_FARM_OPTIONS, MilkCollection, NmlMilkResult
+from app.services.cows_in_milk import cows_in_milk_for_dates
 from app.services.events_common import normalize_farms
 
 XLSX_CONTENT_TYPE = (
@@ -180,12 +181,21 @@ def _build_trend(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         if not date:
             continue
         bucket = buckets.setdefault(
-            (farm, date), {m: [] for m in (*_TREND_SUM, *_TREND_AVG)}
+            (farm, date),
+            {m: [] for m in (*_TREND_SUM, *_TREND_AVG, "cows_in_milk")},
         )
         for metric in (*_TREND_SUM, *_TREND_AVG):
             value = row.get(metric)
             if value is not None:
                 bucket[metric].append(float(value))
+        cows = row.get("cows_in_milk")
+        if cows is not None:
+            try:
+                cows_f = float(cows)
+            except (TypeError, ValueError):
+                cows_f = None
+            if cows_f is not None and cows_f > 0:
+                bucket["cows_in_milk"].append(cows_f)
 
     trend: dict[str, list[dict[str, Any]]] = {}
     for (farm, date), metrics in buckets.items():
@@ -196,6 +206,13 @@ def _build_trend(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         for metric in _TREND_AVG:
             values = metrics[metric]
             point[metric] = round(sum(values) / len(values), 3) if values else None
+        cows_values = metrics["cows_in_milk"]
+        cows = max(cows_values) if cows_values else None
+        volume = point.get("volume_litres")
+        if volume is not None and cows:
+            point["litres_per_cow"] = round(volume / cows, 2)
+        else:
+            point["litres_per_cow"] = None
         trend.setdefault(farm, []).append(point)
     for points in trend.values():
         points.sort(key=lambda item: item["date"])
@@ -236,12 +253,43 @@ def list_collections(
     index = _build_nml_index(list(db.scalars(nml_query).all()))
 
     rows = [_row_to_dict(c, _match_nml(c, index)) for c in collections]
+    _attach_cows_in_milk(db, rows)
     return {
         "rows": rows,
         "total": len(rows),
         "summary": _summary(rows),
         "trend": _build_trend(rows),
     }
+
+
+def _attach_cows_in_milk(db: Session, rows: list[dict[str, Any]]) -> None:
+    """Overwrite cows_in_milk from inventory/events (CM + GAD)."""
+    if not rows:
+        return
+    farms: set[str] = set()
+    dates: set[dt.date] = set()
+    parsed: list[tuple[dict[str, Any], str, dt.date | None]] = []
+    for row in rows:
+        farm = (row.get("farm") or "").strip().upper()
+        raw_date = row.get("collection_date") or ""
+        day: dt.date | None
+        if isinstance(raw_date, dt.date):
+            day = raw_date
+        else:
+            try:
+                day = dt.date.fromisoformat(str(raw_date)[:10])
+            except ValueError:
+                day = None
+        parsed.append((row, farm, day))
+        if farm and day is not None:
+            farms.add(farm)
+            dates.add(day)
+    counts = cows_in_milk_for_dates(db, farms, dates)
+    for row, farm, day in parsed:
+        if not farm or day is None:
+            row["cows_in_milk"] = None
+            continue
+        row["cows_in_milk"] = counts.get((farm, day))
 
 
 def get_manual_collection_day(

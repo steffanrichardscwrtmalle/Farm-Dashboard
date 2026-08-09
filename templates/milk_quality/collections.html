@@ -218,9 +218,10 @@
         <h2>About</h2>
         <p class="help-text">
           Per-load milk collections from the haulier's emailed spreadsheet — driver,
-          arrival/depart times, volume and temperature. Each load is matched to its
-          NML milk-quality sample by sample number and date (±1 day). Split-fill
-          temperatures (e.g. 2.8/4.2) are averaged.
+          arrival/depart times, volume and temperature. Cows in milk are taken from
+          the CM/GAD inventory files (milking cows with DIM &gt; 4) so litres/cow
+          works for both farms. Each load is matched to its NML sample by sample
+          number and date (±1 day). Split-fill temperatures (e.g. 2.8/4.2) are averaged.
         </p>
       </aside>
     </div>
@@ -254,6 +255,16 @@
             </div>
           </div>
           <div class="chart-wrap"><canvas id="chart-volume"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head">
+            <h3>Milk / cow (L)</h3>
+            <div class="chart-actions">
+              <button type="button" class="chart-btn chart-reset" data-canvas="chart-per-cow" title="Reset zoom">⟲</button>
+              <button type="button" class="chart-expand" data-canvas="chart-per-cow" data-title="Milk / cow (L)" title="View larger">⤢</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-per-cow"></canvas></div>
         </div>
         <div class="chart-card">
           <div class="chart-head">
@@ -419,10 +430,7 @@
             <input type="text" id="add-load3-sample" maxlength="16" autocomplete="off">
           </label>
         </div>
-        <label>
-          Cows In Milk
-          <input type="number" id="add-cows" min="0" step="1" inputmode="numeric">
-        </label>
+        <p class="help-text">Cows in milk come from the herd inventory (LACT &gt; 0, not dry, DIM &gt; 4) and calving/dry events for CM and GAD — no need to enter them here.</p>
         <p class="add-modal-error" id="add-collection-error" hidden></p>
         <div class="add-modal-actions">
           <button type="button" class="secondary small danger" id="add-collection-delete" hidden>Delete</button>
@@ -566,6 +574,8 @@
     }
 
     const IQR_FACTOR = 1.5; // Tukey fences
+    // Volume metrics stay uncapped — IQR would flatten real production swings.
+    const IQR_SKIP_METRICS = new Set(['volume_litres', 'litres_per_cow']);
     let excludeOutliers = false;
 
     function quantile(sorted, q) {
@@ -595,7 +605,7 @@
         .filter(v => v !== null && v !== undefined)
         .map(Number)
         .filter(v => !isNaN(v));
-      if (!excludeOutliers) return raw;
+      if (!excludeOutliers || IQR_SKIP_METRICS.has(metric)) return raw;
       const f = iqrFences(raw);
       if (!f) return raw;
       return raw.map(v => Math.min(f.hi, Math.max(f.lo, v)));
@@ -663,7 +673,7 @@
     // keeping a value on every date so the lines have no holes.
     function cleanedPoints(farm, metric) {
       const points = trend[farm] || [];
-      if (!excludeOutliers) return points;
+      if (!excludeOutliers || IQR_SKIP_METRICS.has(metric)) return points;
       const vals = points.map(p => p[metric]).filter(v => v !== null && v !== undefined).map(Number);
       const f = iqrFences(vals);
       if (!f) return points;
@@ -867,6 +877,7 @@
       const labels = allDates();
       const chartDefs = [
         ['chart-volume', 'line', { datasets: metricDatasets('volume_litres', 'Volume', labels), labels }],
+        ['chart-per-cow', 'line', { datasets: metricDatasets('litres_per_cow', 'L/cow', labels), labels }],
         ['chart-temp', 'line', { datasets: metricDatasets('temp_c', 'Temp', labels), labels }],
         ['chart-butterfat', 'line', { datasets: metricDatasets('butterfat_pct', 'Butterfat', labels), labels }],
         ['chart-protein', 'line', { datasets: metricDatasets('protein_pct', 'Protein', labels), labels }],
@@ -909,7 +920,7 @@
       openModalCanvasId = null;
     }
 
-    const CHART_IDS = ['chart-volume', 'chart-temp', 'chart-butterfat', 'chart-protein', 'chart-bacto-arrival'];
+    const CHART_IDS = ['chart-volume', 'chart-per-cow', 'chart-temp', 'chart-butterfat', 'chart-protein', 'chart-bacto-arrival'];
 
     function bindChartUI() {
       document.querySelectorAll('.smoothing-slicer .slicer-btn').forEach(btn => {
@@ -1087,7 +1098,6 @@
         document.getElementById('add-load' + n + '-temp').value = '';
         document.getElementById('add-load' + n + '-sample').value = '';
       });
-      document.getElementById('add-cows').value = '';
       const err = document.getElementById('add-collection-error');
       err.hidden = true;
       err.textContent = '';
@@ -1108,8 +1118,6 @@
           load.temp_c != null ? load.temp_c : '';
         document.getElementById('add-load' + n + '-sample').value = load.sample_id || '';
       });
-      document.getElementById('add-cows').value =
-        data.cows_in_milk != null ? data.cows_in_milk : '';
     }
 
     function setDeleteButtonVisible(visible) {
@@ -1233,12 +1241,6 @@
         errEl.hidden = false;
         return;
       }
-      const cows = parseOptionalNumber(document.getElementById('add-cows').value);
-      if (Number.isNaN(cows)) {
-        errEl.textContent = 'Cows in milk must be a number.';
-        errEl.hidden = false;
-        return;
-      }
       const saveBtn = document.getElementById('add-collection-save');
       saveBtn.disabled = true;
       const farm = document.getElementById('add-farm').value;
@@ -1247,7 +1249,6 @@
         collection_date: collectionDate,
         farm,
         loads,
-        cows_in_milk: cows,
       };
       if (editOriginal) {
         body.replace_farm = editOriginal.farm;

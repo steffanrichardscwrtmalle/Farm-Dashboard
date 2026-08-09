@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from app.models import Base, MilkCollection
 from app.services.haulier_collections import (
     MANUAL_SOURCE_FILE,
+    _build_trend,
     create_manual_collection,
     delete_manual_collection_day,
     get_manual_collection_day,
@@ -124,6 +125,38 @@ def test_get_and_edit_manual_collection_day() -> None:
     assert len(new_rows) == 1
     assert new_rows[0].sample_id == "201"
     assert new_rows[0].volume_litres == 7000
+
+
+def test_trend_includes_litres_per_cow() -> None:
+    trend = _build_trend(
+        [
+            {
+                "farm": "GAD",
+                "collection_date": "2026-08-09",
+                "volume_litres": 10000,
+                "temp_c": 3.2,
+                "cows_in_milk": 500,
+            },
+            {
+                "farm": "GAD",
+                "collection_date": "2026-08-09",
+                "volume_litres": 5000,
+                "temp_c": 3.4,
+                "cows_in_milk": 500,
+            },
+            {
+                "farm": "GAD",
+                "collection_date": "2026-08-10",
+                "volume_litres": 12000,
+                "temp_c": 3.1,
+                "cows_in_milk": None,
+            },
+        ]
+    )
+    by_date = {p["date"]: p for p in trend["GAD"]}
+    assert by_date["2026-08-09"]["volume_litres"] == 15000
+    assert by_date["2026-08-09"]["litres_per_cow"] == 30.0
+    assert by_date["2026-08-10"]["litres_per_cow"] is None
 
 
 def test_delete_manual_collection_day() -> None:
