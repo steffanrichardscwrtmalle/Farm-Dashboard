@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import csv
 import datetime as dt
+import io
 import json
 import logging
 import os
 from typing import Any
 
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -133,13 +137,24 @@ def list_staff(
     *,
     search: str | None = None,
     status: str | None = None,
-    business: str | None = None,
+    view: str = "current",
+    business: str | list[str] | None = None,
 ) -> list[dict[str, Any]]:
     query = select(Employee).order_by(Employee.full_name)
     if status:
         query = query.where(Employee.status == status)
-    if business:
-        query = query.where(Employee.business == business)
+    elif view == "archived":
+        query = query.where(Employee.status == EMPLOYEE_STATUS_ARCHIVED)
+    else:
+        # Default "current" view hides archived staff.
+        query = query.where(Employee.status != EMPLOYEE_STATUS_ARCHIVED)
+    businesses: list[str] = []
+    if isinstance(business, str) and business.strip():
+        businesses = [business.strip()]
+    elif isinstance(business, list):
+        businesses = [b.strip() for b in business if b and str(b).strip()]
+    if businesses:
+        query = query.where(Employee.business.in_(businesses))
     if search:
         term = f"%{search.strip()}%"
         query = query.where(
@@ -842,3 +857,62 @@ def _contract_dict(contract: EmployeeContract) -> dict[str, Any]:
         "completed_at": contract.completed_at.isoformat() if contract.completed_at else None,
         "created_at": contract.created_at.isoformat() if contract.created_at else None,
     }
+
+
+XLSX_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
+_STAFF_EXPORT_HEADERS = (
+    "Employee number",
+    "Title",
+    "Full name",
+    "Business",
+    "Role",
+    "Email",
+    "Phone",
+    "Start date",
+    "Status",
+)
+
+
+def _staff_export_cells(row: dict[str, Any]) -> list[Any]:
+    return [
+        row.get("employee_number") or "",
+        row.get("title") or "",
+        row.get("full_name") or "",
+        row.get("business") or "",
+        row.get("role_title") or "",
+        row.get("email") or "",
+        row.get("phone") or "",
+        row.get("start_date") or "",
+        (row.get("status") or "").replace("_", " "),
+    ]
+
+
+def build_staff_csv(rows: list[dict[str, Any]]) -> str:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(_STAFF_EXPORT_HEADERS)
+    for row in rows:
+        writer.writerow(_staff_export_cells(row))
+    return buffer.getvalue()
+
+
+def build_staff_xlsx(rows: list[dict[str, Any]]) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Staff"
+    ws.append(list(_STAFF_EXPORT_HEADERS))
+    for row in rows:
+        ws.append(_staff_export_cells(row))
+
+    widths = [14, 8, 22, 20, 18, 28, 16, 12, 16]
+    for index, width in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(index)].width = width
+    for cell in ws[1]:
+        cell.font = cell.font.copy(bold=True)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()

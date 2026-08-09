@@ -15,7 +15,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
@@ -32,8 +32,11 @@ from app.services.contract_storage import ContractStorageError, default_storage
 from app.services.docuseal_api import verify_webhook_secret
 from app.services.hr_service import (
     HRServiceError,
+    XLSX_CONTENT_TYPE,
     add_employee_document,
     add_job_title,
+    build_staff_csv,
+    build_staff_xlsx,
     delete_employee_document,
     enroll_employee,
     get_contract_for_download,
@@ -159,11 +162,62 @@ def api_remove_job_title(
 def api_list_staff(
     search: str | None = Query(None),
     status: str | None = Query(None),
-    business: str | None = Query(None),
+    view: str = Query("current"),
+    business: list[str] | None = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_HR)),
 ):
-    return {"staff": list_staff(db, search=search, status=status, business=business)}
+    if view not in ("current", "archived"):
+        raise HTTPException(status_code=400, detail="Invalid view.")
+    return {
+        "staff": list_staff(
+            db,
+            search=search,
+            status=status,
+            view=view,
+            business=business,
+        )
+    }
+
+
+@router.get("/staff/export.csv")
+def api_staff_export_csv(
+    search: str | None = Query(None),
+    view: str = Query("current"),
+    business: list[str] | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_HR)),
+):
+    if view not in ("current", "archived"):
+        raise HTTPException(status_code=400, detail="Invalid view.")
+    rows = list_staff(db, search=search, view=view, business=business)
+    content = build_staff_csv(rows)
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="staff_directory.csv"'},
+    )
+
+
+@router.get("/staff/export.xlsx")
+def api_staff_export_xlsx(
+    search: str | None = Query(None),
+    view: str = Query("current"),
+    business: list[str] | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_HR)),
+):
+    if view not in ("current", "archived"):
+        raise HTTPException(status_code=400, detail="Invalid view.")
+    rows = list_staff(db, search=search, view=view, business=business)
+    content = build_staff_xlsx(rows)
+    return Response(
+        content=content,
+        media_type=XLSX_CONTENT_TYPE,
+        headers={
+            "Content-Disposition": 'attachment; filename="staff_directory.xlsx"'
+        },
+    )
 
 
 @router.get("/staff/{employee_id}")

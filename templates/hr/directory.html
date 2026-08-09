@@ -11,11 +11,72 @@
       margin-bottom: 1rem;
     }
     .hr-toolbar label { margin: 0; }
-    .hr-toolbar input,
-    .hr-toolbar select {
+    .hr-toolbar input {
       margin: 0;
-      min-width: 160px;
+      min-width: 200px;
     }
+    .farm-slicer {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      min-width: 280px;
+    }
+    .slicer-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.5rem;
+      padding: 0.45rem 0.6rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+    }
+    .slicer-btn.selected {
+      background: #e8eef5;
+      border-color: #6b8cae;
+      color: #1e3a5f;
+    }
+    .slicer-btn[data-value="Cwrt Malle Ltd"].selected {
+      background: #dceaf7;
+      border-color: #5a9fd4;
+      color: #1e3a5f;
+    }
+    .slicer-btn[data-value="Green Acre Dairy Ltd"].selected {
+      background: #ffecd9;
+      border-color: #ffb366;
+      color: #b45309;
+    }
+    .view-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .view-tab {
+      padding: 0.45rem 0.9rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      color: var(--text);
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .view-tab.active {
+      background: #1e3a5f;
+      border-color: #1e3a5f;
+      color: #fff;
+    }
+    .staff-table thead th[data-sort] {
+      cursor: pointer;
+      user-select: none;
+    }
+    .staff-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
+    .staff-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
     .status-badge {
       display: inline-block;
       padding: 0.15rem 0.5rem;
@@ -30,6 +91,14 @@
     .status-archived { background: #fee2e2; color: #b91c1c; }
     tr.staff-row { cursor: pointer; }
     tr.staff-row:hover { background: rgba(0,0,0,0.03); }
+    .table-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    .table-actions h2 { margin: 0; margin-right: auto; }
 {% endblock %}
 
 {% block content %}
@@ -39,25 +108,14 @@
           Search
           <input type="search" id="search-input" placeholder="Name, email, role, emp. no.…" autocomplete="off">
         </label>
-        <label>
-          Business
-          <select id="business-filter">
-            <option value="">All</option>
+        <div>
+          <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.25rem;color:var(--muted)">Business</div>
+          <div class="farm-slicer" id="business-slicer" role="group" aria-label="Business filter">
             {% for biz in business_options %}
-            <option value="{{ biz }}">{{ biz }}</option>
+            <button type="button" class="slicer-btn selected" data-value="{{ biz }}" aria-pressed="true">{{ biz }}</button>
             {% endfor %}
-          </select>
-        </label>
-        <label>
-          Status
-          <select id="status-filter">
-            <option value="">All</option>
-            <option value="onboarding">Onboarding</option>
-            <option value="pending_signature">Pending signature</option>
-            <option value="active">Active</option>
-            <option value="archived">Archived</option>
-          </select>
-        </label>
+          </div>
+        </div>
         <button type="button" id="refresh-btn" class="secondary">Refresh</button>
         {% if can_enroll %}
         <button type="button" id="enroll-btn" style="margin-left:auto"
@@ -68,18 +126,26 @@
     </div>
 
     <div class="card">
-      <h2>Staff</h2>
+      <div class="view-tabs" role="tablist" aria-label="Staff list">
+        <button type="button" class="view-tab active" data-view="current" role="tab" aria-selected="true">Current</button>
+        <button type="button" class="view-tab" data-view="archived" role="tab" aria-selected="false">Archived</button>
+      </div>
+      <div class="table-actions">
+        <h2 id="staff-heading">Current staff</h2>
+        <button type="button" class="secondary small" id="export-csv-btn">Export CSV</button>
+        <button type="button" class="secondary small" id="export-xlsx-btn">Export XLSX</button>
+      </div>
       <div class="table-wrap">
-        <table>
+        <table class="staff-table">
           <thead>
-            <tr>
-              <th>Emp. no.</th>
-              <th>Name</th>
-              <th>Business</th>
-              <th>Role</th>
-              <th>Email</th>
-              <th>Start date</th>
-              <th>Status</th>
+            <tr id="staff-head">
+              <th data-sort="employee_number">Emp. no.</th>
+              <th data-sort="full_name">Name</th>
+              <th data-sort="business">Business</th>
+              <th data-sort="role_title">Role</th>
+              <th data-sort="email">Email</th>
+              <th data-sort="start_date">Start date</th>
+              <th data-sort="status">Status</th>
             </tr>
           </thead>
           <tbody id="staff-body">
@@ -94,11 +160,18 @@
 <script>
 (function () {
   const searchInput = document.getElementById('search-input');
-  const statusFilter = document.getElementById('status-filter');
-  const businessFilter = document.getElementById('business-filter');
+  const businessSlicer = document.getElementById('business-slicer');
   const refreshBtn = document.getElementById('refresh-btn');
+  const exportCsvBtn = document.getElementById('export-csv-btn');
+  const exportXlsxBtn = document.getElementById('export-xlsx-btn');
   const staffBody = document.getElementById('staff-body');
+  const staffHead = document.getElementById('staff-head');
+  const staffHeading = document.getElementById('staff-heading');
   const messageEl = document.getElementById('directory-message');
+
+  let view = 'current';
+  let staffRows = [];
+  const sortState = { key: 'full_name', dir: 1 };
 
   function statusBadge(status) {
     const label = (status || '').replace(/_/g, ' ');
@@ -110,43 +183,99 @@
     messageEl.className = 'message' + (isError ? ' err' : text ? ' ok' : '');
   }
 
+  function selectedBusinesses() {
+    return Array.from(businessSlicer.querySelectorAll('.slicer-btn.selected'))
+      .map(function (btn) { return btn.dataset.value; });
+  }
+
+  function buildQuery() {
+    const params = new URLSearchParams();
+    const q = searchInput.value.trim();
+    if (q) params.set('search', q);
+    params.set('view', view);
+    selectedBusinesses().forEach(function (biz) {
+      params.append('business', biz);
+    });
+    return params;
+  }
+
+  function sortValue(row, key) {
+    const raw = row[key];
+    if (raw == null || raw === '') return '';
+    return String(raw).toLowerCase();
+  }
+
+  function sortedRows() {
+    const rows = staffRows.slice();
+    const key = sortState.key;
+    const dir = sortState.dir;
+    rows.sort(function (a, b) {
+      const av = sortValue(a, key);
+      const bv = sortValue(b, key);
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return String(a.full_name || '').localeCompare(String(b.full_name || '')) * dir;
+    });
+    return rows;
+  }
+
+  function updateSortIndicators() {
+    staffHead.querySelectorAll('th[data-sort]').forEach(function (th) {
+      th.classList.remove('sorted-asc', 'sorted-desc');
+      if (th.dataset.sort === sortState.key) {
+        th.classList.add(sortState.dir > 0 ? 'sorted-asc' : 'sorted-desc');
+      }
+    });
+  }
+
+  function renderTable() {
+    updateSortIndicators();
+    const rows = sortedRows();
+    if (!rows.length) {
+      staffBody.innerHTML = '<tr><td colspan="7" class="muted">No staff found.</td></tr>';
+      return;
+    }
+    staffBody.innerHTML = rows.map(function (s) {
+      return '<tr class="staff-row" data-id="' + s.id + '">' +
+        '<td>' + escapeHtml(s.employee_number || '—') + '</td>' +
+        '<td>' + escapeHtml(s.full_name) + '</td>' +
+        '<td>' + escapeHtml(s.business || '—') + '</td>' +
+        '<td>' + escapeHtml(s.role_title) + '</td>' +
+        '<td>' + escapeHtml(s.email) + '</td>' +
+        '<td>' + escapeHtml(s.start_date || '') + '</td>' +
+        '<td>' + statusBadge(s.status) + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
   async function loadStaff() {
     showMessage('');
     staffBody.innerHTML = '<tr><td colspan="7" class="muted">Loading…</td></tr>';
-    const params = new URLSearchParams();
-    const q = searchInput.value.trim();
-    const status = statusFilter.value;
-    const business = businessFilter.value;
-    if (q) params.set('search', q);
-    if (status) params.set('status', status);
-    if (business) params.set('business', business);
     try {
-      const res = await fetch('/api/hr/staff?' + params.toString());
+      const res = await fetch('/api/hr/staff?' + buildQuery().toString());
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+        const err = await res.json().catch(function () { return {}; });
         throw new Error(err.detail || 'Failed to load staff');
       }
       const data = await res.json();
-      const rows = data.staff || [];
-      if (!rows.length) {
-        staffBody.innerHTML = '<tr><td colspan="7" class="muted">No staff found.</td></tr>';
-        return;
-      }
-      staffBody.innerHTML = rows.map(function (s) {
-        return '<tr class="staff-row" data-id="' + s.id + '">' +
-          '<td>' + escapeHtml(s.employee_number || '—') + '</td>' +
-          '<td>' + escapeHtml(s.full_name) + '</td>' +
-          '<td>' + escapeHtml(s.business || '—') + '</td>' +
-          '<td>' + escapeHtml(s.role_title) + '</td>' +
-          '<td>' + escapeHtml(s.email) + '</td>' +
-          '<td>' + escapeHtml(s.start_date || '') + '</td>' +
-          '<td>' + statusBadge(s.status) + '</td>' +
-          '</tr>';
-      }).join('');
+      staffRows = data.staff || [];
+      renderTable();
     } catch (err) {
+      staffRows = [];
       staffBody.innerHTML = '<tr><td colspan="7" class="muted">Could not load staff.</td></tr>';
       showMessage(err.message, true);
     }
+  }
+
+  function setView(nextView) {
+    view = nextView;
+    document.querySelectorAll('.view-tab').forEach(function (tab) {
+      const active = tab.dataset.view === view;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    staffHeading.textContent = view === 'archived' ? 'Archived staff' : 'Current staff';
+    loadStaff();
   }
 
   function escapeHtml(str) {
@@ -162,9 +291,43 @@
     clearTimeout(searchTimer);
     searchTimer = setTimeout(loadStaff, 300);
   });
-  statusFilter.addEventListener('change', loadStaff);
-  businessFilter.addEventListener('change', loadStaff);
+
+  businessSlicer.addEventListener('click', function (ev) {
+    const btn = ev.target.closest('.slicer-btn');
+    if (!btn) return;
+    const selected = btn.classList.contains('selected');
+    const count = businessSlicer.querySelectorAll('.slicer-btn.selected').length;
+    if (selected && count <= 1) return;
+    btn.classList.toggle('selected', !selected);
+    btn.setAttribute('aria-pressed', btn.classList.contains('selected') ? 'true' : 'false');
+    loadStaff();
+  });
+
+  document.querySelectorAll('.view-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      setView(tab.dataset.view);
+    });
+  });
+
+  staffHead.addEventListener('click', function (ev) {
+    const th = ev.target.closest('th[data-sort]');
+    if (!th) return;
+    const key = th.dataset.sort;
+    if (sortState.key === key) sortState.dir *= -1;
+    else {
+      sortState.key = key;
+      sortState.dir = 1;
+    }
+    renderTable();
+  });
+
   refreshBtn.addEventListener('click', loadStaff);
+  exportCsvBtn.addEventListener('click', function () {
+    window.location.href = '/api/hr/staff/export.csv?' + buildQuery().toString();
+  });
+  exportXlsxBtn.addEventListener('click', function () {
+    window.location.href = '/api/hr/staff/export.xlsx?' + buildQuery().toString();
+  });
   staffBody.addEventListener('click', function (e) {
     const row = e.target.closest('tr.staff-row');
     if (row && row.dataset.id) {
@@ -172,6 +335,7 @@
     }
   });
 
+  updateSortIndicators();
   loadStaff();
 })();
 </script>
