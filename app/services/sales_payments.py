@@ -10,7 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.models import CattleSaleLine, CowEvent, SalesPaymentRecord, User
 from app.services.cattle_sale_pdf import is_rejected_sale, normalize_etag
-from app.services.cattle_sales import EVENT_MATCH_WINDOW_DAYS
+from app.services.cattle_sales import (
+    EVENT_MATCH_WINDOW_DAYS,
+    cattle_sales_exit_event_clause,
+)
 from app.services.events_common import (
     SALES_DAIRY_REMARKS,
     SALES_MAPPED_REMARKS,
@@ -18,7 +21,6 @@ from app.services.events_common import (
     SALES_TB_REMARKS,
     _sales_reason_expression,
     normalize_farms,
-    sales_classified_event_clause,
 )
 
 SOLD_EVENT = "SOLD"
@@ -100,7 +102,9 @@ def _apply_sold_event_filters(
     event_from: dt.date | None,
     event_to: dt.date | None,
 ):
-    query = query.where(sales_classified_event_clause()).where(
+    # JV exits (GAME/PATH/PATHWAY) plus SOLD/DIED sales — not shared
+    # sales_classified_event_clause, so accruals/pivots stay unchanged.
+    query = query.where(cattle_sales_exit_event_clause()).where(
         CowEvent.event_date.isnot(None)
     )
     query = query.where(CowEvent.farm.in_(farms))

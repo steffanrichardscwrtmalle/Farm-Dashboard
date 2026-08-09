@@ -542,6 +542,91 @@ def test_list_cattle_sales_matches_pathway_calf_line() -> None:
     session.close()
 
 
+def test_list_cattle_sales_matches_game_changer_via_game_event() -> None:
+    """Game Changer JV animals use DairyComp GAME, not SOLD."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="613268",
+            etag="UK752261613268",
+            event="GAME",
+            event_date=dt.date(2026, 7, 28),
+            gndr="M",
+            bdat=dt.date(2026, 6, 1),
+            lact=0,
+            cbrd=10,
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="GAD",
+            etag="UK752261613268",
+            sale_date=dt.date(2026, 7, 28),
+            kill_date=dt.date(2026, 7, 28),
+            cold_weight_kg=52.0,
+            amount_gbp=420.0,
+            buyer=BUYER_GAME_CHANGER,
+            source_file="PaymentAdvice_20260728.pdf",
+        )
+    )
+    session.commit()
+
+    result = list_cattle_sales(session, farms=["GAD"])
+    assert result["total"] == 1
+    row = result["rows"][0]
+    assert row["event_matched"] is True
+    assert row["cow_id"] == "613268"
+    assert row["event_date"] == "2026-07-28"
+    assert row["buyer"] == BUYER_GAME_CHANGER
+    assert row["category"] == "Beef"
+
+    session.close()
+
+
+def test_list_cattle_sales_matches_path_event_as_sale_exit() -> None:
+    """PATH (and PATHWAY) JV exits count as sale matches for cattle sales."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="135074",
+            etag="UK740651135074",
+            event="PATH",
+            event_date=dt.date(2026, 6, 29),
+            gndr="M",
+            bdat=dt.date(2026, 5, 1),
+            lact=0,
+            cbrd=1,
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651135074",
+            sale_date=dt.date(2026, 6, 29),
+            kill_date=dt.date(2026, 6, 29),
+            cold_weight_kg=64.0,
+            amount_gbp=460.0,
+            buyer="Pathway",
+        )
+    )
+    session.commit()
+
+    result = list_cattle_sales(session, farms=["CM"])
+    assert result["total"] == 1
+    row = result["rows"][0]
+    assert row["event_matched"] is True
+    assert row["cow_id"] == "135074"
+    assert row["buyer"] == "Pathway"
+
+    session.close()
+
+
 def _buitelaar_fixture_path():
     from pathlib import Path
 

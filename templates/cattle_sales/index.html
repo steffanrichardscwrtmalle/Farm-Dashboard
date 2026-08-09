@@ -495,7 +495,7 @@
         const tr = document.createElement('tr');
         if (!row.event_matched) tr.classList.add('unmatched');
         tr.innerHTML = `
-          <td>${row.cow_id || '—'}${!row.event_matched ? ' <span title="No matching SOLD event" style="color:#b45309">⚠</span>' : ''}</td>
+          <td>${row.cow_id || '—'}${!row.event_matched ? ' <span title="No matching sale exit event (SOLD/GAME/PATH)" style="color:#b45309">⚠</span>' : ''}</td>
           <td>${row.etag || '—'}</td>
           <td>${row.lact != null ? row.lact : '—'}</td>
           <td>${row.age || '—'}</td>
@@ -802,7 +802,7 @@
       const rows = filteredRows();
       const unmatched = rows.filter(r => !r.event_matched).length;
       let meta = `${rows.length} sale line(s)`;
-      if (unmatched) meta += ` · ${unmatched} without matching SOLD event`;
+      if (unmatched) meta += ` · ${unmatched} without matching sale exit event`;
       document.getElementById('meta-line').textContent = meta;
       renderSummary(rows);
       renderTable(rows);

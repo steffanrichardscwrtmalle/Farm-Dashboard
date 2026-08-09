@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import CattleSaleLine, CowEvent, HERD_FARM_OPTIONS
@@ -17,6 +17,9 @@ from app.services.stock_group import (
 )
 
 EVENT_MATCH_WINDOW_DAYS = 14
+# DairyComp JV exits on remittances (Game Changer / Pathway) instead of SOLD.
+# PATHWAY is the historical JV event name; PATH is also accepted.
+CATTLE_SALES_JV_EXIT_EVENTS: tuple[str, ...] = ("GAME", "PATH", "PATHWAY")
 CATTLE_CATEGORIES: tuple[str, ...] = ("Dairy", "Youngstock", "Beef")
 BUYER_EUROFARM = "Euro Farm Wales"
 BUYER_PATHWAY = "Pathway"
@@ -28,6 +31,19 @@ KNOWN_BUYERS: tuple[str, ...] = (
     BUYER_BUITELAAR,
     BUYER_GAME_CHANGER,
 )
+
+
+def cattle_sales_exit_event_clause():
+    """Sale-exit events for remittance matching and sales-payments queue.
+
+    Keeps SOLD + DIED+TB/OFS via sales_classified_event_clause, and adds JV
+    exits (GAME/PATH/PATHWAY). Those stay out of the shared clause so stock
+    accruals / sales pivots do not double-count GAME then later SOLD.
+    """
+    return or_(
+        sales_classified_event_clause(),
+        CowEvent.event.in_(list(CATTLE_SALES_JV_EXIT_EVENTS)),
+    )
 
 
 def infer_cattle_sale_buyer(
@@ -134,7 +150,7 @@ def _load_sold_events(
     window_end = max_date + dt.timedelta(days=EVENT_MATCH_WINDOW_DAYS)
     rows = db.scalars(
         select(CowEvent).where(
-            sales_classified_event_clause(),
+            cattle_sales_exit_event_clause(),
             CowEvent.farm.in_(farms),
             CowEvent.event_date.isnot(None),
             CowEvent.event_date >= window_start,

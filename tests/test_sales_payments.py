@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models import Base, CattleSaleLine, CowEvent, User
+from app.models import Base, CattleSaleLine, CowEvent, SalesPaymentRecord, User
 from app.services.events_common import SALES_TABLE_REASON_ORDER
 from app.services.sales_payments import list_sales_payments, normalize_sales_reasons
 
@@ -246,3 +246,106 @@ def test_list_sales_payments_matches_buitelaar_calf_amount(db: Session) -> None:
     row = next(r for r in result["rows"] if r["etag"] == "UK740651135200")
     assert row["amount_gbp"] == 365.0
     assert row["has_sale_amount"] is True
+
+
+def test_list_sales_payments_includes_game_event(db: Session) -> None:
+    """GAME JV exits appear on the sales payments queue."""
+    db.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="210200",
+            etag="UK752261210200",
+            event="GAME",
+            event_date=dt.date(2026, 5, 15),
+            dest="GAMECHANGER",
+            gndr="M",
+            bdat=dt.date(2024, 4, 1),
+        )
+    )
+    db.commit()
+
+    result = list_sales_payments(db, farms=["GAD"])
+    etags = {row["etag"] for row in result["rows"]}
+    assert "UK752261210200" in etags
+    row = next(r for r in result["rows"] if r["etag"] == "UK752261210200")
+    assert row["event_date"] == "2026-05-15"
+    assert row["dest"] == "GAMECHANGER"
+
+
+def test_list_sales_payments_includes_path_event(db: Session) -> None:
+    """PATH JV exits appear on the sales payments queue."""
+    db.add(
+        CowEvent(
+            farm="CM",
+            cow_id="135300",
+            etag="UK740651135300",
+            event="PATH",
+            event_date=dt.date(2026, 5, 20),
+            dest="PATHWAY",
+            gndr="M",
+            bdat=dt.date(2026, 3, 1),
+        )
+    )
+    db.commit()
+
+    result = list_sales_payments(db, farms=["CM"])
+    etags = {row["etag"] for row in result["rows"]}
+    assert "UK740651135300" in etags
+
+
+def test_list_sales_payments_later_sold_after_game_appears_again(db: Session) -> None:
+    """GAME then later SOLD: each exit is a separate pending payment row.
+
+    Archiving the GAME payment must not suppress the subsequent SOLD.
+    """
+    etag = "UK752261210300"
+    game_date = dt.date(2026, 4, 10)
+    sold_date = dt.date(2026, 8, 1)
+    db.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="210300",
+            etag=etag,
+            event="GAME",
+            event_date=game_date,
+            dest="GAMECHANGER",
+            gndr="M",
+            bdat=dt.date(2024, 1, 1),
+        )
+    )
+    db.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="210300",
+            etag=etag,
+            event="SOLD",
+            event_date=sold_date,
+            dest="EUROFARM",
+            remark="CAR16",
+            gndr="M",
+            bdat=dt.date(2024, 1, 1),
+        )
+    )
+    db.add(
+        SalesPaymentRecord(
+            farm="GAD",
+            cow_id="210300",
+            etag=etag,
+            event_date=game_date,
+            paid_at=dt.datetime(2026, 4, 20),
+            archived_at=dt.datetime(2026, 4, 20),
+        )
+    )
+    db.commit()
+
+    active = list_sales_payments(db, farms=["GAD"], status="active")
+    active_dates = {
+        row["event_date"] for row in active["rows"] if row["etag"] == etag
+    }
+    assert active_dates == {"2026-08-01"}
+
+    archived = list_sales_payments(db, farms=["GAD"], status="archived")
+    archived_dates = {
+        row["event_date"] for row in archived["rows"] if row["etag"] == etag
+    }
+    assert archived_dates == {"2026-04-10"}
