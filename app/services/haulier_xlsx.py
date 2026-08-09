@@ -32,7 +32,7 @@ _COL_SAMPLE = 22
 
 _DATE_RE = re.compile(
     r"\b(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day\s+"
-    r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4,})",
+    r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{2,})",
     re.IGNORECASE,
 )
 
@@ -53,26 +53,41 @@ _FARM_BY_CUSTOMER = (
 )
 
 
-def _year_candidates(year_str: str) -> list[int]:
+def _year_candidates(year_str: str, prev_date: dt.date | None) -> list[int]:
     """Plausible 4-digit years from a (possibly fat-fingered) digit run.
 
-    e.g. '2026' -> [2026]; '20226' -> [2022, 2026, 0226, ...]. Used together
-    with the header's weekday to recover from typos like 'June 20226'.
+    e.g. '2026' -> [2026]; '26' -> [2026] (using the previous header's century);
+    '20226' -> [2022, 2026, ...]. Used with the header weekday to recover typos
+    like 'June 20226' or truncated years like 'July 26'.
     """
-    if len(year_str) == 4:
-        return [int(year_str)]
     candidates: list[int] = []
     seen: set[int] = set()
+
+    def add(value: int) -> None:
+        if value not in seen and 1990 <= value <= 2100:
+            seen.add(value)
+            candidates.append(value)
+
+    if len(year_str) == 2:
+        yy = int(year_str)
+        century = (prev_date.year // 100) * 100 if prev_date else 2000
+        add(century + yy)
+        # Also try neighbouring centuries when the previous header is missing.
+        add(2000 + yy)
+        add(1900 + yy)
+        return candidates
+
+    if len(year_str) == 4:
+        add(int(year_str))
+        return candidates
+
     options = [year_str[:4], year_str[-4:]]
     for i in range(len(year_str)):
         trimmed = year_str[:i] + year_str[i + 1 :]
         if len(trimmed) == 4:
             options.append(trimmed)
     for opt in options:
-        value = int(opt)
-        if value not in seen:
-            seen.add(value)
-            candidates.append(value)
+        add(int(opt))
     return candidates
 
 
@@ -91,7 +106,7 @@ def _parse_date_header(value: Any, prev_date: dt.date | None) -> dt.date | None:
 
     expected_weekday = _WEEKDAYS.get((weekday_prefix + "day").lower())
     candidates: list[dt.date] = []
-    for year in _year_candidates(year_str):
+    for year in _year_candidates(year_str, prev_date):
         try:
             candidates.append(dt.date(year, month, day_num))
         except ValueError:
