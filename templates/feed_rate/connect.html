@@ -66,7 +66,7 @@
 
 {% block content %}
   <p style="margin:0 0 1rem;">
-    <a href="{{ return_to }}">&larr; Back to Feed Rate</a>
+    <a href="{{ return_to }}">&larr; Back to Feed</a>
   </p>
 
   {% if error %}
@@ -136,7 +136,7 @@
       }
 
       status.className = "status-msg ok";
-      status.textContent = "Connected. Returning to Feed Rate…";
+      status.textContent = "Connected. Returning to Feed…";
       const sep = RETURN_TO.includes("?") ? "&" : "?";
       window.location.href = `${RETURN_TO}${sep}feedlync=connected&retry_import=1`;
     });

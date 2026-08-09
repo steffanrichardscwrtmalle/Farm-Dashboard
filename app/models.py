@@ -498,6 +498,43 @@ class FeedRateRecord(Base):
         }
 
 
+class FeedContract(Base):
+    """Purchased feed contract / delivery agreement."""
+
+    __tablename__ = "feed_contracts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    purchase_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    delivery_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    product: Mapped[str] = mapped_column(String(128), index=True)
+    product_type: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    tonnage: Mapped[float] = mapped_column(Float)
+    price: Mapped[float] = mapped_column(Float)
+    supplier: Mapped[str] = mapped_column(String(128), index=True)
+    source_file: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "purchase_date": self.purchase_date.isoformat(),
+            "delivery_date": self.delivery_date.isoformat(),
+            "product": self.product,
+            "product_type": self.product_type,
+            "tonnage": self.tonnage,
+            "price": self.price,
+            "supplier": self.supplier,
+            "source_file": self.source_file,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class FeedlyncAuth(Base):
     """Stored Feedlync OAuth refresh token (singleton row id=1)."""
 
@@ -1627,6 +1664,11 @@ TITLE_OPTIONS: tuple[str, ...] = ("Mr", "Mrs", "Miss", "Ms", "Dr")
 # Job titles: defaults seeded into AppSetting; manage via Enroll page Settings.
 JOB_TITLE_OPTIONS: tuple[str, ...] = ("Farm Worker",)
 HR_JOB_TITLES_SETTING_KEY = "hr.job_titles"
+# Feed contract lookup lists (manage via Contracts gear).
+FEED_PRODUCT_TYPES_DEFAULT: tuple[str, ...] = ("Cereal", "Fibre", "Protein")
+FEED_PRODUCT_TYPES_SETTING_KEY = "feed.product_types"
+FEED_PRODUCTS_SETTING_KEY = "feed.products"
+FEED_SUPPLIERS_SETTING_KEY = "feed.suppliers"
 # Document categories that can be attached to a staff profile.
 DOCUMENT_TYPE_OPTIONS: tuple[str, ...] = (
     "Passport",

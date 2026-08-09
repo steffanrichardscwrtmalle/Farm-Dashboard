@@ -140,7 +140,7 @@ _EVENTS_BREADCRUMB = (
 )
 _FEED_RATE_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
-    '<a href="/feed-rate">Feed Rate</a>'
+    '<a href="/feed-rate">Feed</a>'
 )
 _OFFICE_ADMIN_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
@@ -1022,8 +1022,23 @@ def feed_rate_page(request: Request):
         "feed_rate/report.html",
         _template_ctx(
             request,
-            page_heading="Feed Rate",
-            **_feed_rate_context("Feed Rate", "feed-rate", "Feed Rate"),
+            page_heading="Feed Rations",
+            **_feed_rate_context("Feed Rations", "feed-rate", "Feed Rations"),
+        ),
+    )
+
+
+@app.get("/feed-rate/contracts", response_class=HTMLResponse)
+def feed_contracts_page(request: Request):
+    if denied := _page_guard(request, PAGE_FEED_RATE):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "feed_rate/contracts.html",
+        _template_ctx(
+            request,
+            page_heading="Feed Contracts",
+            **_feed_rate_context("Feed Contracts", "feed-contracts", "Contracts"),
         ),
     )
 

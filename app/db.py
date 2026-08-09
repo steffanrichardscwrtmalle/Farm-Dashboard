@@ -65,6 +65,14 @@ def init_db() -> None:
     _seed_financial_forecasts()
     _seed_hp_schedules()
     _seed_gad_milk_collections()
+    _seed_feed_contracts()
+
+
+def _seed_feed_contracts() -> None:
+    from app.services.feed_contracts import seed_feed_contracts_if_empty
+
+    with SessionLocal() as db:
+        seed_feed_contracts_if_empty(db)
 
 
 def _migrate_parlour_schema() -> None:

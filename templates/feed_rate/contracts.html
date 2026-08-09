@@ -1,0 +1,1654 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .view-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.85rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .view-tab {
+      padding: 0.45rem 0.9rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      color: var(--text);
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .view-tab.active {
+      background: #1e3a5f;
+      border-color: #1e3a5f;
+      color: #fff;
+    }
+    .gear-btn {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      color: #4ba3e3;
+      width: 2.6rem;
+      height: 2.6rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
+      flex-shrink: 0;
+    }
+    .gear-btn:hover,
+    .gear-btn[aria-expanded="true"] {
+      color: #2f86c9;
+      background: #eef6fc;
+      border-color: #9ec9ea;
+    }
+    .gear-btn svg { width: 1.45rem; height: 1.45rem; display: block; }
+    .settings-panel {
+      display: none;
+      margin-bottom: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fafafa;
+      padding: 1rem;
+    }
+    .settings-panel.open { display: block; }
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+    }
+    .settings-col h4 {
+      margin: 0 0 0.5rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+    .option-list {
+      list-style: none;
+      margin: 0 0 0.6rem;
+      padding: 0;
+      max-height: 12rem;
+      overflow: auto;
+    }
+    .option-list li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.35rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 0.3rem;
+      background: #fff;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .option-add {
+      display: flex;
+      gap: 0.4rem;
+    }
+    .option-add input { margin: 0; flex: 1; min-width: 0; }
+    .contracts-toolbar {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      margin-bottom: 1rem;
+    }
+    .contracts-toolbar label { margin: 0; }
+    .contracts-toolbar input,
+    .contracts-toolbar select {
+      margin: 0;
+      min-width: 140px;
+    }
+    .date-filter-block {
+      min-width: 200px;
+      max-width: 260px;
+      flex: 1 1 200px;
+    }
+    .date-filter-block .section-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .date-inputs {
+      display: grid;
+      gap: 0.35rem;
+    }
+    .date-inputs label {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.5rem;
+      margin: 0;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .date-inputs .month-label {
+      color: #1e3a5f;
+      font-weight: 700;
+    }
+    .date-inputs input[type="range"] {
+      width: 100%;
+      margin: 0;
+      min-width: 0;
+    }
+    .toggle-filter {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin: 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      align-self: end;
+      padding-bottom: 0.35rem;
+    }
+    .toggle-filter input {
+      margin: 0;
+      min-width: 0;
+      width: auto;
+      accent-color: #1e3a5f;
+      cursor: pointer;
+    }
+    .meta-line {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin-bottom: 0.75rem;
+    }
+    .table-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 16rem);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    #contracts-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    #summary-table {
+      width: max-content;
+      max-width: none;
+      border-collapse: collapse;
+      border: 1px solid #9eb4c8;
+    }
+    #contracts-table th,
+    #contracts-table td {
+      padding: 0.45rem 0.55rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    #summary-table th,
+    #summary-table td {
+      padding: 0.4rem 0.65rem;
+      text-align: center;
+      border: 1px solid #9eb4c8;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+    #contracts-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    #summary-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      text-align: center;
+    }
+    #contracts-table thead th[data-sort] { cursor: pointer; user-select: none; }
+    #contracts-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
+    #contracts-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
+    #contracts-table td.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+    }
+    #summary-table td.num {
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+    }
+    #summary-panel .table-wrap {
+      display: inline-block;
+      max-width: 100%;
+      vertical-align: top;
+    }
+    #summary-table thead tr.type-row th {
+      text-align: center;
+    }
+    #summary-table thead tr.product-row th,
+    #summary-table thead tr.metric-row th {
+      top: auto;
+      position: sticky;
+      text-align: center;
+      font-size: 0.8rem;
+    }
+    #summary-table thead tr.product-row th { top: 2.2rem; z-index: 2; }
+    #summary-table thead tr.metric-row th { top: 4.4rem; z-index: 2; background: #274866; }
+    #summary-table tbody tr.month-row td.month-cell,
+    #summary-table tbody tr.detail-row td.month-cell {
+      font-weight: 700;
+      color: #1e3a5f;
+      text-align: center;
+    }
+    #summary-table .month-toggle {
+      border: none;
+      background: transparent;
+      color: #1e3a5f;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 0;
+      font: inherit;
+    }
+    #summary-table tr.detail-row { background: #f4f8fc; }
+    #summary-table tr.detail-row td {
+      font-weight: 600;
+      color: #334155;
+      font-size: 0.85rem;
+    }
+    #summary-table td.purchase-date {
+      font-weight: 600;
+      color: #1e3a5f;
+    }
+    #summary-table td.tonnes-cell {
+      cursor: cell;
+      user-select: none;
+    }
+    #summary-table td.tonnes-cell.selected {
+      background: #bfdbfe !important;
+      outline: 1px solid #3b82f6;
+      outline-offset: -1px;
+    }
+    #summary-table.dragging {
+      user-select: none;
+      cursor: cell;
+    }
+    .selection-stats {
+      display: none;
+      margin-top: 0.75rem;
+      padding: 0.75rem 1rem;
+      border: 1px solid #93c5fd;
+      border-radius: 8px;
+      background: #eff6ff;
+      color: #1e3a5f;
+      max-width: max-content;
+    }
+    .selection-stats.visible { display: block; }
+    .selection-stats-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #64748b;
+      margin-bottom: 0.4rem;
+    }
+    .selection-stats-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem 1.5rem;
+    }
+    .selection-stats-item .label {
+      font-size: 0.75rem;
+      color: #64748b;
+      font-weight: 600;
+    }
+    .selection-stats-item .value {
+      font-size: 1.05rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .empty-state { padding: 1.5rem; color: var(--muted); }
+    .btn-edit {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: #1e3a5f;
+      border-radius: 6px;
+      padding: 0.2rem 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-edit:hover { background: #f3f6f9; }
+    .btn-danger {
+      border: 1px solid #fecaca;
+      background: #fff;
+      color: #b91c1c;
+      border-radius: 8px;
+      padding: 0.55rem 0.9rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-right: auto;
+    }
+    .btn-danger:hover { background: #fef2f2; }
+    .btn-danger[hidden] { display: none !important; }
+    #edit-delivery-section[hidden],
+    #add-delivery-section[hidden] { display: none !important; }
+    .sheet-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+      z-index: 40;
+      display: none;
+      align-items: stretch;
+      justify-content: flex-end;
+    }
+    .sheet-backdrop.open { display: flex; }
+    .purchase-sheet {
+      width: min(440px, 100%);
+      background: #fff;
+      border-left: 1px solid var(--border);
+      box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+      display: flex;
+      flex-direction: column;
+      max-height: 100vh;
+    }
+    .purchase-sheet header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .purchase-sheet header h2 { margin: 0; font-size: 1.1rem; }
+    .sheet-close {
+      border: none;
+      background: transparent;
+      font-size: 1.4rem;
+      line-height: 1;
+      cursor: pointer;
+      color: var(--muted);
+      padding: 0.2rem 0.4rem;
+    }
+    .purchase-sheet form {
+      padding: 1rem 1.25rem 1.25rem;
+      overflow: auto;
+      display: grid;
+      gap: 0.85rem;
+    }
+    .purchase-sheet label {
+      display: grid;
+      gap: 0.3rem;
+      margin: 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .purchase-sheet input,
+    .purchase-sheet select { margin: 0; width: 100%; }
+    .month-section-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin: 0.25rem 0 0;
+    }
+    .month-hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin: 0;
+      line-height: 1.35;
+    }
+    .month-year-block { margin-bottom: 0.75rem; }
+    .month-year-block h3 {
+      margin: 0 0 0.4rem;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #1e3a5f;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .month-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.4rem;
+    }
+    .month-btn {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #f8fafc;
+      color: var(--text);
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.45rem 0.2rem;
+      cursor: pointer;
+    }
+    .month-btn.selected {
+      background: #1e3a5f;
+      border-color: #1e3a5f;
+      color: #fff;
+    }
+    .tonnage-preview {
+      background: #f3f6f9;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.65rem 0.75rem;
+      font-size: 0.875rem;
+      color: #1e3a5f;
+      font-weight: 600;
+    }
+    .sheet-actions {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: flex-end;
+      padding-top: 0.35rem;
+    }
+    .view-panel { display: none; }
+    .view-panel.active { display: block; }
+{% endblock %}
+
+{% block content %}
+  <div class="view-tabs" role="tablist" aria-label="Feed contracts views">
+    <button type="button" class="view-tab active" data-view="purchases" role="tab" aria-selected="true">Purchases</button>
+    <button type="button" class="view-tab" data-view="summary" role="tab" aria-selected="false">Summary</button>
+  </div>
+
+  <div class="settings-panel" id="settings-panel">
+    <div class="settings-grid">
+      <div class="settings-col">
+        <h4>Products</h4>
+        <ul class="option-list" id="opt-products"></ul>
+        <div class="option-add">
+          <input type="text" id="new-product" maxlength="128" placeholder="e.g. Ground Wheat" autocomplete="off">
+          <button type="button" class="secondary small" data-add="products">Add</button>
+        </div>
+      </div>
+      <div class="settings-col">
+        <h4>Types</h4>
+        <ul class="option-list" id="opt-product_types"></ul>
+        <div class="option-add">
+          <input type="text" id="new-product_types" maxlength="64" placeholder="e.g. Cereal" autocomplete="off">
+          <button type="button" class="secondary small" data-add="product_types">Add</button>
+        </div>
+      </div>
+      <div class="settings-col">
+        <h4>Suppliers</h4>
+        <ul class="option-list" id="opt-suppliers"></ul>
+        <div class="option-add">
+          <input type="text" id="new-suppliers" maxlength="128" placeholder="e.g. Wynnstay" autocomplete="off">
+          <button type="button" class="secondary small" data-add="suppliers">Add</button>
+        </div>
+      </div>
+    </div>
+    <div id="settings-message" class="message"></div>
+  </div>
+
+  <div class="card view-panel active" id="purchases-panel">
+    <div class="contracts-toolbar">
+      <label>
+        Search
+        <input type="search" id="search-input" placeholder="Product, supplier, type…" autocomplete="off">
+      </label>
+      <div class="date-filter-block">
+        <span class="section-label">Delivery date</span>
+        <div class="date-inputs">
+          <label>From <span class="month-label" id="purchases-min-label">—</span></label>
+          <input type="range" id="purchases-min-range" min="0" max="0" value="0">
+          <label>To <span class="month-label" id="purchases-max-label">—</span></label>
+          <input type="range" id="purchases-max-range" min="0" max="0" value="0">
+        </div>
+      </div>
+      <label>
+        Supplier
+        <select id="supplier-filter"><option value="">All</option></select>
+      </label>
+      <label>
+        Product
+        <select id="product-filter"><option value="">All</option></select>
+      </label>
+      <label class="toggle-filter" title="Include deliveries before this month">
+        <input type="checkbox" id="show-past-deliveries">
+        Show past deliveries
+      </label>
+      <button type="button" id="refresh-btn" class="secondary">Refresh</button>
+      <div style="margin-left:auto;display:flex;gap:0.5rem;align-items:center">
+        <button type="button" class="gear-btn" id="settings-toggle" aria-expanded="false"
+          aria-controls="settings-panel" title="Manage feed types and suppliers">
+          <svg viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">
+            <g transform="translate(26 23)">
+              <path d="M-2.4-19.5h4.8l1.2 5c1.8.4 3.5 1.2 5 2.3l4.6-2.4 3.4 3.4-2.4 4.6c1.1 1.5 1.9 3.2 2.3 5l5 1.2v4.8l-5 1.2c-.4 1.8-1.2 3.5-2.3 5l2.4 4.6-3.4 3.4-4.6-2.4c-1.5 1.1-3.2 1.9-5 2.3l-1.2 5h-4.8l-1.2-5c-1.8-.4-3.5-1.2-5-2.3l-4.6 2.4-3.4-3.4 2.4-4.6c-1.1-1.5-1.9-3.2-2.3-5l-5-1.2v-4.8l5-1.2c.4-1.8 1.2-3.5 2.3-5l-2.4-4.6 3.4-3.4 4.6 2.4c1.5-1.1 3.2-1.9 5-2.3l1.2-5z"/>
+              <circle cx="0" cy="0" r="6.2" fill="#fff"/>
+            </g>
+            <g transform="translate(45 43)">
+              <path d="M-1.9-15h3.8l.9 3.8c1.4.3 2.7.9 3.8 1.7l3.5-1.8 2.6 2.6-1.8 3.5c.8 1.2 1.4 2.4 1.7 3.8l3.8.9v3.8l-3.8.9c-.3 1.4-.9 2.7-1.7 3.8l1.8 3.5-2.6 2.6-3.5-1.8c-1.2.8-2.4 1.4-3.8 1.7l-.9 3.8h-3.8l-.9-3.8c-1.4-.3-2.7-.9-3.8-1.7l-3.5 1.8-2.6-2.6 1.8-3.5c-.8-1.2-1.4-2.4-1.7-3.8L-15 1.9v-3.8l3.8-.9c.3-1.4.9-2.7 1.7-3.8l-1.8-3.5 2.6-2.6 3.5 1.8c1.2-.8 2.4-1.4 3.8-1.7l.9-3.8z"/>
+              <circle cx="0" cy="0" r="4.8" fill="#fff"/>
+            </g>
+            <g transform="translate(17 45)">
+              <path d="M-1.4-11h2.8l.7 2.8c1 .2 2 .7 2.8 1.3l2.6-1.3 1.9 1.9-1.3 2.6c.6.8 1 1.8 1.3 2.8l2.8.7v2.8l-2.8.7c-.2 1-.7 2-1.3 2.8l1.3 2.6-1.9 1.9-2.6-1.3c-.8.6-1.8 1-2.8 1.3l-.7 2.8h-2.8l-.7-2.8c-1-.2-2-.7-2.8-1.3l-2.6 1.3-1.9-1.9 1.3-2.6c-.6-.8-1-1.8-1.3-2.8L-11 1.4v-2.8l2.8-.7c.2-1 .7-2 1.3-2.8l-1.3-2.6 1.9-1.9 2.6 1.3c.8-.6 1.8-1 2.8-1.3l.7-2.8z"/>
+              <circle cx="0" cy="0" r="3.5" fill="#fff"/>
+            </g>
+          </svg>
+        </button>
+        <button type="button" id="open-sheet-btn">Add purchase</button>
+      </div>
+    </div>
+    <div id="list-message" class="message"></div>
+    <div class="meta-line" id="meta-line">Loading…</div>
+    <div class="table-wrap">
+      <table id="contracts-table">
+        <thead>
+          <tr id="contracts-head">
+            <th data-sort="purchase_date">Purchase date</th>
+            <th data-sort="product">Product</th>
+            <th data-sort="product_type">Type</th>
+            <th data-sort="tonnage">Tonnage</th>
+            <th data-sort="price">Price (£/t)</th>
+            <th data-sort="supplier">Supplier</th>
+            <th data-sort="delivery_date">Delivery month</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="contracts-body">
+          <tr><td colspan="8" class="empty-state">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card view-panel" id="summary-panel">
+    <div class="contracts-toolbar">
+      <div class="date-filter-block">
+        <span class="section-label">Delivery date</span>
+        <div class="date-inputs">
+          <label>From <span class="month-label" id="summary-min-label">—</span></label>
+          <input type="range" id="summary-min-range" min="0" max="0" value="0">
+          <label>To <span class="month-label" id="summary-max-label">—</span></label>
+          <input type="range" id="summary-max-range" min="0" max="0" value="0">
+        </div>
+      </div>
+      <button type="button" id="summary-refresh-btn" class="secondary">Refresh</button>
+    </div>
+    <div id="summary-message" class="message"></div>
+    <div class="meta-line" id="summary-meta">Loading…</div>
+    <div class="table-wrap">
+      <table id="summary-table">
+        <thead id="summary-head"></thead>
+        <tbody id="summary-body">
+          <tr><td class="empty-state">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="selection-stats" id="selection-stats" aria-live="polite">
+      <div class="selection-stats-title">Selection</div>
+      <div class="selection-stats-grid">
+        <div class="selection-stats-item">
+          <div class="label">Sum of tonnes</div>
+          <div class="value" id="stat-sum">—</div>
+        </div>
+        <div class="selection-stats-item">
+          <div class="label">Average tonnes</div>
+          <div class="value" id="stat-avg">—</div>
+        </div>
+        <div class="selection-stats-item">
+          <div class="label">Weighted avg £/t</div>
+          <div class="value" id="stat-wavg">—</div>
+        </div>
+        <div class="selection-stats-item">
+          <div class="label">Cells</div>
+          <div class="value" id="stat-count">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet-backdrop" id="sheet-backdrop" aria-hidden="true">
+    <aside class="purchase-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <header>
+        <h2 id="sheet-title">Add purchase</h2>
+        <button type="button" class="sheet-close" id="close-sheet-btn" aria-label="Close">&times;</button>
+      </header>
+      <form id="add-form">
+        <label>
+          Purchase date
+          <input type="date" id="purchase_date" required>
+        </label>
+        <label>
+          Supplier
+          <select id="supplier" required></select>
+        </label>
+        <label>
+          Product
+          <select id="product" required></select>
+        </label>
+        <label>
+          Type
+          <select id="product_type"></select>
+        </label>
+        <label>
+          Tonnage <span id="tonnage-hint" style="font-weight:500">(per delivery month)</span>
+          <input type="number" id="tonnage" min="0" step="0.01" required>
+        </label>
+        <label>
+          Price (£/t)
+          <input type="number" id="price" min="0" step="0.01" required>
+        </label>
+        <div id="add-delivery-section">
+          <div class="month-section-label">Delivery months</div>
+          <p class="month-hint">Select every month this tonnage should be delivered. The same tonnage is applied to each month.</p>
+          <div id="month-picker"></div>
+          <div class="tonnage-preview" id="tonnage-preview">Select delivery months</div>
+        </div>
+        <label id="edit-delivery-section" hidden>
+          Delivery month
+          <input type="month" id="delivery_month">
+        </label>
+        <div id="form-message" class="message"></div>
+        <div class="sheet-actions">
+          <button type="button" class="btn-danger" id="delete-contract-btn" hidden>Delete</button>
+          <button type="button" class="secondary" id="cancel-sheet-btn">Cancel</button>
+          <button type="submit" id="add-btn">Save purchase</button>
+        </div>
+      </form>
+    </aside>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  let view = 'purchases';
+  let rows = [];
+  let options = { products: [], product_types: [], suppliers: [] };
+  let defaults = null;
+  let dateFilterReady = false;
+  let monthList = [];
+  let summaryData = null;
+  const expandedMonths = new Set();
+  const selectedMonths = new Set();
+  const sortState = { key: 'delivery_date', dir: 1 };
+
+  const searchInput = document.getElementById('search-input');
+  const supplierFilter = document.getElementById('supplier-filter');
+  const productFilter = document.getElementById('product-filter');
+  const showPastDeliveries = document.getElementById('show-past-deliveries');
+  const purchasesMinRange = document.getElementById('purchases-min-range');
+  const purchasesMaxRange = document.getElementById('purchases-max-range');
+  const purchasesMinLabel = document.getElementById('purchases-min-label');
+  const purchasesMaxLabel = document.getElementById('purchases-max-label');
+  const summaryMinRange = document.getElementById('summary-min-range');
+  const summaryMaxRange = document.getElementById('summary-max-range');
+  const summaryMinLabel = document.getElementById('summary-min-label');
+  const summaryMaxLabel = document.getElementById('summary-max-label');
+  const bodyEl = document.getElementById('contracts-body');
+  const headEl = document.getElementById('contracts-head');
+  const metaEl = document.getElementById('meta-line');
+  const listMessage = document.getElementById('list-message');
+  const summaryHead = document.getElementById('summary-head');
+  const summaryBody = document.getElementById('summary-body');
+  const summaryMeta = document.getElementById('summary-meta');
+  const summaryMessage = document.getElementById('summary-message');
+  const summaryTable = document.getElementById('summary-table');
+  const selectionStats = document.getElementById('selection-stats');
+  const statSum = document.getElementById('stat-sum');
+  const statAvg = document.getElementById('stat-avg');
+  const statWavg = document.getElementById('stat-wavg');
+  const statCount = document.getElementById('stat-count');
+  const settingsToggle = document.getElementById('settings-toggle');
+  const settingsPanel = document.getElementById('settings-panel');
+  const settingsMessage = document.getElementById('settings-message');
+  const form = document.getElementById('add-form');
+  const formMessage = document.getElementById('form-message');
+  const monthPicker = document.getElementById('month-picker');
+  const tonnagePreview = document.getElementById('tonnage-preview');
+  const tonnageInput = document.getElementById('tonnage');
+  const purchaseDateInput = document.getElementById('purchase_date');
+  const deliveryMonthInput = document.getElementById('delivery_month');
+  const addDeliverySection = document.getElementById('add-delivery-section');
+  const editDeliverySection = document.getElementById('edit-delivery-section');
+  const tonnageHint = document.getElementById('tonnage-hint');
+  const sheetTitle = document.getElementById('sheet-title');
+  const saveBtn = document.getElementById('add-btn');
+  const deleteContractBtn = document.getElementById('delete-contract-btn');
+  const backdrop = document.getElementById('sheet-backdrop');
+
+  let editingId = null;
+  let dragSelecting = false;
+  let dragStart = null;
+  let dragEnd = null;
+
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function fmtDate(value) {
+    if (!value) return '—';
+    const parts = String(value).slice(0, 10).split('-');
+    if (parts.length !== 3) return escapeHtml(value);
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
+    if (!year || !month || !day) return escapeHtml(value);
+    return day + ' ' + MONTH_ABBR[month - 1] + ' ' + year;
+  }
+
+  function fmtMonth(value) {
+    if (!value) return '—';
+    const parts = String(value).slice(0, 7).split('-');
+    if (parts.length < 2) return escapeHtml(value);
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    if (!year || !month) return escapeHtml(value);
+    return MONTH_ABBR[month - 1] + '-' + String(year).slice(-2);
+  }
+
+  function fmtNum(value, digits) {
+    if (value == null || value === '') return '—';
+    const n = Number(value);
+    if (isNaN(n)) return escapeHtml(value);
+    return n.toLocaleString(undefined, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+  }
+
+  function fmtPrice(value) {
+    if (value == null || value === '') return '';
+    return '£' + fmtNum(value, 0);
+  }
+
+  function monthLabel(m) {
+    const parts = String(m).split('-');
+    return MONTH_ABBR[Number(parts[1]) - 1] + '-' + String(parts[0]).slice(-2);
+  }
+
+  function monthKey(date) {
+    return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
+  }
+
+  function todayIso() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
+  function showMessage(el, text, isError) {
+    el.textContent = text || '';
+    el.className = 'message' + (isError ? ' err' : text ? ' ok' : '');
+  }
+
+  function clearTonnesSelection() {
+    dragSelecting = false;
+    dragStart = null;
+    dragEnd = null;
+    summaryTable.classList.remove('dragging');
+    summaryBody.querySelectorAll('td.tonnes-cell.selected').forEach(function (td) {
+      td.classList.remove('selected');
+    });
+    selectionStats.classList.remove('visible');
+  }
+
+  function selectedTonnesCells() {
+    if (!dragStart || !dragEnd) return [];
+    const r0 = Math.min(dragStart.r, dragEnd.r);
+    const r1 = Math.max(dragStart.r, dragEnd.r);
+    const c0 = Math.min(dragStart.c, dragEnd.c);
+    const c1 = Math.max(dragStart.c, dragEnd.c);
+    return Array.from(summaryBody.querySelectorAll('td.tonnes-cell[data-tonnes]')).filter(function (td) {
+      const r = Number(td.dataset.r);
+      const c = Number(td.dataset.c);
+      return r >= r0 && r <= r1 && c >= c0 && c <= c1;
+    });
+  }
+
+  function applyTonnesSelection() {
+    summaryBody.querySelectorAll('td.tonnes-cell.selected').forEach(function (td) {
+      td.classList.remove('selected');
+    });
+    const cells = selectedTonnesCells();
+    cells.forEach(function (td) { td.classList.add('selected'); });
+
+    if (!cells.length) {
+      selectionStats.classList.remove('visible');
+      return;
+    }
+
+    let sum = 0;
+    let weightPrice = 0;
+    cells.forEach(function (td) {
+      const tonnes = Number(td.dataset.tonnes);
+      const price = Number(td.dataset.price);
+      if (isNaN(tonnes)) return;
+      sum += tonnes;
+      if (!isNaN(price)) weightPrice += tonnes * price;
+    });
+    const count = cells.length;
+    const avg = count ? sum / count : 0;
+    const wavg = sum > 0 ? weightPrice / sum : 0;
+
+    statSum.textContent = fmtNum(sum, 1);
+    statAvg.textContent = fmtNum(avg, 1);
+    statWavg.textContent = '£' + fmtNum(wavg, 2);
+    statCount.textContent = String(count);
+    selectionStats.classList.add('visible');
+  }
+
+  function cellCoords(td) {
+    if (!td || !td.classList.contains('tonnes-cell') || td.dataset.tonnes == null) return null;
+    return { r: Number(td.dataset.r), c: Number(td.dataset.c) };
+  }
+
+  function parseMonthKey(value) {
+    const parts = String(value || '').split('-').map(Number);
+    if (parts.length < 2 || !parts[0] || !parts[1]) return null;
+    return new Date(parts[0], parts[1] - 1, 1);
+  }
+
+  function buildMonthList(minKey, maxKey) {
+    const start = parseMonthKey(minKey);
+    const end = parseMonthKey(maxKey);
+    if (!start || !end) return [];
+    const months = [];
+    const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+    const last = new Date(end.getFullYear(), end.getMonth(), 1);
+    while (cursor <= last) {
+      months.push(monthKey(cursor));
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return months;
+  }
+
+  function syncPair(minRange, maxRange, minLabel, maxLabel) {
+    let lo = parseInt(minRange.value, 10);
+    let hi = parseInt(maxRange.value, 10);
+    if (Number.isNaN(lo)) lo = 0;
+    if (Number.isNaN(hi)) hi = 0;
+    if (lo > hi) {
+      if (document.activeElement === minRange) {
+        hi = lo;
+        maxRange.value = String(hi);
+      } else {
+        lo = hi;
+        minRange.value = String(lo);
+      }
+    }
+    minLabel.textContent = monthList[lo] ? monthLabel(monthList[lo]) : '—';
+    maxLabel.textContent = monthList[hi] ? monthLabel(monthList[hi]) : '—';
+    return { from: monthList[lo] || '', to: monthList[hi] || '' };
+  }
+
+  function updatePurchasesDateLabels() {
+    return syncPair(purchasesMinRange, purchasesMaxRange, purchasesMinLabel, purchasesMaxLabel);
+  }
+
+  function updateSummaryDateLabels() {
+    return syncPair(summaryMinRange, summaryMaxRange, summaryMinLabel, summaryMaxLabel);
+  }
+
+  function currentMonthKeyNow() {
+    const now = new Date();
+    return monthKey(new Date(now.getFullYear(), now.getMonth(), 1));
+  }
+
+  function setupDateSliders(defs) {
+    const boundsMin = (defs && defs.bounds_min) || (defs && defs.date_from);
+    const boundsMax = (defs && defs.bounds_max) || (defs && defs.date_to);
+    monthList = buildMonthList(boundsMin, boundsMax);
+    if (!monthList.length) {
+      const now = new Date();
+      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      monthList = [monthKey(prev), monthKey(now)];
+    }
+    const maxIdx = Math.max(0, monthList.length - 1);
+    let fromIdx = monthList.indexOf(defs && defs.date_from);
+    let toIdx = monthList.indexOf(defs && defs.date_to);
+    if (fromIdx < 0) fromIdx = 0;
+    if (toIdx < 0) toIdx = maxIdx;
+    if (fromIdx > toIdx) fromIdx = toIdx;
+
+    let purchasesFromIdx = monthList.indexOf(currentMonthKeyNow());
+    if (purchasesFromIdx < 0) purchasesFromIdx = fromIdx;
+    if (purchasesFromIdx > toIdx) purchasesFromIdx = toIdx;
+
+    dateFilterReady = false;
+    [purchasesMinRange, purchasesMaxRange, summaryMinRange, summaryMaxRange].forEach(function (el) {
+      el.min = 0;
+      el.max = maxIdx;
+    });
+    purchasesMinRange.value = String(purchasesFromIdx);
+    purchasesMaxRange.value = String(toIdx);
+    summaryMinRange.value = String(fromIdx);
+    summaryMaxRange.value = String(toIdx);
+    updatePurchasesDateLabels();
+    updateSummaryDateLabels();
+    dateFilterReady = true;
+  }
+
+  function selectedPurchasesRange() {
+    return updatePurchasesDateLabels();
+  }
+
+  function selectedSummaryRange() {
+    return updateSummaryDateLabels();
+  }
+
+  function fillSelect(selectEl, values, keepValue, includeBlank, blankLabel) {
+    const current = keepValue !== undefined ? keepValue : selectEl.value;
+    const list = values.slice();
+    if (current && list.indexOf(current) < 0) list.unshift(current);
+    const blank = includeBlank
+      ? '<option value="">' + escapeHtml(blankLabel || 'All') + '</option>'
+      : '';
+    selectEl.innerHTML = blank + list.map(function (v) {
+      return '<option value="' + escapeHtml(v) + '">' + escapeHtml(v) + '</option>';
+    }).join('');
+    if (current && list.indexOf(current) >= 0) selectEl.value = current;
+    else if (!includeBlank && list.length) selectEl.value = list[0];
+  }
+
+  function applyOptions(data) {
+    options = {
+      products: data.products || [],
+      product_types: data.product_types || [],
+      suppliers: data.suppliers || [],
+    };
+    fillSelect(supplierFilter, options.suppliers, supplierFilter.value, true, 'All');
+    fillSelect(productFilter, options.products, productFilter.value, true, 'All');
+    fillSelect(document.getElementById('supplier'), options.suppliers, document.getElementById('supplier').value, false);
+    fillSelect(document.getElementById('product'), options.products, document.getElementById('product').value, false);
+    fillSelect(document.getElementById('product_type'), options.product_types, document.getElementById('product_type').value, true, '—');
+    renderOptionLists();
+  }
+
+  function renderOptionLists() {
+    [
+      ['products', 'Products'],
+      ['product_types', 'Types'],
+      ['suppliers', 'Suppliers'],
+    ].forEach(function (pair) {
+      const kind = pair[0];
+      const list = document.getElementById('opt-' + kind);
+      const values = options[kind] || [];
+      if (!values.length) {
+        list.innerHTML = '<li class="muted" style="font-weight:500">None yet</li>';
+        return;
+      }
+      list.innerHTML = values.map(function (v) {
+        return '<li><span>' + escapeHtml(v) + '</span>' +
+          '<button type="button" class="secondary small" data-remove="' + kind +
+          '" data-value="' + escapeHtml(v) + '">Remove</button></li>';
+      }).join('');
+    });
+  }
+
+  function setView(next) {
+    view = next;
+    document.querySelectorAll('.view-tab').forEach(function (tab) {
+      const active = tab.dataset.view === view;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    document.getElementById('purchases-panel').classList.toggle('active', view === 'purchases');
+    document.getElementById('summary-panel').classList.toggle('active', view === 'summary');
+    clearTonnesSelection();
+    if (view === 'summary') loadSummary();
+    else loadContracts();
+  }
+
+  function buildPurchasesQuery() {
+    const params = new URLSearchParams();
+    const q = searchInput.value.trim();
+    if (q) params.set('search', q);
+    if (supplierFilter.value) params.set('supplier', supplierFilter.value);
+    if (productFilter.value) params.set('product', productFilter.value);
+    const range = selectedPurchasesRange();
+    let dateFrom = range.from;
+    if (!showPastDeliveries.checked) {
+      const current = currentMonthKeyNow();
+      if (!dateFrom || dateFrom < current) dateFrom = current;
+    }
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (range.to) params.set('date_to', range.to);
+    return params;
+  }
+
+  function sortValue(row, key) {
+    const raw = row[key];
+    if (raw == null || raw === '') return '';
+    if (key === 'tonnage' || key === 'price') return Number(raw);
+    return String(raw).toLowerCase();
+  }
+
+  function sortedRows() {
+    const copy = rows.slice();
+    copy.sort(function (a, b) {
+      const av = sortValue(a, sortState.key);
+      const bv = sortValue(b, sortState.key);
+      if (av < bv) return -1 * sortState.dir;
+      if (av > bv) return 1 * sortState.dir;
+      return 0;
+    });
+    return copy;
+  }
+
+  function updateSortIndicators() {
+    headEl.querySelectorAll('th[data-sort]').forEach(function (th) {
+      th.classList.remove('sorted-asc', 'sorted-desc');
+      if (th.dataset.sort === sortState.key) {
+        th.classList.add(sortState.dir > 0 ? 'sorted-asc' : 'sorted-desc');
+      }
+    });
+  }
+
+  function renderTable() {
+    updateSortIndicators();
+    const sorted = sortedRows();
+    metaEl.textContent = sorted.length + ' purchase' + (sorted.length === 1 ? '' : 's');
+    if (!sorted.length) {
+      bodyEl.innerHTML = '<tr><td colspan="8" class="empty-state">No contracts found.</td></tr>';
+      return;
+    }
+    bodyEl.innerHTML = sorted.map(function (r) {
+      return '<tr data-id="' + r.id + '">' +
+        '<td>' + fmtDate(r.purchase_date) + '</td>' +
+        '<td>' + escapeHtml(r.product) + '</td>' +
+        '<td>' + escapeHtml(r.product_type || '—') + '</td>' +
+        '<td class="num">' + fmtNum(r.tonnage, 2) + '</td>' +
+        '<td class="num">' + fmtNum(r.price, 2) + '</td>' +
+        '<td>' + escapeHtml(r.supplier) + '</td>' +
+        '<td>' + fmtMonth(r.delivery_date) + '</td>' +
+        '<td><button type="button" class="btn-edit" data-id="' + r.id + '">Edit</button></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  async function loadContracts() {
+    metaEl.textContent = 'Loading…';
+    bodyEl.innerHTML = '<tr><td colspan="8" class="empty-state">Loading…</td></tr>';
+    try {
+      const res = await fetch('/api/feed-rate/contracts?' + buildPurchasesQuery().toString());
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.detail || 'Failed to load contracts');
+      rows = data.rows || [];
+      if (data.defaults && !defaults) {
+        defaults = data.defaults;
+        setupDateSliders(defaults);
+      }
+      applyOptions(data);
+      renderTable();
+    } catch (err) {
+      rows = [];
+      bodyEl.innerHTML = '<tr><td colspan="8" class="empty-state">Could not load contracts.</td></tr>';
+      metaEl.textContent = '';
+      showMessage(listMessage, err.message, true);
+    }
+  }
+
+  function renderSummary() {
+    if (!summaryData) return;
+    const columns = summaryData.columns || [];
+    const months = summaryData.months || [];
+    const flatProducts = [];
+    columns.forEach(function (col) {
+      (col.products || []).forEach(function (p) { flatProducts.push(p); });
+    });
+
+    if (!flatProducts.length) {
+      summaryHead.innerHTML = '';
+      summaryBody.innerHTML = '<tr><td class="empty-state">No purchases in this date range.</td></tr>';
+      summaryMeta.textContent = '';
+      return;
+    }
+
+    const showPurchaseDate = expandedMonths.size > 0;
+    const purchaseDateHeader = showPurchaseDate
+      ? '<th rowspan="3">Purchase date</th>'
+      : '';
+
+    const typeRow = '<tr class="type-row"><th rowspan="3">Month</th>' + purchaseDateHeader +
+      columns.map(function (col) {
+        return '<th colspan="' + (col.products.length * 2) + '">' + escapeHtml(col.product_type) + '</th>';
+      }).join('') + '</tr>';
+
+    const productRow = '<tr class="product-row">' + columns.map(function (col) {
+      return col.products.map(function (p) {
+        return '<th colspan="2">' + escapeHtml(p) + '</th>';
+      }).join('');
+    }).join('') + '</tr>';
+
+    const metricRow = '<tr class="metric-row">' + flatProducts.map(function () {
+      return '<th>Tonnes</th><th>Price/t</th>';
+    }).join('') + '</tr>';
+
+    summaryHead.innerHTML = typeRow + productRow + metricRow;
+    summaryMeta.textContent = months.length + ' month' + (months.length === 1 ? '' : 's') +
+      ' · ' + flatProducts.length + ' product' + (flatProducts.length === 1 ? '' : 's');
+
+    function productCellsFromMap(cellMap, rowIndex) {
+      return flatProducts.map(function (p, colIndex) {
+        const cell = (cellMap && cellMap[p]) || {};
+        const tonnesVal = cell.tonnage;
+        const priceVal = cell.price;
+        const tonnes = tonnesVal == null ? '' : fmtNum(tonnesVal, 0);
+        const price = priceVal == null ? '' : fmtPrice(priceVal);
+        const tonnesAttrs = tonnesVal == null
+          ? 'class="num tonnes-cell empty"'
+          : 'class="num tonnes-cell"' +
+            ' data-tonnes="' + Number(tonnesVal) + '"' +
+            ' data-price="' + Number(priceVal) + '"' +
+            ' data-r="' + rowIndex + '"' +
+            ' data-c="' + colIndex + '"';
+        return '<td ' + tonnesAttrs + '>' + tonnes + '</td>' +
+          '<td class="num price-cell">' + price + '</td>';
+      }).join('');
+    }
+
+    let rowIndex = 0;
+    summaryBody.innerHTML = months.map(function (m, index) {
+      const open = expandedMonths.has(m.month);
+      const zebra = index % 2 === 1 ? ' style="background:#eef5fb"' : '';
+      const toggle =
+        '<button type="button" class="month-toggle" data-month="' + m.month + '">' +
+        (open ? '▾ ' : '▸ ') + monthLabel(m.month) + '</button>';
+
+      if (!open) {
+        const purchaseDateCell = showPurchaseDate ? '<td class="purchase-date"></td>' : '';
+        const html = '<tr class="month-row" data-month="' + m.month + '"' + zebra + '>' +
+          '<td class="month-cell">' + toggle + '</td>' +
+          purchaseDateCell +
+          productCellsFromMap(m.cells, rowIndex) +
+          '</tr>';
+        rowIndex += 1;
+        return html;
+      }
+
+      const details = (m.details || []).slice().sort(function (a, b) {
+        return String(a.purchase_date || '').localeCompare(String(b.purchase_date || ''));
+      });
+      if (!details.length) {
+        const html = '<tr class="month-row detail-row" data-month="' + m.month + '"' + zebra + '>' +
+          '<td class="month-cell">' + toggle + '</td>' +
+          '<td class="purchase-date">—</td>' +
+          productCellsFromMap({}, rowIndex) +
+          '</tr>';
+        rowIndex += 1;
+        return html;
+      }
+
+      return details.map(function (d, detailIndex) {
+        const cellMap = {};
+        cellMap[d.product] = { tonnage: d.tonnage, price: d.price };
+        const monthCell = detailIndex === 0
+          ? '<td class="month-cell" rowspan="' + details.length + '">' + toggle + '</td>'
+          : '';
+        const html = '<tr class="detail-row" data-month="' + m.month + '"' +
+          (detailIndex % 2 === 1 ? ' style="background:#eef5fb"' : '') + '>' +
+          monthCell +
+          '<td class="purchase-date">' + fmtDate(d.purchase_date) + '</td>' +
+          productCellsFromMap(cellMap, rowIndex) +
+          '</tr>';
+        rowIndex += 1;
+        return html;
+      }).join('');
+    }).join('');
+    clearTonnesSelection();
+  }
+
+  async function loadSummary() {
+    summaryMeta.textContent = 'Loading…';
+    summaryBody.innerHTML = '<tr><td class="empty-state">Loading…</td></tr>';
+    try {
+      const params = new URLSearchParams();
+      const range = selectedSummaryRange();
+      if (range.from) params.set('date_from', range.from);
+      if (range.to) params.set('date_to', range.to);
+      const res = await fetch('/api/feed-rate/contracts/summary?' + params.toString());
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.detail || 'Failed to load summary');
+      summaryData = data;
+      if (data.defaults && !defaults) {
+        defaults = data.defaults;
+        setupDateSliders(defaults);
+      }
+      renderSummary();
+    } catch (err) {
+      summaryData = null;
+      summaryHead.innerHTML = '';
+      summaryBody.innerHTML = '<tr><td class="empty-state">Could not load summary.</td></tr>';
+      summaryMeta.textContent = '';
+      showMessage(summaryMessage, err.message, true);
+    }
+  }
+
+  function updateTonnagePreview() {
+    const months = selectedMonths.size;
+    const tonnage = Number(tonnageInput.value);
+    if (!months) {
+      tonnagePreview.textContent = 'Select delivery months';
+      return;
+    }
+    if (!tonnage || isNaN(tonnage)) {
+      tonnagePreview.textContent = months + ' month' + (months === 1 ? '' : 's') + ' selected';
+      return;
+    }
+    tonnagePreview.textContent =
+      months + ' × ' + fmtNum(tonnage, 2) + ' t = ' + fmtNum(months * tonnage, 2) + ' t total';
+  }
+
+  function buildMonthPicker() {
+    const now = new Date();
+    const startYear = now.getFullYear();
+    const startMonth = now.getMonth();
+    const byYear = {};
+    for (let i = 0; i < 24; i++) {
+      const d = new Date(startYear, startMonth + i, 1);
+      const year = d.getFullYear();
+      const month = d.getMonth();
+      const key = monthKey(d);
+      if (!byYear[year]) byYear[year] = [];
+      byYear[year].push({ key: key, label: MONTH_ABBR[month] });
+    }
+    monthPicker.innerHTML = Object.keys(byYear).map(function (year) {
+      return '<div class="month-year-block"><h3>' + year + '</h3><div class="month-grid">' +
+        byYear[year].map(function (m) {
+          return '<button type="button" class="month-btn" data-month="' + m.key +
+            '" aria-pressed="false">' + m.label + '</button>';
+        }).join('') + '</div></div>';
+    }).join('');
+  }
+
+  function setSheetMode(mode) {
+    const isEdit = mode === 'edit';
+    editingId = isEdit ? editingId : null;
+    sheetTitle.textContent = isEdit ? 'Edit purchase' : 'Add purchase';
+    saveBtn.textContent = isEdit ? 'Save changes' : 'Save purchase';
+    tonnageHint.textContent = isEdit ? '' : '(per delivery month)';
+    addDeliverySection.hidden = isEdit;
+    editDeliverySection.hidden = !isEdit;
+    deleteContractBtn.hidden = !isEdit;
+    deliveryMonthInput.required = isEdit;
+    deliveryMonthInput.disabled = !isEdit;
+  }
+
+  function openSheet() {
+    editingId = null;
+    setSheetMode('add');
+    form.reset();
+    selectedMonths.clear();
+    monthPicker.querySelectorAll('.month-btn').forEach(function (btn) {
+      btn.classList.remove('selected');
+      btn.setAttribute('aria-pressed', 'false');
+    });
+    purchaseDateInput.value = todayIso();
+    applyOptions(options);
+    showMessage(formMessage, '');
+    updateTonnagePreview();
+    backdrop.classList.add('open');
+    backdrop.setAttribute('aria-hidden', 'false');
+  }
+
+  function openEditSheet(row) {
+    editingId = row.id;
+    setSheetMode('edit');
+    form.reset();
+    selectedMonths.clear();
+    purchaseDateInput.value = row.purchase_date || '';
+    tonnageInput.value = row.tonnage != null ? row.tonnage : '';
+    document.getElementById('price').value = row.price != null ? row.price : '';
+    deliveryMonthInput.value = row.delivery_date
+      ? String(row.delivery_date).slice(0, 7)
+      : '';
+    fillSelect(document.getElementById('supplier'), options.suppliers, row.supplier || '', false);
+    fillSelect(document.getElementById('product'), options.products, row.product || '', false);
+    fillSelect(document.getElementById('product_type'), options.product_types, row.product_type || '', true, '—');
+    showMessage(formMessage, '');
+    backdrop.classList.add('open');
+    backdrop.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeSheet() {
+    backdrop.classList.remove('open');
+    backdrop.setAttribute('aria-hidden', 'true');
+    editingId = null;
+  }
+
+  async function deleteContract(id) {
+    if (!confirm('Delete this purchase?')) return false;
+    const res = await fetch('/api/feed-rate/contracts/' + id, { method: 'DELETE' });
+    const data = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error(data.detail || 'Delete failed');
+    return true;
+  }
+
+  async function addOption(kind, value) {
+    const res = await fetch('/api/feed-rate/contracts/options/' + kind, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: value }),
+    });
+    const data = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error(data.detail || 'Could not add');
+    applyOptions(data);
+  }
+
+  async function removeOption(kind, value) {
+    const res = await fetch('/api/feed-rate/contracts/options/' + kind, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: value }),
+    });
+    const data = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error(data.detail || 'Could not remove');
+    applyOptions(data);
+  }
+
+  document.querySelectorAll('.view-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () { setView(tab.dataset.view); });
+  });
+
+  settingsToggle.addEventListener('click', function () {
+    const open = !settingsPanel.classList.contains('open');
+    settingsPanel.classList.toggle('open', open);
+    settingsToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
+  settingsPanel.addEventListener('click', async function (e) {
+    const addBtn = e.target.closest('[data-add]');
+    if (addBtn) {
+      const kind = addBtn.dataset.add;
+      const input = document.getElementById('new-' + (kind === 'products' ? 'product' : kind));
+      try {
+        await addOption(kind, (input.value || '').trim());
+        input.value = '';
+        showMessage(settingsMessage, 'Added.');
+      } catch (err) {
+        showMessage(settingsMessage, err.message, true);
+      }
+      return;
+    }
+    const removeBtn = e.target.closest('[data-remove]');
+    if (removeBtn) {
+      try {
+        await removeOption(removeBtn.dataset.remove, removeBtn.dataset.value);
+        showMessage(settingsMessage, 'Removed.');
+      } catch (err) {
+        showMessage(settingsMessage, err.message, true);
+      }
+    }
+  });
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    showMessage(formMessage, '');
+    const product = document.getElementById('product').value.trim();
+    const productType = document.getElementById('product_type').value.trim() || null;
+    const supplier = document.getElementById('supplier').value.trim();
+    const tonnage = Number(tonnageInput.value);
+    const price = Number(document.getElementById('price').value);
+    saveBtn.disabled = true;
+    try {
+      if (editingId) {
+        if (!deliveryMonthInput.value) {
+          showMessage(formMessage, 'Delivery month is required.', true);
+          return;
+        }
+        const payload = {
+          purchase_date: purchaseDateInput.value,
+          delivery_date: deliveryMonthInput.value + '-01',
+          product: product,
+          product_type: productType,
+          tonnage: tonnage,
+          price: price,
+          supplier: supplier,
+        };
+        const res = await fetch('/api/feed-rate/contracts/' + editingId, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not save changes');
+        closeSheet();
+        showMessage(listMessage, 'Purchase updated.', false);
+        await loadContracts();
+        if (view === 'summary') await loadSummary();
+      } else {
+        const months = Array.from(selectedMonths).sort();
+        if (!months.length) {
+          showMessage(formMessage, 'Select at least one delivery month.', true);
+          return;
+        }
+        const payload = {
+          purchase_date: purchaseDateInput.value,
+          delivery_months: months,
+          product: product,
+          product_type: productType,
+          tonnage: tonnage,
+          price: price,
+          supplier: supplier,
+        };
+        const res = await fetch('/api/feed-rate/contracts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not save purchase');
+        closeSheet();
+        showMessage(
+          listMessage,
+          'Added ' + (data.count || months.length) + ' delivery month' +
+          ((data.count || months.length) === 1 ? '' : 's') +
+          (data.total_tonnage != null ? ' (' + fmtNum(data.total_tonnage, 2) + ' t total)' : '') + '.',
+          false
+        );
+        await loadContracts();
+      }
+    } catch (err) {
+      showMessage(formMessage, err.message, true);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  monthPicker.addEventListener('click', function (e) {
+    const btn = e.target.closest('.month-btn');
+    if (!btn) return;
+    const key = btn.dataset.month;
+    if (selectedMonths.has(key)) {
+      selectedMonths.delete(key);
+      btn.classList.remove('selected');
+      btn.setAttribute('aria-pressed', 'false');
+    } else {
+      selectedMonths.add(key);
+      btn.classList.add('selected');
+      btn.setAttribute('aria-pressed', 'true');
+    }
+    updateTonnagePreview();
+  });
+
+  tonnageInput.addEventListener('input', updateTonnagePreview);
+  document.getElementById('open-sheet-btn').addEventListener('click', openSheet);
+  document.getElementById('close-sheet-btn').addEventListener('click', closeSheet);
+  document.getElementById('cancel-sheet-btn').addEventListener('click', closeSheet);
+  deleteContractBtn.addEventListener('click', async function () {
+    if (!editingId) return;
+    deleteContractBtn.disabled = true;
+    try {
+      const deleted = await deleteContract(editingId);
+      if (!deleted) return;
+      closeSheet();
+      showMessage(listMessage, 'Purchase deleted.', false);
+      await loadContracts();
+      if (view === 'summary') await loadSummary();
+    } catch (err) {
+      showMessage(formMessage, err.message, true);
+    } finally {
+      deleteContractBtn.disabled = false;
+    }
+  });
+  backdrop.addEventListener('click', function (e) {
+    if (e.target === backdrop) closeSheet();
+  });
+
+  bodyEl.addEventListener('click', function (e) {
+    const btn = e.target.closest('.btn-edit');
+    if (!btn) return;
+    const id = Number(btn.dataset.id);
+    const row = rows.find(function (r) { return r.id === id; });
+    if (!row) {
+      showMessage(listMessage, 'Could not find that purchase.', true);
+      return;
+    }
+    openEditSheet(row);
+  });
+
+  summaryBody.addEventListener('click', function (e) {
+    const btn = e.target.closest('.month-toggle');
+    if (!btn) return;
+    const key = btn.dataset.month;
+    if (expandedMonths.has(key)) expandedMonths.delete(key);
+    else expandedMonths.add(key);
+    renderSummary();
+  });
+
+  summaryBody.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    const td = e.target.closest('td.tonnes-cell');
+    const coords = cellCoords(td);
+    if (!coords) return;
+    e.preventDefault();
+    dragSelecting = true;
+    dragStart = coords;
+    dragEnd = coords;
+    summaryTable.classList.add('dragging');
+    applyTonnesSelection();
+  });
+
+  summaryBody.addEventListener('mouseover', function (e) {
+    if (!dragSelecting) return;
+    const td = e.target.closest('td.tonnes-cell');
+    const coords = cellCoords(td);
+    if (!coords) return;
+    dragEnd = coords;
+    applyTonnesSelection();
+  });
+
+  document.addEventListener('mouseup', function () {
+    if (!dragSelecting) return;
+    dragSelecting = false;
+    summaryTable.classList.remove('dragging');
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      if (backdrop.classList.contains('open')) closeSheet();
+      else clearTonnesSelection();
+    }
+  });
+
+  document.addEventListener('mousedown', function (e) {
+    if (!selectionStats.classList.contains('visible')) return;
+    if (e.target.closest('#summary-table') || e.target.closest('#selection-stats')) return;
+    clearTonnesSelection();
+  });
+
+  headEl.addEventListener('click', function (e) {
+    const th = e.target.closest('th[data-sort]');
+    if (!th) return;
+    const key = th.dataset.sort;
+    if (sortState.key === key) sortState.dir *= -1;
+    else {
+      sortState.key = key;
+      sortState.dir = key === 'tonnage' || key === 'price' ? -1 : 1;
+    }
+    renderTable();
+  });
+
+  let searchTimer;
+  let purchasesSliderTimer;
+  let summarySliderTimer;
+  searchInput.addEventListener('input', function () {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(loadContracts, 300);
+  });
+  [supplierFilter, productFilter].forEach(function (el) {
+    el.addEventListener('change', loadContracts);
+  });
+  showPastDeliveries.addEventListener('change', function () {
+    if (!showPastDeliveries.checked && monthList.length) {
+      const currentIdx = monthList.indexOf(currentMonthKeyNow());
+      if (currentIdx >= 0 && Number(purchasesMinRange.value) < currentIdx) {
+        dateFilterReady = false;
+        purchasesMinRange.value = String(currentIdx);
+        updatePurchasesDateLabels();
+        dateFilterReady = true;
+      }
+    }
+    loadContracts();
+  });
+  [purchasesMinRange, purchasesMaxRange].forEach(function (el) {
+    el.addEventListener('input', function () {
+      updatePurchasesDateLabels();
+      if (!dateFilterReady) return;
+      clearTimeout(purchasesSliderTimer);
+      purchasesSliderTimer = setTimeout(loadContracts, 150);
+    });
+  });
+  [summaryMinRange, summaryMaxRange].forEach(function (el) {
+    el.addEventListener('input', function () {
+      updateSummaryDateLabels();
+      if (!dateFilterReady) return;
+      clearTimeout(summarySliderTimer);
+      summarySliderTimer = setTimeout(loadSummary, 150);
+    });
+  });
+  document.getElementById('refresh-btn').addEventListener('click', loadContracts);
+  document.getElementById('summary-refresh-btn').addEventListener('click', loadSummary);
+
+  // Bootstrap defaults then load.
+  fetch('/api/feed-rate/contracts/options')
+    .then(function (res) { return res.json(); })
+    .then(function (data) { applyOptions(data); })
+    .catch(function () {});
+
+  fetch('/api/feed-rate/contracts/summary')
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      defaults = data.defaults || {
+        date_from: monthKey(new Date()),
+        date_to: monthKey(new Date()),
+        bounds_min: monthKey(new Date()),
+        bounds_max: monthKey(new Date()),
+      };
+      setupDateSliders(defaults);
+      buildMonthPicker();
+      loadContracts();
+    })
+    .catch(function () {
+      const now = new Date();
+      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      defaults = {
+        date_from: monthKey(prev),
+        date_to: monthKey(now),
+        bounds_min: monthKey(prev),
+        bounds_max: monthKey(now),
+      };
+      setupDateSliders(defaults);
+      buildMonthPicker();
+      loadContracts();
+    });
+})();
+</script>
+{% endblock %}

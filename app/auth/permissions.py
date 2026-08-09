@@ -46,7 +46,7 @@ PAGE_LABELS: dict[str, str] = {
     PAGE_STOCK_INVENTORY: "Stock Inventory",
     PAGE_BCMS: "BCMS",
     PAGE_EVENTS: "Events",
-    PAGE_FEED_RATE: "Feed Rate",
+    PAGE_FEED_RATE: "Feed",
     PAGE_OFFICE_ADMIN: "Office Admin",
     PAGE_XERO: "Xero",
     PAGE_GENETICS: "Genetics",
