@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from app.models import CattleSaleLine, CowEvent, SalesPaymentRecord, User
 from app.services.cattle_sale_pdf import is_rejected_sale, normalize_etag
 from app.services.cattle_sales import (
-    CATTLE_SALES_JV_EXIT_EVENTS,
     EVENT_MATCH_WINDOW_DAYS,
     cattle_sales_exit_event_clause,
 )
@@ -28,9 +27,10 @@ SOLD_EVENT = "SOLD"
 
 
 def _payments_dest_expression():
-    """DEST on payments rows: JV exit event name, else CowEvent.dest (SOLD etc.)."""
+    """DEST on payments rows: JV display labels, else CowEvent.dest (SOLD etc.)."""
     return case(
-        (CowEvent.event.in_(list(CATTLE_SALES_JV_EXIT_EVENTS)), CowEvent.event),
+        (CowEvent.event == "GAME", literal("GAMEJV")),
+        (CowEvent.event.in_(("PATH", "PATHWAY")), literal("PATHJV")),
         else_=CowEvent.dest,
     )
 

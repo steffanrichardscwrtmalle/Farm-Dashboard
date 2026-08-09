@@ -249,7 +249,7 @@ def test_list_sales_payments_matches_buitelaar_calf_amount(db: Session) -> None:
 
 
 def test_list_sales_payments_includes_game_event(db: Session) -> None:
-    """GAME JV exits appear on the sales payments queue with DEST=GAME."""
+    """GAME JV exits appear on the sales payments queue with DEST=GAMEJV."""
     db.add(
         CowEvent(
             farm="GAD",
@@ -269,11 +269,11 @@ def test_list_sales_payments_includes_game_event(db: Session) -> None:
     assert "UK752261210200" in etags
     row = next(r for r in result["rows"] if r["etag"] == "UK752261210200")
     assert row["event_date"] == "2026-05-15"
-    assert row["dest"] == "GAME"
+    assert row["dest"] == "GAMEJV"
 
 
 def test_list_sales_payments_includes_path_event(db: Session) -> None:
-    """PATH JV exits appear on the sales payments queue with DEST=PATH."""
+    """PATH JV exits appear on the sales payments queue with DEST=PATHJV."""
     db.add(
         CowEvent(
             farm="CM",
@@ -292,11 +292,11 @@ def test_list_sales_payments_includes_path_event(db: Session) -> None:
     etags = {row["etag"] for row in result["rows"]}
     assert "UK740651135300" in etags
     row = next(r for r in result["rows"] if r["etag"] == "UK740651135300")
-    assert row["dest"] == "PATH"
+    assert row["dest"] == "PATHJV"
 
 
-def test_list_sales_payments_jv_exit_dest_is_event_name(db: Session) -> None:
-    """GAME/PATH/PATHWAY payment rows use the event name as DEST; SOLD keeps event.dest."""
+def test_list_sales_payments_jv_exit_dest_is_display_label(db: Session) -> None:
+    """GAME→GAMEJV, PATH/PATHWAY→PATHJV; SOLD keeps event.dest."""
     db.add(
         CowEvent(
             farm="GAD",
@@ -325,8 +325,8 @@ def test_list_sales_payments_jv_exit_dest_is_event_name(db: Session) -> None:
 
     result = list_sales_payments(db, farms=["CM", "GAD"])
     by_etag = {row["etag"]: row for row in result["rows"]}
-    assert by_etag["UK752261210400"]["dest"] == "GAME"
-    assert by_etag["UK740651135400"]["dest"] == "PATHWAY"
+    assert by_etag["UK752261210400"]["dest"] == "GAMEJV"
+    assert by_etag["UK740651135400"]["dest"] == "PATHJV"
     # Fixture SOLD rows keep CowEvent.dest unchanged
     assert by_etag["UK740651125211"]["dest"] == "EUROFARM"
 
