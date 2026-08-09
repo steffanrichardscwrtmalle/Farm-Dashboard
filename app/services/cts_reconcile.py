@@ -17,6 +17,7 @@ from app.services.cts_client import (
     normalize_cts_etag,
 )
 from app.services.cts_movements import (
+    active_awaiting_cts_etags,
     archive_confirmed_movements,
     requeue_stale_awaiting_movements,
 )
@@ -181,6 +182,7 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
 
     as_of = dt.date.today()
     awaiting_events_days = cts_only_awaiting_events_days(db, farm_key, as_of=as_of)
+    awaiting_cts = active_awaiting_cts_etags(db, farm_key)
 
     def _cts_dict(row: CtsOnHolding) -> dict[str, Any]:
         exit_info = exits.get(row.etag) or {}
@@ -204,7 +206,14 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
             "days_since_exit": days_since_exit,
             "awaiting_events": awaiting_events,
             "awaiting_events_days": awaiting_events_days if awaiting_events else None,
+            "awaiting_cts": bool(row.etag and row.etag in awaiting_cts),
         }
+
+    inv_only_rows = []
+    for key in inv_only_keys:
+        row = dict(inv[key])
+        row["awaiting_cts"] = key in awaiting_cts
+        inv_only_rows.append(row)
 
     return {
         "farm": farm_key,
@@ -219,7 +228,7 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
         "inventory_only_count": len(inv_only_keys),
         # Only mismatches are returned as row lists (matched can be thousands).
         "cts_only": [_cts_dict(cts_by_etag[k]) for k in cts_only_keys],
-        "inventory_only": [inv[k] for k in inv_only_keys],
+        "inventory_only": inv_only_rows,
         "last_sync": (
             {
                 "id": last_sync.id,

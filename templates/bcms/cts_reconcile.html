@@ -128,6 +128,10 @@
       background: #fef2f2;
       color: #991b1b;
     }
+    .cts-table tbody tr.row-awaiting-cts td {
+      background: #f0fdf4;
+      color: #166534;
+    }
     .empty-state { color: var(--muted); padding: 1rem 0.25rem; font-size: 0.875rem; }
     .help-note {
       margin: 0.75rem 0 0;
@@ -199,6 +203,7 @@
         </table>
       </div>
       <p class="empty-state" id="cts-only-empty" hidden>No CTS-only animals.</p>
+      <p class="help-note">Green rows are already accepted on Record Movements and awaiting CTS holding refresh. Red rows are overdue.</p>
     </section>
 
     <section class="section-block">
@@ -288,6 +293,10 @@
 
   function cellValue(row, key) {
     if (key === "exit_event") {
+      if (row.awaiting_cts) {
+        const base = row.exit_event || (row.awaiting_events ? "pending" : "");
+        return base ? `${base} · awaiting CTS` : "awaiting CTS";
+      }
       if (row.awaiting_events && !row.exit_event) return "pending";
       return row.exit_event == null ? "" : row.exit_event;
     }
@@ -430,6 +439,7 @@
   }
 
   function isCtsOnlyOverdue(row) {
+    if (row.awaiting_cts) return false;
     // Grace: inventory ahead of events — show pending, not red, for ≤1 day.
     if (row.awaiting_events) {
       const lag = row.awaiting_events_days;
@@ -442,9 +452,16 @@
   }
 
   function isInventoryOnlyOverdue(row) {
+    if (row.awaiting_cts) return false;
     const days = row.age_days;
     if (days == null || days === "") return false;
     return Number(days) > 3;
+  }
+
+  function rowClass(row, isOverdue) {
+    if (row && row.awaiting_cts) return "row-awaiting-cts";
+    if (typeof isOverdue === "function" && isOverdue(row)) return "row-overdue";
+    return "";
   }
 
   function renderTable(tbodyId, emptyId, headingId, rows, columns, count, isOverdue) {
@@ -459,8 +476,8 @@
     }
     empty.hidden = true;
     tbody.innerHTML = rows.map((row) => {
-      const overdue = typeof isOverdue === "function" && isOverdue(row);
-      const cls = overdue ? ' class="row-overdue"' : "";
+      const clsName = rowClass(row, isOverdue);
+      const cls = clsName ? ` class="${clsName}"` : "";
       return `<tr${cls}>${columns.map((c) => `<td>${esc(cellValue(row, c))}</td>`).join("")}</tr>`;
     }).join("");
   }

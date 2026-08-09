@@ -9,7 +9,7 @@ from xml.etree import ElementTree as ET
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Base, CowEvent, CtsOnHolding, HerdInventory
+from app.models import Base, CowEvent, CtsOnHolding, CtsReportedMovement, HerdInventory
 from app.services.cts_client import normalize_cts_etag, parse_holding_animals_xml
 from app.services.cts_reconcile import reconcile_farm, replace_on_holding_snapshot
 
@@ -169,3 +169,56 @@ def test_reconcile_marks_cts_only_awaiting_events_when_inventory_newer() -> None
     assert pending["exit_event"] is None
     assert pending["awaiting_events"] is True
     assert pending["awaiting_events_days"] == 1
+    assert pending["awaiting_cts"] is False
+
+
+def test_reconcile_marks_awaiting_cts_after_accepted_send() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    today = dt.date.today()
+    etag = "UK987654321"
+
+    session.add(CtsOnHolding(farm="CM", etag=etag, sex="F"))
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag=etag,
+            event="SOLD",
+            event_date=today - dt.timedelta(days=2),
+        )
+    )
+    session.add(
+        CtsReportedMovement(
+            farm="CM",
+            movement_type="sale",
+            etag=etag,
+            event_date=today - dt.timedelta(days=2),
+            status="accepted",
+        )
+    )
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag="UK555555555555",
+            cow_id="202",
+            gender="F",
+            bdat=today - dt.timedelta(days=10),
+        )
+    )
+    session.add(
+        CtsReportedMovement(
+            farm="CM",
+            movement_type="birth",
+            etag="UK555555555555",
+            event_date=today - dt.timedelta(days=10),
+            status="accepted",
+        )
+    )
+    session.commit()
+
+    result = reconcile_farm(session, "CM")
+    sold = next(r for r in result["cts_only"] if r["etag"] == etag)
+    assert sold["awaiting_cts"] is True
+    inv = next(r for r in result["inventory_only"] if r["etag"] == "UK555555555555")
+    assert inv["awaiting_cts"] is True
