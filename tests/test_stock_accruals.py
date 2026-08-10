@@ -29,6 +29,81 @@ def test_normalize_stock_group_defaults_unknown_to_cows() -> None:
     assert normalize_stock_group("invalid") == "cows"
 
 
+def test_died_tb_ofs_count_as_sales_not_deaths(db: Session) -> None:
+    """DIED+TB/OFS must leave accruals once (as sales), not twice."""
+    from app.models import HerdInventory, StockOpeningBaseline
+    from app.services.stock_accruals import build_stock_accruals_report
+
+    db.add(
+        StockOpeningBaseline(
+            farm="CM",
+            stock_group="cows",
+            month_start=dt.date(2026, 6, 1),
+            opening_count=100,
+        )
+    )
+    db.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="1",
+            etag="UK1",
+            bdat=dt.date(2020, 1, 1),
+            lact=2,
+            import_timestamp=dt.datetime(2026, 6, 30, 12, 0, 0),
+        )
+    )
+    db.add(
+        CowEvent(
+            farm="CM",
+            cow_id="10",
+            etag="UKTB",
+            event="DIED",
+            event_date=dt.date(2026, 6, 10),
+            lact=2,
+            remark="TB",
+            bdat=dt.date(2020, 1, 1),
+        )
+    )
+    db.add(
+        CowEvent(
+            farm="CM",
+            cow_id="11",
+            etag="UKOFS",
+            event="DIED",
+            event_date=dt.date(2026, 6, 12),
+            lact=2,
+            remark="OFS",
+            bdat=dt.date(2020, 1, 1),
+        )
+    )
+    db.add(
+        CowEvent(
+            farm="CM",
+            cow_id="12",
+            etag="UKNAT",
+            event="DIED",
+            event_date=dt.date(2026, 6, 14),
+            lact=2,
+            remark="NATURAL",
+            bdat=dt.date(2020, 1, 1),
+        )
+    )
+    db.commit()
+
+    report = build_stock_accruals_report(
+        db,
+        farms=["CM"],
+        stock_group="cows",
+        month_from=dt.date(2026, 6, 1),
+        month_to=dt.date(2026, 6, 30),
+    )
+    assert len(report["rows"]) == 1
+    row = report["rows"][0]
+    assert row["sales_total"] == 2
+    assert row["deaths"] == 1
+    assert row["closing"] == 97
+
+
 def test_beef_fresh_not_counted_as_youngstock_calving(db: Session) -> None:
     """Beef-breed FRESH lact=1 events must not reduce youngstock closing."""
     from app.services.stock_accruals import _fetch_event_count_by_month

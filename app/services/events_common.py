@@ -532,6 +532,16 @@ def _fetch_disease_event_records(
 ) -> list[dict[str, Any]]:
     db_event_types = disease_db_event_types(event_types)
     mastitis_abx_only = event_types == ("MAST_ABX",)
+    if "DIED" in db_event_types:
+        # Match Deaths / fallen stock: DIED+TB/OFS are sales-deaths, not true deaths.
+        non_died = [event for event in db_event_types if event != "DIED"]
+        event_clause = (
+            or_(death_report_event_clause(), CowEvent.event.in_(non_died))
+            if non_died
+            else death_report_event_clause()
+        )
+    else:
+        event_clause = CowEvent.event.in_(list(db_event_types))
     events_query = (
         select(
             CowEvent.cow_id,
@@ -545,7 +555,7 @@ def _fetch_disease_event_records(
             CowEvent.month_label,
             CowEvent.remark,
         )
-        .where(CowEvent.event.in_(list(db_event_types)))
+        .where(event_clause)
         .where(CowEvent.event_date.isnot(None))
         .where(CowEvent.farm.in_(selected_farms))
         .where(CowEvent.event_date >= effective_from)
@@ -566,8 +576,7 @@ def _fetch_disease_event_records(
         event_date = row[3]
         bdat = row[5]
         remark = row[9]
-        # Apply the same youngstock death exclusions as the Deaths page when
-        # DIED events are shown via the disease-type filter.
+        # Same youngstock death exclusions as the Deaths page when DIED is included.
         if (
             event == "DIED"
             and lact == 0

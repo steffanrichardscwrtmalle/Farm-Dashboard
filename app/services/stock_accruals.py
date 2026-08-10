@@ -26,6 +26,7 @@ from app.services.events_common import (
     _fiscal_year_calendar_bounds,
     _iter_month_starts,
     _sales_reason_expression,
+    death_report_event_clause,
     normalize_farms,
     sales_classified_event_clause,
 )
@@ -126,12 +127,17 @@ def _fetch_event_count_by_month(
             extract("month", CowEvent.event_date),
             func.count(),
         )
-        .where(CowEvent.event == event_type)
         .where(CowEvent.event_date.isnot(None))
         .where(CowEvent.farm == farm)
         .where(CowEvent.event_date >= month_from)
         .where(CowEvent.event_date <= month_to)
     )
+    # DIED+TB/OFS are treated as sales via sales_classified_event_clause(); exclude
+    # them from deaths so accruals do not subtract the same exit twice.
+    if event_type == "DIED":
+        query = query.where(death_report_event_clause())
+    else:
+        query = query.where(CowEvent.event == event_type)
     if lact_filter == "fresh_heifers":
         query = query.where(CowEvent.lact == 1)
         query = query.where(func.upper(func.coalesce(CowEvent.gndr, "")) == "F")
