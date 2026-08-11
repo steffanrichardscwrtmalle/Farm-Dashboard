@@ -211,9 +211,6 @@ def has_page(user: User | None, page_key: str) -> bool:
     pages = parse_permissions(user.permissions).get("pages", [])
     if page_key in pages:
         return True
-    # Xero is a top-level section; allow Office Admin users during rollout.
-    if page_key == PAGE_XERO and PAGE_OFFICE_ADMIN in pages:
-        return True
     # BCMS was previously under Stock Inventory; keep access during rollout.
     if page_key == PAGE_BCMS and PAGE_STOCK_INVENTORY in pages:
         return True
