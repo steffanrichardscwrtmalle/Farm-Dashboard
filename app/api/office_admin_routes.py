@@ -220,6 +220,7 @@ def api_stock_purchases(
     stock_group: list[str] | None = Query(None),
     month_from: dt.date | None = Query(None),
     month_to: dt.date | None = Query(None),
+    fiscal_year: int | None = Query(None),
     db: Session = Depends(get_db),
     _user: User = Depends(require_page(PAGE_OFFICE_ADMIN)),
 ):
@@ -229,4 +230,5 @@ def api_stock_purchases(
         stock_groups=stock_group,
         month_from=month_from,
         month_to=month_to,
+        fiscal_year=fiscal_year,
     )

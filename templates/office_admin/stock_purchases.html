@@ -51,15 +51,18 @@
     .slicer-btn[data-value="youngstock"].selected { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
     .slicer-btn[data-value="beef"].selected { background: #ede9fe; border-color: #a78bfa; color: #5b21b6; }
     .date-inputs { display: grid; gap: 0.5rem; }
+    .filter-select { width: 100%; margin: 0; }
     .date-inputs label {
-      display: grid;
-      gap: 0.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
       font-size: 0.875rem;
-      font-weight: 600;
-      color: var(--muted);
     }
-    .date-inputs input { margin: 0; width: 100%; }
+    .date-inputs input[type="range"] { width: 100%; }
+    .date-inputs .month-label { font-weight: 600; min-width: 4.5rem; text-align: right; }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
+    .meta-line.is-loading { font-style: italic; }
     .table-wrap {
       overflow: auto;
       max-height: calc(100vh - 14rem);
@@ -107,16 +110,18 @@
           </div>
         </div>
         <div class="filter-section">
-          <span class="section-label">EDAT from</span>
+          <span class="section-label">Fiscal year</span>
+          <select id="fiscal-year-select" class="filter-select">
+            <option value="">All</option>
+          </select>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">EDAT month range</span>
           <div class="date-inputs">
-            <label>
-              From
-              <input type="month" id="month-from">
-            </label>
-            <label>
-              To
-              <input type="month" id="month-to">
-            </label>
+            <label>From <span class="month-label" id="min-date-label">—</span></label>
+            <input type="range" id="min-date-range" min="0" max="0" value="0">
+            <label>To <span class="month-label" id="max-date-label">—</span></label>
+            <input type="range" id="max-date-range" min="0" max="0" value="0">
           </div>
         </div>
       </aside>
@@ -156,7 +161,11 @@
 
 {% block scripts %}
   <script>
+    const DEFAULT_MONTH_SPAN = 12;
     const GROUP_LABELS = { cows: "Cows", youngstock: "Youngstock", beef: "Beef" };
+    let monthList = [];
+    let loadTimer = null;
+    let initialBoundsSynced = false;
 
     function selectedFarmValues() {
       return [...document.querySelectorAll(".farm-slicer-btn.selected")].map(btn => btn.dataset.value);
@@ -185,21 +194,97 @@
       return formatted || "—";
     }
 
-    function monthEndIso(monthValue) {
-      if (!monthValue) return null;
-      const [y, m] = monthValue.split("-").map(Number);
-      const last = new Date(y, m, 0).getDate();
-      return `${y}-${String(m).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+    function parseIsoDate(iso) {
+      const [y, m, d] = iso.split("-").map(Number);
+      return new Date(y, m - 1, d);
+    }
+
+    function buildMonthList(minIso, maxIso) {
+      const months = [];
+      let d = parseIsoDate(minIso);
+      d = new Date(d.getFullYear(), d.getMonth(), 1);
+      const end = parseIsoDate(maxIso);
+      const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
+      while (d <= endMonth) {
+        months.push(new Date(d));
+        d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+      }
+      return months;
+    }
+
+    function formatMonthLabel(date) {
+      const mon = date.toLocaleDateString("en-GB", { month: "short" });
+      return `${mon}-${String(date.getFullYear()).slice(-2)}`;
+    }
+
+    function toIsoDate(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+
+    function lastDayOfMonth(date) {
+      return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    }
+
+    function updateDateLabels() {
+      const minIdx = parseInt(document.getElementById("min-date-range").value, 10);
+      const maxIdx = parseInt(document.getElementById("max-date-range").value, 10);
+      document.getElementById("min-date-label").textContent =
+        monthList[minIdx] ? formatMonthLabel(monthList[minIdx]) : "—";
+      document.getElementById("max-date-label").textContent =
+        monthList[maxIdx] ? formatMonthLabel(monthList[maxIdx]) : "—";
+    }
+
+    function syncDateBounds(bounds) {
+      const minRange = document.getElementById("min-date-range");
+      const maxRange = document.getElementById("max-date-range");
+      if (!bounds?.min || !bounds?.max) {
+        monthList = [];
+        return;
+      }
+      monthList = buildMonthList(bounds.min, bounds.max);
+      const maxIdx = Math.max(0, monthList.length - 1);
+      const minIdx = Math.max(0, maxIdx - (DEFAULT_MONTH_SPAN - 1));
+      minRange.min = 0;
+      minRange.max = maxIdx;
+      maxRange.min = 0;
+      maxRange.max = maxIdx;
+      minRange.value = minIdx;
+      maxRange.value = maxIdx;
+      updateDateLabels();
+    }
+
+    function renderFiscalYearOptions(options, selectedValue) {
+      const select = document.getElementById("fiscal-year-select");
+      const current = selectedValue || select.value;
+      select.innerHTML = '<option value="">All</option>';
+      (options || []).forEach(year => {
+        const opt = document.createElement("option");
+        opt.value = String(year);
+        opt.textContent = String(year);
+        select.appendChild(opt);
+      });
+      if (current && [...select.options].some(opt => opt.value === String(current))) {
+        select.value = String(current);
+      } else {
+        select.value = "";
+      }
     }
 
     function buildQuery() {
       const params = new URLSearchParams();
       selectedFarmValues().forEach(f => params.append("farm", f));
       selectedGroupValues().forEach(g => params.append("stock_group", g));
-      const from = document.getElementById("month-from").value;
-      const to = document.getElementById("month-to").value;
-      if (from) params.set("month_from", `${from}-01`);
-      if (to) params.set("month_to", monthEndIso(to));
+      const fiscalYear = document.getElementById("fiscal-year-select").value;
+      if (fiscalYear) params.set("fiscal_year", fiscalYear);
+      if (monthList.length) {
+        const minIdx = parseInt(document.getElementById("min-date-range").value, 10);
+        const maxIdx = parseInt(document.getElementById("max-date-range").value, 10);
+        params.set("month_from", toIsoDate(monthList[minIdx]));
+        params.set("month_to", toIsoDate(lastDayOfMonth(monthList[maxIdx])));
+      }
       return params.toString();
     }
 
@@ -231,19 +316,70 @@
     }
 
     async function loadRows() {
-      const res = await fetch(`/api/office-admin/stock-purchases?${buildQuery()}`);
-      if (!res.ok) {
-        document.getElementById("meta-line").textContent = "Failed to load purchases.";
-        return;
+      const meta = document.getElementById("meta-line");
+      meta.classList.add("is-loading");
+      meta.textContent = "Loading…";
+      try {
+        const res = await fetch(`/api/office-admin/stock-purchases?${buildQuery()}`);
+        if (!res.ok) {
+          meta.textContent = "Failed to load purchases.";
+          return;
+        }
+        const data = await res.json();
+        renderFiscalYearOptions(data.fiscal_year_options || [], data.selected_fiscal_year);
+        if (data.date_bounds && !initialBoundsSynced) {
+          syncDateBounds(data.date_bounds);
+          initialBoundsSynced = true;
+          await loadRows();
+          return;
+        }
+        renderTable(data.rows || [], data);
+      } catch (_err) {
+        meta.textContent = "Failed to load purchases.";
+      } finally {
+        meta.classList.remove("is-loading");
       }
-      const data = await res.json();
-      renderTable(data.rows || [], data);
+    }
+
+    function scheduleLoad() {
+      if (loadTimer) clearTimeout(loadTimer);
+      loadTimer = setTimeout(loadRows, 250);
+    }
+
+    function bindDateInputs() {
+      const minRange = document.getElementById("min-date-range");
+      const maxRange = document.getElementById("max-date-range");
+      function clamp() {
+        if (!monthList.length) return;
+        let minVal = parseInt(minRange.value, 10);
+        let maxVal = parseInt(maxRange.value, 10);
+        if (minVal > maxVal) maxVal = minVal;
+        minRange.value = minVal;
+        maxRange.value = maxVal;
+        updateDateLabels();
+        scheduleLoad();
+      }
+      minRange.addEventListener("input", () => {
+        if (parseInt(minRange.value, 10) > parseInt(maxRange.value, 10)) maxRange.value = minRange.value;
+        updateDateLabels();
+        scheduleLoad();
+      });
+      maxRange.addEventListener("input", () => {
+        if (parseInt(maxRange.value, 10) < parseInt(minRange.value, 10)) minRange.value = maxRange.value;
+        updateDateLabels();
+        scheduleLoad();
+      });
+      minRange.addEventListener("change", clamp);
+      maxRange.addEventListener("change", clamp);
     }
 
     bindMultiSlicers(".farm-slicer-btn");
     bindMultiSlicers(".stock-group-slicer-btn");
-    document.getElementById("month-from").addEventListener("change", loadRows);
-    document.getElementById("month-to").addEventListener("change", loadRows);
+    bindDateInputs();
+    document.getElementById("fiscal-year-select").addEventListener("change", () => {
+      initialBoundsSynced = false;
+      loadRows();
+    });
 
     loadRows();
   </script>

@@ -167,23 +167,23 @@
       <div class="home-widgets">
         <a href="/milk-quality/collections" class="home-widget status-loading" data-metric="milk_per_cow" aria-label="{{ farm }} milk per cow">
           <p class="widget-kicker">Milk / cow</p>
-          <p class="widget-title">—</p>
-          <p class="widget-sub" title="30-day average from latest data">—</p>
+          <p class="widget-title" title="7-day average">—</p>
+          <p class="widget-sub" title="30-day average">—</p>
         </a>
         <a href="/milk-quality/collections" class="home-widget status-loading" data-metric="milk_per_day" aria-label="{{ farm }} milk per day">
           <p class="widget-kicker">Milk / day</p>
-          <p class="widget-title">—</p>
-          <p class="widget-sub" title="30-day average from latest data">—</p>
+          <p class="widget-title" title="7-day average">—</p>
+          <p class="widget-sub" title="30-day average">—</p>
         </a>
         <a href="/milk-quality/collections" class="home-widget status-loading" data-metric="butterfat_pct" aria-label="{{ farm }} fat percent">
           <p class="widget-kicker">Fat %</p>
-          <p class="widget-title">—</p>
-          <p class="widget-sub" title="30-day average from latest data">—</p>
+          <p class="widget-title" title="7-day average">—</p>
+          <p class="widget-sub" title="30-day average">—</p>
         </a>
         <a href="/milk-quality/collections" class="home-widget status-loading" data-metric="protein_pct" aria-label="{{ farm }} protein percent">
           <p class="widget-kicker">Protein %</p>
-          <p class="widget-title">—</p>
-          <p class="widget-sub" title="30-day average from latest data">—</p>
+          <p class="widget-title" title="7-day average">—</p>
+          <p class="widget-sub" title="30-day average">—</p>
         </a>
       </div>
     </div>
@@ -300,8 +300,14 @@
   function setWidget(widget, main, sub, href) {
     const title = widget.querySelector(".widget-title");
     const subEl = widget.querySelector(".widget-sub");
-    if (title) title.textContent = main === "—" ? "—" : `7d ${main}`;
-    if (subEl) subEl.textContent = sub === "—" ? "—" : `30d ${sub}`;
+    if (title) {
+      title.textContent = main;
+      title.title = "7-day average";
+    }
+    if (subEl) {
+      subEl.textContent = sub;
+      subEl.title = "30-day average";
+    }
     widget.className = "home-widget status-unknown";
     if (href) widget.href = href;
   }

@@ -275,7 +275,7 @@
       <div class="chart-toolbar">
         <span class="section-label">Trend</span>
         <div class="slicer-group smoothing-slicer">
-          <button type="button" class="slicer-btn selected" data-value="avg" aria-pressed="true">5-day average</button>
+          <button type="button" class="slicer-btn selected" data-value="avg" aria-pressed="true">7-day average</button>
           <button type="button" class="slicer-btn" data-value="raw" aria-pressed="false">Raw data</button>
         </div>
         <span class="section-label">Outliers</span>
@@ -784,7 +784,7 @@
       return [...set].sort();
     }
 
-    const ROLL_WINDOW_DAYS = 5;
+    const ROLL_WINDOW_DAYS = 7;
     let smoothing = true;
 
     function rollingByDate(points, metric) {
@@ -989,7 +989,7 @@
 
     function metricDatasets(metric, suffix, labels) {
       const smooth = smoothing;
-      const tag = smooth ? ' (5-day avg)' : '';
+      const tag = smooth ? ' (7-day avg)' : '';
       return selectedFarms().map(farm => {
         const color = FARM_COLORS[farm] || '#555';
         return {
