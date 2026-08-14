@@ -93,6 +93,73 @@ def test_zero_volume_rows_excluded_from_trend_totals() -> None:
     assert points[0]["volume_litres"] == 10000
 
 
+def test_backfill_gad_sample_ids_from_nml_single_load_days() -> None:
+    from app.models import NmlMilkResult
+    from app.services.haulier_collections import backfill_gad_sample_ids_from_nml
+
+    db = _session()
+    day = dt.date(2026, 8, 22)
+    day_multi = dt.date(2026, 8, 23)
+    db.add(
+        MilkCollection(
+            farm="GAD",
+            collection_date=day,
+            sample_id=None,
+            volume_litres=15000,
+            source_file="seed:gadmilk.xlsx",
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="4455",
+        )
+    )
+    # Multi-load day must not be guessed
+    db.add(
+        MilkCollection(
+            farm="GAD",
+            collection_date=day_multi,
+            sample_id=None,
+            volume_litres=8000,
+            arrival_time=dt.time(1, 0),
+            source_file="seed:gadmilk.xlsx",
+        )
+    )
+    db.add(
+        MilkCollection(
+            farm="GAD",
+            collection_date=day_multi,
+            sample_id=None,
+            volume_litres=7000,
+            arrival_time=dt.time(2, 0),
+            source_file="seed:gadmilk.xlsx",
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day_multi,
+            sample_id="4466",
+        )
+    )
+    db.commit()
+
+    updated = backfill_gad_sample_ids_from_nml(db)
+    assert updated == 1
+    single = db.scalars(
+        select(MilkCollection).where(MilkCollection.collection_date == day)
+    ).one()
+    assert single.sample_id == "4455"
+    multi = db.scalars(
+        select(MilkCollection).where(MilkCollection.collection_date == day_multi)
+    ).all()
+    assert all(not (r.sample_id or "").strip() for r in multi)
+
+
 def test_list_collections_includes_unmatched_nml_and_quality_summary() -> None:
     from app.models import NmlMilkResult
     from app.services.haulier_collections import list_collections

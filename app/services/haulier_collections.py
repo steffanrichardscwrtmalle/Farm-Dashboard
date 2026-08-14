@@ -72,6 +72,62 @@ def unique_gad_nml_sample_id(db: Session, collection_date: dt.date) -> str | Non
     return samples[0]
 
 
+def backfill_gad_sample_ids_from_nml(db: Session) -> int:
+    """Fill blank GAD sample IDs from unique same-day NML samples (single-load days).
+
+    Historic GAD seed/manual rows often have no sample number, so they never match
+    NML until edited. This applies the same rule as add/edit auto-fill in bulk.
+    """
+    from collections import defaultdict
+
+    nml_by_date: dict[dt.date, list[str]] = defaultdict(list)
+    seen_by_date: dict[dt.date, set[str]] = defaultdict(set)
+    for row in db.scalars(select(NmlMilkResult).where(NmlMilkResult.farm == "GAD")).all():
+        if row.sample_date is None:
+            continue
+        raw = (row.sample_id or "").strip()
+        if not raw:
+            continue
+        key = raw.lstrip("0") or "0"
+        if key in seen_by_date[row.sample_date]:
+            continue
+        seen_by_date[row.sample_date].add(key)
+        nml_by_date[row.sample_date].append(raw)
+
+    unique_nml = {
+        day: samples[0]
+        for day, samples in nml_by_date.items()
+        if len(samples) == 1
+    }
+    if not unique_nml:
+        return 0
+
+    by_date: dict[dt.date, list[MilkCollection]] = defaultdict(list)
+    for row in db.scalars(select(MilkCollection).where(MilkCollection.farm == "GAD")).all():
+        if row.collection_date is None:
+            continue
+        by_date[row.collection_date].append(row)
+
+    updated = 0
+    for day, loads in by_date.items():
+        if len(loads) != 1:
+            continue
+        load = loads[0]
+        if (load.sample_id or "").strip():
+            continue
+        if load.volume_litres is None or load.volume_litres <= 0:
+            continue
+        suggested = unique_nml.get(day)
+        if not suggested:
+            continue
+        load.sample_id = suggested
+        updated += 1
+
+    if updated:
+        db.commit()
+    return updated
+
+
 def suggest_sample_for_manual_day(
     db: Session,
     *,
@@ -418,6 +474,9 @@ def list_collections(
     )
     if int(blank_deleted.rowcount or 0) > 0:
         db.commit()
+
+    # One-shot style repair: attach NML sample IDs to historic single-load GAD days.
+    backfill_gad_sample_ids_from_nml(db)
 
     query = select(MilkCollection).where(MilkCollection.farm.in_(selected_farms))
     if date_from is not None:

@@ -321,12 +321,17 @@ def import_nml_results(
     inserted, updated = _upsert(db, parsed_by_key)
     db.commit()
 
+    from app.services.haulier_collections import backfill_gad_sample_ids_from_nml
+
+    samples_linked = backfill_gad_sample_ids_from_nml(db)
+
     return {
         "files_processed": files_processed,
         "files_skipped": files_skipped,
         "rows_inserted": inserted,
         "rows_updated": updated,
         "rows_total": inserted + updated,
+        "gad_samples_linked": samples_linked,
         "warnings": warnings,
         "mailbox_stats": mailbox_stats,
         "imported_at": dt.datetime.now().isoformat(timespec="seconds"),

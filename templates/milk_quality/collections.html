@@ -280,8 +280,8 @@
         </div>
         <span class="section-label">Outliers</span>
         <div class="slicer-group outlier-slicer">
-          <button type="button" class="slicer-btn selected" data-value="keep" aria-pressed="true">All data</button>
-          <button type="button" class="slicer-btn" data-value="exclude" aria-pressed="false">Cap (IQR)</button>
+          <button type="button" class="slicer-btn" data-value="keep" aria-pressed="false">All data</button>
+          <button type="button" class="slicer-btn selected" data-value="exclude" aria-pressed="true">Cap (IQR)</button>
         </div>
       </div>
 
@@ -693,7 +693,7 @@
     const IQR_FACTOR = 1.5; // Tukey fences
     // Volume metrics stay uncapped — IQR would flatten real production swings.
     const IQR_SKIP_METRICS = new Set(['volume_litres', 'litres_per_cow']);
-    let excludeOutliers = false;
+    let excludeOutliers = true;
 
     function quantile(sorted, q) {
       const pos = (sorted.length - 1) * q;

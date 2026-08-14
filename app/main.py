@@ -160,7 +160,7 @@ _GENETICS_BREADCRUMB = (
 )
 _MILK_QUALITY_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
-    '<a href="/milk-quality/results">Milk Sales</a>'
+    '<a href="/milk-quality/collections">Milk Sales</a>'
 )
 _PARLOUR_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
@@ -1328,27 +1328,10 @@ def genetics_sire_conflicts_page(request: Request):
 
 @app.get("/milk-quality/results", response_class=HTMLResponse)
 def milk_quality_results_page(request: Request):
+    """Legacy NML page URL — redirect to Collections (which includes NML)."""
     if denied := _page_guard(request, PAGE_MILK_QUALITY):
         return denied
-    from app.config import NML_LOOKBACK_DAYS
-    from app.models import HERD_FARM_OPTIONS
-
-    return templates.TemplateResponse(
-        request,
-        "milk_quality/results.html",
-        _template_ctx(
-            request,
-            page_heading="NML Results",
-            farm_options=list(HERD_FARM_OPTIONS),
-            can_import=has_action(request.state.user, ACTION_MILK_QUALITY_IMPORT),
-            lookback_days=NML_LOOKBACK_DAYS,
-            **_milk_quality_context(
-                "NML Results",
-                "nml-results",
-                "Results",
-            ),
-        ),
-    )
+    return RedirectResponse(url="/milk-quality/collections", status_code=302)
 
 
 @app.get("/milk-quality/collections", response_class=HTMLResponse)
