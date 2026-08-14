@@ -304,6 +304,16 @@
         </div>
         <div class="chart-card">
           <div class="chart-head">
+            <h3>Urea (%)</h3>
+            <div class="chart-actions">
+              <button type="button" class="chart-btn chart-reset" data-canvas="chart-urea" title="Reset zoom">⟲</button>
+              <button type="button" class="chart-expand" data-canvas="chart-urea" data-title="Urea (%)" title="View larger">⤢</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-urea"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head">
             <h3>BactoScan (x1000/ml, vol-weighted)</h3>
             <div class="chart-actions">
               <button type="button" class="chart-btn chart-reset" data-canvas="chart-bactoscan" title="Reset zoom">⟲</button>
@@ -911,6 +921,7 @@
         ['chart-temp', 'line', { datasets: metricDatasets('temp_c', 'Temp', labels), labels }],
         ['chart-butterfat', 'line', { datasets: metricDatasets('butterfat_pct', 'Butterfat', labels), labels }],
         ['chart-protein', 'line', { datasets: metricDatasets('protein_pct', 'Protein', labels), labels }],
+        ['chart-urea', 'line', { datasets: metricDatasets('urea_pct', 'Urea', labels), labels }],
         ['chart-bactoscan', 'line', { datasets: metricDatasets('bactoscan', 'BactoScan', labels), labels }],
         ['chart-bacto-arrival', 'scatter', { datasets: bactoArrivalDatasets() }],
       ];
@@ -951,7 +962,7 @@
       openModalCanvasId = null;
     }
 
-    const CHART_IDS = ['chart-volume', 'chart-per-cow', 'chart-temp', 'chart-butterfat', 'chart-protein', 'chart-bactoscan', 'chart-bacto-arrival'];
+    const CHART_IDS = ['chart-volume', 'chart-per-cow', 'chart-temp', 'chart-butterfat', 'chart-protein', 'chart-urea', 'chart-bactoscan', 'chart-bacto-arrival'];
 
     function bindChartUI() {
       document.querySelectorAll('.smoothing-slicer .slicer-btn').forEach(btn => {
