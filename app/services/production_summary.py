@@ -1,9 +1,13 @@
-"""Home-dashboard production averages (7d / 30d) per farm.
+"""Home-dashboard production averages (rolling short / 30d) per farm.
 
-Windows are rolling calendar ranges ending on the most recent day that has
-the relevant metric for that farm (not UK "today"). Empty trailing days after
-the latest load are ignored. Within a window, averages use only days that
-have that metric (same style as Collections summary).
+Windows end on the most recent day that has the relevant metric for that farm
+(not UK "today"). Empty trailing days after the latest load are ignored.
+Within a window, averages use only days that have that metric (same style as
+Collections summary).
+
+The short "rolling" figure is the mean of the 6-day and 7-day calendar means
+(same blend as Collections trend smoothing), which damps CM's alternate
+3-load / 4-load collection pattern better than a plain 7-day mean.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ _UK = ZoneInfo("Europe/London")
 # Fetch a little more than 30d so a farm whose latest load is a few days
 # behind "today" still has a full 30-day window available.
 _LOOKBACK_PAD_DAYS = 45
-_SHORT_WINDOW_DAYS = 7
+_SHORT_ROLL_WINDOWS = (6, 7)
 _LONG_WINDOW_DAYS = 30
 
 
@@ -101,7 +105,40 @@ def _metric_window(
     }
 
 
-def _empty_bundle(days: int) -> dict[str, Any]:
+def _blend_metric_windows(
+    points: list[dict[str, Any]],
+    *,
+    key: str,
+    windows: tuple[int, ...],
+    dp: int,
+    as_int: bool = False,
+) -> dict[str, Any]:
+    """Mean of several calendar-window means (e.g. 6d and 7d → rolling)."""
+    parts = [
+        _metric_window(points, key=key, days=days, dp=dp, as_int=as_int)
+        for days in windows
+    ]
+    values = [part["value"] for part in parts if part["value"] is not None]
+    # Metadata from the longest window (widest calendar span).
+    longest = max(parts, key=lambda part: int(part["days"] or 0))
+    if not values:
+        value: float | int | None = None
+    elif as_int:
+        value = round(sum(float(v) for v in values) / len(values))
+    else:
+        value = _mean([float(v) for v in values], dp)
+    return {
+        "days": "rolling",
+        "windows": list(windows),
+        "from": longest["from"],
+        "to": longest["to"],
+        "days_with_data": longest["days_with_data"],
+        "value": value,
+        "window_end": longest["window_end"],
+    }
+
+
+def _empty_bundle(days: int | str) -> dict[str, Any]:
     return {
         "days": days,
         "from": None,
@@ -115,16 +152,18 @@ def _empty_bundle(days: int) -> dict[str, Any]:
     }
 
 
-def _bundle_for_days(points: list[dict[str, Any]], days: int) -> dict[str, Any]:
-    volume = _metric_window(
-        points, key="volume_litres", days=days, dp=0, as_int=True
-    )
-    per_cow = _metric_window(points, key="litres_per_cow", days=days, dp=1)
-    fat = _metric_window(points, key="butterfat_pct", days=days, dp=2)
-    protein = _metric_window(points, key="protein_pct", days=days, dp=2)
-    # Prefer volume window bounds for the bundle metadata (milk widgets).
+def _bundle_from_metric_fn(
+    points: list[dict[str, Any]],
+    metric_fn,
+    *,
+    days_label: int | str,
+) -> dict[str, Any]:
+    volume = metric_fn(points, key="volume_litres", dp=0, as_int=True)
+    per_cow = metric_fn(points, key="litres_per_cow", dp=1)
+    fat = metric_fn(points, key="butterfat_pct", dp=2)
+    protein = metric_fn(points, key="protein_pct", dp=2)
     return {
-        "days": days,
+        "days": days_label,
         "from": volume["from"],
         "to": volume["to"],
         "days_with_volume": volume["days_with_data"],
@@ -158,15 +197,36 @@ def _bundle_for_days(points: list[dict[str, Any]], days: int) -> dict[str, Any]:
     }
 
 
+def _bundle_for_days(points: list[dict[str, Any]], days: int) -> dict[str, Any]:
+    def metric_fn(pts, *, key, dp, as_int=False):
+        return _metric_window(pts, key=key, days=days, dp=dp, as_int=as_int)
+
+    return _bundle_from_metric_fn(points, metric_fn, days_label=days)
+
+
+def _bundle_for_rolling(points: list[dict[str, Any]]) -> dict[str, Any]:
+    def metric_fn(pts, *, key, dp, as_int=False):
+        return _blend_metric_windows(
+            pts,
+            key=key,
+            windows=_SHORT_ROLL_WINDOWS,
+            dp=dp,
+            as_int=as_int,
+        )
+
+    return _bundle_from_metric_fn(points, metric_fn, days_label="rolling")
+
+
 def get_production_summary(
     db: Session,
     *,
     as_of: dt.date | None = None,
 ) -> dict[str, Any]:
-    """Return per-farm 7d/30d production averages for CM and GAD.
+    """Return per-farm rolling-short / 30d production averages for CM and GAD.
 
-    Each metric's window ends on that farm's latest day that has the metric,
-    then looks back the calendar span (7 or 30 days).
+    Short window (``d7`` key kept for the home widget) is the mean of the
+    6-day and 7-day calendar means. Each metric's windows end on that farm's
+    latest day that has the metric.
     """
     today = as_of or _uk_today()
     date_from = today - dt.timedelta(days=_LOOKBACK_PAD_DAYS)
@@ -181,7 +241,7 @@ def get_production_summary(
     farms_out: list[dict[str, Any]] = []
     for farm in HERD_FARM_OPTIONS:
         points = list(trend.get(farm) or [])
-        d7 = _bundle_for_days(points, _SHORT_WINDOW_DAYS)
+        d7 = _bundle_for_rolling(points)
         d30 = _bundle_for_days(points, _LONG_WINDOW_DAYS)
         farms_out.append(
             {

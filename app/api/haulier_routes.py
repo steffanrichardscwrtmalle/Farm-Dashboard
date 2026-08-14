@@ -63,7 +63,7 @@ def api_haulier_production_summary(
     db: Session = Depends(get_db),
     _user: User = Depends(require_page(PAGE_MILK_QUALITY)),
 ):
-    """Home widget: per-farm 7d/30d milk production averages from latest data."""
+    """Home widget: per-farm rolling-short / 30d milk production averages."""
     return get_production_summary(db)
 
 

@@ -1,4 +1,4 @@
-"""Home production summary (7d / 30d) averages."""
+"""Home production summary (rolling short / 30d) averages."""
 
 from __future__ import annotations
 
@@ -8,7 +8,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Base, MilkCollection, NmlMilkResult
-from app.services.production_summary import _metric_window, get_production_summary
+from app.services.production_summary import (
+    _blend_metric_windows,
+    _metric_window,
+    get_production_summary,
+)
 
 
 def _session():
@@ -89,6 +93,24 @@ def test_metric_window_ends_on_latest_day_with_that_metric() -> None:
     assert fat["value"] == 6.03  # (9.9+4.0+4.2)/3
 
 
+def test_blend_metric_windows_averages_6_and_7() -> None:
+    # Perfect 3/4-load alternation: 84k / 112k → 6d flat at 98k; 7d wobbles.
+    points = [
+        {"date": f"2026-08-{day:02d}", "volume_litres": 84000 if day % 2 else 112000}
+        for day in range(1, 10)
+    ]
+    blended = _blend_metric_windows(
+        points, key="volume_litres", windows=(6, 7), dp=0, as_int=True
+    )
+    six = _metric_window(points, key="volume_litres", days=6, dp=0, as_int=True)
+    seven = _metric_window(points, key="volume_litres", days=7, dp=0, as_int=True)
+    assert six["value"] == 98000
+    assert seven["value"] != six["value"]
+    assert blended["value"] == round((six["value"] + seven["value"]) / 2)
+    assert blended["days"] == "rolling"
+    assert blended["to"] == "2026-08-09"
+
+
 def test_production_summary_ignores_trailing_empty_days_after_latest() -> None:
     db = _session()
     as_of = dt.date(2026, 8, 10)
@@ -142,6 +164,7 @@ def test_production_summary_ignores_trailing_empty_days_after_latest() -> None:
 
     cm = by_farm["CM"]
     assert cm["window_end"] == "2026-08-09"
+    assert cm["d7"]["days"] == "rolling"
     assert cm["d7"]["to"] == "2026-08-09"
     assert cm["d7"]["from"] == "2026-08-03"
     assert cm["d7"]["milk_per_day"] == 19000

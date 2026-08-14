@@ -275,7 +275,7 @@
       <div class="chart-toolbar">
         <span class="section-label">Trend</span>
         <div class="slicer-group smoothing-slicer">
-          <button type="button" class="slicer-btn selected" data-value="avg" aria-pressed="true">7-day average</button>
+          <button type="button" class="slicer-btn selected" data-value="avg" aria-pressed="true" title="Average of 6-day and 7-day means">Rolling average</button>
           <button type="button" class="slicer-btn" data-value="raw" aria-pressed="false">Raw data</button>
         </div>
         <span class="section-label">Outliers</span>
@@ -784,23 +784,37 @@
       return [...set].sort();
     }
 
-    const ROLL_WINDOW_DAYS = 7;
+    // Blend of 6-day (even: balances CM 3/4-load alternation) and 7-day means.
+    const ROLL_WINDOWS = [6, 7];
     let smoothing = true;
+
+    function rollingMeanAt(points, dates, endIdx, windowDays, metric) {
+      const start = new Date(dates[endIdx]);
+      start.setDate(start.getDate() - (windowDays - 1));
+      let sum = 0;
+      let count = 0;
+      for (let j = 0; j <= endIdx; j++) {
+        if (dates[j] >= start && dates[j] <= dates[endIdx]) {
+          const v = points[j][metric];
+          if (v !== null && v !== undefined) {
+            sum += v;
+            count++;
+          }
+        }
+      }
+      return count ? sum / count : null;
+    }
 
     function rollingByDate(points, metric) {
       const result = {};
       const dates = points.map(p => new Date(p.date + 'T00:00:00'));
       for (let i = 0; i < points.length; i++) {
-        const start = new Date(dates[i]);
-        start.setDate(start.getDate() - (ROLL_WINDOW_DAYS - 1));
-        let sum = 0, count = 0;
-        for (let j = 0; j <= i; j++) {
-          if (dates[j] >= start && dates[j] <= dates[i]) {
-            const v = points[j][metric];
-            if (v !== null && v !== undefined) { sum += v; count++; }
-          }
-        }
-        result[points[i].date] = count ? Math.round((sum / count) * 1000) / 1000 : null;
+        const parts = ROLL_WINDOWS
+          .map(days => rollingMeanAt(points, dates, i, days, metric))
+          .filter(v => v !== null);
+        result[points[i].date] = parts.length
+          ? Math.round((parts.reduce((a, b) => a + b, 0) / parts.length) * 1000) / 1000
+          : null;
       }
       return result;
     }
@@ -989,7 +1003,7 @@
 
     function metricDatasets(metric, suffix, labels) {
       const smooth = smoothing;
-      const tag = smooth ? ' (7-day avg)' : '';
+      const tag = smooth ? ' (rolling avg)' : '';
       return selectedFarms().map(farm => {
         const color = FARM_COLORS[farm] || '#555';
         return {
