@@ -1657,6 +1657,17 @@ PAY_TYPE_HOURLY = "hourly"
 PAY_TYPE_SALARY = "salary"
 PAY_TYPES: tuple[str, ...] = (PAY_TYPE_HOURLY, PAY_TYPE_SALARY)
 
+EMPLOYMENT_TYPE_EMPLOYED = "employed"
+EMPLOYMENT_TYPE_SELF_EMPLOYED = "self_employed"
+EMPLOYMENT_TYPES: tuple[str, ...] = (
+    EMPLOYMENT_TYPE_EMPLOYED,
+    EMPLOYMENT_TYPE_SELF_EMPLOYED,
+)
+EMPLOYMENT_TYPE_LABELS: dict[str, str] = {
+    EMPLOYMENT_TYPE_EMPLOYED: "Employed",
+    EMPLOYMENT_TYPE_SELF_EMPLOYED: "Self-employed",
+}
+
 # Legal entities staff can be employed by (full registered names).
 HR_BUSINESS_OPTIONS: tuple[str, ...] = ("Cwrt Malle Ltd", "Green Acre Dairy Ltd")
 # Personal title options for the new-starter form.
@@ -1706,6 +1717,9 @@ class Employee(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     business: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    employment_type: Mapped[str] = mapped_column(
+        String(32), default=EMPLOYMENT_TYPE_EMPLOYED, index=True
+    )
     title: Mapped[str | None] = mapped_column(String(16), nullable=True)
     employee_number: Mapped[str | None] = mapped_column(
         String(64), nullable=True, unique=True, index=True

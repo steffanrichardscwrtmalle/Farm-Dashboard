@@ -1079,6 +1079,7 @@ def _migrate_hr_schema() -> None:
         existing_cols = {col["name"] for col in inspector.get_columns("employees")}
         new_columns = {
             "business": "VARCHAR(64)",
+            "employment_type": "VARCHAR(32)",
             "title": "VARCHAR(16)",
             "employee_number": "VARCHAR(64)",
             "working_days_per_week": "FLOAT",
@@ -1100,6 +1101,13 @@ def _migrate_hr_schema() -> None:
                 for name, ddl_type in missing.items():
                     conn.execute(
                         text(f"ALTER TABLE employees ADD COLUMN {name} {ddl_type}")
+                    )
+                if "employment_type" in missing:
+                    conn.execute(
+                        text(
+                            "UPDATE employees SET employment_type = 'employed' "
+                            "WHERE employment_type IS NULL OR employment_type = ''"
+                        )
                     )
         with engine.begin() as conn:
             conn.execute(

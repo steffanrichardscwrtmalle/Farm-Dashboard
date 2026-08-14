@@ -56,8 +56,9 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="contracts-card">
       <h2>Contracts</h2>
+      <p id="contracts-note" class="muted" hidden>Self-employed staff are not sent an employment contract.</p>
       <div class="table-wrap">
         <table>
           <thead>
@@ -175,9 +176,12 @@
       profileActions.innerHTML = '';
       return;
     }
-    const editLabel = (!emp.status || emp.status === 'onboarding')
-      ? 'Edit / send draft'
-      : 'Edit / resend contract';
+    const selfEmployed = emp.employment_type === 'self_employed';
+    const editLabel = selfEmployed
+      ? 'Edit details'
+      : ((!emp.status || emp.status === 'onboarding')
+        ? 'Edit / send draft'
+        : 'Edit / resend contract');
     let html = '<button type="button" class="small" id="edit-btn">' + editLabel + '</button> ';
     if (emp.status === 'archived') {
       html += '<button type="button" class="small secondary" id="restore-btn">Restore</button>';
@@ -231,6 +235,7 @@
     profileGrid.innerHTML =
       sectionHeading('Role &amp; personal') +
       detailItem('Business', escapeHtml(emp.business || '—')) +
+      detailItem('Employment type', escapeHtml(emp.employment_type_label || 'Employed')) +
       detailItem('Employee number', escapeHtml(emp.employee_number || '—')) +
       detailItem('Full name', escapeHtml(fmtName(emp) || '—')) +
       detailItem('Job title', escapeHtml(emp.role_title || '—')) +
@@ -275,7 +280,13 @@
     return '<div class="detail-item"><label>' + label + '</label><div class="value">' + valueHtml + '</div></div>';
   }
 
-  function renderContracts(contracts) {
+  function renderContracts(contracts, selfEmployed) {
+    const note = document.getElementById('contracts-note');
+    if (note) note.hidden = !selfEmployed;
+    if (selfEmployed && !contracts.length) {
+      contractsBody.innerHTML = '<tr><td colspan="5" class="muted">No contract — saved to directory only.</td></tr>';
+      return;
+    }
     if (!contracts.length) {
       contractsBody.innerHTML = '<tr><td colspan="5" class="muted">No contracts yet.</td></tr>';
       return;
@@ -413,7 +424,7 @@
       }
       const emp = await res.json();
       renderProfile(emp);
-      renderContracts(emp.contracts || []);
+      renderContracts(emp.contracts || [], emp.employment_type === 'self_employed');
       renderDocuments(emp.documents || []);
     } catch (err) {
       profileGrid.innerHTML = '<p class="muted">Could not load profile.</p>';

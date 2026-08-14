@@ -142,6 +142,7 @@
               <th data-sort="employee_number">Emp. no.</th>
               <th data-sort="full_name">Name</th>
               <th data-sort="business">Business</th>
+              <th data-sort="employment_type_label">Type</th>
               <th data-sort="role_title">Role</th>
               <th data-sort="email">Email</th>
               <th data-sort="start_date">Start date</th>
@@ -149,7 +150,7 @@
             </tr>
           </thead>
           <tbody id="staff-body">
-            <tr><td colspan="7" class="muted">Loading…</td></tr>
+            <tr><td colspan="8" class="muted">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -232,7 +233,7 @@
     updateSortIndicators();
     const rows = sortedRows();
     if (!rows.length) {
-      staffBody.innerHTML = '<tr><td colspan="7" class="muted">No staff found.</td></tr>';
+      staffBody.innerHTML = '<tr><td colspan="8" class="muted">No staff found.</td></tr>';
       return;
     }
     staffBody.innerHTML = rows.map(function (s) {
@@ -240,6 +241,7 @@
         '<td>' + escapeHtml(s.employee_number || '—') + '</td>' +
         '<td>' + escapeHtml(s.full_name) + '</td>' +
         '<td>' + escapeHtml(s.business || '—') + '</td>' +
+        '<td>' + escapeHtml(s.employment_type_label || 'Employed') + '</td>' +
         '<td>' + escapeHtml(s.role_title) + '</td>' +
         '<td>' + escapeHtml(s.email) + '</td>' +
         '<td>' + escapeHtml(s.start_date || '') + '</td>' +
@@ -250,7 +252,7 @@
 
   async function loadStaff() {
     showMessage('');
-    staffBody.innerHTML = '<tr><td colspan="7" class="muted">Loading…</td></tr>';
+    staffBody.innerHTML = '<tr><td colspan="8" class="muted">Loading…</td></tr>';
     try {
       const res = await fetch('/api/hr/staff?' + buildQuery().toString());
       if (!res.ok) {
@@ -262,7 +264,7 @@
       renderTable();
     } catch (err) {
       staffRows = [];
-      staffBody.innerHTML = '<tr><td colspan="7" class="muted">Could not load staff.</td></tr>';
+      staffBody.innerHTML = '<tr><td colspan="8" class="muted">Could not load staff.</td></tr>';
       showMessage(err.message, true);
     }
   }

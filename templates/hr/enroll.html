@@ -144,13 +144,31 @@
     }
     .job-title-add input { flex: 1 1 10rem; margin: 0; min-width: 8rem; }
     #job-title-settings-message { margin-top: 0.6rem; }
+    .employment-choice {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      margin: 0 0 1.25rem;
+    }
+    .employment-btn {
+      min-height: 4.5rem;
+      padding: 0.9rem 1rem;
+      font-size: 1rem;
+    }
+    .employment-btn.selected {
+      border-color: var(--accent);
+      background: #e8f5ee;
+    }
+    @media (max-width: 700px) {
+      .employment-choice { grid-template-columns: 1fr; }
+    }
 {% endblock %}
 
 {% block content %}
     <!-- Step 1: choose business -->
     <div class="card step active" id="step-business">
-      <h2>Which business is this employee for?</h2>
-      <p class="muted">Select the employing company to begin the new starter form.</p>
+      <h2>Which business is this staff member for?</h2>
+      <p class="muted">Select the company to begin the new starter form.</p>
       <div class="business-choice">
         {% for biz in business_options %}
         <button type="button" class="business-btn" data-business="{{ biz }}">
@@ -170,6 +188,18 @@
 
       <form id="enroll-form" novalidate>
         <input type="hidden" id="business" value="">
+        <input type="hidden" id="employment_type" value="employed">
+
+        <div class="employment-choice" role="group" aria-label="Employment type">
+          <button type="button" class="business-btn employment-btn selected" data-employment="employed">
+            Employed
+            <span class="sub">Send a contract for signing</span>
+          </button>
+          <button type="button" class="business-btn employment-btn" data-employment="self_employed">
+            Self-employed
+            <span class="sub">Save details to the directory only</span>
+          </button>
+        </div>
 
         <fieldset class="form-section">
           <legend>Role &amp; personal details</legend>
@@ -330,7 +360,7 @@
           </div>
         </fieldset>
 
-        <fieldset class="form-section">
+        <fieldset class="form-section" id="contract-section">
           <legend>Contract</legend>
           <div class="form-grid">
             <label class="full-width">
@@ -365,6 +395,8 @@
   const submitBtn = document.getElementById('submit-btn');
   const draftBtn = document.getElementById('draft-btn');
   const templateSelect = document.getElementById('template_id');
+  const employmentTypeInput = document.getElementById('employment_type');
+  const contractSection = document.getElementById('contract-section');
   const payTypeEl = document.getElementById('pay_type');
   const payRateLabel = document.getElementById('pay_rate_label');
 
@@ -377,7 +409,7 @@
   }
 
   // --- Step navigation ---
-  document.querySelectorAll('.business-btn').forEach(function (btn) {
+  document.querySelectorAll('#step-business .business-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
       const biz = btn.dataset.business;
       businessInput.value = biz;
@@ -405,6 +437,43 @@
   payTypeEl.addEventListener('change', updatePayLabel);
   updatePayLabel();
 
+  function isSelfEmployed() {
+    return employmentTypeInput.value === 'self_employed';
+  }
+
+  function setEmploymentType(type) {
+    const next = type === 'self_employed' ? 'self_employed' : 'employed';
+    employmentTypeInput.value = next;
+    document.querySelectorAll('.employment-btn').forEach(function (btn) {
+      btn.classList.toggle('selected', btn.dataset.employment === next);
+    });
+    updateEmploymentUI();
+  }
+
+  function employedSubmitLabel() {
+    if (!EDIT_ID) return 'Send contract for signing';
+    return submitBtn.dataset.employedLabel || 'Save & send for signing';
+  }
+
+  function updateEmploymentUI() {
+    const selfEmp = isSelfEmployed();
+    if (contractSection) contractSection.hidden = selfEmp;
+    draftBtn.style.display = selfEmp ? 'none' : '';
+    if (selfEmp) {
+      submitBtn.textContent = 'Save to directory';
+      submitBtn.disabled = false;
+    } else {
+      submitBtn.textContent = employedSubmitLabel();
+      submitBtn.disabled = !LOADED_TEMPLATES.length;
+    }
+  }
+
+  document.querySelectorAll('.employment-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setEmploymentType(btn.dataset.employment);
+    });
+  });
+
   // --- Templates ---
   function escapeHtml(str) {
     return String(str || '')
@@ -425,17 +494,20 @@
       LOADED_TEMPLATES = templates;
       if (!templates.length) {
         templateSelect.innerHTML = '<option value="">No templates configured</option>';
-        showMessage('No contract templates in the database. Add one or set DOCUSEAL_CWRTMALLE_TEMPLATE_ID.', true);
-        submitBtn.disabled = true;
+        if (!isSelfEmployed()) {
+          showMessage('No contract templates in the database. Add one or set DOCUSEAL_CWRTMALLE_TEMPLATE_ID.', true);
+        }
+        updateEmploymentUI();
         return;
       }
       templateSelect.innerHTML = templates.map(function (t) {
         return '<option value="' + t.id + '">' + escapeHtml(t.name) + '</option>';
       }).join('');
+      updateEmploymentUI();
     } catch (err) {
       templateSelect.innerHTML = '<option value="">Error loading templates</option>';
-      showMessage(err.message, true);
-      submitBtn.disabled = true;
+      if (!isSelfEmployed()) showMessage(err.message, true);
+      updateEmploymentUI();
     }
   }
 
@@ -491,6 +563,7 @@
       next_of_kin_name: val('next_of_kin_name') || null,
       next_of_kin_relationship: val('next_of_kin_relationship') || null,
       next_of_kin_phone: val('next_of_kin_phone') || null,
+      employment_type: employmentTypeInput.value || 'employed',
       template_id: templateId,
     };
   }
@@ -538,6 +611,20 @@
     }
     if (!form.checkValidity()) {
       form.reportValidity();
+      return;
+    }
+    if (isSelfEmployed()) {
+      try {
+        const data = EDIT_ID
+          ? await postStaff('/api/hr/staff/' + EDIT_ID, buildPayload(null),
+              submitBtn, 'Saving…', 'Update', 'PUT')
+          : await postStaff('/api/hr/staff/enroll', buildPayload(null),
+              submitBtn, 'Saving…', 'Enrollment');
+        showMessage('Saved to the staff directory. Redirecting…', false);
+        redirectTo(data);
+      } catch (err) {
+        showMessage(err.message, true);
+      }
       return;
     }
     const templateId = parseInt(templateSelect.value, 10);
@@ -733,11 +820,12 @@
       if (!res.ok) throw new Error('Could not load draft');
       const emp = await res.json();
       const isDraft = !emp.status || emp.status === 'onboarding';
-      submitBtn.textContent = isDraft
+      submitBtn.dataset.employedLabel = isDraft
         ? 'Save & send for signing'
         : 'Save & send new contract';
       businessInput.value = emp.business || '';
       businessPill.textContent = emp.business || '—';
+      setEmploymentType(emp.employment_type || 'employed');
       setVal('title', emp.title);
       setVal('full_name', emp.full_name);
       setVal('email', emp.email);
@@ -773,7 +861,7 @@
   function enterEditMode() {
     stepBusiness.classList.remove('active');
     stepDetails.classList.add('active');
-    submitBtn.textContent = 'Save & send for signing';
+    submitBtn.dataset.employedLabel = 'Save & send for signing';
     draftBtn.textContent = 'Save changes';
     prefill();
   }

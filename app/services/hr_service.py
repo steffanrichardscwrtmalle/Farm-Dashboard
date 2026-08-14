@@ -24,6 +24,10 @@ from app.models import (
     EMPLOYEE_STATUS_ARCHIVED,
     EMPLOYEE_STATUS_ONBOARDING,
     EMPLOYEE_STATUS_PENDING_SIGNATURE,
+    EMPLOYMENT_TYPE_EMPLOYED,
+    EMPLOYMENT_TYPE_LABELS,
+    EMPLOYMENT_TYPE_SELF_EMPLOYED,
+    EMPLOYMENT_TYPES,
     HR_JOB_TITLES_SETTING_KEY,
     JOB_TITLE_OPTIONS,
     PAY_TYPES,
@@ -43,6 +47,29 @@ logger = logging.getLogger(__name__)
 
 class HRServiceError(Exception):
     """HR operation failed."""
+
+
+def normalize_employment_type(value: Any) -> str:
+    raw = (str(value or "").strip().lower().replace("-", "_").replace(" ", "_"))
+    if raw in ("self_employed", "selfemployed"):
+        return EMPLOYMENT_TYPE_SELF_EMPLOYED
+    if raw in ("", EMPLOYMENT_TYPE_EMPLOYED, "employee"):
+        return EMPLOYMENT_TYPE_EMPLOYED
+    if raw in EMPLOYMENT_TYPES:
+        return raw
+    raise HRServiceError(
+        f"Invalid employment type: {value}. Use employed or self_employed."
+    )
+
+
+def is_self_employed(employment_type: str | None) -> bool:
+    return normalize_employment_type(employment_type) == EMPLOYMENT_TYPE_SELF_EMPLOYED
+
+
+def employment_type_label(employment_type: str | None) -> str:
+    return EMPLOYMENT_TYPE_LABELS.get(
+        normalize_employment_type(employment_type), "Employed"
+    )
 
 
 def _ensure_employee_number_unique(
@@ -206,6 +233,7 @@ def _build_employee(
 
     return Employee(
         business=_clean("business"),
+        employment_type=normalize_employment_type(payload.get("employment_type")),
         title=_clean("title"),
         employee_number=employee_number,
         full_name=_titlecase(payload["full_name"]),
@@ -380,6 +408,10 @@ def save_draft(
     user: User,
 ) -> dict[str, Any]:
     """Save a staff member as a draft (status=onboarding) without contacting DocuSeal."""
+    employment_type = normalize_employment_type(payload.get("employment_type"))
+    if employment_type == EMPLOYMENT_TYPE_SELF_EMPLOYED:
+        return enroll_employee(db, payload, user)
+
     pay_type = payload.get("pay_type", "hourly")
     if pay_type not in PAY_TYPES:
         raise HRServiceError(f"Invalid pay type: {pay_type}")
@@ -410,13 +442,37 @@ def enroll_employee(
     payload: dict[str, Any],
     user: User,
 ) -> dict[str, Any]:
-    template = db.get(ContractTemplate, payload["template_id"])
-    if template is None or not template.is_active:
-        raise HRServiceError("Contract template not found or inactive.")
-
+    employment_type = normalize_employment_type(payload.get("employment_type"))
     pay_type = payload.get("pay_type", "hourly")
     if pay_type not in PAY_TYPES:
         raise HRServiceError(f"Invalid pay type: {pay_type}")
+
+    # Self-employed starters are enrolled without a DocuSeal contract.
+    if employment_type == EMPLOYMENT_TYPE_SELF_EMPLOYED:
+        employee = _build_employee(
+            db,
+            payload,
+            user,
+            pay_type=pay_type,
+            template_id=None,
+            status=EMPLOYEE_STATUS_ACTIVE,
+        )
+        db.add(employee)
+        db.commit()
+        db.refresh(employee)
+        logger.info("Enrolled self-employed staff id=%s (no contract)", employee.id)
+        return {
+            "employee": _employee_detail(employee, include_sensitive=False),
+            "contract": None,
+            "submission_id": None,
+        }
+
+    template_id = payload.get("template_id")
+    if template_id is None:
+        raise HRServiceError("Select a contract template before sending.")
+    template = db.get(ContractTemplate, template_id)
+    if template is None or not template.is_active:
+        raise HRServiceError("Contract template not found or inactive.")
 
     reviewers = parse_hr_team_emails(payload.get("business"))
     if not reviewers:
@@ -464,6 +520,8 @@ def update_employee(
         return (payload.get(key) or "").strip() or None
 
     employee.business = _clean("business") or employee.business
+    if "employment_type" in payload and payload.get("employment_type") is not None:
+        employee.employment_type = normalize_employment_type(payload.get("employment_type"))
     employee.title = _clean("title")
     if "employee_number" in payload:
         employee_number = _clean("employee_number")
@@ -497,10 +555,19 @@ def update_employee(
             setattr(employee, attr, encrypt_field(str(raw)))
 
     if payload.get("template_id") is not None:
-        template = db.get(ContractTemplate, payload["template_id"])
-        if template is None or not template.is_active:
-            raise HRServiceError("Contract template not found or inactive.")
-        employee.template_id = template.id
+        if is_self_employed(employee.employment_type):
+            employee.template_id = None
+        else:
+            template = db.get(ContractTemplate, payload["template_id"])
+            if template is None or not template.is_active:
+                raise HRServiceError("Contract template not found or inactive.")
+            employee.template_id = template.id
+    elif is_self_employed(employee.employment_type):
+        employee.template_id = None
+
+    if is_self_employed(employee.employment_type):
+        if employee.status == EMPLOYEE_STATUS_ONBOARDING:
+            employee.status = EMPLOYEE_STATUS_ACTIVE
 
     db.commit()
     db.refresh(employee)
@@ -523,6 +590,10 @@ def send_existing_employee(
     employee = db.get(Employee, employee_id)
     if employee is None:
         raise HRServiceError("Employee not found.")
+    if is_self_employed(employee.employment_type):
+        raise HRServiceError(
+            "Self-employed staff do not use employment contracts."
+        )
 
     resolved_id = template_id or employee.template_id
     if resolved_id is None:
@@ -782,9 +853,14 @@ def get_contract_for_download(db: Session, contract_id: int) -> EmployeeContract
 
 
 def _employee_summary(employee: Employee) -> dict[str, Any]:
+    employment_type = normalize_employment_type(
+        getattr(employee, "employment_type", None)
+    )
     return {
         "id": employee.id,
         "business": employee.business,
+        "employment_type": employment_type,
+        "employment_type_label": employment_type_label(employment_type),
         "title": employee.title,
         "employee_number": employee.employee_number,
         "full_name": _titlecase(employee.full_name),
@@ -868,6 +944,7 @@ _STAFF_EXPORT_HEADERS = (
     "Title",
     "Full name",
     "Business",
+    "Employment type",
     "Role",
     "Email",
     "Phone",
@@ -882,6 +959,8 @@ def _staff_export_cells(row: dict[str, Any]) -> list[Any]:
         row.get("title") or "",
         row.get("full_name") or "",
         row.get("business") or "",
+        row.get("employment_type_label")
+        or employment_type_label(row.get("employment_type")),
         row.get("role_title") or "",
         row.get("email") or "",
         row.get("phone") or "",
@@ -907,7 +986,7 @@ def build_staff_xlsx(rows: list[dict[str, Any]]) -> bytes:
     for row in rows:
         ws.append(_staff_export_cells(row))
 
-    widths = [14, 8, 22, 20, 18, 28, 16, 12, 16]
+    widths = [14, 8, 22, 20, 14, 18, 28, 16, 12, 16]
     for index, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(index)].width = width
     for cell in ws[1]:

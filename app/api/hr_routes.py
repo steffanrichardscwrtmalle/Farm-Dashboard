@@ -60,6 +60,7 @@ router = APIRouter(prefix="/api/hr")
 
 class EnrollStaffBody(BaseModel):
     business: str = Field(min_length=2, max_length=64)
+    employment_type: str = Field(default="employed", max_length=32)
     title: str | None = Field(default=None, max_length=16)
     employee_number: str | None = Field(default=None, max_length=64)
     full_name: str = Field(min_length=2, max_length=255)
@@ -84,13 +85,14 @@ class EnrollStaffBody(BaseModel):
     next_of_kin_name: str | None = Field(default=None, max_length=255)
     next_of_kin_relationship: str | None = Field(default=None, max_length=64)
     next_of_kin_phone: str | None = Field(default=None, max_length=64)
-    template_id: int
+    template_id: int | None = None
 
 
 class DraftStaffBody(BaseModel):
     """Relaxed body for saving a draft: only identity fields required, no template."""
 
     business: str = Field(min_length=2, max_length=64)
+    employment_type: str = Field(default="employed", max_length=32)
     title: str | None = Field(default=None, max_length=16)
     employee_number: str | None = Field(default=None, max_length=64)
     full_name: str = Field(min_length=2, max_length=255)
