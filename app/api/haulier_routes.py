@@ -23,6 +23,7 @@ from app.services.haulier_collections import (
     delete_manual_collection_day,
     get_manual_collection_day,
     list_collections,
+    suggest_sample_for_manual_day,
 )
 from app.services.haulier_import import import_haulier_collections
 from app.services.production_summary import get_production_summary
@@ -79,6 +80,23 @@ def api_get_manual_haulier_collection(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/collections/suggest-sample")
+def api_suggest_haulier_sample(
+    farm: str = Query(...),
+    collection_date: dt.date = Query(...),
+    load_count: int | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_MILK_QUALITY)),
+):
+    """Suggest NML sample for a GAD single-load day (no suggestion for CM)."""
+    return suggest_sample_for_manual_day(
+        db,
+        farm=farm,
+        collection_date=collection_date,
+        load_count=load_count,
+    )
 
 
 @router.post("/collections")

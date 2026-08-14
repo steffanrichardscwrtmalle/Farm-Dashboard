@@ -397,7 +397,7 @@
         <div class="load-row">
           <label>
             Load 1 (L)
-            <input type="number" id="add-load1-vol" min="0" step="1" inputmode="numeric">
+            <input type="number" id="add-load1-vol" min="1" step="1" inputmode="numeric">
           </label>
           <label>
             Temp (°C)
@@ -411,7 +411,7 @@
         <div class="load-row">
           <label>
             Load 2 (L)
-            <input type="number" id="add-load2-vol" min="0" step="1" inputmode="numeric">
+            <input type="number" id="add-load2-vol" min="1" step="1" inputmode="numeric">
           </label>
           <label>
             Temp (°C)
@@ -425,7 +425,7 @@
         <div class="load-row">
           <label>
             Load 3 (L)
-            <input type="number" id="add-load3-vol" min="0" step="1" inputmode="numeric">
+            <input type="number" id="add-load3-vol" min="1" step="1" inputmode="numeric">
           </label>
           <label>
             Temp (°C)
@@ -1178,7 +1178,9 @@
       [1, 2, 3].forEach((n) => {
         document.getElementById('add-load' + n + '-vol').value = '';
         document.getElementById('add-load' + n + '-temp').value = '';
-        document.getElementById('add-load' + n + '-sample').value = '';
+        const sampleEl = document.getElementById('add-load' + n + '-sample');
+        sampleEl.value = '';
+        delete sampleEl.dataset.autoSuggested;
       });
       const err = document.getElementById('add-collection-error');
       err.hidden = true;
@@ -1198,8 +1200,66 @@
           load.volume_litres != null ? load.volume_litres : '';
         document.getElementById('add-load' + n + '-temp').value =
           load.temp_c != null ? load.temp_c : '';
-        document.getElementById('add-load' + n + '-sample').value = load.sample_id || '';
+        const sampleEl = document.getElementById('add-load' + n + '-sample');
+        sampleEl.value = load.sample_id || '';
+        if (idx === 0 && data.sample_suggested && load.sample_id) {
+          sampleEl.dataset.autoSuggested = '1';
+        } else {
+          delete sampleEl.dataset.autoSuggested;
+        }
       });
+    }
+
+    function loads2Or3HaveData() {
+      return [2, 3].some((n) => {
+        const vol = String(document.getElementById('add-load' + n + '-vol').value || '').trim();
+        const temp = String(document.getElementById('add-load' + n + '-temp').value || '').trim();
+        const sample = String(document.getElementById('add-load' + n + '-sample').value || '').trim();
+        return Boolean(vol || temp || sample);
+      });
+    }
+
+    async function maybeSuggestGadSample() {
+      const farm = document.getElementById('add-farm').value;
+      const collectionDate = document.getElementById('add-date').value;
+      const sample1 = document.getElementById('add-load1-sample');
+      if (farm !== 'GAD' || !collectionDate) {
+        if (sample1.dataset.autoSuggested === '1') {
+          sample1.value = '';
+          delete sample1.dataset.autoSuggested;
+        }
+        return;
+      }
+      if (loads2Or3HaveData()) {
+        if (sample1.dataset.autoSuggested === '1') {
+          sample1.value = '';
+          delete sample1.dataset.autoSuggested;
+        }
+        return;
+      }
+      // Do not overwrite a manually entered sample.
+      if (sample1.value.trim() && sample1.dataset.autoSuggested !== '1') {
+        return;
+      }
+      try {
+        const params = new URLSearchParams({
+          farm: 'GAD',
+          collection_date: collectionDate,
+          load_count: '1',
+        });
+        const res = await fetch('/api/haulier/collections/suggest-sample?' + params.toString());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        if (data.sample_id) {
+          sample1.value = data.sample_id;
+          sample1.dataset.autoSuggested = '1';
+        } else if (sample1.dataset.autoSuggested === '1') {
+          sample1.value = '';
+          delete sample1.dataset.autoSuggested;
+        }
+      } catch (_err) {
+        // Suggestion is best-effort; save still auto-fills server-side.
+      }
     }
 
     function setDeleteButtonVisible(visible) {
@@ -1208,7 +1268,7 @@
       btn.disabled = false;
     }
 
-    function openAddCollectionModal() {
+    async function openAddCollectionModal() {
       clearAddCollectionForm();
       document.getElementById('add-collection-title').textContent = 'Add Collection';
       setDeleteButtonVisible(false);
@@ -1216,6 +1276,7 @@
       modal.classList.add('open');
       modal.setAttribute('aria-hidden', 'false');
       document.getElementById('add-load1-vol').focus();
+      await maybeSuggestGadSample();
     }
 
     async function openEditCollectionModal(farm, collectionDate) {
@@ -1238,6 +1299,9 @@
         modal.classList.add('open');
         modal.setAttribute('aria-hidden', 'false');
         document.getElementById('add-load1-vol').focus();
+        if (!data.sample_suggested) {
+          await maybeSuggestGadSample();
+        }
       } catch (errObj) {
         showMessage(errObj && errObj.message ? errObj.message : String(errObj), true);
       }
@@ -1258,10 +1322,38 @@
       return Number.isFinite(n) ? n : NaN;
     }
 
+    function parseOptionalVolume(value) {
+      const n = parseOptionalNumber(value);
+      // Zero volume is treated as blank (no load), same as the server.
+      if (n === 0) return null;
+      return n;
+    }
+
     document.getElementById('add-collection-btn').addEventListener('click', openAddCollectionModal);
     document.getElementById('add-collection-cancel').addEventListener('click', closeAddCollectionModal);
     document.getElementById('add-collection-modal').addEventListener('click', (e) => {
       if (e.target.id === 'add-collection-modal') closeAddCollectionModal();
+    });
+    document.getElementById('add-date').addEventListener('change', () => {
+      maybeSuggestGadSample();
+    });
+    document.getElementById('add-farm').addEventListener('change', () => {
+      maybeSuggestGadSample();
+    });
+    [2, 3].forEach((n) => {
+      ['vol', 'temp', 'sample'].forEach((field) => {
+        const el = document.getElementById('add-load' + n + '-' + field);
+        if (!el) return;
+        el.addEventListener('input', () => {
+          maybeSuggestGadSample();
+        });
+      });
+    });
+    document.getElementById('add-load1-sample').addEventListener('input', () => {
+      const sample1 = document.getElementById('add-load1-sample');
+      if (sample1.dataset.autoSuggested === '1') {
+        delete sample1.dataset.autoSuggested;
+      }
     });
     document.getElementById('table-body').addEventListener('click', (e) => {
       const btn = e.target.closest('.edit-manual-btn');
@@ -1314,12 +1406,17 @@
       errEl.hidden = true;
       errEl.textContent = '';
       const loads = [1, 2, 3].map((n) => ({
-        volume_litres: parseOptionalNumber(document.getElementById('add-load' + n + '-vol').value),
+        volume_litres: parseOptionalVolume(document.getElementById('add-load' + n + '-vol').value),
         temp_c: parseOptionalNumber(document.getElementById('add-load' + n + '-temp').value),
         sample_id: String(document.getElementById('add-load' + n + '-sample').value || '').trim(),
       }));
       if (loads.some((load) => Number.isNaN(load.volume_litres) || Number.isNaN(load.temp_c))) {
         errEl.textContent = 'Volumes and temperatures must be numbers.';
+        errEl.hidden = false;
+        return;
+      }
+      if (loads.some((load) => load.volume_litres != null && load.volume_litres < 0)) {
+        errEl.textContent = 'Load volumes must be greater than zero (leave blank for no load).';
         errEl.hidden = false;
         return;
       }

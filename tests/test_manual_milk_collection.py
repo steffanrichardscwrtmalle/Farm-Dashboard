@@ -24,6 +24,81 @@ def _session():
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
 
 
+def test_create_manual_collection_treats_zero_volume_as_blank() -> None:
+    db = _session()
+    day = dt.date(2026, 8, 9)
+    result = create_manual_collection(
+        db,
+        collection_date=day,
+        farm="GAD",
+        loads=[
+            {"volume_litres": 0, "temp_c": None, "sample_id": ""},
+            {"volume_litres": 0, "temp_c": 3.5, "sample_id": "401"},
+            {"volume_litres": 9000, "temp_c": 3.2, "sample_id": "402"},
+        ],
+        cows_in_milk=400,
+    )
+    assert result["loads_created"] == 2
+    rows = db.scalars(
+        select(MilkCollection)
+        .where(MilkCollection.farm == "GAD")
+        .order_by(MilkCollection.arrival_time)
+    ).all()
+    assert len(rows) == 2
+    assert rows[0].volume_litres is None
+    assert rows[0].temp_c == 3.5
+    assert rows[0].sample_id == "401"
+    assert rows[1].volume_litres == 9000
+    assert rows[1].sample_id == "402"
+
+    day_data = get_manual_collection_day(db, farm="GAD", collection_date=day)
+    assert day_data["loads"][0]["volume_litres"] is None
+
+    # Only zero volumes and no other fields → nothing to save
+    try:
+        create_manual_collection(
+            db,
+            collection_date=dt.date(2026, 8, 10),
+            farm="GAD",
+            loads=[{"volume_litres": 0}, {"volume_litres": 0.0}],
+        )
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "at least one load" in str(exc).lower()
+
+
+def test_zero_volume_rows_excluded_from_trend_totals() -> None:
+    from app.services.haulier_collections import _summary
+
+    rows = [
+        {
+            "farm": "GAD",
+            "collection_date": "2026-08-09",
+            "volume_litres": 0,
+            "temp_c": 3.0,
+            "matched": False,
+            "butterfat_pct": None,
+            "protein_pct": None,
+            "cows_in_milk": 400,
+        },
+        {
+            "farm": "GAD",
+            "collection_date": "2026-08-09",
+            "volume_litres": 10000,
+            "temp_c": 3.2,
+            "matched": False,
+            "butterfat_pct": None,
+            "protein_pct": None,
+            "cows_in_milk": 400,
+        },
+    ]
+    summary = _summary(rows)
+    assert summary["total_volume"] == 10000
+    assert summary["avg_daily_volume"] == 10000
+    points = _build_trend(rows)["GAD"]
+    assert points[0]["volume_litres"] == 10000
+
+
 def test_create_manual_collection_writes_loads_and_cows() -> None:
     db = _session()
     day = dt.date(2026, 8, 9)
@@ -258,3 +333,129 @@ def test_month_email_dedupe_keeps_manual_rows() -> None:
     assert "old.xlsx" not in sources
     manual = next(r for r in rows if r.source_file == MANUAL_SOURCE_FILE)
     assert manual.volume_litres == 1111
+
+
+def test_gad_single_load_autofills_sample_from_nml() -> None:
+    from app.models import NmlMilkResult
+    from app.services.haulier_collections import suggest_sample_for_manual_day
+
+    db = _session()
+    day = dt.date(2026, 8, 12)
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="7788",
+            butterfat_pct=4.1,
+        )
+    )
+    db.commit()
+
+    suggestion = suggest_sample_for_manual_day(
+        db, farm="GAD", collection_date=day, load_count=1
+    )
+    assert suggestion["sample_id"] == "7788"
+
+    cm_suggestion = suggest_sample_for_manual_day(
+        db, farm="CM", collection_date=day, load_count=1
+    )
+    assert cm_suggestion["sample_id"] is None
+    assert cm_suggestion["reason"] == "gad_only"
+
+    result = create_manual_collection(
+        db,
+        collection_date=day,
+        farm="GAD",
+        loads=[{"volume_litres": 14000, "temp_c": 3.4, "sample_id": ""}],
+        cows_in_milk=410,
+    )
+    assert result["sample_auto_filled"] is True
+    assert result["rows"][0]["sample_id"] == "7788"
+    row = db.scalars(select(MilkCollection).where(MilkCollection.farm == "GAD")).one()
+    assert row.sample_id == "7788"
+
+
+def test_gad_autofill_skips_when_multiple_loads_or_nml_samples() -> None:
+    from app.models import NmlMilkResult
+
+    db = _session()
+    day = dt.date(2026, 8, 13)
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="1001",
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="1002",
+        )
+    )
+    db.commit()
+
+    result = create_manual_collection(
+        db,
+        collection_date=day,
+        farm="GAD",
+        loads=[{"volume_litres": 12000, "temp_c": 3.1}],
+    )
+    assert result["sample_auto_filled"] is False
+    assert result["rows"][0]["sample_id"] == ""
+
+    day2 = dt.date(2026, 8, 14)
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day2,
+            sample_id="2002",
+        )
+    )
+    db.commit()
+    result2 = create_manual_collection(
+        db,
+        collection_date=day2,
+        farm="GAD",
+        loads=[
+            {"volume_litres": 8000, "temp_c": 3.0},
+            {"volume_litres": 7000, "temp_c": 3.1},
+        ],
+    )
+    assert result2["sample_auto_filled"] is False
+    assert all(r["sample_id"] == "" for r in result2["rows"])
+
+
+def test_get_manual_day_suggests_blank_gad_sample() -> None:
+    from app.models import NmlMilkResult
+
+    db = _session()
+    day = dt.date(2026, 8, 15)
+    create_manual_collection(
+        db,
+        collection_date=day,
+        farm="GAD",
+        loads=[{"volume_litres": 11000, "temp_c": 3.2}],
+    )
+    # NML arrives after the collection was saved without a sample
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="5566",
+        )
+    )
+    db.commit()
+    # Clear sample so edit path can suggest (create would have left it blank already)
+    row = db.scalars(select(MilkCollection).where(MilkCollection.farm == "GAD")).one()
+    assert row.sample_id is None
+
+    day_data = get_manual_collection_day(db, farm="GAD", collection_date=day)
+    assert day_data["sample_suggested"] is True
+    assert day_data["loads"][0]["sample_id"] == "5566"

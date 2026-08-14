@@ -43,6 +43,67 @@ _MANUAL_LOAD_ARRIVALS = (
 def is_editable_collection_source(source_file: str | None) -> bool:
     return (source_file or "") in EDITABLE_COLLECTION_SOURCES
 
+
+def unique_gad_nml_sample_id(db: Session, collection_date: dt.date) -> str | None:
+    """Return GAD NML sample_id when exactly one sample exists for that date.
+
+    Used to auto-fill manual single-load collections from the NML email import.
+    CM is never suggested here.
+    """
+    rows = db.scalars(
+        select(NmlMilkResult).where(
+            NmlMilkResult.farm == "GAD",
+            NmlMilkResult.sample_date == collection_date,
+        )
+    ).all()
+    samples: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        raw = (row.sample_id or "").strip()
+        if not raw:
+            continue
+        key = raw.lstrip("0") or "0"
+        if key in seen:
+            continue
+        seen.add(key)
+        samples.append(raw)
+    if len(samples) != 1:
+        return None
+    return samples[0]
+
+
+def suggest_sample_for_manual_day(
+    db: Session,
+    *,
+    farm: str,
+    collection_date: dt.date,
+    load_count: int | None = None,
+) -> dict[str, Any]:
+    """Suggest a sample number for a GAD single-load day from NML results."""
+    farm_key = (farm or "").strip().upper()
+    if farm_key != "GAD":
+        return {
+            "farm": farm_key or farm,
+            "collection_date": collection_date.isoformat(),
+            "sample_id": None,
+            "reason": "gad_only",
+        }
+    if load_count is not None and load_count != 1:
+        return {
+            "farm": "GAD",
+            "collection_date": collection_date.isoformat(),
+            "sample_id": None,
+            "reason": "not_single_load",
+        }
+    sample_id = unique_gad_nml_sample_id(db, collection_date)
+    return {
+        "farm": "GAD",
+        "collection_date": collection_date.isoformat(),
+        "sample_id": sample_id,
+        "reason": "ok" if sample_id else "no_unique_nml",
+    }
+
+
 _HEADERS = (
     "Farm",
     "Date",
@@ -126,7 +187,12 @@ def _row_to_dict(
         "vehicle_reg": collection.vehicle_reg or "",
         "arrival_time": _time_str(collection.arrival_time),
         "depart_time": _time_str(collection.depart_time),
-        "volume_litres": collection.volume_litres,
+        # Zero volume is treated as no load (blank), same as add-collection rules.
+        "volume_litres": (
+            None
+            if collection.volume_litres is None or collection.volume_litres == 0
+            else collection.volume_litres
+        ),
         "temp_c": collection.temp_c,
         "temp_raw": collection.temp_raw or "",
         "cows_in_milk": collection.cows_in_milk,
@@ -144,20 +210,26 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         values = [float(r[metric]) for r in rows if r.get(metric) is not None]
         return round(sum(values) / len(values), dp) if values else None
 
-    volumes = [r["volume_litres"] for r in rows if r.get("volume_litres") is not None]
+    volumes = [
+        r["volume_litres"]
+        for r in rows
+        if r.get("volume_litres") is not None and r.get("volume_litres") != 0
+    ]
     latest = max((r["collection_date"] for r in rows if r["collection_date"]), default="")
     total_volume = sum(volumes) if volumes else 0
     collection_days = {
         r["collection_date"]
         for r in rows
-        if r.get("collection_date") and r.get("volume_litres") is not None
+        if r.get("collection_date")
+        and r.get("volume_litres") is not None
+        and r.get("volume_litres") != 0
     }
     avg_daily_volume = round(total_volume / len(collection_days)) if collection_days else None
     by_day: dict[tuple[str, str], dict[str, float | None]] = {}
     for row in rows:
         date = row.get("collection_date")
         volume = row.get("volume_litres")
-        if not date or volume is None:
+        if not date or volume is None or volume == 0:
             continue
         key = (row.get("farm") or "", str(date))
         bucket = by_day.setdefault(key, {"vol": 0.0, "cows": None})
@@ -210,8 +282,12 @@ def _build_trend(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         )
         for metric in (*_TREND_SUM, *_TREND_AVG):
             value = row.get(metric)
-            if value is not None:
-                bucket[metric].append(float(value))
+            if value is None:
+                continue
+            # Zero volume is treated as blank (no load), same as add-collection.
+            if metric == "volume_litres" and float(value) == 0:
+                continue
+            bucket[metric].append(float(value))
         cows = row.get("cows_in_milk")
         if cows is not None:
             try:
@@ -340,7 +416,11 @@ def get_manual_collection_day(
     cows = next((r.cows_in_milk for r in rows if r.cows_in_milk is not None), None)
     loads = [
         {
-            "volume_litres": row.volume_litres,
+            "volume_litres": (
+                None
+                if row.volume_litres is None or row.volume_litres == 0
+                else row.volume_litres
+            ),
             "temp_c": row.temp_c,
             "sample_id": row.sample_id or "",
         }
@@ -348,11 +428,22 @@ def get_manual_collection_day(
     ]
     while len(loads) < 3:
         loads.append({"volume_litres": None, "temp_c": None, "sample_id": ""})
+    sample_suggested = False
+    if (
+        farm_key == "GAD"
+        and len(rows) == 1
+        and not (rows[0].sample_id or "").strip()
+    ):
+        suggested = unique_gad_nml_sample_id(db, collection_date)
+        if suggested:
+            loads[0]["sample_id"] = suggested
+            sample_suggested = True
     return {
         "farm": farm_key,
         "collection_date": collection_date.isoformat(),
         "cows_in_milk": cows,
         "loads": loads,
+        "sample_suggested": sample_suggested,
     }
 
 
@@ -417,7 +508,13 @@ def create_manual_collection(
             except (TypeError, ValueError) as exc:
                 raise ValueError("volume_litres must be a number") from exc
             if vol_int < 0:
-                raise ValueError("volume_litres must be zero or greater")
+                raise ValueError("volume_litres must be greater than zero")
+            # Zero volume means no load — treat as blank.
+            if vol_int == 0:
+                vol_int = None
+        # Re-check after coercing 0 → blank so a lone zero does not create a row.
+        if vol_int is None and (temp is None or temp == "") and not sample_id:
+            continue
         temp_f: float | None = None
         if temp is not None and temp != "":
             try:
@@ -439,6 +536,18 @@ def create_manual_collection(
 
     if not cleaned_loads:
         raise ValueError("Enter at least one load volume, temperature, or sample")
+
+    # GAD single-load days: fill blank sample from that day's unique NML result.
+    sample_auto_filled = False
+    if (
+        farm_key == "GAD"
+        and len(cleaned_loads) == 1
+        and not cleaned_loads[0]["sample_id"]
+    ):
+        suggested = unique_gad_nml_sample_id(db, collection_date)
+        if suggested:
+            cleaned_loads[0]["sample_id"] = suggested
+            sample_auto_filled = True
 
     # Clear previous manuals for this save target and, when editing, the original day.
     clear_keys = {(farm_key, collection_date)}
@@ -510,6 +619,7 @@ def create_manual_collection(
         "collection_date": collection_date.isoformat(),
         "cows_in_milk": cows_in_milk,
         "loads_created": len(created),
+        "sample_auto_filled": sample_auto_filled,
         "rows": created,
     }
 
