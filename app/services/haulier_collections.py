@@ -121,11 +121,20 @@ _HEADERS = (
     "SCC",
     "BactoScan",
     "Urea %",
+    "FPD",
     "A/B",
+    "Buyer",
 )
 
 # Quality fields copied onto a matched collection row.
-_NML_FIELDS = ("butterfat_pct", "protein_pct", "scc", "bactoscan", "urea_pct")
+_NML_FIELDS = (
+    "butterfat_pct",
+    "protein_pct",
+    "scc",
+    "bactoscan",
+    "urea_pct",
+    "fpd",
+)
 
 
 def _norm_sample(value: str | None) -> str:
@@ -198,6 +207,7 @@ def _row_to_dict(
         "cows_in_milk": collection.cows_in_milk,
         "matched": nml is not None,
         "antibiotic_pass": nml.antibiotic_pass if nml else None,
+        "milk_buyer": (nml.milk_buyer if nml else None) or "",
         "manual": is_editable_collection_source(collection.source_file),
     }
     for field in _NML_FIELDS:
@@ -205,9 +215,36 @@ def _row_to_dict(
     return row
 
 
-def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    def avg(metric: str, dp: int = 2) -> float | None:
-        values = [float(r[metric]) for r in rows if r.get(metric) is not None]
+def _nml_only_row(nml: NmlMilkResult) -> dict[str, Any]:
+    """NML sample with no matching collection load (for unmatched table/charts)."""
+    return {
+        "farm": nml.farm or "",
+        "collection_date": nml.sample_date.isoformat() if nml.sample_date else "",
+        "sample_date": nml.sample_date.isoformat() if nml.sample_date else "",
+        "sample_id": nml.sample_id or "",
+        "volume_litres": None,
+        "temp_c": None,
+        "matched": False,
+        "nml_only": True,
+        "antibiotic_pass": nml.antibiotic_pass,
+        "milk_buyer": nml.milk_buyer or "",
+        "butterfat_pct": nml.butterfat_pct,
+        "protein_pct": nml.protein_pct,
+        "scc": nml.scc,
+        "bactoscan": nml.bactoscan,
+        "urea_pct": nml.urea_pct,
+        "fpd": nml.fpd,
+    }
+
+
+def _summary(
+    rows: list[dict[str, Any]],
+    *,
+    unmatched_nml: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    def avg(metric: str, dp: int = 2, source: list[dict[str, Any]] | None = None) -> float | None:
+        src = source if source is not None else rows
+        values = [float(r[metric]) for r in src if r.get(metric) is not None]
         return round(sum(values) / len(values), dp) if values else None
 
     volumes = [
@@ -248,6 +285,10 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     avg_litres_per_cow = (
         round(sum(daily_per_cow) / len(daily_per_cow), 1) if daily_per_cow else None
     )
+    quality_rows = list(rows) + list(unmatched_nml or [])
+    antibiotic_fails = sum(
+        1 for r in quality_rows if r.get("antibiotic_pass") is False
+    )
     return {
         "count": len(rows),
         "latest_collection_date": latest,
@@ -259,8 +300,12 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "avg_temp": avg("temp_c", 2),
         "matched_count": sum(1 for r in rows if r.get("matched")),
         "unmatched_count": sum(1 for r in rows if not r.get("matched")),
-        "avg_butterfat_pct": avg("butterfat_pct"),
-        "avg_protein_pct": avg("protein_pct"),
+        "unmatched_nml_count": len(unmatched_nml or []),
+        "avg_butterfat_pct": avg("butterfat_pct", source=quality_rows),
+        "avg_protein_pct": avg("protein_pct", source=quality_rows),
+        "avg_scc": avg("scc", source=quality_rows),
+        "avg_bactoscan": avg("bactoscan", source=quality_rows),
+        "antibiotic_fails": antibiotic_fails,
     }
 
 
@@ -353,7 +398,13 @@ def list_collections(
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     if not selected_farms:
-        return {"rows": [], "total": 0, "summary": _summary([]), "trend": {}}
+        return {
+            "rows": [],
+            "total": 0,
+            "summary": _summary([]),
+            "trend": {},
+            "unmatched_nml": [],
+        }
 
     # Permanently drop blank/zero-volume rows (not real loads).
     blank_deleted = db.execute(
@@ -392,15 +443,40 @@ def list_collections(
         nml_query = nml_query.where(
             NmlMilkResult.sample_date <= date_to + dt.timedelta(days=1)
         )
-    index = _build_nml_index(list(db.scalars(nml_query).all()))
+    nml_rows = list(db.scalars(nml_query).all())
+    index = _build_nml_index(nml_rows)
 
-    rows = [_row_to_dict(c, _match_nml(c, index)) for c in collections]
+    matched_nml_ids: set[int] = set()
+    rows: list[dict[str, Any]] = []
+    for collection in collections:
+        nml = _match_nml(collection, index)
+        if nml is not None:
+            matched_nml_ids.add(nml.id)
+        rows.append(_row_to_dict(collection, nml))
     _attach_cows_in_milk(db, rows)
+
+    unmatched_nml: list[dict[str, Any]] = []
+    for nml in nml_rows:
+        if nml.id in matched_nml_ids:
+            continue
+        if date_from is not None and nml.sample_date < date_from:
+            continue
+        if date_to is not None and nml.sample_date > date_to:
+            continue
+        unmatched_nml.append(_nml_only_row(nml))
+    unmatched_nml.sort(
+        key=lambda r: (r.get("collection_date") or "", r.get("sample_id") or ""),
+        reverse=True,
+    )
+
+    # Include unmatched NML in quality trend averages so charts cover all lab samples.
+    trend = _build_trend(rows + unmatched_nml)
     return {
         "rows": rows,
         "total": len(rows),
-        "summary": _summary(rows),
-        "trend": _build_trend(rows),
+        "summary": _summary(rows, unmatched_nml=unmatched_nml),
+        "trend": trend,
+        "unmatched_nml": unmatched_nml,
     }
 
 
@@ -683,7 +759,9 @@ def _export_cells(row: dict[str, Any]) -> list[Any]:
         row.get("scc"),
         row.get("bactoscan"),
         row.get("urea_pct"),
+        row.get("fpd"),
         _ab_label(row.get("antibiotic_pass")),
+        row.get("milk_buyer", ""),
     ]
 
 

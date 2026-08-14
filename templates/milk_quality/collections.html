@@ -196,6 +196,41 @@
       background: #fef2f2;
     }
     .add-modal-error { color: #b91c1c; font-size: 0.8125rem; margin: 0.5rem 0 0; }
+    .section-heading { margin: 1.25rem 0 0.5rem; font-size: 1.05rem; }
+    .unmatched-meta { color: var(--muted); font-size: 0.8125rem; margin: 0 0 0.5rem; }
+    #unmatched-table { width: 100%; border-collapse: collapse; }
+    #unmatched-table th, #unmatched-table td { padding: 0.4rem 0.55rem; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    #unmatched-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    #unmatched-table thead th { background: #1e3a5f; color: #fff; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+    #unmatched-table tbody tr.fail td { background: #fff1f2; }
+    .message.warn {
+      display: block;
+      background: #fef3e2;
+      color: #92400e;
+      border: 1px solid #f5d9ad;
+    }
+    .import-result-summary {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .import-log-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.75rem;
+      height: 1.75rem;
+      padding: 0;
+      border: 1px solid #d4a574;
+      border-radius: 6px;
+      background: #fff;
+      color: #92400e;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .import-log { margin-top: 0.5rem; max-height: 14rem; overflow: auto; font-size: 0.8125rem; }
+    .import-log ul { margin: 0; padding-left: 1.1rem; }
 {% endblock %}
 
 {% block content %}
@@ -223,11 +258,10 @@
       <aside class="filter-panel">
         <h2>About</h2>
         <p class="help-text">
-          Per-load milk collections from the haulier's emailed spreadsheet — driver,
-          arrival/depart times, volume and temperature. Cows in milk are taken from
-          the CM/GAD inventory files (milking cows with DIM &gt; 4) so litres/cow
-          works for both farms. Each load is matched to its NML sample by sample
-          number and date (±1 day). Split-fill temperatures (e.g. 2.8/4.2) are averaged.
+          Per-load milk collections from the haulier spreadsheet, matched to NML
+          milk-quality samples by sample number and date (±1 day). Quality charts
+          include unmatched lab samples so nothing is missing from the NML reports.
+          Import haulier XLSX and NML PDFs from the buttons above the table.
         </p>
       </aside>
     </div>
@@ -314,6 +348,16 @@
         </div>
         <div class="chart-card">
           <div class="chart-head">
+            <h3>SCC (x1000/ml)</h3>
+            <div class="chart-actions">
+              <button type="button" class="chart-btn chart-reset" data-canvas="chart-scc" title="Reset zoom">⟲</button>
+              <button type="button" class="chart-expand" data-canvas="chart-scc" data-title="SCC (x1000/ml)" title="View larger">⤢</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-scc"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head">
             <h3>BactoScan (x1000/ml, vol-weighted)</h3>
             <div class="chart-actions">
               <button type="button" class="chart-btn chart-reset" data-canvas="chart-bactoscan" title="Reset zoom">⟲</button>
@@ -354,11 +398,21 @@
         <button type="button" class="secondary small" id="download-csv-btn">Export CSV</button>
         <button type="button" class="secondary small" id="download-xlsx-btn">Export XLSX</button>
         {% if can_import %}
-        <button type="button" class="secondary small" id="import-btn">Import from email</button>
+        <button type="button" class="secondary small" id="import-btn">Import haulier email</button>
         <label class="import-scope">
-          <span>Range</span>
-          <select id="import-scope" title="How far back to scan the mailbox">
+          <span>Haulier range</span>
+          <select id="import-scope" title="How far back to scan the haulier mailbox">
             <option value="recent" selected>Recent (last {{ lookback_days }} days)</option>
+            <option value="custom">Choose days back…</option>
+          </select>
+        </label>
+        {% endif %}
+        {% if can_import_nml|default(false) %}
+        <button type="button" class="primary small" id="import-nml-btn">Import NML email</button>
+        <label class="import-scope">
+          <span>NML range</span>
+          <select id="import-nml-scope" title="How far back to scan the NML mailboxes">
+            <option value="recent" selected>Recent (last {{ nml_lookback_days|default(lookback_days) }} days)</option>
             <option value="custom">Choose days back…</option>
           </select>
         </label>
@@ -384,13 +438,40 @@
               <th data-sort="scc">SCC</th>
               <th data-sort="bactoscan">BactoScan</th>
               <th data-sort="urea_pct">Urea %</th>
+              <th data-sort="fpd">FPD</th>
               <th data-sort="antibiotic_pass">A/B</th>
+              <th data-sort="milk_buyer">Buyer</th>
               <th data-sort="matched">NML</th>
               <th></th>
             </tr>
           </thead>
           <tbody id="table-body">
-            <tr><td colspan="18" class="empty-state">Loading…</td></tr>
+            <tr><td colspan="20" class="empty-state">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="section-heading">Unmatched NML samples</h3>
+      <p class="unmatched-meta" id="unmatched-meta">Lab results in this date range with no matching collection load.</p>
+      <div class="table-wrap">
+        <table id="unmatched-table">
+          <thead>
+            <tr>
+              <th>Farm</th>
+              <th>Sample Date</th>
+              <th>Sample ID</th>
+              <th>Butterfat %</th>
+              <th>Protein %</th>
+              <th>SCC</th>
+              <th>BactoScan</th>
+              <th>FPD</th>
+              <th>A/B</th>
+              <th>Urea %</th>
+              <th>Buyer</th>
+            </tr>
+          </thead>
+          <tbody id="unmatched-body">
+            <tr><td colspan="11" class="empty-state">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -474,8 +555,10 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js" crossorigin="anonymous"></script>
   <script>
     const CAN_IMPORT = {{ 'true' if can_import else 'false' }};
+    const CAN_IMPORT_NML = {{ 'true' if can_import_nml|default(false) else 'false' }};
     const FARM_COLORS = { CM: '#1e3a5f', GAD: '#b45309' };
     let rows = [];
+    let unmatchedNml = [];
     let trend = {};
     let sortKey = 'collection_date';
     let sortDir = -1;
@@ -590,8 +673,16 @@
         { label: 'Avg load (L)', value: intFmt(summary.avg_volume) || '—' },
         { label: 'Avg temp °C', value: num(summary.avg_temp, 2) || '—' },
         { label: 'Matched to NML', value: (summary.matched_count || 0) + ' / ' + (summary.count || 0) },
+        { label: 'Unmatched NML', value: String(summary.unmatched_nml_count || 0) },
         { label: 'Avg butterfat %', value: num(summary.avg_butterfat_pct, 2) || '—' },
         { label: 'Avg protein %', value: num(summary.avg_protein_pct, 2) || '—' },
+        { label: 'Avg SCC', value: summary.avg_scc != null ? String(Math.round(summary.avg_scc)) : '—' },
+        { label: 'Avg BactoScan', value: summary.avg_bactoscan != null ? String(Math.round(summary.avg_bactoscan)) : '—' },
+        {
+          label: 'Antibiotic fails',
+          value: String(summary.antibiotic_fails || 0),
+          warn: (summary.antibiotic_fails || 0) > 0,
+        },
       ];
       document.getElementById('summary-cards').innerHTML = cards.map(c =>
         '<div class="summary-card"><div class="label">' + escapeHtml(c.label) + '</div>' +
@@ -664,6 +755,7 @@
       const dailyPerCow = Object.values(byDay)
         .filter((d) => d.cows && d.cows > 0)
         .map((d) => d.vol / d.cows);
+      const qualityRows = sampleRows.concat(unmatchedNml);
       return {
         count: sampleRows.length,
         latest_collection_date: dates.length ? dates[dates.length - 1] : '',
@@ -673,8 +765,12 @@
         avg_volume: vol.length ? Math.round(totalVol / vol.length) : null,
         avg_temp: mean(cappedValues(sampleRows, 'temp_c'), 2),
         matched_count: sampleRows.filter(r => r.matched).length,
-        avg_butterfat_pct: mean(cappedValues(sampleRows, 'butterfat_pct'), 2),
-        avg_protein_pct: mean(cappedValues(sampleRows, 'protein_pct'), 2),
+        unmatched_nml_count: unmatchedNml.length,
+        avg_butterfat_pct: mean(cappedValues(qualityRows, 'butterfat_pct'), 2),
+        avg_protein_pct: mean(cappedValues(qualityRows, 'protein_pct'), 2),
+        avg_scc: mean(cappedValues(qualityRows, 'scc'), 2),
+        avg_bactoscan: mean(cappedValues(qualityRows, 'bactoscan'), 2),
+        antibiotic_fails: qualityRows.filter(r => r.antibiotic_pass === false).length,
       };
     }
 
@@ -922,6 +1018,7 @@
         ['chart-butterfat', 'line', { datasets: metricDatasets('butterfat_pct', 'Butterfat', labels), labels }],
         ['chart-protein', 'line', { datasets: metricDatasets('protein_pct', 'Protein', labels), labels }],
         ['chart-urea', 'line', { datasets: metricDatasets('urea_pct', 'Urea', labels), labels }],
+        ['chart-scc', 'line', { datasets: metricDatasets('scc', 'SCC', labels), labels }],
         ['chart-bactoscan', 'line', { datasets: metricDatasets('bactoscan', 'BactoScan', labels), labels }],
         ['chart-bacto-arrival', 'scatter', { datasets: bactoArrivalDatasets() }],
       ];
@@ -962,7 +1059,7 @@
       openModalCanvasId = null;
     }
 
-    const CHART_IDS = ['chart-volume', 'chart-per-cow', 'chart-temp', 'chart-butterfat', 'chart-protein', 'chart-urea', 'chart-bactoscan', 'chart-bacto-arrival'];
+    const CHART_IDS = ['chart-volume', 'chart-per-cow', 'chart-temp', 'chart-butterfat', 'chart-protein', 'chart-urea', 'chart-scc', 'chart-bactoscan', 'chart-bacto-arrival'];
 
     function bindChartUI() {
       document.querySelectorAll('.smoothing-slicer .slicer-btn').forEach(btn => {
@@ -1115,7 +1212,7 @@
     function renderTable() {
       const tbody = document.getElementById('table-body');
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="18" class="empty-state">No collections match the current filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="20" class="empty-state">No collections match the current filters.</td></tr>';
         return;
       }
       const duplicates = findDuplicateRows(rows);
@@ -1146,18 +1243,50 @@
           '<td class="num">' + escapeHtml(num(row.scc)) + '</td>' +
           '<td class="num">' + escapeHtml(num(row.bactoscan)) + '</td>' +
           '<td class="num">' + escapeHtml(num(row.urea_pct, 3)) + '</td>' +
+          '<td class="num">' + escapeHtml(num(row.fpd)) + '</td>' +
           '<td>' + abCell(row.antibiotic_pass) + '</td>' +
+          '<td>' + escapeHtml(row.milk_buyer || '') + '</td>' +
           '<td>' + matchedCell(row.matched) + '</td>' +
           '<td>' + editCell + '</td>' +
           '</tr>';
       }).join('');
     }
 
+    function renderUnmatchedTable() {
+      const tbody = document.getElementById('unmatched-body');
+      const meta = document.getElementById('unmatched-meta');
+      meta.textContent = unmatchedNml.length
+        ? (unmatchedNml.length + ' lab sample' + (unmatchedNml.length === 1 ? '' : 's') +
+          ' in this date range with no matching collection load.')
+        : 'No unmatched NML samples in this date range.';
+      if (!unmatchedNml.length) {
+        tbody.innerHTML = '<tr><td colspan="11" class="empty-state">No unmatched NML samples.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = unmatchedNml.map(row =>
+        '<tr' + (row.antibiotic_pass === false ? ' class="fail"' : '') + '>' +
+        '<td>' + escapeHtml(row.farm) + '</td>' +
+        '<td>' + escapeHtml(formatDate(row.sample_date || row.collection_date)) + '</td>' +
+        '<td>' + escapeHtml(row.sample_id) + '</td>' +
+        '<td class="num">' + escapeHtml(num(row.butterfat_pct, 2)) + '</td>' +
+        '<td class="num">' + escapeHtml(num(row.protein_pct, 2)) + '</td>' +
+        '<td class="num">' + escapeHtml(num(row.scc)) + '</td>' +
+        '<td class="num">' + escapeHtml(num(row.bactoscan)) + '</td>' +
+        '<td class="num">' + escapeHtml(num(row.fpd)) + '</td>' +
+        '<td>' + abCell(row.antibiotic_pass) + '</td>' +
+        '<td class="num">' + escapeHtml(num(row.urea_pct, 3)) + '</td>' +
+        '<td>' + escapeHtml(row.milk_buyer || '') + '</td>' +
+        '</tr>'
+      ).join('');
+    }
+
     async function loadResults() {
       showMessage('');
       document.getElementById('meta-line').textContent = 'Loading…';
       document.getElementById('table-body').innerHTML =
-        '<tr><td colspan="18" class="empty-state">Loading…</td></tr>';
+        '<tr><td colspan="20" class="empty-state">Loading…</td></tr>';
+      document.getElementById('unmatched-body').innerHTML =
+        '<tr><td colspan="11" class="empty-state">Loading…</td></tr>';
       try {
         const res = await fetch('/api/haulier/collections?' + buildQuery(), {
           signal: AbortSignal.timeout(30000),
@@ -1165,13 +1294,16 @@
         if (!res.ok) throw new Error('Failed to load collections (' + res.status + ')');
         const data = await res.json();
         rows = data.rows || [];
+        unmatchedNml = data.unmatched_nml || [];
         trend = data.trend || {};
         const summary = data.summary || {};
         document.getElementById('meta-line').textContent =
           rows.length + ' load' + (rows.length === 1 ? '' : 's') +
-          (summary.latest_collection_date ? ' · latest ' + formatDate(summary.latest_collection_date) : '');
+          (summary.latest_collection_date ? ' · latest ' + formatDate(summary.latest_collection_date) : '') +
+          ((summary.unmatched_nml_count || 0) ? (' · ' + summary.unmatched_nml_count + ' unmatched NML') : '');
         refreshSummary();
         renderTable();
+        renderUnmatchedTable();
         const chartError = renderCharts();
         if (chartError) {
           showMessage('Collections loaded, but charts could not be drawn: ' + chartError, true);
@@ -1179,7 +1311,9 @@
       } catch (err) {
         document.getElementById('meta-line').textContent = '';
         document.getElementById('table-body').innerHTML =
-          '<tr><td colspan="18" class="empty-state">Could not load collections.</td></tr>';
+          '<tr><td colspan="20" class="empty-state">Could not load collections.</td></tr>';
+        document.getElementById('unmatched-body').innerHTML =
+          '<tr><td colspan="11" class="empty-state">Could not load unmatched NML.</td></tr>';
         showMessage(err && err.message ? err.message : String(err), true);
       }
     }
@@ -1521,13 +1655,13 @@
         }
         const btn = this;
         btn.disabled = true;
-        showMessage(days ? ('Importing last ' + days + ' days…') : 'Importing from email…');
+        showMessage(days ? ('Importing haulier last ' + days + ' days…') : 'Importing haulier from email…');
         try {
           const url = '/api/haulier/import' + (days ? '?days=' + days : '');
           const res = await fetch(url, { method: 'POST' });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.detail || 'Import failed');
-          let msg = 'Imported ' + (data.rows_inserted || 0) + ' new, updated ' + (data.rows_updated || 0) +
+          let msg = 'Haulier: imported ' + (data.rows_inserted || 0) + ' new, updated ' + (data.rows_updated || 0) +
             ' from ' + (data.files_processed || 0) + ' report(s).';
           if (data.warnings && data.warnings.length) {
             msg += ' Warnings: ' + data.warnings.join(' ');
@@ -1538,6 +1672,90 @@
           loadResults();
         } catch (err) {
           showMessage(err.message, true);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    }
+
+    function showNmlImportResult(data) {
+      const el = document.getElementById('status-message');
+      el.innerHTML = '';
+      const warnings = data.warnings || [];
+      const stats = data.mailbox_stats || {};
+      let msg = 'NML: imported ' + (data.rows_inserted || 0) + ' new, updated ' +
+        (data.rows_updated || 0) + ' from ' + (data.files_processed || 0) + ' report(s).';
+      const statParts = [];
+      for (const farm of ['GAD', 'CM']) {
+        if (!stats[farm]) continue;
+        const s = stats[farm];
+        statParts.push(farm + ': ' + (s.pdfs_found || 0) + ' PDF(s) from ' + (s.mailbox || '?'));
+      }
+      if (statParts.length) msg += ' ' + statParts.join('; ') + '.';
+      const hasZeroPdfs = Object.values(stats).some((s) => (s.pdfs_found || 0) === 0);
+      el.className = 'message' + (warnings.length || hasZeroPdfs ? ' warn' : ' ok');
+      const summary = document.createElement('div');
+      summary.className = 'import-result-summary';
+      const lead = document.createElement('span');
+      lead.textContent = msg;
+      summary.appendChild(lead);
+      if (warnings.length || hasZeroPdfs) {
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'import-log-toggle';
+        toggle.title = 'Show import log';
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.textContent = '▤';
+        const log = document.createElement('div');
+        log.className = 'import-log';
+        log.hidden = true;
+        const ul = document.createElement('ul');
+        for (const item of warnings) {
+          const li = document.createElement('li');
+          li.textContent = item;
+          ul.appendChild(li);
+        }
+        log.appendChild(ul);
+        toggle.addEventListener('click', () => {
+          const open = toggle.getAttribute('aria-expanded') === 'true';
+          toggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+          log.hidden = open;
+        });
+        summary.appendChild(toggle);
+        el.appendChild(summary);
+        el.appendChild(log);
+      } else {
+        el.appendChild(summary);
+      }
+    }
+
+    if (CAN_IMPORT_NML) {
+      document.getElementById('import-nml-btn').addEventListener('click', async function () {
+        const scope = document.getElementById('import-nml-scope').value;
+        let days = null;
+        if (scope === 'custom') {
+          const input = window.prompt('How many days back should I scan the NML mailboxes?', '90');
+          if (input === null) return;
+          days = parseInt(input, 10);
+          if (!Number.isFinite(days) || days <= 0) {
+            showMessage('Enter a positive whole number of days.', true);
+            return;
+          }
+        } else if (!window.confirm('Check the mailboxes for new NML reports and import them now?')) {
+          return;
+        }
+        const btn = this;
+        btn.disabled = true;
+        showMessage(days ? ('Importing NML last ' + days + ' days…') : 'Importing NML from email…');
+        try {
+          const url = '/api/nml/import' + (days ? '?days=' + days : '');
+          const res = await fetch(url, { method: 'POST', credentials: 'same-origin' });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.detail || 'NML import failed');
+          showNmlImportResult(data);
+          loadResults();
+        } catch (err) {
+          showMessage(err && err.message ? err.message : String(err), true);
         } finally {
           btn.disabled = false;
         }

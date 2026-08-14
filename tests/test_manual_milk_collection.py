@@ -93,6 +93,65 @@ def test_zero_volume_rows_excluded_from_trend_totals() -> None:
     assert points[0]["volume_litres"] == 10000
 
 
+def test_list_collections_includes_unmatched_nml_and_quality_summary() -> None:
+    from app.models import NmlMilkResult
+    from app.services.haulier_collections import list_collections
+
+    db = _session()
+    day = dt.date(2026, 8, 21)
+    db.add(
+        MilkCollection(
+            farm="CM",
+            collection_date=day,
+            sample_id="601",
+            volume_litres=20000,
+            arrival_time=dt.time(6, 0),
+            source_file="haulier.xlsx",
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="CM",
+            producer_ref="389000184",
+            sample_date=day,
+            sample_id="601",
+            butterfat_pct=4.1,
+            protein_pct=3.3,
+            scc=120,
+            bactoscan=25,
+            antibiotic_pass=True,
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="CM",
+            producer_ref="389000184",
+            sample_date=day,
+            sample_id="999",
+            butterfat_pct=4.5,
+            protein_pct=3.5,
+            scc=200,
+            bactoscan=55,
+            antibiotic_pass=False,
+            milk_buyer="Dairy Partners",
+            fpd=520,
+        )
+    )
+    db.commit()
+
+    result = list_collections(db, farms=["CM"], date_from=day, date_to=day)
+    assert result["total"] == 1
+    assert result["rows"][0]["matched"] is True
+    assert result["rows"][0]["scc"] == 120
+    assert len(result["unmatched_nml"]) == 1
+    assert result["unmatched_nml"][0]["sample_id"] == "999"
+    assert result["summary"]["antibiotic_fails"] == 1
+    assert result["summary"]["unmatched_nml_count"] == 1
+    assert result["summary"]["avg_scc"] == 160.0  # (120+200)/2
+    # Unmatched NML still appears in quality trend for that day
+    assert any(p.get("scc") is not None for p in result["trend"]["CM"])
+
+
 def test_list_collections_deletes_blank_volume_rows() -> None:
     from app.services.haulier_collections import list_collections
 

@@ -1355,7 +1355,7 @@ def milk_quality_results_page(request: Request):
 def milk_quality_collections_page(request: Request):
     if denied := _page_guard(request, PAGE_MILK_QUALITY):
         return denied
-    from app.config import HAULIER_LOOKBACK_DAYS
+    from app.config import HAULIER_LOOKBACK_DAYS, NML_LOOKBACK_DAYS
     from app.models import HERD_FARM_OPTIONS
 
     return templates.TemplateResponse(
@@ -1366,7 +1366,9 @@ def milk_quality_collections_page(request: Request):
             page_heading="Milk Collections",
             farm_options=list(HERD_FARM_OPTIONS),
             can_import=has_action(request.state.user, ACTION_MILK_COLLECTIONS_IMPORT),
+            can_import_nml=has_action(request.state.user, ACTION_MILK_QUALITY_IMPORT),
             lookback_days=HAULIER_LOOKBACK_DAYS,
+            nml_lookback_days=NML_LOOKBACK_DAYS,
             **_milk_quality_context(
                 "Milk Collections",
                 "haulier-collections",
