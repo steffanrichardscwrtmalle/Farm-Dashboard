@@ -356,7 +356,7 @@ def api_restore_staff(
 def api_download_contract(
     contract_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_page(PAGE_HR)),
+    _: User = Depends(require_action(ACTION_HR_VIEW_SENSITIVE)),
 ):
     try:
         contract = get_contract_for_download(db, contract_id)
@@ -420,7 +420,7 @@ def api_download_document(
     document_id: int,
     inline: bool = Query(False),
     db: Session = Depends(get_db),
-    _: User = Depends(require_page(PAGE_HR)),
+    _: User = Depends(require_action(ACTION_HR_VIEW_SENSITIVE)),
 ):
     try:
         document = get_document_for_download(db, document_id)

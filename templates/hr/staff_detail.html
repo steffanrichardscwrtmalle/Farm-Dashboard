@@ -281,9 +281,14 @@
       return;
     }
     contractsBody.innerHTML = contracts.map(function (c) {
-      const download = c.has_signed_pdf
-        ? '<a href="/api/hr/contracts/' + c.id + '/download" target="_blank" rel="noopener">Download PDF</a>'
-        : '<span class="muted">Not ready</span>';
+      let download;
+      if (!c.has_signed_pdf) {
+        download = '<span class="muted">Not ready</span>';
+      } else if (!canViewSensitive) {
+        download = '<span class="sensitive-mask">Restricted</span>';
+      } else {
+        download = '<a href="/api/hr/contracts/' + c.id + '/download" target="_blank" rel="noopener">Download PDF</a>';
+      }
       const completed = c.completed_at ? c.completed_at.slice(0, 10) : '—';
       return '<tr>' +
         '<td>' + c.id + '</td>' +
@@ -312,8 +317,13 @@
         ? escapeHtml(d.original_filename) + ' — ' + escapeHtml(d.label)
         : escapeHtml(d.original_filename);
       const uploaded = d.created_at ? d.created_at.slice(0, 10) : '—';
-      let actions = '<a href="/api/hr/documents/' + d.id + '/download?inline=true" target="_blank" rel="noopener">View</a>' +
-        ' · <a href="/api/hr/documents/' + d.id + '/download" target="_blank" rel="noopener">Download</a>';
+      let actions;
+      if (canViewSensitive) {
+        actions = '<a href="/api/hr/documents/' + d.id + '/download?inline=true" target="_blank" rel="noopener">View</a>' +
+          ' · <a href="/api/hr/documents/' + d.id + '/download" target="_blank" rel="noopener">Download</a>';
+      } else {
+        actions = '<span class="sensitive-mask">Restricted</span>';
+      }
       if (canEnroll) {
         actions += ' · <a href="#" class="doc-delete" data-id="' + d.id + '" style="color:#b91c1c">Delete</a>';
       }

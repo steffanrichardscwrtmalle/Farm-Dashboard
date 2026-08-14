@@ -113,7 +113,7 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_CATTLE_SALES_IMPORT: "Cattle Sales — import Eurofarm / Pathway / Buitelaar / Game Changer remittances from email",
     ACTION_BENCHMARKING_EDIT: "Benchmarking — edit forecast tables",
     ACTION_HR_ENROLL: "HR — enroll new staff",
-    ACTION_HR_VIEW_SENSITIVE: "HR — view sensitive PII (NI, pay details)",
+    ACTION_HR_VIEW_SENSITIVE: "HR — view sensitive (NI, pay, contracts, documents)",
     ACTION_PARLOUR_IMPORT: "Parlour — import milk flow shift reports",
     ACTION_CTS_SYNC: "CTS — sync cattle on holding",
 }
