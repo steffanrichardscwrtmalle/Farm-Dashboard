@@ -38,33 +38,27 @@ def test_create_manual_collection_treats_zero_volume_as_blank() -> None:
         ],
         cows_in_milk=400,
     )
-    assert result["loads_created"] == 2
+    # Zero volume is never a load, even with temp/sample.
+    assert result["loads_created"] == 1
     rows = db.scalars(
         select(MilkCollection)
         .where(MilkCollection.farm == "GAD")
         .order_by(MilkCollection.arrival_time)
     ).all()
-    assert len(rows) == 2
-    assert rows[0].volume_litres is None
-    assert rows[0].temp_c == 3.5
-    assert rows[0].sample_id == "401"
-    assert rows[1].volume_litres == 9000
-    assert rows[1].sample_id == "402"
+    assert len(rows) == 1
+    assert rows[0].volume_litres == 9000
+    assert rows[0].sample_id == "402"
 
-    day_data = get_manual_collection_day(db, farm="GAD", collection_date=day)
-    assert day_data["loads"][0]["volume_litres"] is None
-
-    # Only zero volumes and no other fields → nothing to save
     try:
         create_manual_collection(
             db,
             collection_date=dt.date(2026, 8, 10),
             farm="GAD",
-            loads=[{"volume_litres": 0}, {"volume_litres": 0.0}],
+            loads=[{"volume_litres": 0}, {"volume_litres": 0.0, "sample_id": "x"}],
         )
         raise AssertionError("expected ValueError")
     except ValueError as exc:
-        assert "at least one load" in str(exc).lower()
+        assert "volume" in str(exc).lower()
 
 
 def test_zero_volume_rows_excluded_from_trend_totals() -> None:
@@ -97,6 +91,52 @@ def test_zero_volume_rows_excluded_from_trend_totals() -> None:
     assert summary["avg_daily_volume"] == 10000
     points = _build_trend(rows)["GAD"]
     assert points[0]["volume_litres"] == 10000
+
+
+def test_list_collections_deletes_blank_volume_rows() -> None:
+    from app.services.haulier_collections import list_collections
+
+    db = _session()
+    day = dt.date(2026, 8, 20)
+    db.add(
+        MilkCollection(
+            farm="CM",
+            collection_date=day,
+            sample_id="501",
+            volume_litres=None,
+            arrival_time=dt.time(6, 0),
+            source_file="haulier.xlsx",
+        )
+    )
+    db.add(
+        MilkCollection(
+            farm="CM",
+            collection_date=day,
+            sample_id="502",
+            volume_litres=0,
+            arrival_time=dt.time(7, 0),
+            source_file="haulier.xlsx",
+        )
+    )
+    db.add(
+        MilkCollection(
+            farm="CM",
+            collection_date=day,
+            sample_id="503",
+            volume_litres=25000,
+            arrival_time=dt.time(8, 0),
+            source_file="haulier.xlsx",
+        )
+    )
+    db.commit()
+
+    result = list_collections(db, farms=["CM"], date_from=day, date_to=day)
+    assert result["total"] == 1
+    assert result["rows"][0]["sample_id"] == "503"
+    assert result["rows"][0]["volume_litres"] == 25000
+    remaining = db.scalars(select(MilkCollection).where(MilkCollection.farm == "CM")).all()
+    assert len(remaining) == 1
+    assert remaining[0].sample_id == "503"
 
 
 def test_create_manual_collection_writes_loads_and_cows() -> None:
@@ -200,6 +240,32 @@ def test_get_and_edit_manual_collection_day() -> None:
     assert len(new_rows) == 1
     assert new_rows[0].sample_id == "201"
     assert new_rows[0].volume_litres == 7000
+
+
+def test_trend_bactoscan_is_volume_weighted() -> None:
+    trend = _build_trend(
+        [
+            {
+                "farm": "CM",
+                "collection_date": "2026-08-09",
+                "volume_litres": 10000,
+                "bactoscan": 20,
+                "temp_c": None,
+                "cows_in_milk": 500,
+            },
+            {
+                "farm": "CM",
+                "collection_date": "2026-08-09",
+                "volume_litres": 30000,
+                "bactoscan": 40,
+                "temp_c": None,
+                "cows_in_milk": 500,
+            },
+        ]
+    )
+    # (20*10000 + 40*30000) / 40000 = 35
+    assert trend["CM"][0]["bactoscan"] == 35.0
+    assert trend["CM"][0]["volume_litres"] == 40000
 
 
 def test_trend_includes_litres_per_cow() -> None:

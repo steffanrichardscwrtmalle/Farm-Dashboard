@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import (
@@ -207,10 +207,13 @@ def import_haulier_collections(
             collection_date = row.get("collection_date")
             if collection_date is None:
                 continue
-            # A load must have a sample number or, failing that, a volume so it
-            # still counts toward the monthly total (the haulier sometimes leaves
-            # the sample blank).
-            if not sample_id and row.get("volume_litres") is None:
+            # Real loads need a positive volume; blank/zero volume is not a load.
+            volume = row.get("volume_litres")
+            try:
+                vol_n = int(volume) if volume is not None and volume != "" else None
+            except (TypeError, ValueError):
+                vol_n = None
+            if vol_n is None or vol_n <= 0:
                 continue
             key = _row_key(
                 farm,
@@ -238,7 +241,8 @@ def import_haulier_collections(
     inserted, updated = _upsert(db, parsed_by_key)
     farms = {key[0] for key in parsed_by_key}
     stale_removed = _prune_stale_month_rows(db, parsed_by_key)
-    removed = _dedupe_month_emails(db, farms) + stale_removed
+    blank_removed = _prune_blank_volume_rows(db, farms)
+    removed = _dedupe_month_emails(db, farms) + stale_removed + blank_removed
     db.commit()
 
     return {
@@ -248,6 +252,7 @@ def import_haulier_collections(
         "rows_updated": updated,
         "rows_total": inserted + updated,
         "duplicates_removed": removed,
+        "blank_volumes_removed": blank_removed,
         "warnings": warnings,
         "imported_at": dt.datetime.now().isoformat(timespec="seconds"),
     }
@@ -276,6 +281,22 @@ def _is_newer(candidate: dt.datetime | None, current: dt.datetime | None) -> boo
     if current is None:
         return True
     return candidate >= current
+
+
+def _prune_blank_volume_rows(db: Session, farms: set[str]) -> int:
+    """Delete loads with missing or zero volume (not real collections)."""
+    if not farms:
+        return 0
+    result = db.execute(
+        delete(MilkCollection).where(
+            MilkCollection.farm.in_(farms),
+            or_(
+                MilkCollection.volume_litres.is_(None),
+                MilkCollection.volume_litres <= 0,
+            ),
+        )
+    )
+    return int(result.rowcount or 0)
 
 
 def _email_id(row: MilkCollection) -> str:

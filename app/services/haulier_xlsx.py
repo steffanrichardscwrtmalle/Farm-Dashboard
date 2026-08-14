@@ -214,13 +214,11 @@ def parse_haulier_xlsx(content: bytes) -> dict[str, Any]:
 
         if current_date is None:
             continue
-        # A sampled load needs a volume or arrival time. The haulier occasionally
-        # leaves the sample number blank; still keep it if it has both a volume
-        # and an arrival time (enough to tell a real load from a summary row).
-        if sample_id:
-            if volume is None and arrival is None:
-                continue
-        elif volume is None or arrival is None:
+        # Zero / missing volume is not a real load (shows blank in the table).
+        if volume is None or volume <= 0:
+            continue
+        # Unsampled loads still need an arrival time so summary rows are skipped.
+        if not sample_id and arrival is None:
             continue
 
         farm = _farm_for_customer(col_a)

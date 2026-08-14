@@ -14,7 +14,7 @@ from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import HERD_FARM_OPTIONS, MilkCollection, NmlMilkResult
@@ -264,13 +264,14 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-# Per-day trend metrics: volume is summed, the rest averaged.
+# Per-day trend metrics: volume is summed; quality fields averaged.
+# BactoScan is volume-weighted (larger loads count more).
 _TREND_SUM = ("volume_litres",)
-_TREND_AVG = ("temp_c", "butterfat_pct", "protein_pct", "scc", "bactoscan", "urea_pct")
+_TREND_AVG = ("temp_c", "butterfat_pct", "protein_pct", "scc", "urea_pct")
 
 
 def _build_trend(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    buckets: dict[tuple[str, str], dict[str, list[float]]] = {}
+    buckets: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
         farm = row["farm"] or "?"
         date = row["collection_date"]
@@ -278,7 +279,10 @@ def _build_trend(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
             continue
         bucket = buckets.setdefault(
             (farm, date),
-            {m: [] for m in (*_TREND_SUM, *_TREND_AVG, "cows_in_milk")},
+            {
+                **{m: [] for m in (*_TREND_SUM, *_TREND_AVG, "cows_in_milk")},
+                "bactoscan_weighted": [],
+            },
         )
         for metric in (*_TREND_SUM, *_TREND_AVG):
             value = row.get(metric)
@@ -288,6 +292,14 @@ def _build_trend(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
             if metric == "volume_litres" and float(value) == 0:
                 continue
             bucket[metric].append(float(value))
+        volume = row.get("volume_litres")
+        bactoscan = row.get("bactoscan")
+        if (
+            bactoscan is not None
+            and volume is not None
+            and float(volume) > 0
+        ):
+            bucket["bactoscan_weighted"].append((float(bactoscan), float(volume)))
         cows = row.get("cows_in_milk")
         if cows is not None:
             try:
@@ -306,6 +318,19 @@ def _build_trend(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         for metric in _TREND_AVG:
             values = metrics[metric]
             point[metric] = round(sum(values) / len(values), 3) if values else None
+        weighted = metrics["bactoscan_weighted"]
+        if weighted:
+            weight_sum = sum(weight for _, weight in weighted)
+            point["bactoscan"] = (
+                round(
+                    sum(value * weight for value, weight in weighted) / weight_sum,
+                    1,
+                )
+                if weight_sum > 0
+                else None
+            )
+        else:
+            point["bactoscan"] = None
         cows_values = metrics["cows_in_milk"]
         cows = max(cows_values) if cows_values else None
         volume = point.get("volume_litres")
@@ -330,6 +355,19 @@ def list_collections(
     if not selected_farms:
         return {"rows": [], "total": 0, "summary": _summary([]), "trend": {}}
 
+    # Permanently drop blank/zero-volume rows (not real loads).
+    blank_deleted = db.execute(
+        delete(MilkCollection).where(
+            MilkCollection.farm.in_(selected_farms),
+            or_(
+                MilkCollection.volume_litres.is_(None),
+                MilkCollection.volume_litres <= 0,
+            ),
+        )
+    )
+    if int(blank_deleted.rowcount or 0) > 0:
+        db.commit()
+
     query = select(MilkCollection).where(MilkCollection.farm.in_(selected_farms))
     if date_from is not None:
         query = query.where(MilkCollection.collection_date >= date_from)
@@ -338,7 +376,11 @@ def list_collections(
     query = query.order_by(
         MilkCollection.collection_date.desc(), MilkCollection.sample_id.desc()
     )
-    collections = db.scalars(query).all()
+    collections = [
+        c
+        for c in db.scalars(query).all()
+        if c.volume_litres is not None and c.volume_litres > 0
+    ]
 
     # Pull NML rows for the same farms within a +/- 1 day buffer for matching.
     nml_query = select(NmlMilkResult).where(NmlMilkResult.farm.in_(selected_farms))
@@ -414,25 +456,27 @@ def get_manual_collection_day(
     if not rows:
         raise ValueError("No manual collection found for that farm and date")
     cows = next((r.cows_in_milk for r in rows if r.cows_in_milk is not None), None)
+    # Only real loads (positive volume) belong in the edit form.
+    volume_rows = [
+        row for row in rows if row.volume_litres is not None and row.volume_litres > 0
+    ]
+    if not volume_rows:
+        raise ValueError("No manual collection found for that farm and date")
     loads = [
         {
-            "volume_litres": (
-                None
-                if row.volume_litres is None or row.volume_litres == 0
-                else row.volume_litres
-            ),
+            "volume_litres": row.volume_litres,
             "temp_c": row.temp_c,
             "sample_id": row.sample_id or "",
         }
-        for row in rows[:3]
+        for row in volume_rows[:3]
     ]
     while len(loads) < 3:
         loads.append({"volume_litres": None, "temp_c": None, "sample_id": ""})
     sample_suggested = False
     if (
         farm_key == "GAD"
-        and len(rows) == 1
-        and not (rows[0].sample_id or "").strip()
+        and len(volume_rows) == 1
+        and not (volume_rows[0].sample_id or "").strip()
     ):
         suggested = unique_gad_nml_sample_id(db, collection_date)
         if suggested:
@@ -499,8 +543,6 @@ def create_manual_collection(
         temp = raw.get("temp_c")
         sample_raw = str(raw.get("sample_id") or "").strip()
         sample_id = sample_raw or None
-        if volume is None and temp is None and not sample_id:
-            continue
         vol_int: int | None = None
         if volume is not None and volume != "":
             try:
@@ -509,11 +551,10 @@ def create_manual_collection(
                 raise ValueError("volume_litres must be a number") from exc
             if vol_int < 0:
                 raise ValueError("volume_litres must be greater than zero")
-            # Zero volume means no load — treat as blank.
             if vol_int == 0:
                 vol_int = None
-        # Re-check after coercing 0 → blank so a lone zero does not create a row.
-        if vol_int is None and (temp is None or temp == "") and not sample_id:
+        # No positive volume → not a load (ignore leftover temp/sample alone).
+        if vol_int is None:
             continue
         temp_f: float | None = None
         if temp is not None and temp != "":
@@ -535,7 +576,7 @@ def create_manual_collection(
         )
 
     if not cleaned_loads:
-        raise ValueError("Enter at least one load volume, temperature, or sample")
+        raise ValueError("Enter at least one load with a volume greater than zero")
 
     # GAD single-load days: fill blank sample from that day's unique NML result.
     sample_auto_filled = False
