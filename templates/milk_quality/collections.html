@@ -276,6 +276,7 @@
         <span class="section-label">Trend</span>
         <div class="slicer-group smoothing-slicer">
           <button type="button" class="slicer-btn selected" data-value="avg" aria-pressed="true" title="Average of 6-day and 7-day means">Rolling average</button>
+          <button type="button" class="slicer-btn" data-value="avg30" aria-pressed="false" title="30-day rolling mean">30-day average</button>
           <button type="button" class="slicer-btn" data-value="raw" aria-pressed="false">Raw data</button>
         </div>
         <span class="section-label">Outliers</span>
@@ -784,9 +785,10 @@
       return [...set].sort();
     }
 
-    // Blend of 6-day (even: balances CM 3/4-load alternation) and 7-day means.
-    const ROLL_WINDOWS = [6, 7];
-    let smoothing = true;
+    // Short rolling: blend of 6-day (even: balances CM 3/4-load alternation) and 7-day means.
+    const ROLL_WINDOWS_SHORT = [6, 7];
+    const ROLL_WINDOWS_30 = [30];
+    let smoothingMode = 'avg'; // 'avg' | 'avg30' | 'raw'
 
     function rollingMeanAt(points, dates, endIdx, windowDays, metric) {
       const start = new Date(dates[endIdx]);
@@ -805,11 +807,11 @@
       return count ? sum / count : null;
     }
 
-    function rollingByDate(points, metric) {
+    function rollingByDate(points, metric, windows) {
       const result = {};
       const dates = points.map(p => new Date(p.date + 'T00:00:00'));
       for (let i = 0; i < points.length; i++) {
-        const parts = ROLL_WINDOWS
+        const parts = windows
           .map(days => rollingMeanAt(points, dates, i, days, metric))
           .filter(v => v !== null);
         result[points[i].date] = parts.length
@@ -837,11 +839,16 @@
       });
     }
 
-    function seriesFor(farm, metric, labels, smooth) {
+    function seriesFor(farm, metric, labels, mode) {
       const points = cleanedPoints(farm, metric);
-      const byDate = smooth
-        ? rollingByDate(points, metric)
-        : points.reduce((acc, p) => { acc[p.date] = p[metric]; return acc; }, {});
+      let byDate;
+      if (mode === 'avg') {
+        byDate = rollingByDate(points, metric, ROLL_WINDOWS_SHORT);
+      } else if (mode === 'avg30') {
+        byDate = rollingByDate(points, metric, ROLL_WINDOWS_30);
+      } else {
+        byDate = points.reduce((acc, p) => { acc[p.date] = p[metric]; return acc; }, {});
+      }
       return labels.map(d => (byDate[d] === undefined ? null : byDate[d]));
     }
 
@@ -1002,13 +1009,14 @@
     }
 
     function metricDatasets(metric, suffix, labels) {
-      const smooth = smoothing;
-      const tag = smooth ? ' (rolling avg)' : '';
+      const mode = smoothingMode;
+      const smooth = mode !== 'raw';
+      const tag = mode === 'avg' ? ' (rolling avg)' : mode === 'avg30' ? ' (30-day avg)' : '';
       return selectedFarms().map(farm => {
         const color = FARM_COLORS[farm] || '#555';
         return {
           label: farm + ' ' + suffix + tag,
-          data: seriesFor(farm, metric, labels, smooth),
+          data: seriesFor(farm, metric, labels, mode),
           borderColor: color,
           backgroundColor: color,
           tension: smooth ? 0.35 : 0.25,
@@ -1084,7 +1092,7 @@
             b.classList.toggle('selected', on);
             b.setAttribute('aria-pressed', on);
           });
-          smoothing = btn.dataset.value === 'avg';
+          smoothingMode = btn.dataset.value;
           renderCharts();
         });
       });
