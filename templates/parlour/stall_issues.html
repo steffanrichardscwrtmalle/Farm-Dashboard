@@ -59,6 +59,7 @@
       border-radius: 8px;
       background: #fff;
     }
+    .content-panel.has-detail .table-wrap { max-height: 38vh; }
     #stall-issues-table {
       width: max-content;
       min-width: 100%;
@@ -103,6 +104,90 @@
       color: #92400e;
       font-weight: 600;
     }
+    #stall-issues-table tbody tr.stall-row {
+      cursor: pointer;
+    }
+    #stall-issues-table tbody tr.stall-row:hover td {
+      background: #f1f5f9;
+    }
+    #stall-issues-table tbody tr.stall-row:hover td:first-child {
+      background: #f1f5f9;
+    }
+    #stall-issues-table tbody tr.stall-row.selected td {
+      background: #ffe8d6;
+    }
+    #stall-issues-table tbody tr.stall-row.selected td:first-child {
+      background: #ffe8d6;
+      box-shadow: inset 3px 0 0 #c45c26;
+    }
+    .detail-section {
+      margin-top: 1.25rem;
+    }
+    .detail-section h2 {
+      margin: 0 0 0.35rem;
+      font-size: 1.05rem;
+      color: #1e3a5f;
+    }
+    .detail-section .pen-meta {
+      color: var(--muted);
+      font-size: 0.8125rem;
+      margin: 0 0 0.65rem;
+    }
+    .detail-wrap {
+      overflow: auto;
+      max-height: 46vh;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .metric-table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.75rem;
+    }
+    .metric-table th,
+    .metric-table td {
+      padding: 0.35rem 0.4rem;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid #eef0f3;
+      text-align: center;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .metric-table th:first-child,
+    .metric-table td:first-child {
+      text-align: left;
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      background: #fff;
+      min-width: 11rem;
+      font-weight: 600;
+    }
+    .metric-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: #f8fafc;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .metric-table thead tr:first-child th:first-child { z-index: 4; }
+    .metric-table thead tr.shift-row th { top: 1.7rem; z-index: 3; }
+    .metric-table tbody tr:nth-child(even) td { background: #f7f9fb; }
+    .metric-table tbody tr:nth-child(even) td:first-child { background: #f7f9fb; }
+    .metric-table td.outlier-bad {
+      background: #fee2e2 !important;
+      color: #991b1b;
+      font-weight: 700;
+    }
+    .metric-table td.outlier-problem {
+      background: #7f1d1d !important;
+      color: #fff;
+      font-weight: 700;
+    }
     .empty-state { color: var(--muted); padding: 1.5rem 0.25rem; }
     .help-note {
       margin: 0.75rem 0 0;
@@ -134,8 +219,8 @@
       </div>
       <p class="help-note">
         Cell = number of shifts that stall was a problem stall that day
-        (same rule as Performance: metric ≥2 SD bad this shift and the previous shift).
-        Red = more than one shift.
+        (metric ≥2 SD bad this shift and the previous shift).
+        Red = more than one shift. Click a stall for its last 7 days of metrics.
       </p>
     </div>
   </aside>
@@ -149,6 +234,7 @@
       </table>
     </div>
     <p class="empty-state" id="empty-state" hidden>No problem-stall data for this farm and date range.</p>
+    <div class="detail-section" id="detail-section" hidden></div>
   </section>
 </div>
 {% endblock %}
@@ -164,9 +250,13 @@
   const tableHead = document.getElementById("table-head");
   const tableBody = document.getElementById("table-body");
   const emptyState = document.getElementById("empty-state");
+  const detailSection = document.getElementById("detail-section");
+  const contentPanel = document.querySelector(".content-panel");
 
   let farm = "CM";
   let loadToken = 0;
+  let detailToken = 0;
+  let selectedStall = null;
 
   function isoDate(d) {
     const y = d.getFullYear();
@@ -197,12 +287,202 @@
     dateFromInput.value = isoDate(from);
   }
 
+  function fmtNum(n, digits) {
+    if (n == null || Number.isNaN(n)) return "—";
+    return Number(n).toLocaleString(undefined, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+  }
+
+  function formatDurationFromSeconds(seconds) {
+    if (seconds == null || !Number.isFinite(Number(seconds))) return "—";
+    const total = Math.max(0, Math.round(Number(seconds)));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    if (hours) return `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    return `${minutes}:${String(secs).padStart(2, "0")}`;
+  }
+
+  function formatMetric(m, s) {
+    if (!s) return "";
+    if (m.metricKey === "attachment_idle_seconds") {
+      if (s.attachment_idle_minutes != null) return fmtNum(s.attachment_idle_minutes, 0);
+      if (s.attachment_idle_seconds != null) {
+        return fmtNum(Math.round(Number(s.attachment_idle_seconds) / 60), 0);
+      }
+      return "—";
+    }
+    if (m.metricKey && m.metricKey.endsWith("_seconds")) {
+      const labelKey = m.metricKey.replace(/_seconds$/, "_label");
+      if (s[labelKey]) return s[labelKey];
+      return formatDurationFromSeconds(s[m.metricKey]);
+    }
+    if ((m.metricKey && m.metricKey.endsWith("_pct")) || (m.label && m.label.includes("%"))) {
+      return s[m.metricKey] != null ? `${fmtNum(s[m.metricKey], 1)}%` : "—";
+    }
+    if (m.label === "Cows") return s.cow_count != null ? fmtNum(s.cow_count, 0) : "—";
+    if (m.label && m.label.includes("(kg)")) {
+      const digits = m.metricKey === "yield_kg" ? 1 : 2;
+      return s[m.metricKey] != null ? fmtNum(s[m.metricKey], digits) : "—";
+    }
+    return s[m.metricKey] != null ? fmtNum(s[m.metricKey], 1) : "—";
+  }
+
+  const STALL_METRICS = [
+    { label: "Total yield (kg)", metricKey: "yield_kg" },
+    { label: "Average Yield (kg)", metricKey: "avg_yield_kg" },
+    { label: "Cows", metricKey: "cow_count" },
+    { label: "Cows / hour", metricKey: "cows_per_hour" },
+    { label: "Rotation (min)", metricKey: "median_rotation_minutes" },
+    { label: "Idle gaps (min)", metricKey: "attachment_idle_seconds" },
+    { label: "Lag phase (s)", metricKey: "median_lag_phase_seconds" },
+    { label: "High flow takeoffs % (>1800)", metricKey: "high_flow_takeoff_pct" },
+    { label: "Average Takeoff Flow", metricKey: "avg_flow_rate_at_removal" },
+    { label: "Bi-modal let-down %", metricKey: "bimodal_pct" },
+    { label: "Median Unit On Time", metricKey: "median_milking_duration_seconds" },
+    { label: "Average Unit On Time", metricKey: "avg_milking_duration_seconds" },
+    { label: "Avg 15s flow", metricKey: "avg_flow_15s" },
+    { label: "Avg 30s flow", metricKey: "avg_flow_30s" },
+    { label: "Avg 60s flow", metricKey: "avg_flow_60s" },
+    { label: "Avg 120s flow", metricKey: "avg_flow_120s" },
+    { label: "Average Peak Flow", metricKey: "avg_peak_flow" },
+    { label: "Average Flow", metricKey: "avg_average_flow" },
+    { label: "Avg % in 2 minutes", metricKey: "avg_pct_2_minutes" },
+    { label: "Avg milk yield at 2 min (kg)", metricKey: "avg_milk_yield_2_minutes" },
+  ];
+
+  function detailRange() {
+    const to = dateToInput.value;
+    if (!to) return null;
+    const toDate = parseIsoDate(to);
+    const fromDate = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() - 6);
+    return { from: isoDate(fromDate), to };
+  }
+
+  function closeDetail() {
+    selectedStall = null;
+    detailToken += 1;
+    detailSection.hidden = true;
+    detailSection.innerHTML = "";
+    contentPanel.classList.remove("has-detail");
+    tableBody.querySelectorAll("tr.stall-row.selected").forEach((tr) => {
+      tr.classList.remove("selected");
+    });
+  }
+
+  function renderDetail(payload) {
+    const dates = payload.dates || [];
+    const shifts = payload.shifts || ["Morning", "Day", "Night"];
+    const cells = payload.cells || {};
+    const point = payload.milking_point;
+    const shiftShort = { Morning: "AM", Day: "Day", Night: "Night" };
+
+    const dayHead = dates
+      .map((d) => `<th colspan="${shifts.length}" title="${d}">${formatDayHeader(d)}</th>`)
+      .join("");
+    const shiftHead = dates
+      .map(() =>
+        shifts
+          .map((s) => `<th>${shiftShort[s] || s}</th>`)
+          .join("")
+      )
+      .join("");
+
+    const body = STALL_METRICS.map((m) => {
+      const tds = dates
+        .map((d) =>
+          shifts
+            .map((shift) => {
+              const item = cells[d] && cells[d][shift];
+              if (!item) return `<td></td>`;
+              const flag = (item.outlier_flags || {})[m.metricKey];
+              const cls =
+                flag === "problem"
+                  ? "outlier-problem"
+                  : flag === "alert"
+                    ? "outlier-bad"
+                    : "";
+              return `<td class="${cls}">${formatMetric(m, item)}</td>`;
+            })
+            .join("")
+        )
+        .join("");
+      return `<tr><td>${m.label}</td>${tds}</tr>`;
+    }).join("");
+
+    detailSection.hidden = false;
+    contentPanel.classList.add("has-detail");
+    detailSection.innerHTML =
+      `<h2>Stall ${point}</h2>` +
+      `<p class="pen-meta">${payload.farm} · ${payload.date_from} → ${payload.date_to} · ` +
+      `red = ≥2 SD worse this shift · dark red = problem stall (same metric previous shift)</p>` +
+      `<div class="detail-wrap">` +
+      `<table class="metric-table">` +
+      `<thead>` +
+      `<tr><th rowspan="2">Metric</th>${dayHead}</tr>` +
+      `<tr class="shift-row">${shiftHead}</tr>` +
+      `</thead>` +
+      `<tbody>${body}</tbody>` +
+      `</table>` +
+      `</div>`;
+  }
+
+  async function loadDetail(milkingPoint) {
+    const range = detailRange();
+    if (!range) return;
+    const token = ++detailToken;
+    detailSection.hidden = false;
+    contentPanel.classList.add("has-detail");
+    detailSection.innerHTML =
+      `<h2>Stall ${milkingPoint}</h2>` +
+      `<p class="pen-meta">Loading last 7 days…</p>`;
+
+    const params = new URLSearchParams({
+      farm,
+      milking_point: String(milkingPoint),
+      date_from: range.from,
+      date_to: range.to,
+    });
+    try {
+      const res = await fetch(`/api/parlour/stall-issues/detail?${params}`);
+      const data = await res.json().catch(() => ({}));
+      if (token !== detailToken) return;
+      if (!res.ok) {
+        detailSection.innerHTML =
+          `<h2>Stall ${milkingPoint}</h2>` +
+          `<p class="pen-meta">${data.detail || "Failed to load stall metrics."}</p>`;
+        return;
+      }
+      renderDetail(data);
+    } catch (_err) {
+      if (token !== detailToken) return;
+      detailSection.innerHTML =
+        `<h2>Stall ${milkingPoint}</h2>` +
+        `<p class="pen-meta">Failed to load stall metrics.</p>`;
+    }
+  }
+
+  function selectStall(milkingPoint) {
+    if (selectedStall === milkingPoint) {
+      closeDetail();
+      return;
+    }
+    selectedStall = milkingPoint;
+    tableBody.querySelectorAll("tr.stall-row").forEach((tr) => {
+      tr.classList.toggle("selected", Number(tr.dataset.stall) === milkingPoint);
+    });
+    loadDetail(milkingPoint);
+  }
+
   function render(payload) {
     const dates = payload.dates || [];
     const rows = (payload.rows || []).filter((row) => Number(row.total || 0) > 0);
     if (!dates.length || !rows.length) {
       tableWrap.hidden = true;
       emptyState.hidden = false;
+      closeDetail();
       metaLine.textContent = `${payload.farm || farm} · no problem stalls in this range`;
       return;
     }
@@ -212,7 +492,7 @@
     metaLine.textContent =
       `${payload.farm} · ${dates[0]} → ${dates[dates.length - 1]} · ` +
       `${rows.length} stall${rows.length === 1 ? "" : "s"} with issues · ` +
-      `red = problem on more than one shift that day`;
+      `click a stall for last 7 days of metrics`;
 
     tableHead.innerHTML =
       `<tr><th>Stall</th>` +
@@ -226,8 +506,12 @@
         const cls = n > 1 ? "count-hot" : "count-mild";
         return `<td class="${cls}">${n}</td>`;
       }).join("");
+      const selected =
+        selectedStall != null && Number(row.milking_point) === selectedStall
+          ? " selected"
+          : "";
       return (
-        `<tr>` +
+        `<tr class="stall-row${selected}" data-stall="${row.milking_point ?? ""}">` +
         `<td>${row.milking_point ?? "—"}</td>` +
         cells +
         `<td>${row.total || ""}</td>` +
@@ -247,6 +531,7 @@
       return;
     }
 
+    closeDetail();
     metaLine.textContent = "Loading stall issues…";
     tableWrap.hidden = true;
     emptyState.hidden = true;
@@ -271,6 +556,13 @@
     }
   }
 
+  tableBody.addEventListener("click", (event) => {
+    const row = event.target.closest("tr.stall-row");
+    if (!row) return;
+    const raw = row.dataset.stall;
+    if (raw === "" || raw == null) return;
+    selectStall(Number(raw));
+  });
   farmSlicer.addEventListener("click", (event) => {
     const btn = event.target.closest(".slicer-btn");
     if (!btn) return;

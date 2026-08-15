@@ -51,6 +51,7 @@ from app.services.parlour_shift_summary import (
     TREND_METRIC_KEYS,
     list_shift_summaries,
     list_stall_issues,
+    list_stall_metric_history,
     milking_point_metric_trend,
     pen_metric_trend,
 )
@@ -131,6 +132,32 @@ def api_parlour_stall_issues(
         date_from=date_from,
         date_to=date_to,
     )
+
+
+@router.get("/stall-issues/detail")
+def api_parlour_stall_issues_detail(
+    farm: str = Query(...),
+    milking_point: int = Query(...),
+    date_from: dt.date | None = Query(None),
+    date_to: dt.date | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_PARLOUR)),
+):
+    farm_key = farm.upper()
+    if farm_key not in {"CM", "GAD"}:
+        raise HTTPException(status_code=400, detail="farm must be CM or GAD")
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
+    try:
+        return list_stall_metric_history(
+            db,
+            farm=farm_key,
+            milking_point=milking_point,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/milking-point-trend")

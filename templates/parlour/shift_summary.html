@@ -359,14 +359,11 @@
   const farmSlicer = document.getElementById("farm-slicer");
   const shiftSlicer = document.getElementById("shift-slicer");
   const canImport = {{ can_import | tojson }};
-  const drilldown = {{ drilldown | default("pen") | tojson }};
-  const isPenDrilldown = drilldown === "pen";
-  const drilldownNoun = isPenDrilldown ? "pen" : "milking point";
-  const drilldownNounPlural = isPenDrilldown ? "pens" : "milking points";
-  const drilldownParam = isPenDrilldown ? "include_pens" : "include_milking_points";
-  const drilldownDataKey = isPenDrilldown ? "pens" : "milking_points";
-  const drilldownIdKey = isPenDrilldown ? "pen" : "milking_point";
-  const drilldownLabelPrefix = isPenDrilldown ? "Pen" : "Point";
+  const drilldownNoun = "pen";
+  const drilldownParam = "include_pens";
+  const drilldownDataKey = "pens";
+  const drilldownIdKey = "pen";
+  const drilldownLabelPrefix = "Pen";
 
   let farm = "CM";
   let shift = "Morning";
@@ -375,8 +372,6 @@
   let selectedFarmMetric = null; // metricKey for shift-summary row trend
   const trendCache = new Map(); // `${farm}|${endpoint}|${pointId}|${metric}|${date_from}` -> payload
   let trendChart = null;
-  /** Performance: false = problem stalls only; true = all stalls. */
-  let showAllStalls = false;
   /** Cached API payload per farm so shift switches only re-render. */
   let cachedByFarm = {};
   let cacheFarm = null;
@@ -415,51 +410,6 @@
       day: "numeric",
       month: "short",
     });
-  }
-
-  function cell(value, missing, selected, outlierBad) {
-    const cls = [
-      missing ? "missing" : "",
-      selected ? "col-selected" : "",
-      outlierBad ? "outlier-bad" : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    return `<td class="${cls}">${value}</td>`;
-  }
-
-  const OUTLIER_SD = 2;
-  const OUTLIER_MIN_N = 5;
-
-  function sampleStats(values) {
-    if (!values || values.length < OUTLIER_MIN_N) return null;
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    const variance =
-      values.reduce((a, v) => a + (v - mean) ** 2, 0) / (values.length - 1);
-    const sd = Math.sqrt(variance);
-    if (!(sd > 0) || !Number.isFinite(sd)) return null;
-    return { mean, sd };
-  }
-
-  function rowStats(values) {
-    if (!values || !values.length) return { mean: null, sd: null };
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    if (values.length < 2) return { mean, sd: null };
-    const variance =
-      values.reduce((a, v) => a + (v - mean) ** 2, 0) / (values.length - 1);
-    const sd = Math.sqrt(variance);
-    return {
-      mean: Number.isFinite(mean) ? mean : null,
-      sd: Number.isFinite(sd) ? sd : null,
-    };
-  }
-
-  function isOutlierBad(value, stats, badDirection) {
-    if (value == null || !stats || !badDirection) return false;
-    const z = (value - stats.mean) / stats.sd;
-    if (badDirection === "high") return z >= OUTLIER_SD;
-    if (badDirection === "low") return z <= -OUTLIER_SD;
-    return false;
   }
 
   const ALL_METRICS = [
@@ -531,15 +481,6 @@
           ? Number(s.median_lag_phase_seconds)
           : null,
       badDirection: "high",
-    },
-    {
-      label: "Problem Stalls",
-      performanceOnly: true,
-      metricKey: "problem_stall_count",
-      value: (s) =>
-        s && s.problem_stall_count != null ? fmtNum(s.problem_stall_count, 0) : "—",
-      num: (s) =>
-        s && s.problem_stall_count != null ? Number(s.problem_stall_count) : null,
     },
     {
       label: "High flow takeoffs % (>1800)",
@@ -662,14 +603,9 @@
       value: (s) => (s && s.last_end ? s.last_end : "—"),
     },
   ];
-  const METRICS = ALL_METRICS.filter((m) => {
-    if (m.shiftOnly && !isPenDrilldown) return false;
-    if (m.performanceOnly && isPenDrilldown) return false;
-    return true;
-  });
-  /** Day table includes Problem Stalls; stall table does not. */
+  const METRICS = ALL_METRICS;
   const DAY_METRICS = METRICS;
-  const STALL_METRICS = METRICS.filter((m) => !m.performanceOnly);
+  const STALL_METRICS = METRICS;
   const TRENDABLE_METRICS = new Set([
     "yield_kg",
     "cow_count",
@@ -866,7 +802,7 @@
   }
 
   function selectFarmMetric(metricDef) {
-    if (!isPenDrilldown || !metricDef || !metricDef.metricKey || !metricDef.num) return;
+    if (!metricDef || !metricDef.metricKey || !metricDef.num) return;
     if (selectedFarmMetric === metricDef.metricKey) {
       clearTrend();
       renderTable(cachedByFarm[farm]);
@@ -897,12 +833,12 @@
       clearTrend();
       const key = penCacheKey(selectedDate);
       if (selectedDate && penCache[key]) renderDrilldownTable(penCache[key], selectedDate);
-      if (isPenDrilldown) renderTable(cachedByFarm[farm]);
+      renderTable(cachedByFarm[farm]);
       return;
     }
     selectedFarmMetric = null;
     selectedTrend = { pointId, metricKey, label: metricLabel };
-    if (isPenDrilldown) renderTable(cachedByFarm[farm]);
+    renderTable(cachedByFarm[farm]);
     const key = penCacheKey(selectedDate);
     if (selectedDate && penCache[key]) renderDrilldownTable(penCache[key], selectedDate);
 
@@ -919,11 +855,9 @@
       date_from: isoDate(since),
     });
     if (pointId != null) {
-      params.set(isPenDrilldown ? "pen" : "milking_point", String(pointId));
+      params.set("pen", String(pointId));
     }
-    const endpoint = isPenDrilldown
-      ? "/api/parlour/pen-trend"
-      : "/api/parlour/milking-point-trend";
+    const endpoint = "/api/parlour/pen-trend";
     const cacheKey = `${endpoint}|${params.toString()}`;
 
     try {
@@ -950,58 +884,6 @@
     }
   }
 
-  function isProblemStall(item) {
-    const flags = item && item.outlier_flags;
-    if (!flags) return false;
-    return Object.keys(flags).some((k) => flags[k] === "problem");
-  }
-
-  function formatDurationFromSeconds(seconds) {
-    if (seconds == null || !Number.isFinite(seconds)) return "—";
-    const total = Math.max(0, Math.round(seconds));
-    const hours = Math.floor(total / 3600);
-    const minutes = Math.floor((total % 3600) / 60);
-    const secs = total % 60;
-    if (hours) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
-    return `${minutes}m ${String(secs).padStart(2, "0")}s`;
-  }
-
-  function metricNumbers(m, items) {
-    if (m.num) {
-      return items.map((item) => m.num(item)).filter((v) => v != null && Number.isFinite(v));
-    }
-    if (m.label === "Total yield (kg)") {
-      return items
-        .map((item) => (item && item.yield_kg != null ? Number(item.yield_kg) : null))
-        .filter((v) => v != null && Number.isFinite(v));
-    }
-    if (m.label === "Cows") {
-      return items
-        .map((item) => (item && item.cow_count != null ? Number(item.cow_count) : null))
-        .filter((v) => v != null && Number.isFinite(v));
-    }
-    return [];
-  }
-
-  function formatMetricStat(m, value, { isSd } = {}) {
-    if (value == null || !Number.isFinite(value)) return "—";
-    if (m.metricKey === "attachment_idle_seconds") {
-      return fmtNum(value / 60, isSd ? 1 : 0);
-    }
-    if (m.metricKey && m.metricKey.endsWith("_seconds")) {
-      return formatDurationFromSeconds(value);
-    }
-    if (
-      (m.metricKey && m.metricKey.endsWith("_pct")) ||
-      (m.label && m.label.includes("%"))
-    ) {
-      return `${fmtNum(value, 1)}%`;
-    }
-    if (m.label === "Cows") return fmtNum(value, isSd ? 1 : 0);
-    if (m.label && m.label.includes("(kg)")) return fmtNum(value, 2);
-    return fmtNum(value, isSd ? 2 : 1);
-  }
-
   function renderDrilldownTable(items, dateIso) {
     if (!items || !items.length) {
       penRoot.hidden = false;
@@ -1013,84 +895,15 @@
       return;
     }
 
-    const problemItems = !isPenDrilldown ? items.filter(isProblemStall) : items;
-    const displayItems =
-      !isPenDrilldown && !showAllStalls ? problemItems : items;
-    const showStatCols = !isPenDrilldown;
-
-    const toolbar = !isPenDrilldown
-      ? `<div class="pen-toolbar">
-          <label>
-            <input type="checkbox" id="show-all-stalls" ${showAllStalls ? "checked" : ""}>
-            Show all stalls
-          </label>
-          <span class="pen-meta" style="margin:0;">
-            ${
-              showAllStalls
-                ? `Showing all ${items.length} stalls (${problemItems.length} problem)`
-                : `Showing ${problemItems.length} problem stall${problemItems.length === 1 ? "" : "s"} of ${items.length}`
-            }
-          </span>
-        </div>`
-      : "";
-
-    if (!displayItems.length) {
-      penRoot.hidden = false;
-      penRoot.innerHTML = `
-        <h2>By ${drilldownNoun} · ${formatHeaderDate(dateIso)}</h2>
-        ${toolbar}
-        <p class="pen-meta">${farm} · ${shift}</p>
-        <div class="empty-state">No problem stalls this shift. Turn on “Show all stalls” to see every point.</div>`;
-      const toggle = document.getElementById("show-all-stalls");
-      if (toggle) {
-        toggle.addEventListener("change", () => {
-          showAllStalls = toggle.checked;
-          renderDrilldownTable(items, dateIso);
-        });
-      }
-      clearTrend();
-      return;
-    }
-
-    const statHead = showStatCols
-      ? `<th class="stat-col" title="Average across all stalls this shift">Average</th><th class="stat-col" title="Standard deviation across all stalls this shift">SD</th>`
-      : "";
-    const head = displayItems
+    const head = items
       .map((item) => {
         const id = item[drilldownIdKey];
         return `<th>${id == null ? "Unknown" : `${drilldownLabelPrefix} ${id}`}</th>`;
       })
       .join("");
-    // Outlier stats stay based on all stalls so flags stay consistent when filtered.
     const body = STALL_METRICS.map((m) => {
-      const nums = metricNumbers(m, items);
-      const outlierStats =
-        !isPenDrilldown && m.badDirection ? sampleStats(nums) : null;
-      const displayStats = rowStats(nums);
-      const avgCell = showStatCols
-        ? `<td class="stat-col">${formatMetricStat(m, displayStats.mean)}</td>`
-        : "";
-      const sdCell = showStatCols
-        ? `<td class="stat-col">${formatMetricStat(m, displayStats.sd, { isSd: true })}</td>`
-        : "";
-      const cells = displayItems
+      const cells = items
         .map((item) => {
-          const n = m.num ? m.num(item) : null;
-          const apiFlag =
-            !isPenDrilldown && m.metricKey && item.outlier_flags
-              ? item.outlier_flags[m.metricKey]
-              : null;
-          let outlierClass = "";
-          if (apiFlag === "problem") outlierClass = "outlier-problem";
-          else if (apiFlag === "alert") outlierClass = "outlier-bad";
-          else if (
-            !isPenDrilldown &&
-            !item.outlier_flags &&
-            m.badDirection &&
-            isOutlierBad(n, outlierStats, m.badDirection)
-          ) {
-            outlierClass = "outlier-bad";
-          }
           const pointId = item[drilldownIdKey];
           const canTrend = !!m.metricKey && TRENDABLE_METRICS.has(m.metricKey);
           const selected =
@@ -1099,7 +912,6 @@
             selectedTrend.metricKey === m.metricKey &&
             selectedTrend.pointId === pointId;
           const cls = [
-            outlierClass,
             canTrend ? "trend-cell" : "",
             selected ? "trend-selected" : "",
           ]
@@ -1111,33 +923,22 @@
           return `<td class="${cls}"${attrs}>${m.value(item)}</td>`;
         })
         .join("");
-      return `<tr><td>${m.label}</td>${avgCell}${sdCell}${cells}</tr>`;
+      return `<tr><td>${m.label}</td>${cells}</tr>`;
     }).join("");
 
-    const note = isPenDrilldown
-      ? "pens use cohort-corrected assignments · click a cell for that pen’s trend by shift · click another day to switch"
-      : `Average / SD are across all stalls · red = ≥${OUTLIER_SD} SD worse this shift · dark red = problem stall · click a cell for trend`;
+    const note =
+      "pens use cohort-corrected assignments · click a cell for that pen’s trend by shift · click another day to switch";
     penRoot.hidden = false;
     penRoot.innerHTML = `
       <h2>By ${drilldownNoun} · ${formatHeaderDate(dateIso)}</h2>
-      ${toolbar}
       <p class="pen-meta">${farm} · ${shift} · ${note}</p>
       <div class="table-wrap">
         <table class="metric-table" id="pen-table">
-          <thead><tr><th>Metric</th>${statHead}${head}</tr></thead>
+          <thead><tr><th>Metric</th>${head}</tr></thead>
           <tbody>${body}</tbody>
         </table>
       </div>`;
 
-    if (!isPenDrilldown) {
-      const toggle = document.getElementById("show-all-stalls");
-      if (toggle) {
-        toggle.addEventListener("change", () => {
-          showAllStalls = toggle.checked;
-          renderDrilldownTable(items, dateIso);
-        });
-      }
-    }
     penRoot.querySelectorAll("td.trend-cell").forEach((td) => {
       td.addEventListener("click", () => {
         const raw = td.dataset.point;
@@ -1227,26 +1028,16 @@
           const s = byDate[d];
           const missing = !s;
           const selected = d === selectedDate;
-          let extraClass = "";
-          if (
-            !isPenDrilldown &&
-            m.metricKey === "problem_stall_count" &&
-            s &&
-            s.problem_stall_count > 0
-          ) {
-            extraClass = "outlier-bad";
-          }
           const cls = [
             missing ? "missing" : "",
             selected ? "col-selected" : "",
-            extraClass,
           ]
             .filter(Boolean)
             .join(" ");
           return `<td class="${cls}">${m.value(s)}</td>`;
         })
         .join("");
-      const canGraph = isPenDrilldown && !!m.metricKey && !!m.num;
+      const canGraph = !!m.metricKey && !!m.num;
       const rowSelected = canGraph && selectedFarmMetric === m.metricKey;
       const rowCls = [
         canGraph ? "metric-row-clickable" : "",
@@ -1258,9 +1049,8 @@
       return `<tr class="${rowCls}"${canGraph ? ` data-metric="${m.metricKey}"` : ""}><td class="metric-label"${labelTitle}>${m.label}</td>${cells}</tr>`;
     }).join("");
 
-    const help = isPenDrilldown
-      ? `Click a metric name to graph it over time (Morning / Day / Night). Click a day column for by-${drilldownNoun} breakdown.`
-      : `Click a day column to see the same metrics broken down by ${drilldownNoun}.`;
+    const help =
+      `Click a metric name to graph it over time (Morning / Day / Night). Click a day column for by-${drilldownNoun} breakdown.`;
 
     root.innerHTML = `
       <div class="table-wrap">
@@ -1274,16 +1064,14 @@
     root.querySelectorAll("th.day-col").forEach((th) => {
       th.addEventListener("click", () => selectDay(th.dataset.date));
     });
-    if (isPenDrilldown) {
-      root.querySelectorAll("tr.metric-row-clickable").forEach((tr) => {
-        tr.querySelector("td.metric-label").addEventListener("click", (e) => {
-          e.stopPropagation();
-          const key = tr.dataset.metric;
-          const metricDef = DAY_METRICS.find((m) => m.metricKey === key);
-          selectFarmMetric(metricDef);
-        });
+    root.querySelectorAll("tr.metric-row-clickable").forEach((tr) => {
+      tr.querySelector("td.metric-label").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const key = tr.dataset.metric;
+        const metricDef = DAY_METRICS.find((m) => m.metricKey === key);
+        selectFarmMetric(metricDef);
       });
-    }
+    });
   }
 
   function dataHasQualityMetrics(data) {
@@ -1292,7 +1080,6 @@
     if (!shiftRow || shiftRow.high_flow_takeoff_pct == null || shiftRow.bimodal_pct == null) {
       return false;
     }
-    if (!isPenDrilldown && shiftRow.problem_stall_count == null) return false;
     return true;
   }
 
@@ -1315,7 +1102,7 @@
   }
 
   function refreshOpenFarmMetricTrend() {
-    if (!selectedFarmMetric || !isPenDrilldown) return;
+    if (!selectedFarmMetric) return;
     const metricDef = DAY_METRICS.find((m) => m.metricKey === selectedFarmMetric);
     if (!metricDef) return;
     const trendData = buildFarmMetricTrendFromCache(metricDef);
@@ -1329,7 +1116,6 @@
     params.set("date_from", isoDate(dateFrom));
     params.set("date_to", isoDate(dateTo));
     params.set("v", "quality-6");
-    if (!isPenDrilldown) params.set("include_problem_stalls", "true");
     return params;
   }
 

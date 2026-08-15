@@ -36,7 +36,7 @@ from app.services.parlour_rotation import rotation_stats_from_point_starts
 # Flow rate at removal above this = high-flow takeoff.
 HIGH_FLOW_TAKEOFF_THRESHOLD = 1800.0
 
-# Stall outlier rules (match Performance UI). Bad direction vs peer stalls.
+# Stall outlier rules. Bad direction vs peer stalls.
 OUTLIER_SD = 2.0
 OUTLIER_MIN_N = 5
 METRIC_OUTLIER_RULES: list[tuple[str, str]] = [
@@ -1503,19 +1503,17 @@ def pen_metric_trend(
     }
 
 
-def list_stall_issues(
+MAX_STALL_DETAIL_SPAN_DAYS = 7
+STALL_DETAIL_SHIFTS = ("Morning", "Day", "Night")
+
+
+def _resolve_stall_issue_dates(
     db: Session,
     *,
-    farm: str,
-    date_from: dt.date | None = None,
-    date_to: dt.date | None = None,
-) -> dict[str, Any]:
-    """Matrix of milking points × days: count of shifts each stall was a problem.
-
-    Uses the same definition as Performance: problem = ≥2 SD alert this shift
-    and the same metric alerted on the previous shift.
-    """
-    farm_key = farm.upper()
+    farm_key: str,
+    date_from: dt.date | None,
+    date_to: dt.date | None,
+) -> tuple[dt.date, dt.date] | None:
     if date_to is None:
         date_to = db.scalar(
             select(func.max(ParlourMilkFlowRow.milking_date)).where(
@@ -1523,17 +1521,25 @@ def list_stall_issues(
             )
         )
     if date_to is None:
-        return {
-            "farm": farm_key,
-            "date_from": None,
-            "date_to": None,
-            "dates": [],
-            "rows": [],
-        }
+        return None
     if date_from is None:
         date_from = date_to - dt.timedelta(days=6)
+    if date_from > date_to:
+        raise ValueError("date_from must be on or before date_to")
+    return date_from, date_to
 
-    # Prior calendar day so Morning can compare to previous Night.
+
+def _annotated_stall_shifts(
+    db: Session,
+    *,
+    farm_key: str,
+    date_from: dt.date,
+    date_to: dt.date,
+) -> dict[tuple[dt.date, str], list[dict[str, Any]]]:
+    """Milking-point summaries per shift, with alert/problem flags.
+
+    Loads one extra calendar day so Morning can compare to the previous Night.
+    """
     query_from = date_from - dt.timedelta(days=1)
 
     stmt = select(
@@ -1601,6 +1607,38 @@ def list_stall_issues(
         key: _milking_point_summary_from_cows(cows) for key, cows in grouped.items()
     }
     _annotate_milking_point_outliers(by_shift)
+    return by_shift
+
+
+def list_stall_issues(
+    db: Session,
+    *,
+    farm: str,
+    date_from: dt.date | None = None,
+    date_to: dt.date | None = None,
+) -> dict[str, Any]:
+    """Matrix of milking points × days: count of shifts each stall was a problem.
+
+    Problem = ≥2 SD alert this shift and the same metric alerted on the
+    previous shift.
+    """
+    farm_key = farm.upper()
+    resolved = _resolve_stall_issue_dates(
+        db, farm_key=farm_key, date_from=date_from, date_to=date_to
+    )
+    if resolved is None:
+        return {
+            "farm": farm_key,
+            "date_from": None,
+            "date_to": None,
+            "dates": [],
+            "rows": [],
+        }
+    date_from, date_to = resolved
+
+    by_shift = _annotated_stall_shifts(
+        db, farm_key=farm_key, date_from=date_from, date_to=date_to
+    )
 
     dates = [
         date_from + dt.timedelta(days=offset)
@@ -1642,4 +1680,68 @@ def list_stall_issues(
         "date_to": date_to.isoformat(),
         "dates": date_isos,
         "rows": rows,
+    }
+
+
+def list_stall_metric_history(
+    db: Session,
+    *,
+    farm: str,
+    milking_point: int,
+    date_from: dt.date | None = None,
+    date_to: dt.date | None = None,
+) -> dict[str, Any]:
+    """Per-shift metrics and outlier flags for one stall over a short window."""
+    farm_key = farm.upper()
+    resolved = _resolve_stall_issue_dates(
+        db, farm_key=farm_key, date_from=date_from, date_to=date_to
+    )
+    if resolved is None:
+        return {
+            "farm": farm_key,
+            "milking_point": milking_point,
+            "date_from": None,
+            "date_to": None,
+            "dates": [],
+            "shifts": list(STALL_DETAIL_SHIFTS),
+            "cells": {},
+        }
+    date_from, date_to = resolved
+    if (date_to - date_from).days > MAX_STALL_DETAIL_SPAN_DAYS - 1:
+        raise ValueError(
+            f"Stall detail date range cannot exceed {MAX_STALL_DETAIL_SPAN_DAYS} days."
+        )
+
+    by_shift = _annotated_stall_shifts(
+        db, farm_key=farm_key, date_from=date_from, date_to=date_to
+    )
+
+    dates = [
+        date_from + dt.timedelta(days=offset)
+        for offset in range((date_to - date_from).days + 1)
+    ]
+    date_isos = [d.isoformat() for d in dates]
+    cells: dict[str, dict[str, dict[str, Any]]] = {d: {} for d in date_isos}
+
+    for (milking_date, shift_name), points in by_shift.items():
+        if milking_date < date_from or milking_date > date_to:
+            continue
+        if shift_name not in STALL_DETAIL_SHIFTS:
+            continue
+        match = next(
+            (p for p in points if p.get("milking_point") == milking_point),
+            None,
+        )
+        if match is None:
+            continue
+        cells[milking_date.isoformat()][shift_name] = match
+
+    return {
+        "farm": farm_key,
+        "milking_point": milking_point,
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+        "dates": date_isos,
+        "shifts": list(STALL_DETAIL_SHIFTS),
+        "cells": cells,
     }

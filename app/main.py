@@ -1400,7 +1400,6 @@ def parlour_shift_summary_page(request: Request):
             page_heading="Shift Summary",
             can_import=has_action(request.state.user, ACTION_PARLOUR_IMPORT),
             lookback_days=PARLOUR_LOOKBACK_DAYS,
-            drilldown="pen",
             **_parlour_context("Shift Summary", "shift-summary", "Shift Summary"),
         ),
     )
@@ -1410,20 +1409,7 @@ def parlour_shift_summary_page(request: Request):
 def parlour_performance_page(request: Request):
     if denied := _page_guard(request, PAGE_PARLOUR):
         return denied
-    from app.config import PARLOUR_LOOKBACK_DAYS
-
-    return templates.TemplateResponse(
-        request,
-        "parlour/shift_summary.html",
-        _template_ctx(
-            request,
-            page_heading="Performance",
-            can_import=has_action(request.state.user, ACTION_PARLOUR_IMPORT),
-            lookback_days=PARLOUR_LOOKBACK_DAYS,
-            drilldown="milking_point",
-            **_parlour_context("Performance", "performance", "Performance"),
-        ),
-    )
+    return RedirectResponse(url="/parlour/stall-issues", status_code=302)
 
 
 @app.get("/parlour/scatter-graphs", response_class=HTMLResponse)

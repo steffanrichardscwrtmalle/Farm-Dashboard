@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Base, ParlourMilkFlowImport, ParlourMilkFlowRow
-from app.services.parlour_shift_summary import list_stall_issues
+from app.services.parlour_shift_summary import list_stall_issues, list_stall_metric_history
 
 
 def _ensure_import(
@@ -142,5 +142,31 @@ def test_list_stall_issues_counts_problem_shifts_per_day() -> None:
     stall_30 = next(r for r in result["rows"] if r["milking_point"] == 30)
     assert stall_30["by_date"]["2026-07-30"] == 3
     assert stall_30["total"] == 3
+
+    detail = list_stall_metric_history(
+        session,
+        farm="CM",
+        milking_point=30,
+        date_from=day,
+        date_to=day,
+    )
+    assert detail["milking_point"] == 30
+    assert detail["dates"] == ["2026-07-30"]
+    morning = detail["cells"]["2026-07-30"]["Morning"]
+    flags = morning.get("outlier_flags") or {}
+    assert any(flag == "problem" for flag in flags.values())
+    assert flags.get("avg_yield_kg") == "problem"
+
+    try:
+        list_stall_metric_history(
+            session,
+            farm="CM",
+            milking_point=30,
+            date_from=day - dt.timedelta(days=7),
+            date_to=day,
+        )
+        raise AssertionError("expected ValueError for 8-day span")
+    except ValueError as exc:
+        assert "7 days" in str(exc)
 
     session.close()
