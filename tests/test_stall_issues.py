@@ -165,8 +165,8 @@ def test_list_stall_issues_counts_problem_shifts_per_day() -> None:
             date_from=day - dt.timedelta(days=7),
             date_to=day,
         )
-        raise AssertionError("expected ValueError for 8-day span")
+        raise AssertionError("expected ValueError for span over 4 days")
     except ValueError as exc:
-        assert "7 days" in str(exc)
+        assert "4 days" in str(exc)
 
     session.close()

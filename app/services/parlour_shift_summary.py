@@ -41,10 +41,6 @@ OUTLIER_SD = 2.0
 OUTLIER_MIN_N = 5
 METRIC_OUTLIER_RULES: list[tuple[str, str]] = [
     ("avg_yield_kg", "low"),
-    ("cows_per_hour", "low"),
-    ("median_rotation_minutes", "high"),
-    ("attachment_idle_seconds", "high"),
-    ("median_lag_phase_seconds", "high"),
     ("high_flow_takeoff_pct", "high"),
     ("bimodal_pct", "high"),
     ("median_milking_duration_seconds", "high"),
@@ -1503,7 +1499,7 @@ def pen_metric_trend(
     }
 
 
-MAX_STALL_DETAIL_SPAN_DAYS = 7
+MAX_STALL_DETAIL_SPAN_DAYS = 4
 STALL_DETAIL_SHIFTS = ("Morning", "Day", "Night")
 
 
@@ -1523,7 +1519,7 @@ def _resolve_stall_issue_dates(
     if date_to is None:
         return None
     if date_from is None:
-        date_from = date_to - dt.timedelta(days=6)
+        date_from = date_to - dt.timedelta(days=3)
     if date_from > date_to:
         raise ValueError("date_from must be on or before date_to")
     return date_from, date_to

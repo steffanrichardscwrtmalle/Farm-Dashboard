@@ -156,8 +156,8 @@
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
     }
-    .metric-table th:first-child,
-    .metric-table td:first-child {
+    .metric-table thead tr:first-child th:first-child,
+    .metric-table tbody td:first-child {
       text-align: left;
       position: sticky;
       left: 0;
@@ -175,9 +175,32 @@
       color: var(--muted);
     }
     .metric-table thead tr:first-child th:first-child { z-index: 4; }
-    .metric-table thead tr.shift-row th { top: 1.7rem; z-index: 3; }
+    .metric-table thead tr.shift-row th {
+      top: 1.7rem;
+      z-index: 3;
+      min-width: 3.5rem;
+      width: 3.5rem;
+    }
+    .metric-table thead th.stat-col {
+      background: #2a5080;
+      color: #fff;
+      min-width: 4.25rem;
+      width: 4.25rem;
+    }
+    .metric-table tbody td.stat-col {
+      background: #eef3f8;
+      font-weight: 600;
+      color: #1e3a5f;
+      min-width: 4.25rem;
+      width: 4.25rem;
+    }
     .metric-table tbody tr:nth-child(even) td { background: #f7f9fb; }
     .metric-table tbody tr:nth-child(even) td:first-child { background: #f7f9fb; }
+    .metric-table tbody tr:nth-child(even) td.stat-col { background: #e4ebf3; }
+    .metric-table tbody td:not(:first-child):not(.stat-col) {
+      min-width: 3.5rem;
+      width: 3.5rem;
+    }
     .metric-table td.outlier-bad {
       background: #fee2e2 !important;
       color: #991b1b;
@@ -220,7 +243,7 @@
       <p class="help-note">
         Cell = number of shifts that stall was a problem stall that day
         (metric ≥2 SD bad this shift and the previous shift).
-        Red = more than one shift. Click a stall for its last 7 days of metrics.
+        Red = more than one shift. Click a stall for its last 4 days of metrics.
       </p>
     </div>
   </aside>
@@ -282,7 +305,7 @@
 
   function setDefaultDates(latestIso) {
     const to = latestIso ? parseIsoDate(latestIso) : new Date();
-    const from = new Date(to.getFullYear(), to.getMonth(), to.getDate() - 6);
+    const from = new Date(to.getFullYear(), to.getMonth(), to.getDate() - 3);
     dateToInput.value = isoDate(to);
     dateFromInput.value = isoDate(from);
   }
@@ -307,13 +330,6 @@
 
   function formatMetric(m, s) {
     if (!s) return "";
-    if (m.metricKey === "attachment_idle_seconds") {
-      if (s.attachment_idle_minutes != null) return fmtNum(s.attachment_idle_minutes, 0);
-      if (s.attachment_idle_seconds != null) {
-        return fmtNum(Math.round(Number(s.attachment_idle_seconds) / 60), 0);
-      }
-      return "—";
-    }
     if (m.metricKey && m.metricKey.endsWith("_seconds")) {
       const labelKey = m.metricKey.replace(/_seconds$/, "_label");
       if (s[labelKey]) return s[labelKey];
@@ -330,14 +346,44 @@
     return s[m.metricKey] != null ? fmtNum(s[m.metricKey], 1) : "—";
   }
 
+  function metricNumber(m, s) {
+    if (!s || !m.metricKey) return null;
+    const n = Number(s[m.metricKey]);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function rowStats(values) {
+    if (!values.length) return { mean: null, sd: null };
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    if (values.length < 2) return { mean, sd: null };
+    const variance =
+      values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1);
+    const sd = Math.sqrt(variance);
+    return {
+      mean: Number.isFinite(mean) ? mean : null,
+      sd: Number.isFinite(sd) ? sd : null,
+    };
+  }
+
+  function formatStat(m, value, isSd) {
+    if (value == null || !Number.isFinite(value)) return "—";
+    if (m.metricKey && m.metricKey.endsWith("_seconds")) {
+      return formatDurationFromSeconds(value);
+    }
+    if ((m.metricKey && m.metricKey.endsWith("_pct")) || (m.label && m.label.includes("%"))) {
+      return `${fmtNum(value, 1)}%`;
+    }
+    if (m.label === "Cows") return fmtNum(value, isSd ? 1 : 0);
+    if (m.label && m.label.includes("(kg)")) {
+      return fmtNum(value, m.metricKey === "yield_kg" && !isSd ? 1 : 2);
+    }
+    return fmtNum(value, isSd ? 2 : 1);
+  }
+
   const STALL_METRICS = [
     { label: "Total yield (kg)", metricKey: "yield_kg" },
     { label: "Average Yield (kg)", metricKey: "avg_yield_kg" },
     { label: "Cows", metricKey: "cow_count" },
-    { label: "Cows / hour", metricKey: "cows_per_hour" },
-    { label: "Rotation (min)", metricKey: "median_rotation_minutes" },
-    { label: "Idle gaps (min)", metricKey: "attachment_idle_seconds" },
-    { label: "Lag phase (s)", metricKey: "median_lag_phase_seconds" },
     { label: "High flow takeoffs % (>1800)", metricKey: "high_flow_takeoff_pct" },
     { label: "Average Takeoff Flow", metricKey: "avg_flow_rate_at_removal" },
     { label: "Bi-modal let-down %", metricKey: "bimodal_pct" },
@@ -357,7 +403,7 @@
     const to = dateToInput.value;
     if (!to) return null;
     const toDate = parseIsoDate(to);
-    const fromDate = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() - 6);
+    const fromDate = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() - 3);
     return { from: isoDate(fromDate), to };
   }
 
@@ -391,12 +437,15 @@
       .join("");
 
     const body = STALL_METRICS.map((m) => {
+      const values = [];
       const tds = dates
         .map((d) =>
           shifts
             .map((shift) => {
               const item = cells[d] && cells[d][shift];
               if (!item) return `<td></td>`;
+              const n = metricNumber(m, item);
+              if (n != null) values.push(n);
               const flag = (item.outlier_flags || {})[m.metricKey];
               const cls =
                 flag === "problem"
@@ -409,7 +458,13 @@
             .join("")
         )
         .join("");
-      return `<tr><td>${m.label}</td>${tds}</tr>`;
+      const stats = rowStats(values);
+      return (
+        `<tr><td>${m.label}</td>` +
+        `<td class="stat-col">${formatStat(m, stats.mean, false)}</td>` +
+        `<td class="stat-col">${formatStat(m, stats.sd, true)}</td>` +
+        `${tds}</tr>`
+      );
     }).join("");
 
     detailSection.hidden = false;
@@ -417,11 +472,14 @@
     detailSection.innerHTML =
       `<h2>Stall ${point}</h2>` +
       `<p class="pen-meta">${payload.farm} · ${payload.date_from} → ${payload.date_to} · ` +
-      `red = ≥2 SD worse this shift · dark red = problem stall (same metric previous shift)</p>` +
+      `red = ≥2 SD worse this shift · dark red = problem stall (same metric previous shift) · Average / SD are across shifts in this window</p>` +
       `<div class="detail-wrap">` +
       `<table class="metric-table">` +
       `<thead>` +
-      `<tr><th rowspan="2">Metric</th>${dayHead}</tr>` +
+      `<tr><th rowspan="2">Metric</th>` +
+      `<th rowspan="2" class="stat-col" title="Average across shifts in this window">Average</th>` +
+      `<th rowspan="2" class="stat-col" title="Standard deviation across shifts in this window">SD</th>` +
+      `${dayHead}</tr>` +
       `<tr class="shift-row">${shiftHead}</tr>` +
       `</thead>` +
       `<tbody>${body}</tbody>` +
@@ -437,7 +495,7 @@
     contentPanel.classList.add("has-detail");
     detailSection.innerHTML =
       `<h2>Stall ${milkingPoint}</h2>` +
-      `<p class="pen-meta">Loading last 7 days…</p>`;
+      `<p class="pen-meta">Loading last 4 days…</p>`;
 
     const params = new URLSearchParams({
       farm,
@@ -492,7 +550,7 @@
     metaLine.textContent =
       `${payload.farm} · ${dates[0]} → ${dates[dates.length - 1]} · ` +
       `${rows.length} stall${rows.length === 1 ? "" : "s"} with issues · ` +
-      `click a stall for last 7 days of metrics`;
+      `click a stall for last 4 days of metrics`;
 
     tableHead.innerHTML =
       `<tr><th>Stall</th>` +
