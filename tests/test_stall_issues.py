@@ -156,6 +156,10 @@ def test_list_stall_issues_counts_problem_shifts_per_day() -> None:
     flags = morning.get("outlier_flags") or {}
     assert any(flag == "problem" for flag in flags.values())
     assert flags.get("avg_yield_kg") == "problem"
+    yield_stats = detail["stats"]["avg_yield_kg"]
+    assert yield_stats["mean"] is not None
+    assert yield_stats["mean"] > float(morning["avg_yield_kg"])
+    assert yield_stats["sd"] is not None
 
     try:
         list_stall_metric_history(

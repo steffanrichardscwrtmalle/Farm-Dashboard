@@ -163,7 +163,8 @@
       left: 0;
       z-index: 2;
       background: #fff;
-      min-width: 11rem;
+      width: 1%;
+      white-space: nowrap;
       font-weight: 600;
     }
     .metric-table thead th {
@@ -346,25 +347,6 @@
     return s[m.metricKey] != null ? fmtNum(s[m.metricKey], 1) : "—";
   }
 
-  function metricNumber(m, s) {
-    if (!s || !m.metricKey) return null;
-    const n = Number(s[m.metricKey]);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  function rowStats(values) {
-    if (!values.length) return { mean: null, sd: null };
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    if (values.length < 2) return { mean, sd: null };
-    const variance =
-      values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1);
-    const sd = Math.sqrt(variance);
-    return {
-      mean: Number.isFinite(mean) ? mean : null,
-      sd: Number.isFinite(sd) ? sd : null,
-    };
-  }
-
   function formatStat(m, value, isSd) {
     if (value == null || !Number.isFinite(value)) return "—";
     if (m.metricKey && m.metricKey.endsWith("_seconds")) {
@@ -422,6 +404,7 @@
     const dates = payload.dates || [];
     const shifts = payload.shifts || ["Morning", "Day", "Night"];
     const cells = payload.cells || {};
+    const allStats = payload.stats || {};
     const point = payload.milking_point;
     const shiftShort = { Morning: "AM", Day: "Day", Night: "Night" };
 
@@ -437,15 +420,12 @@
       .join("");
 
     const body = STALL_METRICS.map((m) => {
-      const values = [];
       const tds = dates
         .map((d) =>
           shifts
             .map((shift) => {
               const item = cells[d] && cells[d][shift];
               if (!item) return `<td></td>`;
-              const n = metricNumber(m, item);
-              if (n != null) values.push(n);
               const flag = (item.outlier_flags || {})[m.metricKey];
               const cls =
                 flag === "problem"
@@ -458,7 +438,7 @@
             .join("")
         )
         .join("");
-      const stats = rowStats(values);
+      const stats = allStats[m.metricKey] || {};
       return (
         `<tr><td>${m.label}</td>` +
         `<td class="stat-col">${formatStat(m, stats.mean, false)}</td>` +
@@ -472,13 +452,13 @@
     detailSection.innerHTML =
       `<h2>Stall ${point}</h2>` +
       `<p class="pen-meta">${payload.farm} · ${payload.date_from} → ${payload.date_to} · ` +
-      `red = ≥2 SD worse this shift · dark red = problem stall (same metric previous shift) · Average / SD are across shifts in this window</p>` +
+      `red = ≥2 SD worse this shift · dark red = problem stall (same metric previous shift) · Average / SD are all stalls in this window</p>` +
       `<div class="detail-wrap">` +
       `<table class="metric-table">` +
       `<thead>` +
       `<tr><th rowspan="2">Metric</th>` +
-      `<th rowspan="2" class="stat-col" title="Average across shifts in this window">Average</th>` +
-      `<th rowspan="2" class="stat-col" title="Standard deviation across shifts in this window">SD</th>` +
+      `<th rowspan="2" class="stat-col" title="Average of all stalls in this window">Average</th>` +
+      `<th rowspan="2" class="stat-col" title="Standard deviation of all stalls in this window">SD</th>` +
       `${dayHead}</tr>` +
       `<tr class="shift-row">${shiftHead}</tr>` +
       `</thead>` +

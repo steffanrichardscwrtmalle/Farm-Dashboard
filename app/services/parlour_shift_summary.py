@@ -1501,6 +1501,32 @@ def pen_metric_trend(
 
 MAX_STALL_DETAIL_SPAN_DAYS = 4
 STALL_DETAIL_SHIFTS = ("Morning", "Day", "Night")
+STALL_DETAIL_METRIC_KEYS = (
+    "yield_kg",
+    "avg_yield_kg",
+    "cow_count",
+    "high_flow_takeoff_pct",
+    "avg_flow_rate_at_removal",
+    "bimodal_pct",
+    "median_milking_duration_seconds",
+    "avg_milking_duration_seconds",
+    "avg_flow_15s",
+    "avg_flow_30s",
+    "avg_flow_60s",
+    "avg_flow_120s",
+    "avg_peak_flow",
+    "avg_average_flow",
+    "avg_pct_2_minutes",
+    "avg_milk_yield_2_minutes",
+)
+
+
+def _mean_sd(values: list[float]) -> dict[str, float | None]:
+    if not values:
+        return {"mean": None, "sd": None}
+    mean = float(statistics.fmean(values))
+    sd = float(statistics.stdev(values)) if len(values) >= 2 else None
+    return {"mean": mean, "sd": sd}
 
 
 def _resolve_stall_issue_dates(
@@ -1701,6 +1727,7 @@ def list_stall_metric_history(
             "dates": [],
             "shifts": list(STALL_DETAIL_SHIFTS),
             "cells": {},
+            "stats": {},
         }
     date_from, date_to = resolved
     if (date_to - date_from).days > MAX_STALL_DETAIL_SPAN_DAYS - 1:
@@ -1718,12 +1745,22 @@ def list_stall_metric_history(
     ]
     date_isos = [d.isoformat() for d in dates]
     cells: dict[str, dict[str, dict[str, Any]]] = {d: {} for d in date_isos}
+    values_by_metric: dict[str, list[float]] = defaultdict(list)
 
     for (milking_date, shift_name), points in by_shift.items():
         if milking_date < date_from or milking_date > date_to:
             continue
         if shift_name not in STALL_DETAIL_SHIFTS:
             continue
+        for point in points:
+            for metric in STALL_DETAIL_METRIC_KEYS:
+                raw = point.get(metric)
+                if raw is None:
+                    continue
+                try:
+                    values_by_metric[metric].append(float(raw))
+                except (TypeError, ValueError):
+                    continue
         match = next(
             (p for p in points if p.get("milking_point") == milking_point),
             None,
@@ -1731,6 +1768,11 @@ def list_stall_metric_history(
         if match is None:
             continue
         cells[milking_date.isoformat()][shift_name] = match
+
+    stats = {
+        metric: _mean_sd(values_by_metric.get(metric, []))
+        for metric in STALL_DETAIL_METRIC_KEYS
+    }
 
     return {
         "farm": farm_key,
@@ -1740,4 +1782,5 @@ def list_stall_metric_history(
         "dates": date_isos,
         "shifts": list(STALL_DETAIL_SHIFTS),
         "cells": cells,
+        "stats": stats,
     }
