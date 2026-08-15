@@ -3,6 +3,10 @@
 Each collection (one tanker load) is matched to its NML milk-quality sample by
 normalised sample number and collection date (allowing +/- 1 day, since the lab
 and haulier can disagree by a day).
+
+GAD seed/manual loads often have no sample number. Blank GAD days are filled
+from same-day NML samples: one load takes the only sample; on a multi-load day
+the lowest sample number goes to the highest-volume load (and so on).
 """
 
 from __future__ import annotations
@@ -44,22 +48,11 @@ def is_editable_collection_source(source_file: str | None) -> bool:
     return (source_file or "") in EDITABLE_COLLECTION_SOURCES
 
 
-def unique_gad_nml_sample_id(db: Session, collection_date: dt.date) -> str | None:
-    """Return GAD NML sample_id when exactly one sample exists for that date.
-
-    Used to auto-fill manual single-load collections from the NML email import.
-    CM is never suggested here.
-    """
-    rows = db.scalars(
-        select(NmlMilkResult).where(
-            NmlMilkResult.farm == "GAD",
-            NmlMilkResult.sample_date == collection_date,
-        )
-    ).all()
+def _unique_sample_ids(raw_ids: list[str | None]) -> list[str]:
     samples: list[str] = []
     seen: set[str] = set()
-    for row in rows:
-        raw = (row.sample_id or "").strip()
+    for value in raw_ids:
+        raw = (value or "").strip()
         if not raw:
             continue
         key = raw.lstrip("0") or "0"
@@ -67,16 +60,98 @@ def unique_gad_nml_sample_id(db: Session, collection_date: dt.date) -> str | Non
             continue
         seen.add(key)
         samples.append(raw)
+    return samples
+
+
+def _sample_sort_key(value: str) -> tuple[int, int | str]:
+    key = (value or "").strip().lstrip("0") or "0"
+    try:
+        return (0, int(key))
+    except ValueError:
+        return (1, key)
+
+
+def _pair_samples_to_loads_by_volume(
+    volumes: list[int],
+    samples: list[str],
+) -> list[str] | None:
+    """Return one sample per load: lowest sample number → highest volume.
+
+    Sample IDs are in the same order as ``volumes``. None when the counts do
+    not match, so a day is never half-assigned.
+    """
+    if not volumes or len(volumes) != len(samples):
+        return None
+    ranked_samples = sorted(samples, key=_sample_sort_key)
+    load_order = sorted(range(len(volumes)), key=lambda i: (-volumes[i], i))
+    assigned = [""] * len(volumes)
+    for rank, load_idx in enumerate(load_order):
+        assigned[load_idx] = ranked_samples[rank]
+    return assigned
+
+
+def _autofill_gad_load_samples(
+    db: Session,
+    collection_date: dt.date,
+    loads: list[dict[str, Any]],
+) -> bool:
+    """Fill blank GAD sample IDs from same-day NML. Returns True if filled."""
+    if not loads:
+        return False
+    if any((load.get("sample_id") or "").strip() for load in loads):
+        return False
+    volumes: list[int] = []
+    for load in loads:
+        vol = load.get("volume_litres")
+        if vol is None or vol <= 0:
+            return False
+        volumes.append(int(vol))
+    assigned = _pair_samples_to_loads_by_volume(
+        volumes,
+        gad_nml_sample_ids_for_date(db, collection_date),
+    )
+    if not assigned:
+        return False
+    for load, sample_id in zip(loads, assigned):
+        load["sample_id"] = sample_id
+    return True
+
+
+def gad_nml_sample_ids_for_date(db: Session, collection_date: dt.date) -> list[str]:
+    """Unique GAD NML sample IDs for a collection date (first-seen raw form)."""
+    rows = db.scalars(
+        select(NmlMilkResult).where(
+            NmlMilkResult.farm == "GAD",
+            NmlMilkResult.sample_date == collection_date,
+        )
+    ).all()
+    return _unique_sample_ids([row.sample_id for row in rows])
+
+
+def unique_gad_nml_sample_id(db: Session, collection_date: dt.date) -> str | None:
+    """Return GAD NML sample_id when exactly one sample exists for that date.
+
+    Used to auto-fill the add-collection form for a single-load GAD day.
+    CM is never suggested here.
+    """
+    samples = gad_nml_sample_ids_for_date(db, collection_date)
     if len(samples) != 1:
         return None
     return samples[0]
 
 
-def backfill_gad_sample_ids_from_nml(db: Session) -> int:
-    """Fill blank GAD sample IDs from unique same-day NML samples (single-load days).
+def _sample_id_key(value: str | None) -> str:
+    return (value or "").strip().lstrip("0") or "0"
 
-    Historic GAD seed/manual rows often have no sample number, so they never match
-    NML until edited. This applies the same rule as add/edit auto-fill in bulk.
+
+def backfill_gad_sample_ids_from_nml(db: Session) -> int:
+    """Fill or re-pair GAD sample IDs from same-day NML samples.
+
+    Historic GAD seed/manual rows often have no sample number, so they never
+    match NML until edited. One load takes the only sample; several loads are
+    paired by volume (lowest sample number → highest volume). Haulier-imported
+    sample IDs are left alone; seed/manual days are re-paired so the volume
+    rule applies to historic tickets.
     """
     from collections import defaultdict
 
@@ -94,12 +169,7 @@ def backfill_gad_sample_ids_from_nml(db: Session) -> int:
         seen_by_date[row.sample_date].add(key)
         nml_by_date[row.sample_date].append(raw)
 
-    unique_nml = {
-        day: samples[0]
-        for day, samples in nml_by_date.items()
-        if len(samples) == 1
-    }
-    if not unique_nml:
+    if not nml_by_date:
         return 0
 
     by_date: dict[dt.date, list[MilkCollection]] = defaultdict(list)
@@ -110,18 +180,36 @@ def backfill_gad_sample_ids_from_nml(db: Session) -> int:
 
     updated = 0
     for day, loads in by_date.items():
-        if len(loads) != 1:
+        real_loads = [
+            load
+            for load in loads
+            if load.volume_litres is not None and load.volume_litres > 0
+        ]
+        if not real_loads:
             continue
-        load = loads[0]
-        if (load.sample_id or "").strip():
+        assigned = _pair_samples_to_loads_by_volume(
+            [int(load.volume_litres or 0) for load in real_loads],
+            nml_by_date.get(day, []),
+        )
+        if not assigned:
             continue
-        if load.volume_litres is None or load.volume_litres <= 0:
+        current = [(load.sample_id or "").strip() for load in real_loads]
+        if [_sample_id_key(value) for value in current] == [
+            _sample_id_key(value) for value in assigned
+        ]:
             continue
-        suggested = unique_nml.get(day)
-        if not suggested:
+        if any(current) and any(
+            not is_editable_collection_source(load.source_file) for load in real_loads
+        ):
             continue
-        load.sample_id = suggested
-        updated += 1
+        # Clear first so swapping two IDs cannot hit the unique constraint.
+        if any(current):
+            for load in real_loads:
+                load.sample_id = None
+            db.flush()
+        for load, sample_id in zip(real_loads, assigned):
+            load.sample_id = sample_id
+            updated += 1
 
     if updated:
         db.commit()
@@ -475,7 +563,7 @@ def list_collections(
     if int(blank_deleted.rowcount or 0) > 0:
         db.commit()
 
-    # One-shot style repair: attach NML sample IDs to historic single-load GAD days.
+    # Attach NML sample IDs to historic blank GAD days (volume-ranked when multi-load).
     backfill_gad_sample_ids_from_nml(db)
 
     query = select(MilkCollection).where(MilkCollection.farm.in_(selected_farms))
@@ -608,15 +696,10 @@ def get_manual_collection_day(
     while len(loads) < 3:
         loads.append({"volume_litres": None, "temp_c": None, "sample_id": ""})
     sample_suggested = False
-    if (
-        farm_key == "GAD"
-        and len(volume_rows) == 1
-        and not (volume_rows[0].sample_id or "").strip()
-    ):
-        suggested = unique_gad_nml_sample_id(db, collection_date)
-        if suggested:
-            loads[0]["sample_id"] = suggested
-            sample_suggested = True
+    if farm_key == "GAD":
+        sample_suggested = _autofill_gad_load_samples(
+            db, collection_date, loads[: len(volume_rows)]
+        )
     return {
         "farm": farm_key,
         "collection_date": collection_date.isoformat(),
@@ -713,17 +796,12 @@ def create_manual_collection(
     if not cleaned_loads:
         raise ValueError("Enter at least one load with a volume greater than zero")
 
-    # GAD single-load days: fill blank sample from that day's unique NML result.
+    # GAD: fill blank samples from same-day NML (lowest sample → highest volume).
     sample_auto_filled = False
-    if (
-        farm_key == "GAD"
-        and len(cleaned_loads) == 1
-        and not cleaned_loads[0]["sample_id"]
-    ):
-        suggested = unique_gad_nml_sample_id(db, collection_date)
-        if suggested:
-            cleaned_loads[0]["sample_id"] = suggested
-            sample_auto_filled = True
+    if farm_key == "GAD":
+        sample_auto_filled = _autofill_gad_load_samples(
+            db, collection_date, cleaned_loads
+        )
 
     # Clear previous manuals for this save target and, when editing, the original day.
     clear_keys = {(farm_key, collection_date)}

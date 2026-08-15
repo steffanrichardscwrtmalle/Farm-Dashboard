@@ -93,13 +93,36 @@ def test_zero_volume_rows_excluded_from_trend_totals() -> None:
     assert points[0]["volume_litres"] == 10000
 
 
+def test_pair_samples_to_loads_by_volume() -> None:
+    from app.services.haulier_collections import _pair_samples_to_loads_by_volume
+
+    # Lowest sample number → highest volume; result stays in load order.
+    assert _pair_samples_to_loads_by_volume([8000, 12000], ["1002", "1001"]) == [
+        "1002",
+        "1001",
+    ]
+    assert _pair_samples_to_loads_by_volume([15000, 8000, 12000], ["12", "10", "11"]) == [
+        "10",
+        "12",
+        "11",
+    ]
+    # Leading zeros still sort numerically.
+    assert _pair_samples_to_loads_by_volume([9000, 11000], ["091", "090"]) == [
+        "091",
+        "090",
+    ]
+    assert _pair_samples_to_loads_by_volume([8000, 7000], ["2002"]) is None
+    assert _pair_samples_to_loads_by_volume([14000], ["7788"]) == ["7788"]
+
+
 def test_backfill_gad_sample_ids_from_nml_single_load_days() -> None:
     from app.models import NmlMilkResult
     from app.services.haulier_collections import backfill_gad_sample_ids_from_nml
 
     db = _session()
     day = dt.date(2026, 8, 22)
-    day_multi = dt.date(2026, 8, 23)
+    day_mismatch = dt.date(2026, 8, 23)
+    day_multi = dt.date(2026, 8, 24)
     db.add(
         MilkCollection(
             farm="GAD",
@@ -117,7 +140,36 @@ def test_backfill_gad_sample_ids_from_nml_single_load_days() -> None:
             sample_id="4455",
         )
     )
-    # Multi-load day must not be guessed
+    # Two loads and one NML sample must not be guessed
+    db.add(
+        MilkCollection(
+            farm="GAD",
+            collection_date=day_mismatch,
+            sample_id=None,
+            volume_litres=8000,
+            arrival_time=dt.time(1, 0),
+            source_file="seed:gadmilk.xlsx",
+        )
+    )
+    db.add(
+        MilkCollection(
+            farm="GAD",
+            collection_date=day_mismatch,
+            sample_id=None,
+            volume_litres=7000,
+            arrival_time=dt.time(2, 0),
+            source_file="seed:gadmilk.xlsx",
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day_mismatch,
+            sample_id="4466",
+        )
+    )
+    # Two loads and two samples: lowest sample → highest volume
     db.add(
         MilkCollection(
             farm="GAD",
@@ -133,7 +185,7 @@ def test_backfill_gad_sample_ids_from_nml_single_load_days() -> None:
             farm="GAD",
             collection_date=day_multi,
             sample_id=None,
-            volume_litres=7000,
+            volume_litres=12000,
             arrival_time=dt.time(2, 0),
             source_file="seed:gadmilk.xlsx",
         )
@@ -143,21 +195,151 @@ def test_backfill_gad_sample_ids_from_nml_single_load_days() -> None:
             farm="GAD",
             producer_ref="9131",
             sample_date=day_multi,
-            sample_id="4466",
+            sample_id="1002",
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day_multi,
+            sample_id="1001",
         )
     )
     db.commit()
 
     updated = backfill_gad_sample_ids_from_nml(db)
-    assert updated == 1
+    assert updated == 3
     single = db.scalars(
         select(MilkCollection).where(MilkCollection.collection_date == day)
     ).one()
     assert single.sample_id == "4455"
-    multi = db.scalars(
-        select(MilkCollection).where(MilkCollection.collection_date == day_multi)
+    mismatch = db.scalars(
+        select(MilkCollection).where(MilkCollection.collection_date == day_mismatch)
     ).all()
-    assert all(not (r.sample_id or "").strip() for r in multi)
+    assert all(not (r.sample_id or "").strip() for r in mismatch)
+    multi = {
+        r.volume_litres: r.sample_id
+        for r in db.scalars(
+            select(MilkCollection).where(MilkCollection.collection_date == day_multi)
+        ).all()
+    }
+    assert multi[12000] == "1001"
+    assert multi[8000] == "1002"
+
+
+def test_backfill_gad_repairs_seed_samples_by_volume() -> None:
+    from app.models import NmlMilkResult
+    from app.services.haulier_collections import (
+        SEED_GAD_MILK_SOURCE_FILE,
+        backfill_gad_sample_ids_from_nml,
+    )
+
+    db = _session()
+    day = dt.date(2026, 8, 25)
+    db.add(
+        MilkCollection(
+            farm="GAD",
+            collection_date=day,
+            sample_id="1001",
+            volume_litres=8000,
+            arrival_time=dt.time(1, 0),
+            source_file=SEED_GAD_MILK_SOURCE_FILE,
+        )
+    )
+    db.add(
+        MilkCollection(
+            farm="GAD",
+            collection_date=day,
+            sample_id="1002",
+            volume_litres=12000,
+            arrival_time=dt.time(2, 0),
+            source_file=SEED_GAD_MILK_SOURCE_FILE,
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="1001",
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="1002",
+        )
+    )
+    db.commit()
+
+    updated = backfill_gad_sample_ids_from_nml(db)
+    assert updated == 2
+    by_volume = {
+        r.volume_litres: r.sample_id
+        for r in db.scalars(
+            select(MilkCollection).where(MilkCollection.collection_date == day)
+        ).all()
+    }
+    assert by_volume[12000] == "1001"
+    assert by_volume[8000] == "1002"
+
+
+def test_backfill_gad_leaves_haulier_sample_ids_alone() -> None:
+    from app.models import NmlMilkResult
+    from app.services.haulier_collections import backfill_gad_sample_ids_from_nml
+
+    db = _session()
+    day = dt.date(2026, 8, 26)
+    db.add(
+        MilkCollection(
+            farm="GAD",
+            collection_date=day,
+            sample_id="1001",
+            volume_litres=8000,
+            arrival_time=dt.time(6, 0),
+            source_file="haulier.xlsx",
+        )
+    )
+    db.add(
+        MilkCollection(
+            farm="GAD",
+            collection_date=day,
+            sample_id="1002",
+            volume_litres=12000,
+            arrival_time=dt.time(14, 0),
+            source_file="haulier.xlsx",
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="1001",
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="1002",
+        )
+    )
+    db.commit()
+
+    assert backfill_gad_sample_ids_from_nml(db) == 0
+    by_volume = {
+        r.volume_litres: r.sample_id
+        for r in db.scalars(
+            select(MilkCollection).where(MilkCollection.collection_date == day)
+        ).all()
+    }
+    assert by_volume[8000] == "1001"
+    assert by_volume[12000] == "1002"
 
 
 def test_list_collections_includes_unmatched_nml_and_quality_summary() -> None:
@@ -623,6 +805,53 @@ def test_gad_autofill_skips_when_multiple_loads_or_nml_samples() -> None:
     assert all(r["sample_id"] == "" for r in result2["rows"])
 
 
+def test_gad_autofill_pairs_multi_load_by_volume() -> None:
+    from app.models import NmlMilkResult
+
+    db = _session()
+    day = dt.date(2026, 8, 16)
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="1002",
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="1001",
+        )
+    )
+    db.commit()
+
+    result = create_manual_collection(
+        db,
+        collection_date=day,
+        farm="GAD",
+        loads=[
+            {"volume_litres": 8000, "temp_c": 3.0},
+            {"volume_litres": 12000, "temp_c": 3.1},
+        ],
+    )
+    assert result["sample_auto_filled"] is True
+    by_volume = {r["volume_litres"]: r["sample_id"] for r in result["rows"]}
+    assert by_volume[12000] == "1001"
+    assert by_volume[8000] == "1002"
+    rows = db.scalars(
+        select(MilkCollection)
+        .where(MilkCollection.farm == "GAD")
+        .order_by(MilkCollection.arrival_time)
+    ).all()
+    assert rows[0].volume_litres == 8000
+    assert rows[0].sample_id == "1002"
+    assert rows[1].volume_litres == 12000
+    assert rows[1].sample_id == "1001"
+
+
 def test_get_manual_day_suggests_blank_gad_sample() -> None:
     from app.models import NmlMilkResult
 
@@ -651,3 +880,49 @@ def test_get_manual_day_suggests_blank_gad_sample() -> None:
     day_data = get_manual_collection_day(db, farm="GAD", collection_date=day)
     assert day_data["sample_suggested"] is True
     assert day_data["loads"][0]["sample_id"] == "5566"
+
+
+def test_get_manual_day_suggests_gad_samples_by_volume() -> None:
+    from app.models import NmlMilkResult
+
+    db = _session()
+    day = dt.date(2026, 8, 17)
+    create_manual_collection(
+        db,
+        collection_date=day,
+        farm="GAD",
+        loads=[
+            {"volume_litres": 8000, "temp_c": 3.0},
+            {"volume_litres": 12000, "temp_c": 3.2},
+        ],
+    )
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="2002",
+        )
+    )
+    db.add(
+        NmlMilkResult(
+            farm="GAD",
+            producer_ref="9131",
+            sample_date=day,
+            sample_id="2001",
+        )
+    )
+    db.commit()
+    for row in db.scalars(select(MilkCollection).where(MilkCollection.farm == "GAD")):
+        row.sample_id = None
+    db.commit()
+
+    day_data = get_manual_collection_day(db, farm="GAD", collection_date=day)
+    assert day_data["sample_suggested"] is True
+    by_volume = {
+        load["volume_litres"]: load["sample_id"]
+        for load in day_data["loads"]
+        if load.get("volume_litres")
+    }
+    assert by_volume[12000] == "2001"
+    assert by_volume[8000] == "2002"
