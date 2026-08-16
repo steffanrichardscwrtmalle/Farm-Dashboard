@@ -84,3 +84,15 @@ def test_inventory_headers_are_stripped_and_uppercased() -> None:
     assert processed.iloc[0]["PEN"] == "12"
     assert processed.iloc[0]["TBRD"] == 1
     assert processed.iloc[0]["EWGT"] == 400
+
+
+def test_inventory_mapping_keeps_farm_on_later_batches() -> None:
+    source = pd.DataFrame(
+        [{"id": str(i), "lact": 0, "sbrd": "HF", "rc": 3, "pen": 1} for i in range(6)]
+        + [{"id": "TOTAL"}]
+    )
+    processed = process_inventory_file(source, "CM")
+    rows = _dataframe_to_mappings(processed.iloc[3:6], dt.datetime(2026, 8, 16, 12, 0))
+    assert len(rows) == 3
+    assert {row["farm"] for row in rows} == {"CM"}
+    assert [row["cow_id"] for row in rows] == ["3", "4", "5"]

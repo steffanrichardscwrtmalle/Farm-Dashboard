@@ -38,25 +38,30 @@ _INVENTORY_FILES = (
 
 
 def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[dict[str, Any]]:
+    df = df.reset_index(drop=True)
+
+    def _empty() -> pd.Series:
+        return pd.Series([None] * len(df), index=df.index, dtype="object")
+
     def series_str(col: str) -> pd.Series:
         if col not in df.columns:
-            return pd.Series([None] * len(df))
+            return _empty()
         s = df[col].astype("string").str.strip()
         return s.where(s.notna() & (s != ""), None)
 
     def series_date(col: str) -> pd.Series:
         if col not in df.columns:
-            return pd.Series([None] * len(df))
+            return _empty()
         return parse_date_series(df[col]).dt.date.replace({pd.NaT: None})
 
     def series_int(col: str) -> pd.Series:
         if col not in df.columns:
-            return pd.Series([None] * len(df))
+            return _empty()
         return pd.to_numeric(df[col], errors="coerce").astype("Int64")
 
     def series_float(col: str) -> pd.Series:
         if col not in df.columns:
-            return pd.Series([None] * len(df))
+            return _empty()
         return pd.to_numeric(df[col], errors="coerce")
 
     out = pd.DataFrame(

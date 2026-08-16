@@ -34,6 +34,9 @@ def _normalize_source_columns(df: pd.DataFrame) -> pd.DataFrame:
     out.columns = [str(col).strip().upper() for col in out.columns]
     if out.columns.duplicated().any():
         out = out.loc[:, ~out.columns.duplicated()].copy()
+    unnamed = out.columns.astype(str).str.match(r"^UNNAMED")
+    if unnamed.any():
+        out = out.loc[:, ~unnamed].copy()
     return out
 
 
