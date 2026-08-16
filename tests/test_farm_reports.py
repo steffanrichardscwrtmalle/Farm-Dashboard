@@ -82,7 +82,7 @@ def test_heifers_to_scan_filters_youngstock_rc_and_dslh() -> None:
     db = _db()
     db.add_all(
         [
-            _heifer(cow_id="100", rc=3, dslh=32, etag="UK740651324400     "),
+            _heifer(cow_id="100", rc=3, dslh=32, etag="UK740651324400     ", httag="12", rum=0),
             _heifer(cow_id="101", rc=4, dslh=50, etag="UK740651300111"),
             _heifer(cow_id="102", rc=3, dslh=31),
             _heifer(cow_id="103", rc=3, dslh=40, category="Dairy"),
@@ -103,6 +103,7 @@ def test_heifers_to_scan_filters_youngstock_rc_and_dslh() -> None:
     assert result["rows"][1]["remark"] == "BRED"
     assert result["rows"][1]["pen"] == "12"
     assert result["rows"][1]["tbrd"] == 1
+    assert result["rows"][1]["broken_collar"] is False
 
 
 def test_heifers_to_scan_pen_filter_and_blank_pen() -> None:

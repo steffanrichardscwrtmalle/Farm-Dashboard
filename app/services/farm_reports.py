@@ -245,7 +245,9 @@ def _collars_to_put_on_query(farm_key: str):
     )
 
 
-def _serialize_inventory_animal(row: HerdInventory) -> dict[str, Any]:
+def _serialize_inventory_animal(
+    row: HerdInventory, *, mark_broken_collar: bool = False
+) -> dict[str, Any]:
     return {
         "id": row.cow_id,
         "remark": (row.remark or "").strip() or None,
@@ -257,7 +259,9 @@ def _serialize_inventory_animal(row: HerdInventory) -> dict[str, Any]:
         "ewgt": _whole_number(row.ewgt),
         "httag": _whole_number(_httag_number(row.httag)),
         "aged": row.aged,
-        "broken_collar": _is_broken_collar(httag=row.httag, rum=row.rum),
+        "broken_collar": (
+            mark_broken_collar and _is_broken_collar(httag=row.httag, rum=row.rum)
+        ),
     }
 
 
@@ -272,7 +276,12 @@ def _animal_list_report(
 ) -> dict[str, Any]:
     farm_key = normalize_farm(farm)
     rows = db.scalars(query).all()
-    animals = [_serialize_inventory_animal(row) for row in rows]
+    animals = [
+        _serialize_inventory_animal(
+            row, mark_broken_collar=widget_id == WIDGET_COLLARS_TO_PUT_ON
+        )
+        for row in rows
+    ]
     filtered = sort_heifers_by_etag5(apply_pen_filter(animals, pens))
     return {
         "id": widget_id,

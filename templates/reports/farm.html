@@ -484,7 +484,9 @@
       const numCols = new Set(cfg ? cfg.numCols : []);
       rows.forEach(function (row) {
         const tr = document.createElement("tr");
-        if (row.broken_collar) tr.className = "broken-collar";
+        if (selected === "collars-to-put-on" && row.broken_collar) {
+          tr.className = "broken-collar";
+        }
         (cfg ? cfg.cols : []).forEach(function (key) {
           const td = document.createElement("td");
           if (numCols.has(key)) td.className = "num";
@@ -506,7 +508,10 @@
 
     function etag5Grid(rows) {
       const tags = rows.map(function (row) {
-        return { value: blank(row.etag5), broken: !!row.broken_collar };
+        return {
+          value: blank(row.etag5),
+          broken: selected === "collars-to-put-on" && !!row.broken_collar
+        };
       });
       if (!tags.length) return [];
       const cols = Math.max(1, Math.ceil(tags.length / ROWS_PER_PAGE));
