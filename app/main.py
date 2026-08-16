@@ -31,6 +31,7 @@ from app.api.herd_routes import router as herd_api_router
 from app.api.hr_routes import router as hr_api_router
 from app.api.prostock_routes import router as prostock_api_router
 from app.api.routes import router as api_router
+from app.api.schedule_routes import router as schedule_api_router
 from app.auth.deps import require_admin
 from app.auth.middleware import AuthMiddleware
 from app.auth.passwords import verify_password
@@ -54,6 +55,7 @@ from app.auth.permissions import (
     PAGE_HR,
     PAGE_MILK_QUALITY,
     PAGE_PARLOUR,
+    PAGE_SCHEDULE,
     PAGE_OFFICE_ADMIN,
     PAGE_XERO,
     PAGE_PROSTOCK,
@@ -123,6 +125,7 @@ app.include_router(cattle_sales_api_router)
 app.include_router(benchmarking_api_router)
 app.include_router(admin_api_router)
 app.include_router(hr_api_router)
+app.include_router(schedule_api_router)
 
 _WYNNSTAY_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/wynnstay">Wynnstay</a>'
 _PROSTOCK_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/prostock">Prostock</a>'
@@ -169,6 +172,10 @@ _PARLOUR_BREADCRUMB = (
 _CATTLE_SALES_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/cattle-sales">Cattle Sales</a>'
+)
+_SCHEDULE_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/schedule">Schedule</a>'
 )
 _BENCHMARKING_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
@@ -365,6 +372,19 @@ def _cattle_sales_context(title: str, active_nav: str, page_name: str | None = N
         "title": title,
         "active_nav_group": "cattle-sales",
         "active_section": "cattle-sales",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _schedule_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _SCHEDULE_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "schedule",
+        "active_section": "schedule",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -1474,6 +1494,43 @@ def cattle_sales_page(request: Request):
             lookback_days=CATTLE_SALES_LOOKBACK_DAYS,
             farm_options=list(HERD_FARM_OPTIONS),
             **_cattle_sales_context("Cattle Sales", "cattle-sales", None),
+        ),
+    )
+
+
+@app.get("/schedule", response_class=HTMLResponse)
+def schedule_hub_page(request: Request):
+    if denied := _page_guard(request, PAGE_SCHEDULE):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "schedule/index.html",
+        _template_ctx(
+            request,
+            page_heading="Schedule",
+            **_schedule_context("Schedule", "schedule", None),
+        ),
+    )
+
+
+@app.get("/schedule/{farm}", response_class=HTMLResponse)
+def schedule_farm_page(request: Request, farm: str):
+    if denied := _page_guard(request, PAGE_SCHEDULE):
+        return denied
+    from app.services.farm_schedule import FARM_LABELS, normalize_farm
+
+    try:
+        farm_key = normalize_farm(farm)
+    except ValueError:
+        return RedirectResponse(url="/schedule", status_code=302)
+    return templates.TemplateResponse(
+        request,
+        "schedule/farm.html",
+        _template_ctx(
+            request,
+            page_heading=f"Schedule · {FARM_LABELS[farm_key]}",
+            farm=farm_key,
+            **_schedule_context("Schedule", "schedule", FARM_LABELS[farm_key]),
         ),
     )
 

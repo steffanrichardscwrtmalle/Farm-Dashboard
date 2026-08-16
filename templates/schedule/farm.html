@@ -1,0 +1,642 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .content-panel { min-width: 0; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.85rem;
+    }
+    .view-tabs { display: flex; gap: 0.35rem; }
+    .view-tab {
+      border: 1px solid var(--border);
+      background: #f3f4f6;
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 0.4rem 0.85rem;
+      font-weight: 600;
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+    .view-tab.active { background: #1e3a5f; border-color: #1e3a5f; color: #fff; }
+    .add-btn {
+      border: none;
+      border-radius: 8px;
+      padding: 0.45rem 0.9rem;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .add-btn:hover { background: var(--accent-hover); }
+    .help-note {
+      margin: 0.75rem 0 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .status-banner {
+      margin: 0 0 0.85rem;
+      padding: 0.55rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.875rem;
+    }
+    .status-banner.ok { background: #ecfdf5; color: #166534; }
+    .status-banner.error { background: #fef2f2; color: #991b1b; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin: 0 0 0.75rem; }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .job-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+    .job-table th,
+    .job-table td {
+      padding: 0.5rem 0.65rem;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      white-space: nowrap;
+    }
+    .job-table th {
+      background: #f8fafc;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .job-table thead th[data-sort] {
+      cursor: pointer;
+      user-select: none;
+    }
+    .job-table thead th[data-sort]:hover { color: var(--text); }
+    .job-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
+    .job-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
+    .job-table td.notes-col {
+      white-space: normal;
+      min-width: 10rem;
+      max-width: 22rem;
+      line-height: 1.35;
+      color: var(--muted);
+    }
+    .job-table tbody tr.row-overdue td {
+      background: #fef2f2;
+      color: #991b1b;
+    }
+    .job-table tbody tr.row-due-today td {
+      background: #fefce8;
+      color: #854d0e;
+    }
+    .row-actions { display: flex; gap: 0.35rem; }
+    .done-btn, .edit-btn, .remove-btn {
+      border-radius: 6px;
+      padding: 0.3rem 0.65rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .done-btn {
+      border: none;
+      background: var(--accent);
+      color: #fff;
+    }
+    .done-btn:hover { background: var(--accent-hover); }
+    .edit-btn, .remove-btn {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--muted);
+    }
+    .edit-btn:hover { background: #f1f5f9; color: #1e3a5f; }
+    .remove-btn:hover { background: #f3f4f6; color: var(--danger); }
+    .empty-state { color: var(--muted); padding: 1rem 0.25rem; font-size: 0.875rem; }
+    .job-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 300;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .job-modal[hidden] { display: none; }
+    .job-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+    }
+    .job-modal-card {
+      position: relative;
+      background: #fff;
+      border-radius: 10px;
+      padding: 1.15rem 1.2rem;
+      width: min(28rem, 100%);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+    }
+    .job-modal-card h3 { margin: 0 0 0.85rem; font-size: 1.05rem; }
+    .job-modal-card label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.65rem;
+    }
+    .job-modal-card input,
+    .job-modal-card textarea {
+      width: 100%;
+      margin-top: 0.25rem;
+      padding: 0.45rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font: inherit;
+    }
+    .job-modal-card textarea { min-height: 3.2rem; resize: vertical; }
+    .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.85rem; }
+    .modal-actions button {
+      border-radius: 6px;
+      padding: 0.4rem 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .modal-cancel {
+      border: 1px solid var(--border);
+      background: #f3f4f6;
+      color: var(--text);
+    }
+    .modal-cancel:hover {
+      background: #e5e7eb;
+      color: var(--text);
+    }
+    .modal-save { border: none; background: var(--accent); color: #fff; }
+    .modal-save:disabled { opacity: 0.55; cursor: not-allowed; }
+{% endblock %}
+
+{% block content %}
+<div class="content-panel">
+  <div id="status-banner" class="status-banner" hidden></div>
+  <div class="toolbar">
+    <div class="view-tabs" role="tablist">
+      <button type="button" class="view-tab active" data-mode="pending">To do</button>
+      <button type="button" class="view-tab" data-mode="archive">Archive</button>
+    </div>
+    <button type="button" class="add-btn" id="open-add">Add schedule</button>
+  </div>
+  <p class="meta-line" id="meta-line">Loading…</p>
+  <div class="table-wrap">
+    <table class="job-table">
+      <thead>
+        <tr id="job-head"></tr>
+      </thead>
+      <tbody id="job-body"></tbody>
+    </table>
+  </div>
+  <p class="empty-state" id="job-empty" hidden>No jobs on this list.</p>
+</div>
+
+<div class="job-modal" id="edit-modal" hidden>
+  <div class="job-modal-backdrop" data-close="edit"></div>
+  <form class="job-modal-card" id="edit-form" role="dialog" aria-labelledby="edit-title">
+    <h3 id="edit-title">Add a schedule</h3>
+    <label>
+      Job
+      <input type="text" id="job-name" required placeholder="e.g. Change liners" autocomplete="off">
+    </label>
+    <label>
+      Date it needs to be done
+      <input type="date" id="job-due" required>
+    </label>
+    <label>
+      Repeat every (days)
+      <input type="number" id="job-interval" required min="1" step="1" placeholder="e.g. 42">
+    </label>
+    <label>
+      Notes (optional)
+      <textarea id="job-notes" placeholder="Any extra detail"></textarea>
+    </label>
+    <p class="help-note">After you mark a job done, the next due date is the completed date plus the repeat interval.</p>
+    <div class="modal-actions">
+      <button type="button" class="modal-cancel" data-close="edit">Cancel</button>
+      <button type="submit" class="modal-save" id="edit-save">Save</button>
+    </div>
+  </form>
+</div>
+
+<div class="job-modal" id="complete-modal" hidden>
+  <div class="job-modal-backdrop" data-close="complete"></div>
+  <div class="job-modal-card" role="dialog" aria-labelledby="complete-title">
+    <h3 id="complete-title">Mark job done</h3>
+    <p class="help-note" id="modal-job-name" style="margin: 0 0 0.85rem;"></p>
+    <label>
+      Date completed
+      <input type="date" id="complete-on" required>
+    </label>
+    <label>
+      Who did it
+      <input type="text" id="complete-by" list="staff-names" required autocomplete="name">
+    </label>
+    <datalist id="staff-names"></datalist>
+    <div class="modal-actions">
+      <button type="button" class="modal-cancel" data-close="complete">Cancel</button>
+      <button type="button" class="modal-save" id="complete-save">Save</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const FARM = {{ farm | tojson }};
+  const metaLine = document.getElementById("meta-line");
+  const headRow = document.getElementById("job-head");
+  const tbody = document.getElementById("job-body");
+  const emptyEl = document.getElementById("job-empty");
+  const banner = document.getElementById("status-banner");
+  const editModal = document.getElementById("edit-modal");
+  const editForm = document.getElementById("edit-form");
+  const editTitle = document.getElementById("edit-title");
+  const editSave = document.getElementById("edit-save");
+  const jobName = document.getElementById("job-name");
+  const jobDue = document.getElementById("job-due");
+  const jobInterval = document.getElementById("job-interval");
+  const jobNotes = document.getElementById("job-notes");
+  const completeModal = document.getElementById("complete-modal");
+  const modalJobName = document.getElementById("modal-job-name");
+  const completeOn = document.getElementById("complete-on");
+  const completeBy = document.getElementById("complete-by");
+  const staffList = document.getElementById("staff-names");
+
+  let mode = "pending";
+  let payload = { rows: [], staff_names: [] };
+  let completingId = null;
+  let editingId = null;
+  let sortState = { key: "due_date", dir: 1 };
+
+  function isoToday() {
+    const d = new Date();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${m}-${day}`;
+  }
+
+  function fmtDateUk(iso) {
+    if (!iso) return "";
+    const part = String(iso).split("T")[0];
+    const [y, m, d] = part.split("-");
+    if (!y || !m || !d) return String(iso);
+    return `${d}/${m}/${y.slice(-2)}`;
+  }
+
+  function esc(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function setBanner(kind, text) {
+    if (!text) {
+      banner.hidden = true;
+      banner.textContent = "";
+      banner.className = "status-banner";
+      return;
+    }
+    banner.hidden = false;
+    banner.className = `status-banner ${kind}`;
+    banner.textContent = text;
+  }
+
+  function daysLabel(row) {
+    const n = row.days_until_due;
+    if (n == null) return "";
+    if (n === 0) return "Today";
+    if (n === 1) return "Tomorrow";
+    if (n === -1) return "1 day overdue";
+    if (n < 0) return `${Math.abs(n)} days overdue`;
+    return `In ${n} days`;
+  }
+
+  function fillStaff(names) {
+    staffList.innerHTML = (names || [])
+      .map((n) => `<option value="${esc(n)}"></option>`)
+      .join("");
+  }
+
+  function jobPayload() {
+    return {
+      name: jobName.value,
+      due_date: jobDue.value,
+      interval_days: Number(jobInterval.value),
+      notes: jobNotes.value,
+    };
+  }
+
+  function sortRows(rows) {
+    const { key, dir } = sortState;
+    const dateKeys = new Set(["due_date", "completed_on"]);
+    const numericKeys = new Set(["interval_days", "days_until_due"]);
+    return [...rows].sort((a, b) => {
+      let av = a[key];
+      let bv = b[key];
+      if (numericKeys.has(key)) {
+        av = av == null || av === "" ? Number.NEGATIVE_INFINITY : Number(av);
+        bv = bv == null || bv === "" ? Number.NEGATIVE_INFINITY : Number(bv);
+      } else if (dateKeys.has(key)) {
+        av = av || "";
+        bv = bv || "";
+      } else {
+        av = String(av ?? "").toUpperCase();
+        bv = String(bv ?? "").toUpperCase();
+      }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+  }
+
+  function bindSortHeaders() {
+    headRow.querySelectorAll("th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const key = th.dataset.sort;
+        if (sortState.key === key) sortState.dir *= -1;
+        else {
+          sortState.key = key;
+          sortState.dir = 1;
+        }
+        renderTable();
+      });
+    });
+  }
+
+  function updateSortHeaders() {
+    headRow.querySelectorAll("th[data-sort]").forEach((th) => {
+      th.classList.remove("sorted-asc", "sorted-desc");
+      if (th.dataset.sort === sortState.key) {
+        th.classList.add(sortState.dir > 0 ? "sorted-asc" : "sorted-desc");
+      }
+    });
+  }
+
+  function renderHead() {
+    if (mode === "archive") {
+      headRow.innerHTML = `
+        <th data-sort="name">Job</th>
+        <th data-sort="notes">Notes</th>
+        <th data-sort="due_date">Was due</th>
+        <th data-sort="completed_on">Completed</th>
+        <th data-sort="completed_by">Who</th>
+        <th data-sort="interval_days">Repeats</th>
+      `;
+    } else {
+      headRow.innerHTML = `
+        <th data-sort="name">Job</th>
+        <th data-sort="notes">Notes</th>
+        <th data-sort="due_date">Due</th>
+        <th data-sort="days_until_due">When</th>
+        <th data-sort="interval_days">Repeats</th>
+        <th></th>
+      `;
+    }
+    bindSortHeaders();
+  }
+
+  function renderTable() {
+    const rows = sortRows(payload.rows || []);
+    const farmLabel = payload.farm_label || FARM;
+    metaLine.textContent = `${farmLabel} · ${payload.total || 0} ${mode === "archive" ? "completed" : "to do"}`;
+    fillStaff(payload.staff_names || []);
+    updateSortHeaders();
+    if (!rows.length) {
+      tbody.innerHTML = "";
+      emptyEl.hidden = false;
+      emptyEl.textContent = mode === "archive"
+        ? "No completed jobs yet."
+        : "No jobs on the schedule yet. Click Add schedule to create one.";
+      return;
+    }
+    emptyEl.hidden = true;
+    if (mode === "archive") {
+      tbody.innerHTML = rows.map((row) => `
+        <tr>
+          <td>${esc(row.name)}</td>
+          <td class="notes-col">${esc(row.notes || "")}</td>
+          <td>${esc(fmtDateUk(row.due_date))}</td>
+          <td>${esc(fmtDateUk(row.completed_on))}</td>
+          <td>${esc(row.completed_by)}</td>
+          <td>Every ${esc(row.interval_days)} days</td>
+        </tr>
+      `).join("");
+      return;
+    }
+    tbody.innerHTML = rows.map((row) => {
+      const cls = row.overdue ? "row-overdue" : (row.due_today ? "row-due-today" : "");
+      return `
+        <tr class="${cls}">
+          <td>${esc(row.name)}</td>
+          <td class="notes-col">${esc(row.notes || "")}</td>
+          <td>${esc(fmtDateUk(row.due_date))}</td>
+          <td>${esc(daysLabel(row))}</td>
+          <td>Every ${esc(row.interval_days)} days</td>
+          <td>
+            <div class="row-actions">
+              <button type="button" class="done-btn" data-complete="${esc(row.id)}" data-name="${esc(row.name)}">Done</button>
+              <button type="button" class="edit-btn" data-edit="${esc(row.id)}">Edit</button>
+              <button type="button" class="remove-btn" data-remove="${esc(row.template_id)}" data-name="${esc(row.name)}">Remove</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  async function loadList() {
+    metaLine.textContent = "Loading…";
+    try {
+      const res = await fetch(`/api/schedule/${encodeURIComponent(FARM)}?view=${encodeURIComponent(mode)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBanner("error", data.detail || `Failed to load (${res.status})`);
+        payload = { rows: [], total: 0 };
+        renderTable();
+        return;
+      }
+      payload = data;
+      renderTable();
+    } catch (err) {
+      setBanner("error", err.message || "Failed to load schedule");
+      payload = { rows: [], total: 0 };
+      renderTable();
+    }
+  }
+
+  function openAdd() {
+    editingId = null;
+    editTitle.textContent = "Add a schedule";
+    editSave.textContent = "Add to schedule";
+    editForm.reset();
+    jobDue.value = isoToday();
+    editModal.hidden = false;
+    jobName.focus();
+  }
+
+  function openEdit(row) {
+    editingId = row.id;
+    editTitle.textContent = "Edit schedule";
+    editSave.textContent = "Save changes";
+    jobName.value = row.name || "";
+    jobDue.value = row.due_date || "";
+    jobInterval.value = row.interval_days || "";
+    jobNotes.value = row.notes || "";
+    editModal.hidden = false;
+    jobName.focus();
+  }
+
+  function closeEdit() {
+    editingId = null;
+    editModal.hidden = true;
+  }
+
+  function openComplete(id, name) {
+    completingId = id;
+    modalJobName.textContent = name || "";
+    completeOn.value = isoToday();
+    completeBy.value = "";
+    completeModal.hidden = false;
+    completeBy.focus();
+  }
+
+  function closeComplete() {
+    completingId = null;
+    completeModal.hidden = true;
+  }
+
+  editForm.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    editSave.disabled = true;
+    setBanner("", "");
+    const adding = editingId == null;
+    const url = adding
+      ? `/api/schedule/${encodeURIComponent(FARM)}/jobs`
+      : `/api/schedule/${encodeURIComponent(FARM)}/jobs/${editingId}`;
+    try {
+      const res = await fetch(url, {
+        method: adding ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(jobPayload()),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBanner("error", data.detail || (adding ? "Could not add job." : "Could not save job."));
+        return;
+      }
+      closeEdit();
+      setBanner("ok", adding ? `${data.name} added to the schedule.` : `${data.name} updated.`);
+      mode = "pending";
+      document.querySelectorAll(".view-tab").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.mode === "pending");
+      });
+      renderHead();
+      await loadList();
+    } catch (err) {
+      setBanner("error", err.message || "Could not save job.");
+    } finally {
+      editSave.disabled = false;
+    }
+  });
+
+  document.getElementById("complete-save").addEventListener("click", async () => {
+    if (!completingId) return;
+    setBanner("", "");
+    try {
+      const res = await fetch(
+        `/api/schedule/${encodeURIComponent(FARM)}/jobs/${completingId}/complete`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            completed_on: completeOn.value,
+            completed_by: completeBy.value,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBanner("error", data.detail || "Could not mark done.");
+        return;
+      }
+      closeComplete();
+      const nextDue = data.next && data.next.due_date ? fmtDateUk(data.next.due_date) : "";
+      setBanner("ok", `Saved. Next due ${nextDue}.`);
+      await loadList();
+    } catch (err) {
+      setBanner("error", err.message || "Could not mark done.");
+    }
+  });
+
+  tbody.addEventListener("click", async (ev) => {
+    const done = ev.target.closest("[data-complete]");
+    if (done) {
+      openComplete(Number(done.dataset.complete), done.dataset.name);
+      return;
+    }
+    const edit = ev.target.closest("[data-edit]");
+    if (edit) {
+      const row = (payload.rows || []).find((r) => String(r.id) === String(edit.dataset.edit));
+      if (row) openEdit(row);
+      return;
+    }
+    const remove = ev.target.closest("[data-remove]");
+    if (!remove) return;
+    const name = remove.dataset.name || "this job";
+    if (!window.confirm(`Remove ${name} from the schedule? Completed history is kept.`)) return;
+    try {
+      const res = await fetch(
+        `/api/schedule/${encodeURIComponent(FARM)}/templates/${remove.dataset.remove}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBanner("error", data.detail || "Could not remove schedule.");
+        return;
+      }
+      setBanner("ok", `${name} removed from the to-do list.`);
+      await loadList();
+    } catch (err) {
+      setBanner("error", err.message || "Could not remove schedule.");
+    }
+  });
+
+  document.querySelectorAll(".view-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      mode = tab.dataset.mode;
+      sortState = mode === "archive"
+        ? { key: "completed_on", dir: -1 }
+        : { key: "due_date", dir: 1 };
+      document.querySelectorAll(".view-tab").forEach((btn) => {
+        btn.classList.toggle("active", btn === tab);
+      });
+      renderHead();
+      loadList();
+    });
+  });
+
+  document.getElementById("open-add").addEventListener("click", openAdd);
+  document.querySelectorAll("[data-close='edit']").forEach((el) => {
+    el.addEventListener("click", closeEdit);
+  });
+  document.querySelectorAll("[data-close='complete']").forEach((el) => {
+    el.addEventListener("click", closeComplete);
+  });
+  renderHead();
+  loadList();
+})();
+</script>
+{% endblock %}

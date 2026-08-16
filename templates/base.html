@@ -108,6 +108,37 @@
       border-left-color: #7dcea0;
       font-weight: 600;
     }
+    .sidebar-nav a.nav-with-badges {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .nav-badges {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      margin-left: auto;
+    }
+    .nav-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.2rem;
+      height: 1.2rem;
+      padding: 0 0.35rem;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      line-height: 1;
+      color: #fff;
+      box-shadow: 0 0 0 2px rgba(30, 58, 47, 0.55);
+    }
+    .nav-badges[hidden],
+    .nav-badge[hidden] {
+      display: none !important;
+    }
+    .nav-badge-cm { background: #3b82f6; }
+    .nav-badge-gad { background: #ea580c; }
     .nav-section {
       margin-top: 0.5rem;
     }
@@ -439,6 +470,15 @@
       <div class="sidebar-brand"><a href="/">Farm Dashboard</a></div>
       <nav class="sidebar-nav">
         <a href="/" class="{% if active_nav == 'home' and not active_section %}active{% endif %}">Home</a>
+        {% if perms.page('schedule') %}
+        <a href="/schedule" class="nav-with-badges {% if active_nav == 'schedule' %}active{% endif %}" id="schedule-nav-link">
+          Schedule
+          <span class="nav-badges" id="schedule-nav-badges" hidden>
+            <span class="nav-badge nav-badge-cm" id="schedule-badge-cm" hidden title="Cwrt Malle jobs due"></span>
+            <span class="nav-badge nav-badge-gad" id="schedule-badge-gad" hidden title="Green Acre Dairy jobs due"></span>
+          </span>
+        </a>
+        {% endif %}
 
         <div class="nav-section">
           {% if perms.page('wynnstay') or perms.page('prostock') %}
@@ -1120,6 +1160,42 @@
         btn.disabled = false;
       }
     });
+  })();
+  </script>
+  {% endif %}
+  {% if perms.page('schedule') %}
+  <script>
+  (function () {
+    const wrap = document.getElementById("schedule-nav-badges");
+    const cm = document.getElementById("schedule-badge-cm");
+    const gad = document.getElementById("schedule-badge-gad");
+    if (!wrap || !cm || !gad) return;
+
+    function pill(el, count, farmLabel) {
+      const n = Number(count) || 0;
+      if (n <= 0) {
+        el.hidden = true;
+        el.textContent = "";
+        el.removeAttribute("title");
+        return 0;
+      }
+      el.hidden = false;
+      el.textContent = n > 99 ? "99+" : String(n);
+      el.title = n === 1
+        ? `1 ${farmLabel} job due today or overdue`
+        : `${n} ${farmLabel} jobs due today or overdue`;
+      return n;
+    }
+
+    fetch("/api/schedule/due-counts")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data || !data.counts) return;
+        const nCm = pill(cm, data.counts.CM, "Cwrt Malle");
+        const nGad = pill(gad, data.counts.GAD, "Green Acre Dairy");
+        wrap.hidden = nCm <= 0 && nGad <= 0;
+      })
+      .catch(() => {});
   })();
   </script>
   {% endif %}

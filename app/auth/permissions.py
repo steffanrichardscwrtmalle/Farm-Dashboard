@@ -22,6 +22,7 @@ PAGE_CATTLE_SALES = "cattle_sales"
 PAGE_BENCHMARKING = "benchmarking"
 PAGE_HR = "hr"
 PAGE_PARLOUR = "parlour"
+PAGE_SCHEDULE = "schedule"
 
 PAGE_KEYS: tuple[str, ...] = (
     PAGE_WYNNSTAY,
@@ -38,6 +39,7 @@ PAGE_KEYS: tuple[str, ...] = (
     PAGE_BENCHMARKING,
     PAGE_HR,
     PAGE_PARLOUR,
+    PAGE_SCHEDULE,
 )
 
 PAGE_LABELS: dict[str, str] = {
@@ -55,6 +57,7 @@ PAGE_LABELS: dict[str, str] = {
     PAGE_BENCHMARKING: "Benchmarking",
     PAGE_HR: "Staff / HR",
     PAGE_PARLOUR: "Parlour",
+    PAGE_SCHEDULE: "Schedule",
 }
 
 ACTION_WYNNSTAY_IMPORT = "wynnstay.import"
@@ -127,7 +130,7 @@ PRESET_OFFICE = "office"
 PRESETS: dict[str, dict[str, Any]] = {
     PRESET_FARM_WORKER: {
         "label": "Farm worker",
-        "pages": [PAGE_FEED_RATE, PAGE_EVENTS, PAGE_STOCK_INVENTORY, PAGE_BCMS],
+        "pages": [PAGE_FEED_RATE, PAGE_EVENTS, PAGE_STOCK_INVENTORY, PAGE_BCMS, PAGE_SCHEDULE],
         "actions": [],
     },
     PRESET_OFFICE: {

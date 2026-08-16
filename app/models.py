@@ -1895,6 +1895,66 @@ class CtsReportedMovement(Base):
     )
 
 
+FARM_JOB_STATUS_PENDING = "pending"
+FARM_JOB_STATUS_ARCHIVED = "archived"
+FARM_JOB_STATUSES: tuple[str, ...] = (
+    FARM_JOB_STATUS_PENDING,
+    FARM_JOB_STATUS_ARCHIVED,
+)
+
+
+class FarmJobTemplate(Base):
+    """Recurring farm job (e.g. liner change every 42 days)."""
+
+    __tablename__ = "farm_job_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    interval_days: Mapped[int] = mapped_column(Integer)
+    notes: Mapped[str] = mapped_column(String(500), default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+    occurrences: Mapped[list[FarmJobOccurrence]] = relationship(
+        back_populates="template", cascade="all, delete-orphan"
+    )
+
+
+class FarmJobOccurrence(Base):
+    """One due instance of a farm job; archived after it is marked done."""
+
+    __tablename__ = "farm_job_occurrences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    template_id: Mapped[int] = mapped_column(
+        ForeignKey("farm_job_templates.id"), index=True
+    )
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    due_date: Mapped[datetime.date] = mapped_column(Date, index=True)
+    status: Mapped[str] = mapped_column(
+        String(16), default=FARM_JOB_STATUS_PENDING, index=True
+    )
+    completed_on: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    completed_by: Mapped[str] = mapped_column(String(255), default="")
+    completed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    completed_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+
+    template: Mapped[FarmJobTemplate] = relationship(back_populates="occurrences")
+
+
 def _str_or_none(value: Any) -> str | None:
     if value is None:
         return None
