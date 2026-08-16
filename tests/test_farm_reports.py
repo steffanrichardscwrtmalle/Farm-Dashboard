@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
+from io import BytesIO
+
+from openpyxl import load_workbook
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Base, HerdInventory
 from app.services.farm_reports import (
     BLANK_PEN,
+    ETAG5_COL_WIDTH_MM,
+    ETAG5_XLSX_COL_WIDTH,
     PDF_ROWS_PER_PAGE,
     apply_pen_filter,
     build_heifers_to_scan_pdf,
     build_heifers_to_scan_xlsx,
+    build_report_pdf,
+    build_report_xlsx,
+    collars_to_put_on,
     etag5,
+    etag5_column_grid,
+    etag5_pdf_col_widths,
     farm_reports,
     heifers_to_scan,
 )
@@ -37,6 +47,10 @@ def _heifer(
     pen: str | None = "12",
     aged: int | None = 420,
     tbrd: int | None = 1,
+    ewgt: float | None = None,
+    lact: float | None = 0,
+    httag: str | None = None,
+    rum: float | None = None,
 ) -> HerdInventory:
     return HerdInventory(
         farm=farm,
@@ -50,6 +64,10 @@ def _heifer(
         pen=pen,
         aged=aged,
         tbrd=tbrd,
+        ewgt=ewgt,
+        lact=lact,
+        httag=httag,
+        rum=rum,
     )
 
 
@@ -77,14 +95,14 @@ def test_heifers_to_scan_filters_youngstock_rc_and_dslh() -> None:
     result = heifers_to_scan(db, "CM")
     ids = [row["id"] for row in result["rows"]]
     assert result["count"] == 2
-    assert ids == ["100", "101"]
-    assert result["rows"][0]["etag5"] == "24400"
-    assert result["rows"][1]["etag5"] == "00111"
-    assert result["rows"][0]["dslh"] == 32
-    assert result["rows"][0]["rpro"] == "BRED"
-    assert result["rows"][0]["remark"] == "BRED"
-    assert result["rows"][0]["pen"] == "12"
-    assert result["rows"][0]["tbrd"] == 1
+    assert ids == ["101", "100"]
+    assert result["rows"][0]["etag5"] == "00111"
+    assert result["rows"][1]["etag5"] == "24400"
+    assert result["rows"][1]["dslh"] == 32
+    assert result["rows"][1]["rpro"] == "BRED"
+    assert result["rows"][1]["remark"] == "BRED"
+    assert result["rows"][1]["pen"] == "12"
+    assert result["rows"][1]["tbrd"] == 1
 
 
 def test_heifers_to_scan_pen_filter_and_blank_pen() -> None:
@@ -119,7 +137,10 @@ def test_farm_reports_widget_count_matches_table() -> None:
     assert payload["farm_label"] == "Cwrt Malle"
     assert payload["widgets"][0]["id"] == "heifers-to-scan"
     assert payload["widgets"][0]["count"] == 1
+    assert payload["widgets"][1]["id"] == "collars-to-put-on"
+    assert payload["widgets"][1]["count"] == 0
     assert payload["heifers_to_scan"]["count"] == 1
+    assert payload["collars_to_put_on"]["count"] == 0
 
 
 def test_heifers_to_scan_xlsx_export() -> None:
@@ -128,6 +149,20 @@ def test_heifers_to_scan_xlsx_export() -> None:
     db.commit()
     content = build_heifers_to_scan_xlsx(heifers_to_scan(db, "CM"))
     assert content[:2] == b"PK"
+    wb = load_workbook(BytesIO(content))
+    assert wb.sheetnames == ["Heifers To Scan", "ETAG5"]
+    assert wb["ETAG5"].column_dimensions["A"].width == ETAG5_XLSX_COL_WIDTH
+
+
+def test_heifers_to_scan_xlsx_etag5_only() -> None:
+    db = _db()
+    db.add(_heifer(cow_id="1", remark="SCAN"))
+    db.commit()
+    content = build_heifers_to_scan_xlsx(heifers_to_scan(db, "CM"), etag5_only=True)
+    wb = load_workbook(BytesIO(content))
+    assert wb.sheetnames == ["ETAG5"]
+    assert wb.active["A1"].value == "ETAG5"
+    assert wb.active.column_dimensions["A"].width == ETAG5_XLSX_COL_WIDTH
 
 
 def test_heifers_to_scan_pdf_export() -> None:
@@ -147,3 +182,130 @@ def test_heifers_to_scan_pdf_export() -> None:
     assert pdf.startswith(b"%PDF")
     assert len(pdf) > 200
     assert report["count"] == PDF_ROWS_PER_PAGE + 5
+
+
+def test_etag5_grid_uses_forty_row_columns() -> None:
+    rows = [{"etag5": f"{i:05d}"} for i in range(200)]
+    grid = etag5_column_grid(rows)
+    assert len(grid) == 40
+    assert len(grid[0]) == 5
+    assert grid[0] == ["00000", "00040", "00080", "00120", "00160"]
+    assert grid[39][0] == "00039"
+    assert grid[0][4] == "00160"
+
+    short = etag5_column_grid([{"etag5": "1"}] * 41)
+    assert len(short) == 40
+    assert len(short[0]) == 2
+    assert short[0] == ["1", "1"]
+    assert short[1][1] == ""
+
+
+def test_etag5_pdf_columns_stay_compact() -> None:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+
+    usable = A4[0] - 16 * mm
+    widths = etag5_pdf_col_widths(5, usable)
+    assert len(widths) == 5
+    assert widths[0] == ETAG5_COL_WIDTH_MM * mm
+    assert sum(widths) < usable
+
+    crowded = etag5_pdf_col_widths(20, usable)
+    assert abs(sum(crowded) - usable) < 0.01
+
+
+def test_heifers_to_scan_pdf_etag5_only() -> None:
+    import pytest
+
+    pytest.importorskip("reportlab")
+    db = _db()
+    db.add(_heifer(cow_id="1"))
+    db.commit()
+    pdf = build_heifers_to_scan_pdf(heifers_to_scan(db, "CM"), etag5_only=True)
+    assert pdf.startswith(b"%PDF")
+    assert len(pdf) > 200
+
+
+def test_collars_to_put_on_filters_httag_rum_rc_and_lact() -> None:
+    db = _db()
+    db.add_all(
+        [
+            _heifer(
+                cow_id="200",
+                rc=0,
+                ewgt=385,
+                aged=390,
+                remark="COLLAR",
+                httag="0",
+                etag="UK740651300222",
+            ),
+            _heifer(
+                cow_id="201",
+                rc=0,
+                ewgt=400.4,
+                aged=410,
+                httag=None,
+                etag="UK740651300111",
+            ),
+            _heifer(
+                cow_id="207",
+                rc=3,
+                ewgt=410,
+                httag="12",
+                rum=0,
+                rpro="BRED",
+                etag="UK740651300333",
+            ),
+            _heifer(cow_id="202", rc=0, ewgt=384.9, httag="0"),
+            _heifer(cow_id="203", rc=0, ewgt=None, httag="0"),
+            _heifer(cow_id="204", rc=3, ewgt=420, httag="0"),
+            _heifer(cow_id="205", rc=0, ewgt=500, httag="0", category="Dairy"),
+            _heifer(cow_id="206", farm="GAD", rc=0, ewgt=500, httag="0"),
+            _heifer(cow_id="208", rc=0, ewgt=400, httag="18", rum=50),
+            _heifer(cow_id="209", rc=2, ewgt=400, httag="18", rum=0),
+            _heifer(cow_id="210", rc=0, ewgt=400, httag="0", lact=1),
+            _heifer(cow_id="211", rc=4, ewgt=400, httag="22", rum=0, lact=1),
+        ]
+    )
+    db.commit()
+
+    result = collars_to_put_on(db, "CM")
+    by_id = {row["id"]: row for row in result["rows"]}
+    assert result["count"] == 3
+    assert set(by_id) == {"200", "201", "207"}
+    assert by_id["200"]["httag"] == 0
+    assert by_id["200"]["broken_collar"] is False
+    assert by_id["200"]["ewgt"] == 385
+    assert by_id["200"]["aged"] == 390
+    assert by_id["200"]["remark"] == "COLLAR"
+    assert by_id["200"]["pen"] == "12"
+    assert by_id["201"]["etag5"] == "00111"
+    assert by_id["207"]["httag"] == 12
+    assert by_id["207"]["broken_collar"] is True
+    assert by_id["207"]["rpro"] == "BRED"
+    assert [row["id"] for row in result["rows"]] == ["201", "200", "207"]
+
+
+def test_collars_to_put_on_xlsx_export() -> None:
+    db = _db()
+    db.add(_heifer(cow_id="1", rc=0, ewgt=385, remark="ON", httag="0"))
+    db.commit()
+    content = build_report_xlsx(collars_to_put_on(db, "CM"))
+    wb = load_workbook(BytesIO(content))
+    assert wb.sheetnames == ["Collars To Put On", "ETAG5"]
+    assert [cell.value for cell in wb.active[1]] == [
+        "ID", "REMARK", "ETAG5", "EWGT", "HTTAG", "AGED", "RPRO", "PEN"
+    ]
+    assert wb.active["D2"].value == "385"
+
+
+def test_collars_to_put_on_pdf_export() -> None:
+    import pytest
+
+    pytest.importorskip("reportlab")
+    db = _db()
+    db.add(_heifer(cow_id="1", rc=0, ewgt=400, httag="0"))
+    db.commit()
+    pdf = build_report_pdf(collars_to_put_on(db, "CM"))
+    assert pdf.startswith(b"%PDF")
+    assert len(pdf) > 200
