@@ -1,0 +1,451 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .content-panel { min-width: 0; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin: 0 0 0.85rem; }
+    .status-banner {
+      margin: 0 0 0.85rem;
+      padding: 0.55rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.875rem;
+    }
+    .status-banner.error { background: #fef2f2; color: #991b1b; }
+    .report-widgets {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1.1rem;
+      max-width: 42rem;
+    }
+    .report-widget {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.15rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.9rem 1rem 0.85rem;
+      text-align: left;
+      cursor: pointer;
+      color: inherit;
+      font-family: inherit;
+    }
+    .report-widget:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
+    .report-widget.selected {
+      border-color: #5a9fd4;
+      box-shadow: inset 0 0 0 1px #5a9fd4;
+    }
+    .farm-gad .report-widget.selected {
+      border-color: #ffb366;
+      box-shadow: inset 0 0 0 1px #ffb366;
+    }
+    .report-widget h2 {
+      margin: 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .report-widget .count {
+      font-size: 1.85rem;
+      font-weight: 700;
+      line-height: 1.15;
+      font-variant-numeric: tabular-nums;
+    }
+    .report-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+    .export-bar { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .pen-filters {
+      margin-bottom: 0.85rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 0.85rem;
+    }
+    .pen-filters .section-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.45rem;
+    }
+    .pen-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .pen-chip {
+      border: 2px solid var(--border);
+      background: #f3f4f6;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 0.28rem 0.7rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .pen-chip.selected {
+      background: #dceaf7;
+      border-color: #5a9fd4;
+      color: #1e3a5f;
+    }
+    .farm-gad .pen-chip.selected {
+      background: #ffecd9;
+      border-color: #ffb366;
+      color: #b45309;
+    }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .report-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+      table-layout: fixed;
+    }
+    .report-table th,
+    .report-table td {
+      padding: 0.5rem 0.65rem;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .report-table th {
+      background: #f8fafc;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .report-table thead th[data-sort] {
+      cursor: pointer;
+      user-select: none;
+    }
+    .report-table thead th[data-sort]:hover { color: var(--text); }
+    .report-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
+    .report-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
+    .report-table td.num { font-variant-numeric: tabular-nums; }
+    .report-table td.remark, .report-table th[data-sort="remark"] { white-space: nowrap; }
+    .empty-state { color: var(--muted); padding: 1rem 0.25rem; font-size: 0.875rem; }
+    .print-only { display: none; }
+    @page { size: A4 portrait; margin: 8mm; }
+    @media print {
+      .sidebar, .topbar, .no-print, .report-widgets, .status-banner { display: none !important; }
+      .app-shell { display: block; }
+      .main-panel, main {
+        max-width: none;
+        padding: 0;
+        width: auto;
+      }
+      .print-only { display: block !important; }
+      .print-title {
+        margin: 0 0 0.2rem;
+        font-size: 12pt;
+        font-weight: 700;
+      }
+      .print-meta {
+        margin: 0 0 0.45rem;
+        font-size: 8pt;
+        color: #333;
+      }
+      .table-wrap {
+        overflow: visible;
+        border: none;
+        border-radius: 0;
+      }
+      .report-table {
+        font-size: 7.5pt;
+        width: 100%;
+      }
+      .report-table th,
+      .report-table td {
+        padding: 1px 3px;
+        height: 6.2mm;
+        line-height: 1.15;
+        border-bottom: 0.3pt solid #d8dee4;
+        border-right: 0.3pt solid #eef0f3;
+      }
+      .report-table thead th {
+        background: #1e3a5f !important;
+        color: #fff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .report-table thead { display: table-header-group; }
+      .report-table tr { page-break-inside: avoid; }
+      .empty-state { display: none; }
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="content-panel farm-{{ farm|lower }}">
+    <p class="meta-line no-print" id="meta-line">Loading reports…</p>
+    <div id="status-banner" class="status-banner error" hidden></div>
+    <div class="report-widgets no-print" id="report-widgets"></div>
+    <div id="report-table-panel" hidden>
+      <div class="print-only">
+        <h2 class="print-title" id="print-title">Heifers To Scan</h2>
+        <p class="print-meta" id="print-meta"></p>
+      </div>
+      <div class="report-toolbar no-print">
+        <p class="meta-line" id="table-meta" style="margin:0"></p>
+        <div class="export-bar">
+          <button type="button" class="secondary small" id="export-pdf-btn">Export PDF</button>
+          <button type="button" class="secondary small" id="export-xlsx-btn">Export XLSX</button>
+          <button type="button" class="secondary small" id="print-btn">Print</button>
+        </div>
+      </div>
+      <div class="pen-filters no-print" id="pen-filters" hidden>
+        <span class="section-label">Pens — all selected, click to deselect</span>
+        <div class="pen-chips" id="pen-chips"></div>
+      </div>
+      <div class="table-wrap" id="table-wrap">
+        <table class="report-table" id="report-table">
+          <colgroup>
+            <col style="width:12%">
+            <col style="width:28%">
+            <col style="width:12%">
+            <col style="width:10%">
+            <col style="width:10%">
+            <col style="width:14%">
+            <col style="width:14%">
+          </colgroup>
+          <thead>
+            <tr>
+              <th data-sort="id">ID</th>
+              <th data-sort="remark">REMARK</th>
+              <th data-sort="etag5">ETAG5</th>
+              <th data-sort="dslh">DSLH</th>
+              <th data-sort="tbrd">TBRD</th>
+              <th data-sort="rpro">RPRO</th>
+              <th data-sort="pen">PEN</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="empty-state no-print" id="empty-state" hidden>No animals match the selected pens.</p>
+    </div>
+  </div>
+  <script>
+    const FARM = {{ farm|tojson }};
+    const COLS = ["id", "remark", "etag5", "dslh", "tbrd", "rpro", "pen"];
+    const NUM_COLS = new Set(["dslh", "tbrd"]);
+    const BLANK_PEN = "__blank__";
+    const NO_MATCH_PEN = "__no_match__";
+    let data = null;
+    let selected = null;
+    let sortKey = "pen";
+    let sortDir = "asc";
+    let selectedPens = new Set();
+
+    function showError(msg) {
+      const el = document.getElementById("status-banner");
+      el.hidden = !msg;
+      el.textContent = msg || "";
+    }
+
+    function blank(value) {
+      return value === null || value === undefined || value === "" ? "" : String(value);
+    }
+
+    function reportData() {
+      if (!data || selected !== "heifers-to-scan") return null;
+      return data.heifers_to_scan || null;
+    }
+
+    function penId(row) {
+      const pen = blank(row.pen);
+      return pen ? pen : BLANK_PEN;
+    }
+
+    function compare(a, b) {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      const aEmpty = av === null || av === undefined || av === "";
+      const bEmpty = bv === null || bv === undefined || bv === "";
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (NUM_COLS.has(sortKey)) {
+        return (Number(av) - Number(bv)) * (sortDir === "asc" ? 1 : -1);
+      }
+      return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" })
+        * (sortDir === "asc" ? 1 : -1);
+    }
+
+    function currentRows() {
+      const report = reportData();
+      if (!report) return [];
+      return (report.rows || []).filter(function (row) {
+        return selectedPens.has(penId(row));
+      }).slice().sort(compare);
+    }
+
+    function renderWidgets() {
+      const host = document.getElementById("report-widgets");
+      host.innerHTML = "";
+      (data.widgets || []).forEach(function (widget) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "report-widget" + (widget.id === selected ? " selected" : "");
+        btn.innerHTML = "<h2>" + widget.title + "</h2><span class=\"count\">"
+          + Number(widget.count || 0).toLocaleString() + "</span>";
+        btn.addEventListener("click", function () {
+          openReport(widget.id);
+        });
+        host.appendChild(btn);
+      });
+    }
+
+    function openReport(id) {
+      selected = id;
+      const report = reportData();
+      selectedPens = new Set((report && report.pens ? report.pens : []).map(function (pen) {
+        return pen.id;
+      }));
+      render();
+    }
+
+    function renderPens() {
+      const report = reportData();
+      const wrap = document.getElementById("pen-filters");
+      const host = document.getElementById("pen-chips");
+      host.innerHTML = "";
+      const pens = report ? (report.pens || []) : [];
+      wrap.hidden = pens.length === 0;
+      pens.forEach(function (pen) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "pen-chip" + (selectedPens.has(pen.id) ? " selected" : "");
+        btn.textContent = pen.label;
+        btn.addEventListener("click", function () {
+          if (selectedPens.has(pen.id)) selectedPens.delete(pen.id);
+          else selectedPens.add(pen.id);
+          render();
+        });
+        host.appendChild(btn);
+      });
+    }
+
+    function renderTable() {
+      const panel = document.getElementById("report-table-panel");
+      const wrap = document.getElementById("table-wrap");
+      const empty = document.getElementById("empty-state");
+      const tbody = document.querySelector("#report-table tbody");
+      if (!selected) {
+        panel.hidden = true;
+        return;
+      }
+      const rows = currentRows();
+      panel.hidden = false;
+      tbody.innerHTML = "";
+      empty.hidden = rows.length > 0;
+      wrap.hidden = rows.length === 0;
+      rows.forEach(function (row) {
+        const tr = document.createElement("tr");
+        COLS.forEach(function (key) {
+          const td = document.createElement("td");
+          if (NUM_COLS.has(key)) td.className = "num";
+          if (key === "remark") td.className = (td.className + " remark").trim();
+          td.textContent = blank(row[key]);
+          td.title = blank(row[key]);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      document.querySelectorAll("#report-table thead th[data-sort]").forEach(function (th) {
+        th.classList.remove("sorted-asc", "sorted-desc");
+        if (th.getAttribute("data-sort") === sortKey) {
+          th.classList.add(sortDir === "asc" ? "sorted-asc" : "sorted-desc");
+        }
+      });
+    }
+
+    function render() {
+      if (!data) return;
+      const farmLabel = data.farm_label || FARM;
+      const widget = (data.widgets || []).find(function (item) { return item.id === selected; });
+      document.getElementById("meta-line").textContent = widget
+        ? "Choose a report, or review " + widget.title + " below."
+        : "Choose a report.";
+      const rows = currentRows();
+      const tableMeta = document.getElementById("table-meta");
+      if (widget) {
+        tableMeta.textContent = rows.length.toLocaleString() + " of "
+          + Number(widget.count || 0).toLocaleString() + " animals";
+        document.getElementById("print-title").textContent = widget.title + " · " + farmLabel;
+        document.getElementById("print-meta").textContent =
+          rows.length.toLocaleString() + " animals";
+      }
+      renderWidgets();
+      renderPens();
+      renderTable();
+    }
+
+    function penQuery() {
+      const params = new URLSearchParams();
+      const ids = Array.from(selectedPens);
+      if (!ids.length) {
+        params.append("pen", NO_MATCH_PEN);
+        return params.toString();
+      }
+      ids.forEach(function (id) { params.append("pen", id); });
+      return params.toString();
+    }
+
+    document.querySelectorAll("#report-table thead th[data-sort]").forEach(function (th) {
+      th.addEventListener("click", function () {
+        const key = th.getAttribute("data-sort");
+        if (sortKey === key) {
+          sortDir = sortDir === "asc" ? "desc" : "asc";
+        } else {
+          sortKey = key;
+          sortDir = NUM_COLS.has(key) ? "desc" : "asc";
+        }
+        renderTable();
+      });
+    });
+
+    document.getElementById("export-pdf-btn").addEventListener("click", function () {
+      window.location.href = "/api/reports/" + encodeURIComponent(FARM)
+        + "/heifers-to-scan/export.pdf?" + penQuery();
+    });
+    document.getElementById("export-xlsx-btn").addEventListener("click", function () {
+      window.location.href = "/api/reports/" + encodeURIComponent(FARM)
+        + "/heifers-to-scan/export.xlsx?" + penQuery();
+    });
+    document.getElementById("print-btn").addEventListener("click", function () {
+      window.print();
+    });
+
+    async function load() {
+      showError("");
+      try {
+        const res = await fetch("/api/reports/" + encodeURIComponent(FARM));
+        if (!res.ok) throw new Error("Failed to load reports");
+        data = await res.json();
+        selected = null;
+        render();
+      } catch (err) {
+        document.getElementById("meta-line").textContent = "";
+        showError(err.message || "Failed to load reports");
+      }
+    }
+
+    load();
+  </script>
+{% endblock %}

@@ -19,12 +19,37 @@ INVENTORY_DATE_COLUMNS = ("BDAT", "EDAT", "FDAT", "HDAT", "DUE", "GTEST", "SUBD"
 
 
 def load_inventory_csv(file_bytes: bytes) -> pd.DataFrame:
-    return pd.read_csv(
+    df = pd.read_csv(
         io.BytesIO(file_bytes),
         encoding=INVENTORY_ENCODING,
         on_bad_lines="skip",
         dayfirst=True,
     )
+    return _normalize_source_columns(df)
+
+
+def _normalize_source_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Strip and uppercase DairyComp headers so EWGT / HTTAG / RUM / PEN / TBRD match."""
+    out = df.copy()
+    out.columns = [str(col).strip().upper() for col in out.columns]
+    if out.columns.duplicated().any():
+        out = out.loc[:, ~out.columns.duplicated()].copy()
+    return out
+
+
+def _fmt_item_id(val: Any) -> str | None:
+    if pd.isna(val):
+        return None
+    try:
+        number = float(val)
+        if number.is_integer():
+            return str(int(number))
+    except (TypeError, ValueError):
+        pass
+    text = str(val).strip()
+    if not text or text.lower() in ("nan", "none", "-", "<na>"):
+        return None
+    return text
 
 
 def _standardize_lsbrd(val: Any) -> str:
@@ -119,7 +144,11 @@ def _get_value(row: pd.Series) -> float:
 
 def process_inventory_file(df: pd.DataFrame, farm: str) -> pd.DataFrame:
     """Apply Power Query transformations to one farm inventory export."""
-    df = df.copy()
+    df = _normalize_source_columns(df)
+
+    if "ETAG" in df.columns:
+        df["ETAG"] = df["ETAG"].astype("string").str.strip()
+        df["ETAG"] = df["ETAG"].where(~df["ETAG"].isin(["", "nan", "NaN", "<NA>"]), None)
 
     for col in INVENTORY_DATE_COLUMNS:
         if col in df.columns:
@@ -141,9 +170,25 @@ def process_inventory_file(df: pd.DataFrame, farm: str) -> pd.DataFrame:
     if "CBRD" in df.columns:
         df["CBRD"] = df["CBRD"].fillna(1)
 
-    for col in ("CBRD", "DIM", "LACT", "DSLH", "DCC", "RC"):
+    for col in ("CBRD", "DIM", "LACT", "DSLH", "DCC", "RC", "TBRD"):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype("Int64")
+
+    for col in ("EWGT", "RUM"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    if "PEN" in df.columns:
+        df["PEN"] = df["PEN"].map(_fmt_item_id)
+
+    if "HTTAG" in df.columns:
+        df["HTTAG"] = df["HTTAG"].map(_fmt_item_id)
+
+    if "REMARK" in df.columns:
+        df["REMARK"] = df["REMARK"].astype(str).str.strip()
+        df["REMARK"] = df["REMARK"].where(
+            ~df["REMARK"].isin(["", "nan", "NaN", "None", "-"]), None
+        )
 
     for col in ("SBRD", "LSBRD"):
         if col in df.columns:

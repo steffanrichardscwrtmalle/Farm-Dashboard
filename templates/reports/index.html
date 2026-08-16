@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Reports{% endblock %}
+
+{% block extra_styles %}
+    .schedule-hub {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+      margin-top: 0.75rem;
+      max-width: 720px;
+    }
+    .schedule-card {
+      display: block;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.35rem 1.25rem;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .schedule-card:hover {
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+    .schedule-card h2 {
+      margin: 0 0 0.4rem;
+      font-size: 1.1rem;
+    }
+    .schedule-card p {
+      margin: 0;
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .schedule-card.cm { border-top: 4px solid #5a9fd4; }
+    .schedule-card.gad { border-top: 4px solid #ffb366; }
+{% endblock %}
+
+{% block content %}
+  <p style="color: var(--muted); margin-top: 0;">
+    Choose a farm to open animal reports from the current inventory.
+  </p>
+  <div class="schedule-hub">
+    <a href="/reports/CM" class="schedule-card cm">
+      <h2>Cwrt Malle</h2>
+      <p>Open CM inventory reports.</p>
+    </a>
+    <a href="/reports/GAD" class="schedule-card gad">
+      <h2>Green Acre Dairy</h2>
+      <p>Open GAD inventory reports.</p>
+    </a>
+  </div>
+{% endblock %}

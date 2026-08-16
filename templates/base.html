@@ -515,6 +515,9 @@
           </span>
         </a>
         {% endif %}
+        {% if perms.page('reports') %}
+        <a href="/reports" class="{% if active_nav == 'reports' %}active{% endif %}">Reports</a>
+        {% endif %}
 
         <div class="nav-section">
           {% if perms.page('wynnstay') or perms.page('prostock') %}

@@ -448,6 +448,12 @@ def _migrate_herd_inventory_schema() -> None:
         "gtest": "DATE",
         "subd": "DATE",
         "edat": "DATE",
+        "pen": "VARCHAR(32)",
+        "tbrd": "INTEGER",
+        "remark": "VARCHAR(255)",
+        "ewgt": "FLOAT",
+        "httag": "VARCHAR(64)",
+        "rum": "FLOAT",
     }
     with engine.begin() as conn:
         for name, col_type in new_columns.items():
