@@ -12,12 +12,18 @@ from sqlalchemy.orm import Session
 from app.config import cts_farm_credentials
 from app.services.cts_client import (
     CtsError,
+    cts_configured_farms,
+    cts_ddts_is_configured,
     is_ctws_results_pending,
     normalize_cts_etag,
     raise_if_ctws_exception,
     transfer_ctws,
 )
-from app.services.cts_movements import mark_movements_reported
+from app.services.cts_movements import (
+    deadline_day_rows,
+    list_pending_movements,
+    mark_movements_reported,
+)
 from app.services.cts_submit_xml import (
     CtsSubmitXmlError,
     build_reg_births_element,
@@ -414,3 +420,95 @@ def send_pending_movements(
             for r in batch_results
         ],
     }
+
+
+def send_deadline_day_movements(
+    db: Session,
+    *,
+    farms: list[str] | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Send pending movements that are exactly on the UK reporting deadline day.
+
+    Births on day 17, sales/move-ons on day 3, deaths on day 7. Already-sent
+    rows are not in the pending queue. Overdue rows are left for manual send.
+    """
+    if not cts_ddts_is_configured():
+        raise CtsSubmitError(
+            "CTS is not configured. Set CTS_DDTS_USERNAME and CTS_DDTS_PASSWORD."
+        )
+
+    requested = [f.strip().upper() for f in (farms or []) if f and f.strip()]
+    ready = cts_configured_farms()
+    if requested:
+        unknown = [f for f in requested if f not in {"CM", "GAD"}]
+        if unknown:
+            raise CtsSubmitError(f"Unsupported farm: {', '.join(unknown)}")
+        farm_keys = [f for f in requested if f in ready]
+    else:
+        farm_keys = list(ready)
+
+    results: list[dict[str, Any]] = []
+    ok = True
+    for farm_key in farm_keys:
+        pending = list_pending_movements(db, farm_key).get("rows") or []
+        due = deadline_day_rows(pending)
+        if not due:
+            results.append(
+                {
+                    "farm": farm_key,
+                    "ok": True,
+                    "due_count": 0,
+                    "accepted_count": 0,
+                    "rejected_count": 0,
+                    "message": "No deadline-day movements to send.",
+                    "ids": [],
+                }
+            )
+            continue
+        ids = [row.get("id") for row in due]
+        if dry_run:
+            results.append(
+                {
+                    "farm": farm_key,
+                    "ok": True,
+                    "due_count": len(due),
+                    "accepted_count": 0,
+                    "rejected_count": 0,
+                    "message": f"Dry run: would send {len(due)} deadline-day movement(s).",
+                    "ids": ids,
+                }
+            )
+            continue
+        try:
+            sent = send_pending_movements(db, farm=farm_key, rows=due)
+        except (CtsSubmitError, CtsError, CtsSubmitXmlError) as exc:
+            ok = False
+            results.append(
+                {
+                    "farm": farm_key,
+                    "ok": False,
+                    "due_count": len(due),
+                    "accepted_count": 0,
+                    "rejected_count": 0,
+                    "message": str(exc),
+                    "ids": ids,
+                }
+            )
+            continue
+        farm_ok = bool(sent.get("ok"))
+        if not farm_ok:
+            ok = False
+        results.append(
+            {
+                "farm": farm_key,
+                "ok": farm_ok,
+                "due_count": len(due),
+                "accepted_count": sent.get("accepted_count", 0),
+                "rejected_count": sent.get("rejected_count", 0),
+                "message": sent.get("message") or "",
+                "ids": ids,
+            }
+        )
+
+    return {"ok": ok, "dry_run": dry_run, "results": results}

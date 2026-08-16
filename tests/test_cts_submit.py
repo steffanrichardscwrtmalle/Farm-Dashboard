@@ -15,6 +15,7 @@ from app.services.cts_submit import (
     CtsSubmitError,
     _parse_receipt,
     _parse_validation_results,
+    send_deadline_day_movements,
     send_pending_movements,
 )
 
@@ -273,3 +274,78 @@ def test_send_empty_raises() -> None:
     session = _session()
     with pytest.raises(CtsSubmitError, match="No pending"):
         send_pending_movements(session, farm="CM", rows=[])
+
+
+@patch("app.services.cts_submit.cts_ddts_is_configured", return_value=True)
+@patch("app.services.cts_submit.cts_configured_farms", return_value=["CM"])
+@patch("app.services.cts_submit.send_pending_movements")
+@patch("app.services.cts_submit.list_pending_movements")
+def test_send_deadline_day_only_sends_exact_deadline(
+    mock_pending, mock_send, _ready, _ddts
+) -> None:
+    mock_pending.return_value = {
+        "rows": [
+            {"id": "sale:CM:A", "movement_type": "sale", "days_since_event": 3},
+            {"id": "sale:CM:B", "movement_type": "sale", "days_since_event": 4},
+            {"id": "birth:CM:C", "movement_type": "birth", "days_since_event": 16},
+            {"id": "birth:CM:D", "movement_type": "birth", "days_since_event": 17},
+            {"id": "death:CM:E", "movement_type": "death", "days_since_event": 6},
+            {"id": "death:CM:F", "movement_type": "death", "days_since_event": 7},
+            {"id": "move_on:CM:G", "movement_type": "move_on", "days_since_event": 3},
+        ]
+    }
+    mock_send.return_value = {
+        "ok": True,
+        "accepted_count": 4,
+        "rejected_count": 0,
+        "message": "Sent.",
+    }
+    result = send_deadline_day_movements(_session())
+    assert result["ok"] is True
+    sent_rows = mock_send.call_args.kwargs["rows"]
+    assert {row["id"] for row in sent_rows} == {
+        "sale:CM:A",
+        "birth:CM:D",
+        "death:CM:F",
+        "move_on:CM:G",
+    }
+    farm = result["results"][0]
+    assert farm["due_count"] == 4
+    assert farm["accepted_count"] == 4
+
+
+@patch("app.services.cts_submit.cts_ddts_is_configured", return_value=True)
+@patch("app.services.cts_submit.cts_configured_farms", return_value=["CM"])
+@patch("app.services.cts_submit.send_pending_movements")
+@patch("app.services.cts_submit.list_pending_movements")
+def test_send_deadline_day_skips_when_none_due(
+    mock_pending, mock_send, _ready, _ddts
+) -> None:
+    mock_pending.return_value = {
+        "rows": [
+            {"id": "sale:CM:A", "movement_type": "sale", "days_since_event": 1},
+        ]
+    }
+    result = send_deadline_day_movements(_session())
+    mock_send.assert_not_called()
+    assert result["ok"] is True
+    assert result["results"][0]["due_count"] == 0
+
+
+@patch("app.services.cts_submit.cts_ddts_is_configured", return_value=True)
+@patch("app.services.cts_submit.cts_configured_farms", return_value=["CM"])
+@patch("app.services.cts_submit.send_pending_movements")
+@patch("app.services.cts_submit.list_pending_movements")
+def test_send_deadline_day_dry_run_does_not_submit(
+    mock_pending, mock_send, _ready, _ddts
+) -> None:
+    mock_pending.return_value = {
+        "rows": [
+            {"id": "sale:CM:A", "movement_type": "sale", "days_since_event": 3},
+        ]
+    }
+    result = send_deadline_day_movements(_session(), dry_run=True)
+    mock_send.assert_not_called()
+    assert result["dry_run"] is True
+    assert result["results"][0]["due_count"] == 1
+    assert "Dry run" in result["results"][0]["message"]

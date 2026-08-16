@@ -373,6 +373,62 @@ services:
           type: web
           envVarKey: CTS_HOLDING_GAD
 
+  # Send pending BCMS movements on their UK reporting deadline day, 9pm UK.
+  # Runs hourly (UTC); the script exits immediately unless Europe/London hour
+  # is 21 — so BST/GMT stay correct year-round.
+  - type: cron
+    name: farm-dashboard-cts-deadline-send
+    runtime: docker
+    schedule: "10 * * * *"
+    dockerCommand: python scripts/send_cts_deadline_movements.py --only-at-uk-hours 21
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: farm-dashboard-db
+          property: connectionString
+      - key: ENVIRONMENT
+        value: production
+      - key: CTS_DDTS_USERNAME
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_DDTS_USERNAME
+      - key: CTS_DDTS_PASSWORD
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_DDTS_PASSWORD
+      - key: CTS_CTWS_USERNAME_CM
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_CTWS_USERNAME_CM
+      - key: CTS_CTWS_PASSWORD_CM
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_CTWS_PASSWORD_CM
+      - key: CTS_HOLDING_CM
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_HOLDING_CM
+      - key: CTS_CTWS_USERNAME_GAD
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_CTWS_USERNAME_GAD
+      - key: CTS_CTWS_PASSWORD_GAD
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_CTWS_PASSWORD_GAD
+      - key: CTS_HOLDING_GAD
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: CTS_HOLDING_GAD
+
 databases:
   - name: farm-dashboard-db
     plan: basic-1gb

@@ -26,6 +26,13 @@ from app.services.bcms_breeds import bcms_breed_from_cbrd
 logger = logging.getLogger(__name__)
 
 MOVEMENT_TYPES = ("birth", "sale", "death", "move_on")
+# UK BCMS: births within 17 days; sales / on-movements within 3 days; deaths within 7 days.
+REPORTING_DEADLINE_DAYS = {
+    "birth": 17,
+    "sale": 3,
+    "death": 7,
+    "move_on": 3,
+}
 _UK = ZoneInfo("Europe/London")
 _ACTIVE_REPORT_STATUSES = ("sent", "ok", "accepted")
 _SUPPRESS_PENDING_STATUSES = ("sent", "ok", "accepted", "archived")
@@ -392,6 +399,24 @@ def _purchases_by_etag(db: Session, farm: str) -> dict[str, StockPurchaseAnimal]
         if key and key not in out:
             out[key] = row
     return out
+
+
+def is_deadline_day(row: dict[str, Any]) -> bool:
+    """True when Days Since Event equals the UK reporting deadline for that type."""
+    days = row.get("days_since_event")
+    if days is None or days == "":
+        return False
+    limit = REPORTING_DEADLINE_DAYS.get(row.get("movement_type") or "")
+    if limit is None:
+        return False
+    try:
+        return int(days) == limit
+    except (TypeError, ValueError):
+        return False
+
+
+def deadline_day_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [row for row in rows if is_deadline_day(row)]
 
 
 def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:

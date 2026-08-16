@@ -374,6 +374,19 @@ python scripts/sync_cts_holding.py
 python scripts/sync_cts_holding.py --farm CM
 ```
 
+### Cron (9pm UK — deadline-day send)
+
+Render cron `farm-dashboard-cts-deadline-send` runs hourly and only sends when UK local hour is **21**. It submits pending Record Movements that are **exactly on deadline day** (births day 17, sales/move-ons day 3, deaths day 7). Already-sent animals are skipped; overdue (red) rows are left for manual send.
+
+`python scripts/send_cts_deadline_movements.py --only-at-uk-hours 21`
+
+Manual:
+
+```bash
+python scripts/send_cts_deadline_movements.py
+python scripts/send_cts_deadline_movements.py --farm CM --dry-run
+```
+
 ---
 
 ## 7. Security checklist

@@ -19,6 +19,7 @@ from app.models import (
 )
 from app.services.cts_movements import (
     archive_confirmed_movements,
+    is_deadline_day,
     list_archived_movements,
     list_awaiting_cts_movements,
     list_pending_movements,
@@ -671,3 +672,18 @@ def test_requeue_skips_when_cts_already_reflects() -> None:
     assert result["requeued_count"] == 0
     assert list_awaiting_cts_movements(session, "CM")["total"] == 0
     assert list_archived_movements(session, "CM")["total"] == 1
+
+
+def test_is_deadline_day_uses_uk_reporting_limits() -> None:
+    assert is_deadline_day({"movement_type": "birth", "days_since_event": 17})
+    assert not is_deadline_day({"movement_type": "birth", "days_since_event": 16})
+    assert not is_deadline_day({"movement_type": "birth", "days_since_event": 18})
+    assert is_deadline_day({"movement_type": "sale", "days_since_event": 3})
+    assert not is_deadline_day({"movement_type": "sale", "days_since_event": 2})
+    assert not is_deadline_day({"movement_type": "sale", "days_since_event": 4})
+    assert is_deadline_day({"movement_type": "move_on", "days_since_event": 3})
+    assert is_deadline_day({"movement_type": "death", "days_since_event": 7})
+    assert not is_deadline_day({"movement_type": "death", "days_since_event": 6})
+    assert not is_deadline_day({"movement_type": "death", "days_since_event": 8})
+    assert not is_deadline_day({"movement_type": "birth", "days_since_event": None})
+    assert not is_deadline_day({"movement_type": "unknown", "days_since_event": 3})

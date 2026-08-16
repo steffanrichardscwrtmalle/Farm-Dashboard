@@ -162,6 +162,13 @@
     .cts-table tbody tr.row-overdue td .type-pill {
       box-shadow: inset 0 0 0 1px #fca5a5;
     }
+    .cts-table tbody tr.row-warning td {
+      background: #fefce8;
+      color: #854d0e;
+    }
+    .cts-table tbody tr.row-warning td .type-pill {
+      box-shadow: inset 0 0 0 1px #fde68a;
+    }
     .cts-table tbody tr.row-compliant td {
       background: #ecfdf5;
       color: #166534;
@@ -353,6 +360,34 @@
     return Number(days) > limit;
   }
 
+  function isWarning(row) {
+    if (isOverdue(row)) return false;
+    const days = row.days_since_event;
+    if (days == null || days === "") return false;
+    const n = Number(days);
+    if (!Number.isFinite(n)) return false;
+    if (row.movement_type === "birth") return n >= 7;
+    if (row.movement_type === "sale" || row.movement_type === "move_on") return n === 3;
+    if (row.movement_type === "death") return n === 6 || n === 7;
+    return false;
+  }
+
+  function rowUrgency(row) {
+    if (isOverdue(row)) {
+      return {
+        className: "row-overdue",
+        title: "Past UK BCMS reporting deadline",
+      };
+    }
+    if (isWarning(row)) {
+      return {
+        className: "row-warning",
+        title: "Approaching UK BCMS reporting deadline",
+      };
+    }
+    return null;
+  }
+
   function parseIsoDateOnly(value) {
     if (!value) return null;
     const part = String(value).split("T")[0].split(" ")[0];
@@ -495,7 +530,7 @@
           "Confirmed on CTS after BCMS acceptance. Rows are green if reported within the UK deadline (births 17 days; sales/move-ons 3 days; deaths 7 days from the event), red if reported late.";
       } else {
         helpNote.textContent =
-          "Preview downloads RegBirths / RegMovs XML for the selection (password redacted). Accepted sends move to Awaiting CTS, then to Archive once CTS confirms them. If still unmatched after the next UK-day CTS sync, they are marked failed and return here to retry. Rows turn red when past UK reporting deadlines (births 17 days; sales/move-ons 3 days; deaths 7 days).";
+          "Preview downloads RegBirths / RegMovs XML for the selection (password redacted). Accepted sends move to Awaiting CTS, then to Archive once CTS confirms them. If still unmatched after the next UK-day CTS sync, they are marked failed and return here to retry. Yellow = approaching deadline (births from 7 days; sales/move-ons at 3 days; deaths at 6–7 days). Red = past deadline (births 17 days; sales/move-ons 3 days; deaths 7 days). Overdue rows are left unselected. A 9pm UK cron sends remaining deadline-day animals automatically.";
       }
     }
     if (isAwaiting()) {
@@ -638,9 +673,11 @@
       tbody.innerHTML = rows.map((row) => {
         const checked = selected.has(row.id) ? " checked" : "";
         const typeClass = `type-${esc(row.movement_type || "")}`;
-        const overdue = isOverdue(row);
+        const urgency = rowUrgency(row);
+        const rowClass = urgency ? ` class="${urgency.className}"` : "";
+        const title = urgency ? ` title="${urgency.title}"` : "";
         return `
-          <tr data-id="${esc(row.id)}"${overdue ? ' class="row-overdue" title="Past UK BCMS reporting deadline"' : ""}>
+          <tr data-id="${esc(row.id)}"${rowClass}${title}>
             <td class="col-check"><input type="checkbox" class="row-check" data-id="${esc(row.id)}"${checked}></td>
             <td><span class="type-pill ${typeClass}">${esc(typeLabel(row.movement_type))}</span></td>
             <td>${esc(row.etag)}</td>
@@ -685,7 +722,9 @@
       payload = data;
       setBanner("", "");
       if (isPending()) {
-        for (const row of payload.rows || []) selected.add(row.id);
+        for (const row of payload.rows || []) {
+          if (!isOverdue(row)) selected.add(row.id);
+        }
       }
       renderTable();
     } catch (err) {
