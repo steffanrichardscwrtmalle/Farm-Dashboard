@@ -36,12 +36,17 @@
       width: var(--sidebar-w);
       min-width: var(--sidebar-w);
       flex-shrink: 0;
-      background: #1e3a2f;
+      background: linear-gradient(180deg, #214536 0%, #1a3329 55%, #152920 100%);
       color: #fff;
       display: flex;
       flex-direction: column;
       overflow-y: auto;
       transition: width 0.2s ease, min-width 0.2s ease, transform 0.2s ease;
+    }
+    .sidebar::-webkit-scrollbar { width: 8px; }
+    .sidebar::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.18);
+      border-radius: 999px;
     }
     @media (min-width: 769px) {
       .app-shell.sidebar-collapsed .sidebar {
@@ -74,39 +79,42 @@
       }
     }
     .sidebar-brand {
-      padding: 1.25rem 1rem;
-      font-weight: 600;
-      font-size: 1rem;
-      border-bottom: 1px solid rgba(255,255,255,0.12);
+      padding: 1.15rem 1rem 1rem;
+      font-weight: 650;
+      font-size: 0.98rem;
+      letter-spacing: -0.02em;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
     }
     .sidebar-brand a {
       color: #fff;
       text-decoration: none;
     }
     .sidebar-brand a:hover {
-      color: #7dcea0;
+      color: #b7ebc9;
     }
     .sidebar-nav {
-      padding: 0.75rem 0;
+      padding: 0.55rem 0.55rem 1.1rem;
       flex: 1;
     }
     .sidebar-nav a {
       display: block;
-      padding: 0.65rem 1rem;
-      color: rgba(255,255,255,0.85);
+      padding: 0.48rem 0.7rem;
+      margin: 0.08rem 0;
+      color: rgba(255,255,255,0.82);
       text-decoration: none;
-      font-size: 0.9rem;
-      border-left: 3px solid transparent;
+      font-size: 0.875rem;
+      border-radius: 8px;
+      transition: background 0.12s ease, color 0.12s ease;
     }
     .sidebar-nav a:hover {
       background: rgba(255,255,255,0.08);
       color: #fff;
     }
     .sidebar-nav a.active {
-      background: rgba(255,255,255,0.12);
+      background: rgba(125, 206, 160, 0.2);
       color: #fff;
-      border-left-color: #7dcea0;
       font-weight: 600;
+      box-shadow: inset 0 0 0 1px rgba(125, 206, 160, 0.28);
     }
     .sidebar-nav a.nav-with-badges {
       display: flex;
@@ -131,7 +139,7 @@
       font-weight: 700;
       line-height: 1;
       color: #fff;
-      box-shadow: 0 0 0 2px rgba(30, 58, 47, 0.55);
+      box-shadow: 0 0 0 2px rgba(21, 41, 32, 0.45);
     }
     .nav-badges[hidden],
     .nav-badge[hidden] {
@@ -140,33 +148,52 @@
     .nav-badge-cm { background: #3b82f6; }
     .nav-badge-gad { background: #ea580c; }
     .nav-section {
-      margin-top: 0.5rem;
+      margin-top: 0.45rem;
+      padding-top: 0.45rem;
+      border-top: 1px solid rgba(255,255,255,0.07);
     }
     .nav-group {
-      margin-bottom: 0.15rem;
+      margin-bottom: 0.12rem;
     }
     .nav-group-items {
       display: none;
     }
     .nav-group.expanded > .nav-group-items {
       display: block;
+      margin: 0.12rem 0 0.28rem;
+      padding: 0.22rem;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.18);
+    }
+    .nav-group-items > a {
+      padding: 0.4rem 0.65rem 0.4rem 0.85rem;
+      font-size: 0.8125rem;
+      color: rgba(255,255,255,0.72);
+    }
+    .nav-group-items > a.active,
+    .nav-supplier-items a.active {
+      background: rgba(167, 232, 189, 0.45);
+      color: #fff;
+      box-shadow: inset 0 0 0 1px rgba(198, 242, 214, 0.45);
     }
     .nav-group-toggle,
     .nav-supplier-toggle {
       display: flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.45rem;
       width: 100%;
-      padding: 0.55rem 1rem;
+      padding: 0.48rem 0.7rem;
+      margin: 0.08rem 0;
       background: none;
       border: none;
-      border-left: 3px solid transparent;
-      color: rgba(255,255,255,0.85);
-      font-size: 0.9rem;
+      color: rgba(255,255,255,0.82);
+      font-size: 0.875rem;
+      font-weight: 500;
       font-family: inherit;
       text-align: left;
       cursor: pointer;
-      border-radius: 0;
+      border-radius: 8px;
+      transition: background 0.12s ease, color 0.12s ease;
     }
     .nav-group-toggle:hover,
     .nav-supplier-toggle:hover {
@@ -176,7 +203,7 @@
     button.nav-group-toggle,
     button.nav-supplier-toggle {
       background: none;
-      color: rgba(255,255,255,0.85);
+      color: rgba(255,255,255,0.82);
     }
     button.nav-group-toggle:hover,
     button.nav-supplier-toggle:hover {
@@ -192,39 +219,48 @@
     }
     .nav-group-toggle.active,
     .nav-supplier-toggle.active {
-      background: rgba(255,255,255,0.12);
-      border-left-color: #7dcea0;
+      background: rgba(125, 206, 160, 0.2);
+      box-shadow: inset 0 0 0 1px rgba(125, 206, 160, 0.28);
     }
     .nav-chevron {
       flex-shrink: 0;
-      font-size: 0.55rem;
-      line-height: 1;
-      opacity: 0.75;
+      width: 0.42rem;
+      height: 0.42rem;
+      font-size: 0;
+      border-right: 1.5px solid currentColor;
+      border-bottom: 1.5px solid currentColor;
+      transform: rotate(-45deg);
+      opacity: 0.7;
       transition: transform 0.15s ease;
     }
     .nav-group.expanded > .nav-group-toggle .nav-chevron,
     .nav-supplier.expanded > .nav-supplier-toggle .nav-chevron {
-      transform: rotate(90deg);
+      transform: rotate(45deg);
     }
     .nav-collapsible-label {
       flex: 1;
     }
     .nav-supplier {
-      margin-bottom: 0.1rem;
+      margin-bottom: 0.08rem;
     }
     .nav-group-items .nav-supplier-toggle {
-      padding-left: 1.5rem;
-      font-size: 0.875rem;
+      padding-left: 0.85rem;
+      font-size: 0.8125rem;
+      color: rgba(255,255,255,0.72);
     }
     .nav-supplier-items {
       display: none;
     }
     .nav-supplier.expanded > .nav-supplier-items {
       display: block;
+      margin: 0.08rem 0.1rem 0.15rem 0.45rem;
+      padding-left: 0.45rem;
+      border-left: 1px solid rgba(255,255,255,0.12);
     }
     .nav-supplier-items a {
-      padding: 0.45rem 1rem 0.45rem 2.5rem;
-      font-size: 0.85rem;
+      padding: 0.35rem 0.6rem;
+      font-size: 0.8rem;
+      color: rgba(255,255,255,0.68);
     }
     .topbar-heading {
       display: flex;
