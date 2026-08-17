@@ -47,7 +47,13 @@ def _release_memory(db: Session) -> None:
 def _log_import_result(label: str, result: dict) -> None:
     imported = result.get("farms_imported") or []
     skipped = result.get("farms_skipped") or []
-    if result.get("skipped"):
+    empty = result.get("empty_source_farms") or []
+    if empty:
+        _log(
+            f"WARNING: {label} file empty for {', '.join(empty)}; "
+            "existing rows kept and fingerprint not updated"
+        )
+    if result.get("skipped") and not imported:
         _log(f"Skipped {label} (unchanged): {', '.join(skipped) or 'all'}")
         return
     bits = [f"Imported {result.get('rows_imported', 0):,} {label}"]
@@ -90,7 +96,7 @@ def main() -> int:
         _log("Step: checking / importing cow events...")
         events = import_cow_events(db, force=args.force)
         _log_import_result("cow events", events)
-        if not events.get("skipped"):
+        if events.get("farms_imported"):
             anything_changed = True
         if events.get("latest_event_date"):
             _log(f"Latest event date: {events['latest_event_date']}")
@@ -114,7 +120,7 @@ def main() -> int:
         _log("Step: checking / importing inventory...")
         inventory = import_herd_inventory(db, force=args.force)
         _log_import_result("inventory rows", inventory)
-        if not inventory.get("skipped"):
+        if inventory.get("farms_imported"):
             anything_changed = True
         _release_memory(db)
 
@@ -122,7 +128,7 @@ def main() -> int:
         _log("Step: checking / importing births...")
         births = import_herd_births(db, force=args.force)
         _log_import_result("birth records", births)
-        if not births.get("skipped"):
+        if births.get("farms_imported"):
             anything_changed = True
         if births.get("duplicate_rows_dropped", 0) > 0:
             by_farm = births.get("duplicate_rows_dropped_by_farm", {})

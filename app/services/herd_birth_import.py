@@ -123,8 +123,13 @@ def _import_farm_file(
 
     df["Farm"] = farm
     df, duplicates_dropped = _clean_birth_dataframe(df)
-    bulk_insert_dataframe(db, HerdBirth, df, _dataframe_to_mappings, import_time)
     rows = len(df)
+    if rows == 0:
+        del df
+        gc.collect()
+        return 0, duplicates_dropped
+    db.execute(delete(HerdBirth).where(HerdBirth.farm == farm))
+    bulk_insert_dataframe(db, HerdBirth, df, _dataframe_to_mappings, import_time)
     del df
     gc.collect()
     return rows, duplicates_dropped
@@ -145,6 +150,7 @@ def import_herd_births(db: Session, *, force: bool = True) -> dict[str, Any]:
     sources: list[dict[str, str]] = []
     farms_imported: list[str] = []
     farms_skipped: list[str] = []
+    empty_source_farms: list[str] = []
     rows_imported = 0
     duplicate_rows_dropped = 0
     duplicate_rows_dropped_by_farm: dict[str, int] = {}
@@ -168,8 +174,14 @@ def import_herd_births(db: Session, *, force: bool = True) -> dict[str, Any]:
                 logger.info("Herd births %s unchanged; skipping", farm)
                 continue
 
-        db.execute(delete(HerdBirth).where(HerdBirth.farm == farm))
         rows, dropped = _import_farm_file(db, relative_path, farm, import_time)
+        if rows == 0:
+            empty_source_farms.append(farm)
+            logger.error(
+                "Herd births %s file had 0 usable rows; leaving existing data",
+                farm,
+            )
+            continue
         rows_imported += rows
         duplicate_rows_dropped += dropped
         if dropped:
@@ -197,6 +209,7 @@ def import_herd_births(db: Session, *, force: bool = True) -> dict[str, Any]:
             "farm_counts": farm_counts,
             "farms_imported": [],
             "farms_skipped": farms_skipped,
+            "empty_source_farms": empty_source_farms,
             "latest_birth_date": latest_birth.isoformat() if latest_birth else None,
             "imported_at": None,
             "source_files": source_files,
@@ -211,6 +224,7 @@ def import_herd_births(db: Session, *, force: bool = True) -> dict[str, Any]:
         "farm_counts": farm_counts,
         "farms_imported": farms_imported,
         "farms_skipped": farms_skipped,
+        "empty_source_farms": empty_source_farms,
         "latest_birth_date": latest_birth.isoformat() if latest_birth else None,
         "imported_at": import_time.isoformat(timespec="seconds"),
         "source_files": source_files,

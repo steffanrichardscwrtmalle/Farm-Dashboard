@@ -12,6 +12,7 @@ from app.services.herd_birth_import import (
 from app.services.herd_events_import import (
     CM_EVENTS_FILE,
     GAD_EVENTS_FILE,
+    events_source_fingerprint,
     import_cow_events,
 )
 from app.services.herd_import_utils import source_fingerprint
@@ -38,8 +39,8 @@ def test_events_import_skips_both_when_unchanged() -> None:
     db = MagicMock()
     db.execute.return_value.all.return_value = [("CM", 100), ("GAD", 200)]
     db.scalar.return_value = None
-    cm_fp = source_fingerprint(CM_EVENTS_FILE, "2026-08-05T06:00:00Z")
-    gad_fp = source_fingerprint(GAD_EVENTS_FILE, "2026-08-05T06:05:00Z")
+    cm_fp = events_source_fingerprint(CM_EVENTS_FILE, "2026-08-05T06:00:00Z")
+    gad_fp = events_source_fingerprint(GAD_EVENTS_FILE, "2026-08-05T06:05:00Z")
 
     with (
         patch(
@@ -74,8 +75,8 @@ def test_events_import_only_changed_farm() -> None:
     db = MagicMock()
     db.execute.return_value.all.return_value = [("CM", 50), ("GAD", 200)]
     db.scalar.return_value = None
-    cm_old = source_fingerprint(CM_EVENTS_FILE, "2026-08-05T06:00:00Z")
-    gad_fp = source_fingerprint(GAD_EVENTS_FILE, "2026-08-05T06:05:00Z")
+    cm_old = events_source_fingerprint(CM_EVENTS_FILE, "2026-08-05T06:00:00Z")
+    gad_fp = events_source_fingerprint(GAD_EVENTS_FILE, "2026-08-05T06:05:00Z")
 
     with (
         patch(
@@ -122,6 +123,56 @@ def test_events_import_only_changed_farm() -> None:
     import_file.assert_called_once()
     assert store_fp.call_args[0][2] == "CM"
     db.commit.assert_called_once()
+
+
+def test_events_import_empty_file_keeps_existing_rows() -> None:
+    db = MagicMock()
+    db.execute.return_value.all.return_value = [("CM", 100), ("GAD", 200)]
+    db.scalar.return_value = None
+
+    with (
+        patch(
+            "app.services.herd_events_import.graph_is_configured",
+            return_value=True,
+        ),
+        patch(
+            "app.services.herd_events_import.herd_file_meta",
+            side_effect=_metas(
+                CM_EVENTS_FILE,
+                GAD_EVENTS_FILE,
+                "2026-08-17T04:00:00Z",
+                "2026-08-17T04:00:00Z",
+            ),
+        ),
+        patch(
+            "app.services.herd_events_import.load_source_fingerprint",
+            return_value="old",
+        ),
+        patch(
+            "app.services.herd_events_import._import_farm_file",
+            side_effect=[0, 200],
+        ),
+        patch("app.services.herd_events_import.store_source_fingerprint") as store_fp,
+        patch(
+            "app.services.herd_events_import.remove_duplicate_fresh_cow_events",
+            return_value=0,
+        ),
+        patch(
+            "app.services.herd_events_import.remove_duplicate_exit_cow_events",
+            return_value=0,
+        ),
+        patch(
+            "app.services.herd_events_import.rebuild_stock_purchases",
+            return_value={},
+        ),
+    ):
+        result = import_cow_events(db, force=False)
+
+    assert result["empty_source_farms"] == ["CM"]
+    assert result["farms_imported"] == ["GAD"]
+    assert result["rows_imported"] == 200
+    stored_farms = [call.args[2] for call in store_fp.call_args_list]
+    assert stored_farms == ["GAD"]
 
 
 def test_births_import_skips_both_when_unchanged() -> None:

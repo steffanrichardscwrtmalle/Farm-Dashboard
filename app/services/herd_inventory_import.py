@@ -179,8 +179,13 @@ def _import_farm_file(
     del file_bytes
 
     df = process_inventory_file(df, farm)
-    bulk_insert_dataframe(db, HerdInventory, df, _dataframe_to_mappings, import_time)
     rows = len(df)
+    if rows == 0:
+        del df
+        gc.collect()
+        return 0
+    db.execute(delete(HerdInventory).where(HerdInventory.farm == farm))
+    bulk_insert_dataframe(db, HerdInventory, df, _dataframe_to_mappings, import_time)
     del df
     gc.collect()
     return rows
@@ -202,6 +207,7 @@ def import_herd_inventory(db: Session, *, force: bool = True) -> dict[str, Any]:
     sources: list[dict[str, str]] = []
     farms_imported: list[str] = []
     farms_skipped: list[str] = []
+    empty_source_farms: list[str] = []
     rows_imported = 0
     pedigree_synced = 0
 
@@ -224,8 +230,16 @@ def import_herd_inventory(db: Session, *, force: bool = True) -> dict[str, Any]:
                 logger.info("Herd inventory %s unchanged; skipping", farm)
                 continue
 
-        db.execute(delete(HerdInventory).where(HerdInventory.farm == farm))
-        rows_imported += _import_farm_file(db, relative_path, farm, import_time)
+        rows = _import_farm_file(db, relative_path, farm, import_time)
+        if rows == 0:
+            empty_source_farms.append(farm)
+            logger.error(
+                "Herd inventory %s file had 0 usable rows; leaving existing data",
+                farm,
+            )
+            continue
+
+        rows_imported += rows
         pedigree_synced += _sync_pedigree_records(db, farm=farm)
         _store_farm_fingerprint(db, farm, fingerprint)
         farms_imported.append(farm)
@@ -251,6 +265,7 @@ def import_herd_inventory(db: Session, *, force: bool = True) -> dict[str, Any]:
             "farm_counts": farm_counts,
             "farms_imported": [],
             "farms_skipped": farms_skipped,
+            "empty_source_farms": empty_source_farms,
             "imported_at": None,
             "source_files": source_files,
             "sources": sources,
@@ -263,6 +278,7 @@ def import_herd_inventory(db: Session, *, force: bool = True) -> dict[str, Any]:
         "farm_counts": farm_counts,
         "farms_imported": farms_imported,
         "farms_skipped": farms_skipped,
+        "empty_source_farms": empty_source_farms,
         "imported_at": import_time.isoformat(timespec="seconds"),
         "source_files": source_files,
         "sources": sources,

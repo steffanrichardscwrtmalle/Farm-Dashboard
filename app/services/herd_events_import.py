@@ -23,6 +23,7 @@ from app.services.herd_import_utils import (
     dedupe_exit_event_rows,
     dedupe_fresh_event_rows,
     load_source_fingerprint,
+    parse_date_series,
     source_fingerprint,
     store_source_fingerprint,
 )
@@ -40,13 +41,12 @@ _EVENT_FILES = (
 _BATCH_SIZE = 2000
 _CSV_CHUNK_SIZE = 25_000
 _EVENT_DATE_COLUMNS = ("BDAT", "FDAT", "EDAT", "Date")
-_EVENT_DATE_FORMAT = "%d/%m/%y"
+# Bump this when the date parser changes so cron reimports already-fingerprinted files.
+_EVENTS_DATE_PARSER = "yy-yyyy"
 
 
-def _parse_date_series(series: pd.Series) -> pd.Series:
-    if pd.api.types.is_datetime64_any_dtype(series):
-        return series
-    return pd.to_datetime(series, format=_EVENT_DATE_FORMAT, errors="coerce")
+def events_source_fingerprint(source_file: str, last_modified: str) -> str:
+    return source_fingerprint(source_file, last_modified, parser=_EVENTS_DATE_PARSER)
 
 
 def _clean_events_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -55,7 +55,7 @@ def _clean_events_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     for col in _EVENT_DATE_COLUMNS:
         if col in df.columns:
-            df[col] = _parse_date_series(df[col])
+            df[col] = parse_date_series(df[col])
 
     if "CBRD" in df.columns:
         df["CBRD"] = pd.to_numeric(df["CBRD"], errors="coerce").fillna(0).astype("Int64")
@@ -107,8 +107,14 @@ def _clean_events_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _remove_duplicate_cow_events(db: Session, event: str) -> int:
-    """Delete duplicate rows for one event type; keep the lowest id per animal/date/lact."""
+def _remove_duplicate_cow_events(
+    db: Session, event: str, farms: list[str] | None = None
+) -> int:
+    """Delete duplicate dated rows; keep the lowest id per farm/animal/date/lact.
+
+    Rows with a null event date are left alone. They are not duplicates of dated
+    rows, and deleting them used to wipe calvings/sales/deaths after a bad date parse.
+    """
     animal_key = func.coalesce(CowEvent.etag, CowEvent.cow_id)
     keep_ids = (
         select(func.min(CowEvent.id))
@@ -116,28 +122,38 @@ def _remove_duplicate_cow_events(db: Session, event: str) -> int:
         .where(CowEvent.event_date.isnot(None))
         .group_by(CowEvent.farm, animal_key, CowEvent.event_date, CowEvent.lact)
     )
-    result = db.execute(
-        delete(CowEvent).where(
-            CowEvent.event == event,
-            ~CowEvent.id.in_(keep_ids),
-        )
+    if farms:
+        keep_ids = keep_ids.where(CowEvent.farm.in_(farms))
+    stmt = delete(CowEvent).where(
+        CowEvent.event == event,
+        CowEvent.event_date.isnot(None),
+        ~CowEvent.id.in_(keep_ids),
     )
+    if farms:
+        stmt = stmt.where(CowEvent.farm.in_(farms))
+    result = db.execute(stmt)
     return int(result.rowcount or 0)
 
 
-def remove_duplicate_fresh_cow_events(db: Session) -> int:
+def remove_duplicate_fresh_cow_events(
+    db: Session, farms: list[str] | None = None
+) -> int:
     """Delete duplicate FRESH rows in cow_events; keep the lowest id per animal/date/lact."""
-    return _remove_duplicate_cow_events(db, "FRESH")
+    return _remove_duplicate_cow_events(db, "FRESH", farms=farms)
 
 
-def remove_duplicate_exit_cow_events(db: Session) -> int:
+def remove_duplicate_exit_cow_events(
+    db: Session, farms: list[str] | None = None
+) -> int:
     """Delete duplicate SOLD/DIED rows in cow_events."""
-    return _remove_duplicate_cow_events(db, "SOLD") + _remove_duplicate_cow_events(
-        db, "DIED"
+    return _remove_duplicate_cow_events(db, "SOLD", farms=farms) + _remove_duplicate_cow_events(
+        db, "DIED", farms=farms
     )
 
 
-def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[dict[str, Any]]:
+def _dataframe_to_mappings(
+    df: pd.DataFrame, import_time: dt.datetime, farm: str
+) -> list[dict[str, Any]]:
     """Convert cleaned dataframe to dicts for bulk_insert_mappings."""
 
     def series_str(col: str) -> pd.Series:
@@ -149,7 +165,7 @@ def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[d
     def series_date(col: str) -> pd.Series:
         if col not in df.columns:
             return pd.Series([None] * len(df))
-        return _parse_date_series(df[col]).dt.date.replace({pd.NaT: None})
+        return parse_date_series(df[col]).dt.date.replace({pd.NaT: None})
 
     def series_int(col: str) -> pd.Series:
         if col not in df.columns:
@@ -180,7 +196,7 @@ def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[d
             "protocols": series_str("Protocols"),
             "technician": series_str("Technician"),
             "dest": series_str("DEST"),
-            "farm": series_str("Farm"),
+            "farm": farm,
             "month_label": series_str("mmm-yy"),
             "fiscal_year": series_int("Fiscal Year"),
             "sort_key": series_int("Sort Key"),
@@ -203,36 +219,44 @@ def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[d
 
 
 def _insert_dataframe_in_batches(
-    db: Session, df: pd.DataFrame, import_time: dt.datetime
+    db: Session, df: pd.DataFrame, import_time: dt.datetime, farm: str
 ) -> None:
     """Insert rows without building one giant mappings list in memory."""
     for start in range(0, len(df), _BATCH_SIZE):
         batch = df.iloc[start : start + _BATCH_SIZE]
-        mappings = _dataframe_to_mappings(batch, import_time)
+        mappings = _dataframe_to_mappings(batch, import_time, farm)
         db.bulk_insert_mappings(CowEvent, mappings)
 
 
 def _import_farm_file(
     db: Session, relative_path: str, farm: str, import_time: dt.datetime
 ) -> int:
-    """Download, clean, and insert one farm CSV in streaming chunks."""
+    """Download, clean, and replace one farm's events.
+
+    Existing rows are deleted only after at least one usable CSV row is parsed,
+    so an empty or half-written DC305 export cannot wipe the farm.
+    """
     file_bytes = download_herd_file(relative_path)
     buffer = io.BytesIO(file_bytes)
     del file_bytes
 
     rows_imported = 0
+    replaced = False
     for chunk in pd.read_csv(
         buffer,
         encoding="utf-8",
         dayfirst=True,
         on_bad_lines="skip",
         chunksize=_CSV_CHUNK_SIZE,
-        parse_dates=list(_EVENT_DATE_COLUMNS),
-        date_format=_EVENT_DATE_FORMAT,
     ):
         chunk["Farm"] = farm
         chunk = _clean_events_dataframe(chunk)
-        _insert_dataframe_in_batches(db, chunk, import_time)
+        if chunk.empty:
+            continue
+        if not replaced:
+            db.execute(delete(CowEvent).where(CowEvent.farm == farm))
+            replaced = True
+        _insert_dataframe_in_batches(db, chunk, import_time, farm)
         rows_imported += len(chunk)
         del chunk
 
@@ -256,12 +280,13 @@ def import_cow_events(db: Session, *, force: bool = True) -> dict[str, Any]:
     sources: list[dict[str, str]] = []
     farms_imported: list[str] = []
     farms_skipped: list[str] = []
+    empty_source_farms: list[str] = []
     rows_imported = 0
 
     for relative_path, farm in _EVENT_FILES:
         meta = herd_file_meta(relative_path)
         last_modified = meta.get("last_modified") or ""
-        fingerprint = source_fingerprint(meta["relative_path"], last_modified)
+        fingerprint = events_source_fingerprint(meta["relative_path"], last_modified)
         sources.append(
             {
                 "farm": farm,
@@ -277,14 +302,26 @@ def import_cow_events(db: Session, *, force: bool = True) -> dict[str, Any]:
                 logger.info("Herd events %s unchanged; skipping", farm)
                 continue
 
-        db.execute(delete(CowEvent).where(CowEvent.farm == farm))
-        rows_imported += _import_farm_file(db, relative_path, farm, import_time)
+        rows = _import_farm_file(db, relative_path, farm, import_time)
+        if rows == 0:
+            empty_source_farms.append(farm)
+            logger.error(
+                "Herd events %s file had 0 usable rows; leaving existing data",
+                farm,
+            )
+            continue
+
+        rows_imported += rows
         store_source_fingerprint(db, FP_EVENTS, farm, fingerprint)
         farms_imported.append(farm)
 
     if farms_imported:
-        duplicate_fresh_dropped = remove_duplicate_fresh_cow_events(db)
-        duplicate_exit_dropped = remove_duplicate_exit_cow_events(db)
+        duplicate_fresh_dropped = remove_duplicate_fresh_cow_events(
+            db, farms=farms_imported
+        )
+        duplicate_exit_dropped = remove_duplicate_exit_cow_events(
+            db, farms=farms_imported
+        )
         purchase_stats = rebuild_stock_purchases(db)
         db.commit()
     else:
@@ -311,6 +348,7 @@ def import_cow_events(db: Session, *, force: bool = True) -> dict[str, Any]:
             "farm_counts": farm_counts,
             "farms_imported": [],
             "farms_skipped": farms_skipped,
+            "empty_source_farms": empty_source_farms,
             "latest_event_date": latest_date.isoformat() if latest_date else None,
             "imported_at": None,
             "source_files": source_files,
@@ -326,6 +364,7 @@ def import_cow_events(db: Session, *, force: bool = True) -> dict[str, Any]:
         "farm_counts": farm_counts,
         "farms_imported": farms_imported,
         "farms_skipped": farms_skipped,
+        "empty_source_farms": empty_source_farms,
         "latest_event_date": latest_date.isoformat() if latest_date else None,
         "imported_at": import_time.isoformat(timespec="seconds"),
         "source_files": source_files,

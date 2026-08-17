@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.services.herd_import_utils import HERD_DATE_FORMAT
+from app.services.herd_import_utils import parse_date_series
 from app.services.inventory_valuation import (
     category_from_inventory,
     compute_value,
@@ -157,7 +157,7 @@ def process_inventory_file(df: pd.DataFrame, farm: str) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip()
             df[col] = df[col].replace({"": None, "-": None, "nan": None, "NaN": None})
-            df[col] = pd.to_datetime(df[col], format=HERD_DATE_FORMAT, errors="coerce")
+            df[col] = parse_date_series(df[col])
 
     df["Farm"] = farm
 

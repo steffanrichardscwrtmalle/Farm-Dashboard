@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.models import AppSetting
 
 HERD_DATE_FORMAT = "%d/%m/%y"
+HERD_DATE_FORMATS = ("%d/%m/%y", "%d/%m/%Y")
 BATCH_SIZE = 2000
 BEEF_CBREED_MIN = 102
 CATEGORY_DAIRY = "Dairy"
@@ -24,13 +25,10 @@ FP_EVENTS = "herd_events.source_fingerprint"
 FP_BIRTHS = "herd_births.source_fingerprint"
 
 
-def source_fingerprint(source_file: str, last_modified: str) -> str:
+def source_fingerprint(source_file: str, last_modified: str, **extra: str) -> str:
     """Stable JSON fingerprint of a herd export file identity + mtime."""
-    return json.dumps(
-        {"source_file": source_file, "last_modified": last_modified},
-        separators=(",", ":"),
-        sort_keys=True,
-    )
+    payload = {"source_file": source_file, "last_modified": last_modified, **extra}
+    return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
 
 def fingerprint_setting_key(prefix: str, farm: str) -> str:
@@ -83,9 +81,28 @@ def birth_category_series(cbrd: pd.Series, gndr: pd.Series) -> pd.Series:
 
 
 def parse_date_series(series: pd.Series) -> pd.Series:
+    """Parse DC305 dates. Accepts dd/mm/yy and dd/mm/yyyy."""
     if pd.api.types.is_datetime64_any_dtype(series):
         return series
-    return pd.to_datetime(series, format=HERD_DATE_FORMAT, errors="coerce")
+    text = series.astype("string").str.strip()
+    blank = text.isna() | text.eq("") | text.eq("<NA>")
+    parsed = pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns]")
+    remaining = ~blank
+    for fmt in HERD_DATE_FORMATS:
+        if not remaining.any():
+            break
+        attempt = pd.to_datetime(text[remaining], format=fmt, errors="coerce")
+        ok = attempt.notna()
+        if ok.any():
+            parsed.loc[attempt.index[ok]] = attempt[ok]
+            remaining = remaining.copy()
+            remaining.loc[attempt.index[ok]] = False
+    if remaining.any():
+        fallback = pd.to_datetime(text[remaining], dayfirst=True, errors="coerce")
+        ok = fallback.notna()
+        if ok.any():
+            parsed.loc[fallback.index[ok]] = fallback[ok]
+    return parsed
 
 
 def fiscal_year_from_dates(dates: pd.Series) -> pd.Series:
