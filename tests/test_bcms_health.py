@@ -274,8 +274,8 @@ def test_health_green_for_cts_only_while_events_lag_inventory() -> None:
     assert health["farms"][0]["status"] == "green"
 
 
-def test_health_red_for_cts_only_when_events_are_fresh() -> None:
-    """Once events have caught up with inventory, missing exits are unexplained."""
+def test_health_green_for_cts_only_when_events_are_fresh_same_day() -> None:
+    """Events imported after inventory the same day: still a pending event, not red."""
     session = _session()
     today = dt.date.today()
     session.add(
@@ -289,6 +289,44 @@ def test_health_red_for_cts_only_when_events_are_fresh() -> None:
             gender="F",
             bdat=today - dt.timedelta(days=400),
             import_timestamp=dt.datetime.combine(today, dt.time(7, 0)),
+        )
+    )
+    session.add(
+        CtsOnHolding(farm="CM", etag="UK666666666666", sex="F")
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="UK111111111111",
+            event="FRESH",
+            event_date=today,
+            cow_id="1",
+            import_timestamp=dt.datetime.combine(today, dt.time(8, 0)),
+        )
+    )
+    session.commit()
+
+    health = get_bcms_health(session, farms=["CM"], as_of=today)
+    assert health["status"] == "green"
+    assert health["mismatch_count"] == 1
+
+
+def test_health_red_for_cts_only_pending_event_after_grace() -> None:
+    """CTS-only with no SOLD/DIED turns red after the 1-day pending-event grace."""
+    session = _session()
+    today = dt.date.today()
+    two_days_ago = today - dt.timedelta(days=2)
+    session.add(
+        CtsOnHolding(farm="CM", etag="UK111111111111", sex="F")
+    )
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag="UK111111111111",
+            cow_id="1",
+            gender="F",
+            bdat=today - dt.timedelta(days=400),
+            import_timestamp=dt.datetime.combine(two_days_ago, dt.time(7, 0)),
         )
     )
     session.add(

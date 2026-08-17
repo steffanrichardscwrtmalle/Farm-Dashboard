@@ -120,7 +120,8 @@ def test_reconcile_farm_buckets() -> None:
     assert sold["awaiting_events"] is False
     no_exit = next(r for r in result["cts_only"] if r["etag"] == "BE214283270")
     assert no_exit["days_since_exit"] is None
-    assert no_exit["awaiting_events"] is False
+    assert no_exit["awaiting_events"] is True
+    assert no_exit["awaiting_events_days"] == 0
     assert result["inventory_only"][0]["etag"] == "UK555555555555"
     assert result["inventory_only"][0]["cow_id"] == "202"
     assert result["inventory_only"][0]["age_days"] is not None
@@ -170,6 +171,42 @@ def test_reconcile_marks_cts_only_awaiting_events_when_inventory_newer() -> None
     assert pending["awaiting_events"] is True
     assert pending["awaiting_events_days"] == 1
     assert pending["awaiting_cts"] is False
+
+
+def test_reconcile_marks_cts_only_pending_event_when_events_caught_up_same_day() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    today = dt.date.today()
+
+    session.add(CtsOnHolding(farm="CM", etag="UK666666666666", sex="F"))
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag="UK111111111111",
+            cow_id="1",
+            gender="F",
+            bdat=today - dt.timedelta(days=400),
+            import_timestamp=dt.datetime.combine(today, dt.time(7, 0)),
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="UK111111111111",
+            event="FRESH",
+            event_date=today,
+            cow_id="1",
+            import_timestamp=dt.datetime.combine(today, dt.time(8, 0)),
+        )
+    )
+    session.commit()
+
+    result = reconcile_farm(session, "CM")
+    pending = next(r for r in result["cts_only"] if r["etag"] == "UK666666666666")
+    assert pending["exit_event"] is None
+    assert pending["awaiting_events"] is True
+    assert pending["awaiting_events_days"] == 0
 
 
 def test_reconcile_marks_awaiting_cts_after_accepted_send() -> None:

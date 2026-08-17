@@ -294,10 +294,10 @@
   function cellValue(row, key) {
     if (key === "exit_event") {
       if (row.awaiting_cts) {
-        const base = row.exit_event || (row.awaiting_events ? "pending" : "");
+        const base = row.exit_event || (row.awaiting_events ? "pending event" : "");
         return base ? `${base} · awaiting CTS` : "awaiting CTS";
       }
-      if (row.awaiting_events && !row.exit_event) return "pending";
+      if (row.awaiting_events && !row.exit_event) return "pending event";
       return row.exit_event == null ? "" : row.exit_event;
     }
     if (key === "dob" || key === "on_date") return fmtDateUk(row[key]);
@@ -440,11 +440,11 @@
 
   function isCtsOnlyOverdue(row) {
     if (row.awaiting_cts) return false;
-    // Grace: inventory ahead of events — show pending, not red, for ≤1 day.
+    // Pending event: no SOLD/DIED yet — not red for ≤1 day.
     if (row.awaiting_events) {
       const lag = row.awaiting_events_days;
       if (lag == null || lag === "") return false;
-      return Number(lag) >= 3;
+      return Number(lag) >= 2;
     }
     const days = row.days_since_exit;
     if (days == null || days === "") return true;

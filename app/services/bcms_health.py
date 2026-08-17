@@ -11,13 +11,13 @@ from sqlalchemy.orm import Session
 from app.models import HERD_FARM_OPTIONS, StockPurchaseAnimal
 from app.services.cts_client import normalize_cts_etag
 from app.services.cts_movements import active_awaiting_cts_etags
-from app.services.cts_reconcile import cts_only_awaiting_events_days, reconcile_farm
+from app.services.cts_reconcile import reconcile_farm
 
 HealthLevel = Literal["green", "yellow", "red", "unknown"]
 
 # Sales entered in DairyComp after the events export can drop out of inventory
-# before the next events pull. While inventory is newer than events, treat
-# unexplained CTS-only as aged from the last events import (sale urgency bands).
+# before the next events pull. CTS-only with no SOLD/DIED is a pending event:
+# green for 0–1 days, red from day 2.
 
 # Per-kind send-urgency thresholds: (yellow_at_days, red_at_days).
 _URGENCY_THRESHOLDS: dict[str, tuple[int, int]] = {
@@ -25,8 +25,7 @@ _URGENCY_THRESHOLDS: dict[str, tuple[int, int]] = {
     "birth": (3, 6),
     "sale": (2, 3),
     "move_on": (2, 3),
-    # Inventory dropped before events caught up — treat like a sale off-move.
-    "cts_only_awaiting_events": (2, 3),
+    "cts_only_awaiting_events": (2, 2),
 }
 
 _STATUS_RANK = {"green": 0, "yellow": 1, "red": 2}
@@ -72,7 +71,6 @@ def _farm_mismatch_ages(
     widget turns green after a successful send, before overnight holding sync.
     """
     purchases = _purchases_by_etag(db, farm)
-    awaiting_events_days = cts_only_awaiting_events_days(db, farm, as_of=as_of)
     awaiting_cts = active_awaiting_cts_etags(db, farm)
     items: list[dict[str, Any]] = []
 
@@ -91,14 +89,14 @@ def _farm_mismatch_ages(
                     "explainable": True,
                 }
             )
-        elif awaiting_events_days is not None:
-            # Inventory dropped the animal before the next events pull caught up.
+        elif row.get("awaiting_events"):
+            pending_days = row.get("awaiting_events_days")
             items.append(
                 {
                     "farm": farm,
                     "etag": etag or row.get("etag"),
                     "kind": "cts_only_awaiting_events",
-                    "days": int(awaiting_events_days),
+                    "days": int(pending_days) if pending_days is not None else 0,
                     "explainable": True,
                 }
             )

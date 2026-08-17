@@ -53,19 +53,23 @@ def cts_only_awaiting_events_days(
     *,
     as_of: dt.date | None = None,
 ) -> int | None:
-    """Days since last events import while inventory is newer than events.
+    """Days to wait for a SOLD/DIED on a CTS-only animal (pending event).
 
-    Sales entered in DairyComp after the events export can drop out of inventory
-    before the next events pull. Returns None when that lag does not apply.
+    Inventory often drops a sold animal before the next events pull. Age from
+    the last events import while inventory is newer; otherwise age from the
+    last inventory import (how long they have been confirmed off the herd).
+    Returns None when inventory has never been imported.
     """
     today = as_of or dt.date.today()
     events_at = _latest_import_at(db, CowEvent, farm)
     inventory_at = _latest_import_at(db, HerdInventory, farm)
-    if events_at is None or inventory_at is None:
+    if inventory_at is None:
         return None
-    if inventory_at <= events_at:
-        return None
-    return _age_days(events_at.date(), as_of=today)
+    if events_at is None or inventory_at > events_at:
+        if events_at is None:
+            return 0
+        return _age_days(events_at.date(), as_of=today) or 0
+    return _age_days(inventory_at.date(), as_of=today) or 0
 
 
 def _inventory_etags(db: Session, farm: str) -> dict[str, dict[str, Any]]:
