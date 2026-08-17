@@ -132,6 +132,24 @@
       background: #f0fdf4;
       color: #166534;
     }
+    .pending-event-pill {
+      display: inline-block;
+      padding: 0.12rem 0.55rem;
+      border: 1px solid #93c5fd;
+      border-radius: 999px;
+      background: #dbeafe;
+      color: #1e40af;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 1.35;
+      pointer-events: none;
+      cursor: default;
+      user-select: none;
+    }
+    .cts-table tbody tr.row-overdue td .pending-event-pill {
+      box-shadow: inset 0 0 0 1px #fca5a5;
+    }
     .empty-state { color: var(--muted); padding: 1rem 0.25rem; font-size: 0.875rem; }
     .help-note {
       margin: 0.75rem 0 0;
@@ -291,14 +309,20 @@
     return `${d}/${m}/${y.slice(-2)}`;
   }
 
+  function pendingEventPill() {
+    return '<span class="pending-event-pill">Pending event</span>';
+  }
+
   function cellValue(row, key) {
     if (key === "exit_event") {
       if (row.awaiting_cts) {
-        const base = row.exit_event || (row.awaiting_events ? "pending event" : "");
+        const base = row.exit_event
+          ? esc(row.exit_event)
+          : (row.awaiting_events ? pendingEventPill() : "");
         return base ? `${base} · awaiting CTS` : "awaiting CTS";
       }
-      if (row.awaiting_events && !row.exit_event) return "pending event";
-      return row.exit_event == null ? "" : row.exit_event;
+      if (row.awaiting_events && !row.exit_event) return pendingEventPill();
+      return row.exit_event == null ? "" : esc(row.exit_event);
     }
     if (key === "dob" || key === "on_date") return fmtDateUk(row[key]);
     if (row[key] == null) return "";
@@ -464,6 +488,11 @@
     return "";
   }
 
+  function cellHtml(row, key) {
+    if (key === "exit_event") return cellValue(row, key);
+    return esc(cellValue(row, key));
+  }
+
   function renderTable(tbodyId, emptyId, headingId, rows, columns, count, isOverdue) {
     const tbody = document.getElementById(tbodyId);
     const empty = document.getElementById(emptyId);
@@ -478,7 +507,7 @@
     tbody.innerHTML = rows.map((row) => {
       const clsName = rowClass(row, isOverdue);
       const cls = clsName ? ` class="${clsName}"` : "";
-      return `<tr${cls}>${columns.map((c) => `<td>${esc(cellValue(row, c))}</td>`).join("")}</tr>`;
+      return `<tr${cls}>${columns.map((c) => `<td>${cellHtml(row, c)}</td>`).join("")}</tr>`;
     }).join("");
   }
 
