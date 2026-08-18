@@ -92,10 +92,10 @@ services:
     domains:
       - dashboard.cwrtmalle.co.uk
 
-  # Daily email import: haulier collections, NML results, buyer statements.
+  # Daily email import: haulier, NML, statements, and cattle remittances.
   # Schedule is UTC (6:00 UTC ≈ 7:00 BST). Env vars mirror the web service.
   - type: cron
-    name: farm-dashboard-milk-daily
+    name: farm-dashboard-emails-daily
     runtime: docker
     schedule: "0 6 * * *"
     dockerCommand: python scripts/import_milk_daily.py

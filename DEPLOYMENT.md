@@ -144,7 +144,7 @@ mailboxes. Because it runs every day, it only scans **the last 2 days** of mail
 
 1. Ensure the same Graph / mail env vars as the web service are set (see
    `.env.example` for `GRAPH_*`, `GRAPH_*_CM`, and mailbox settings).
-2. Add a **Cron Job** on Render (or sync the blueprint — `farm-dashboard-milk-daily`
+2. Add a **Cron Job** on Render (or sync the blueprint — `farm-dashboard-emails-daily`
    is defined in [`render.yaml`](render.yaml)):
    - **Schedule:** `0 6 * * *` (06:00 UTC daily; adjust for your timezone)
    - **Command:** `python scripts/import_milk_daily.py`
