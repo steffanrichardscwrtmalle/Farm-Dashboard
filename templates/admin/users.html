@@ -36,12 +36,23 @@
       background: var(--card);
       border-radius: 8px;
       border: 1px solid var(--border);
-      max-width: 520px;
+      max-width: 560px;
       width: 100%;
       max-height: 90vh;
       overflow: auto;
       padding: 1.25rem;
     }
+    .perm-page-block {
+      margin-bottom: 0.5rem;
+      padding: 0.45rem 0.55rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .perm-page-block > .perm-check { font-weight: 600; }
+    .perm-page-actions {
+      margin: 0.2rem 0 0 1.4rem;
+    }
+    .perm-page-actions .perm-check { font-weight: normal; }
     .perm-modal h2 { margin: 0 0 0.75rem; font-size: 1.1rem; }
     .perm-presets {
       display: flex;
@@ -157,10 +168,11 @@
         <div class="perm-presets" id="perm-presets"></div>
         <div class="perm-group">
           <h3>Pages</h3>
+          <p class="muted" style="margin:0 0 0.65rem;font-size:0.8rem">Staff / HR is separate from Office Admin. Tick Staff / HR (and its actions) without Office Admin for HR-only users.</p>
           <div id="perm-pages"></div>
         </div>
-        <div class="perm-group">
-          <h3>Actions</h3>
+        <div class="perm-group" id="perm-ungrouped-wrap" hidden>
+          <h3>Other actions</h3>
           <div id="perm-actions"></div>
         </div>
         <div class="perm-modal-actions">
@@ -189,25 +201,58 @@
       permCatalog = await res.json();
     }
 
+    function parseRowPermissions(raw) {
+      try {
+        let data = JSON.parse(raw || "{}");
+        if (typeof data === "string") data = JSON.parse(data);
+        if (!data || typeof data !== "object") return { pages: [], actions: [] };
+        return {
+          pages: Array.isArray(data.pages) ? data.pages : [],
+          actions: Array.isArray(data.actions) ? data.actions : [],
+        };
+      } catch (_) {
+        return { pages: [], actions: [] };
+      }
+    }
+
+    function actionCheckbox(item) {
+      return `
+        <label class="perm-check">
+          <input type="checkbox" data-kind="action" data-page="${item.page || ""}" value="${item.id}" ${draftPermissions.actions.includes(item.id) ? "checked" : ""}>
+          <span>${item.label}</span>
+        </label>
+      `;
+    }
+
     function renderPermCheckboxes() {
       const pagesEl = document.getElementById("perm-pages");
       const actionsEl = document.getElementById("perm-actions");
+      const ungroupedWrap = document.getElementById("perm-ungrouped-wrap");
       const presetsEl = document.getElementById("perm-presets");
       if (!permCatalog) return;
 
-      pagesEl.innerHTML = permCatalog.pages.map(item => `
-        <label class="perm-check">
-          <input type="checkbox" data-kind="page" value="${item.id}" ${draftPermissions.pages.includes(item.id) ? "checked" : ""}>
-          <span>${item.label}</span>
-        </label>
-      `).join("");
+      pagesEl.innerHTML = permCatalog.pages.map(item => {
+        const nested = (item.actions || []).map(action => actionCheckbox({
+          ...action,
+          page: item.id,
+        })).join("");
+        return `
+          <div class="perm-page-block">
+            <label class="perm-check">
+              <input type="checkbox" data-kind="page" value="${item.id}" ${draftPermissions.pages.includes(item.id) ? "checked" : ""}>
+              <span>${item.label}</span>
+            </label>
+            ${nested ? `<div class="perm-page-actions">${nested}</div>` : ""}
+          </div>
+        `;
+      }).join("");
 
-      actionsEl.innerHTML = permCatalog.actions.map(item => `
-        <label class="perm-check">
-          <input type="checkbox" data-kind="action" value="${item.id}" ${draftPermissions.actions.includes(item.id) ? "checked" : ""}>
-          <span>${item.label}</span>
-        </label>
-      `).join("");
+      const groupedIds = new Set(
+        permCatalog.pages.flatMap(item => (item.actions || []).map(action => action.id))
+      );
+      const ungrouped = (permCatalog.actions || []).filter(item => !groupedIds.has(item.id));
+      actionsEl.innerHTML = ungrouped.map(item => actionCheckbox(item)).join("");
+      ungroupedWrap.hidden = ungrouped.length === 0;
 
       presetsEl.innerHTML = permCatalog.presets.map(p => `
         <button type="button" class="secondary small preset-btn" data-preset="${p.id}">${p.label}</button>
@@ -226,13 +271,29 @@
           }
         });
       });
+
+      pagesEl.querySelectorAll('input[data-kind="page"]').forEach(el => {
+        el.addEventListener("change", () => {
+          if (el.checked) return;
+          pagesEl.querySelectorAll(`input[data-kind="action"][data-page="${el.value}"]`).forEach(actionEl => {
+            actionEl.checked = false;
+          });
+        });
+      });
+      pagesEl.querySelectorAll('input[data-kind="action"][data-page]').forEach(el => {
+        el.addEventListener("change", () => {
+          if (!el.checked || !el.dataset.page) return;
+          const pageEl = pagesEl.querySelector(`input[data-kind="page"][value="${el.dataset.page}"]`);
+          if (pageEl) pageEl.checked = true;
+        });
+      });
     }
 
     function readDraftFromForm() {
       const pages = [];
       const actions = [];
-      document.querySelectorAll("#perm-pages input:checked").forEach(el => pages.push(el.value));
-      document.querySelectorAll("#perm-actions input:checked").forEach(el => actions.push(el.value));
+      document.querySelectorAll('#perm-modal input[data-kind="page"]:checked').forEach(el => pages.push(el.value));
+      document.querySelectorAll('#perm-modal input[data-kind="action"]:checked').forEach(el => actions.push(el.value));
       draftPermissions = { pages, actions };
     }
 
@@ -288,10 +349,7 @@
     document.querySelectorAll(".perms-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         const row = btn.closest("tr");
-        let permissions = { pages: [], actions: [] };
-        try {
-          permissions = JSON.parse(row.dataset.permissions || "{}");
-        } catch (_) {}
+        const permissions = parseRowPermissions(row.dataset.permissions);
         openPermModal(btn.dataset.userId, btn.dataset.email, permissions);
       });
     });

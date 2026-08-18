@@ -812,7 +812,9 @@
             </button>
             <div class="nav-group-items" id="hr-nav-items">
               <a href="/hr/staff" class="{% if active_nav == 'staff-directory' %}active{% endif %}">Staff Directory</a>
+              {% if perms.action('hr.enroll') %}
               <a href="/hr/enroll" class="{% if active_nav == 'enroll' %}active{% endif %}">Enroll New Staff</a>
+              {% endif %}
             </div>
           </div>
           {% endif %}

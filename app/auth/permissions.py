@@ -33,12 +33,12 @@ PAGE_KEYS: tuple[str, ...] = (
     PAGE_EVENTS,
     PAGE_FEED_RATE,
     PAGE_OFFICE_ADMIN,
+    PAGE_HR,
     PAGE_XERO,
     PAGE_GENETICS,
     PAGE_MILK_QUALITY,
     PAGE_CATTLE_SALES,
     PAGE_BENCHMARKING,
-    PAGE_HR,
     PAGE_PARLOUR,
     PAGE_SCHEDULE,
     PAGE_REPORTS,
@@ -124,11 +124,34 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_CTS_SYNC: "CTS — sync cattle on holding",
 }
 
+# Map each action to its page so HR (and others) can be granted without a parent page.
+ACTION_PAGES: dict[str, str] = {
+    ACTION_WYNNSTAY_IMPORT: PAGE_WYNNSTAY,
+    ACTION_WYNNSTAY_MAPPINGS: PAGE_WYNNSTAY,
+    ACTION_PROSTOCK_IMPORT: PAGE_PROSTOCK,
+    ACTION_PROSTOCK_MAPPINGS: PAGE_PROSTOCK,
+    ACTION_HERD_IMPORT: PAGE_STOCK_INVENTORY,
+    ACTION_OFFICE_ADMIN_SALES_PAYMENT: PAGE_OFFICE_ADMIN,
+    ACTION_OFFICE_ADMIN_FALLEN_STOCK: PAGE_OFFICE_ADMIN,
+    ACTION_GENETICS_PEDIGREE: PAGE_GENETICS,
+    ACTION_GENETICS_PENDING_RESULTS: PAGE_GENETICS,
+    ACTION_MILK_QUALITY_IMPORT: PAGE_MILK_QUALITY,
+    ACTION_MILK_COLLECTIONS_IMPORT: PAGE_MILK_QUALITY,
+    ACTION_MILK_STATEMENTS_IMPORT: PAGE_MILK_QUALITY,
+    ACTION_CATTLE_SALES_IMPORT: PAGE_CATTLE_SALES,
+    ACTION_BENCHMARKING_EDIT: PAGE_BENCHMARKING,
+    ACTION_HR_ENROLL: PAGE_HR,
+    ACTION_HR_VIEW_SENSITIVE: PAGE_HR,
+    ACTION_PARLOUR_IMPORT: PAGE_PARLOUR,
+    ACTION_CTS_SYNC: PAGE_BCMS,
+}
+
 ALL_PAGES = list(PAGE_KEYS)
 ALL_ACTIONS = list(ACTION_KEYS)
 
 PRESET_FARM_WORKER = "farm_worker"
 PRESET_OFFICE = "office"
+PRESET_STAFF_HR = "staff_hr"
 
 PRESETS: dict[str, dict[str, Any]] = {
     PRESET_FARM_WORKER: {
@@ -142,6 +165,11 @@ PRESETS: dict[str, dict[str, Any]] = {
             PAGE_REPORTS,
         ],
         "actions": [],
+    },
+    PRESET_STAFF_HR: {
+        "label": "Staff / HR",
+        "pages": [PAGE_HR],
+        "actions": [ACTION_HR_ENROLL, ACTION_HR_VIEW_SENSITIVE],
     },
     PRESET_OFFICE: {
         "label": "Office",
@@ -165,6 +193,19 @@ def empty_permissions() -> dict[str, list[str]]:
     return {"pages": [], "actions": []}
 
 
+def pages_implied_by_actions(actions: list[str] | tuple[str, ...]) -> set[str]:
+    """Pages granted by ticking an action (e.g. HR enroll implies Staff / HR)."""
+    return {ACTION_PAGES[action] for action in actions if action in ACTION_PAGES}
+
+
+def _actions_for_page(page_key: str) -> list[dict[str, str]]:
+    return [
+        {"id": action, "label": ACTION_LABELS[action]}
+        for action in ACTION_KEYS
+        if ACTION_PAGES.get(action) == page_key
+    ]
+
+
 def parse_permissions(raw: str | None) -> dict[str, list[str]]:
     if not raw:
         return empty_permissions()
@@ -174,12 +215,7 @@ def parse_permissions(raw: str | None) -> dict[str, list[str]]:
         return empty_permissions()
     if not isinstance(data, dict):
         return empty_permissions()
-    pages = data.get("pages") or []
-    actions = data.get("actions") or []
-    return {
-        "pages": [p for p in pages if p in PAGE_KEYS],
-        "actions": [a for a in actions if a in ACTION_KEYS],
-    }
+    return normalize_permissions(data)
 
 
 def serialize_permissions(perms: dict[str, Any] | None) -> str:
@@ -192,15 +228,25 @@ def normalize_permissions(perms: dict[str, Any] | None) -> dict[str, list[str]]:
         return empty_permissions()
     pages = perms.get("pages") or []
     actions = perms.get("actions") or []
+    allowed_actions = {action for action in actions if action in ACTION_KEYS}
+    allowed_pages = {page for page in pages if page in PAGE_KEYS}
+    allowed_pages.update(pages_implied_by_actions(allowed_actions))
     return {
-        "pages": sorted({p for p in pages if p in PAGE_KEYS}),
-        "actions": sorted({a for a in actions if a in ACTION_KEYS}),
+        "pages": sorted(allowed_pages),
+        "actions": sorted(allowed_actions),
     }
 
 
 def permissions_for_admin_ui() -> dict[str, Any]:
     return {
-        "pages": [{"id": key, "label": PAGE_LABELS[key]} for key in PAGE_KEYS],
+        "pages": [
+            {
+                "id": key,
+                "label": PAGE_LABELS[key],
+                "actions": _actions_for_page(key),
+            }
+            for key in PAGE_KEYS
+        ],
         "actions": [{"id": key, "label": ACTION_LABELS[key]} for key in ACTION_KEYS],
         "presets": [
             {"id": preset_id, "label": meta["label"]}
