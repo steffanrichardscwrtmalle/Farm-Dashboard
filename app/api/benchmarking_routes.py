@@ -38,7 +38,10 @@ from app.services.benchmarking_rations import (
 )
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
 from app.services.financial_data_sources import list_financial_data_sources
-from app.services.financial_forecast_autofill import fill_financial_forecasts_from_data_sources
+from app.services.financial_forecast_autofill import (
+    fill_financial_forecasts_from_data_sources,
+    refresh_milk_sales_financial_forecasts,
+)
 from app.services.financial_forecasts import (
     add_financial_option,
     create_financial_mapping,
@@ -129,7 +132,7 @@ def api_save_forecasts(
             detail=f"fiscal_year must be one of {years}",
         )
     try:
-        return save_forecasts(
+        saved = save_forecasts(
             db,
             fiscal_year=body.fiscal_year,
             metric=body.metric,
@@ -138,6 +141,16 @@ def api_save_forecasts(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if body.metric in ("milk_price", "milk_yield"):
+        try:
+            refresh_milk_sales_financial_forecasts(
+                db,
+                fiscal_year=body.fiscal_year,
+                user_id=user.id,
+            )
+        except Exception:
+            pass
+    return saved
 
 
 class CreateIngredientBody(BaseModel):

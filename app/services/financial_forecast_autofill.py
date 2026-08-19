@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from app.models import HERD_FARM_OPTIONS, FinancialForecastLine, FinancialForecastMapping
 from app.services.benchmarking import fiscal_year_months
-from app.services.events_common import _fiscal_year_from_date
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
 from app.services.financial_forecasts import (
     ensure_milk_deductions_data_source,
@@ -269,6 +268,7 @@ def fill_financial_forecasts_from_data_sources(
     fill_mode: str = "replace",
     user_id: int | None = None,
     today: dt.date | None = None,
+    source_prefixes: tuple[str, ...] | None = None,
 ) -> dict[str, int]:
     """Write monthly amounts for mappings that have data sources configured."""
     if fill_mode not in ("replace", "fill_empty"):
@@ -284,6 +284,16 @@ def fill_financial_forecasts_from_data_sources(
     ensure_milk_deductions_data_source(db)
     ensure_stock_valuation_change_data_source(db)
     mappings = [row for row in list_financial_mappings(db) if row.get("data_sources")]
+    if source_prefixes:
+        mappings = [
+            row
+            for row in mappings
+            if any(
+                str(key).startswith(prefix)
+                for key in row["data_sources"]
+                for prefix in source_prefixes
+            )
+        ]
     if not mappings:
         return {"updated": 0, "mappings_filled": 0, "skipped": 0}
 
@@ -350,58 +360,19 @@ def fill_financial_forecasts_from_data_sources(
     }
 
 
-def overlay_live_milk_sales_budgets(
+def refresh_milk_sales_financial_forecasts(
     db: Session,
     *,
-    farms: list[str],
-    months: list[dt.date],
-    budget_by_mapping: dict[int, dict[str, float]],
+    fiscal_year: int,
+    user_id: int | None = None,
     today: dt.date | None = None,
-) -> None:
-    """Replace P&L budget cells for milk mappings with live livestock figures."""
-    if not farms or not months:
-        return
-
-    ensure_milk_sales_data_source(db)
-    ensure_milk_deductions_data_source(db)
-    milk_mappings = [
-        row
-        for row in list_financial_mappings(db)
-        if any(
-            str(key).startswith("milk_sales.")
-            for key in (row.get("data_sources") or [])
-        )
-    ]
-    if not milk_mappings:
-        return
-
-    month_set = set(months)
-    years = sorted({_fiscal_year_from_date(month) for month in months})
-    for year in years:
-        ctx = _DataSourceContext(
-            milk=_build_milk_index(
-                build_milk_sales_forecasts_report(db, fiscal_year=year, today=today)
-            ),
-            stock={},
-            feed={},
-            hp={},
-            rents={},
-            stock_valuations={},
-        )
-        for mapping in milk_mappings:
-            mapping_id = int(mapping["id"])
-            source_keys = mapping["data_sources"]
-            for month in fiscal_year_months(year):
-                if month not in month_set:
-                    continue
-                values: list[float] = []
-                for farm in farms:
-                    amount = _sum_source_values(
-                        source_keys, farm=farm, month=month, ctx=ctx
-                    )
-                    if amount is not None:
-                        values.append(float(amount))
-                if not values:
-                    continue
-                budget_by_mapping.setdefault(mapping_id, {})
-                budget_by_mapping[mapping_id][month.isoformat()] = float(sum(values))
+) -> dict[str, int]:
+    """Update monthly budget Milk Sales / Deductions from livestock milk price and yield."""
+    return fill_financial_forecasts_from_data_sources(
+        db,
+        fiscal_year=fiscal_year,
+        fill_mode="replace",
+        user_id=user_id,
+        today=today,
+        source_prefixes=("milk_sales.",),
+    )

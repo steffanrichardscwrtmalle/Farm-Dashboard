@@ -31,7 +31,6 @@ from app.services.events_common import (
     _iter_month_starts,
     _month_start,
 )
-from app.services.financial_forecast_autofill import overlay_live_milk_sales_budgets
 from app.services.financial_forecasts import (
     list_band_definitions,
     seed_financial_forecasts_if_empty,
@@ -906,15 +905,6 @@ def list_xero_pnl(
         months=months,
         mapping_ids=sorted(set(pnl_mapping_ids + litre_mapping_ids)),
     )
-    try:
-        overlay_live_milk_sales_budgets(
-            db,
-            farms=budget_farms,
-            months=months,
-            budget_by_mapping=budget_by_mapping,
-        )
-    except Exception:
-        pass
     budget_litres_by_month: dict[str, float] = {key: 0.0 for key in month_keys}
     for mapping_id in litre_mapping_ids:
         for key, value in budget_by_mapping.get(mapping_id, {}).items():

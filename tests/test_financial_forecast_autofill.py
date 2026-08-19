@@ -16,10 +16,10 @@ from app.models import (
     HerdInventory,
     StockOpeningBaseline,
 )
-from app.services.benchmarking import fiscal_year_months
+from app.services.benchmarking import fiscal_year_months, save_forecasts
 from app.services.financial_forecast_autofill import (
     fill_financial_forecasts_from_data_sources,
-    overlay_live_milk_sales_budgets,
+    refresh_milk_sales_financial_forecasts,
 )
 from app.services.financial_forecasts import (
     list_financial_forecasts,
@@ -125,7 +125,7 @@ def test_fill_milk_sales_revenue_into_mapped_heading(db: Session) -> None:
     assert july_row["GAD"] is None
 
 
-def test_overlay_live_milk_sales_uses_current_price(db: Session) -> None:
+def test_refresh_milk_sales_updates_monthly_budget_from_price(db: Session) -> None:
     mapping = db.scalars(
         select(FinancialForecastMapping).where(
             FinancialForecastMapping.heading == "Milk Sales",
@@ -135,24 +135,50 @@ def test_overlay_live_milk_sales_uses_current_price(db: Session) -> None:
     assert mapping is not None
     _seed_milk_sales_inputs(db)
 
+    refresh_milk_sales_financial_forecasts(
+        db, fiscal_year=FISCAL_YEAR, today=TODAY
+    )
+    first = list_financial_forecasts(db, fiscal_year=FISCAL_YEAR)
+    july_first = next(
+        row
+        for row in first["bands"]["Profit & Loss|Sales"]["headings"][str(mapping.id)]["rows"]
+        if row["forecast_month"] == "2026-07-01"
+    )
+    original = july_first["CM"]
+    assert original is not None
+
+    save_forecasts(
+        db,
+        fiscal_year=FISCAL_YEAR,
+        metric="milk_price",
+        rows=[
+            {
+                "forecast_month": month.isoformat(),
+                "farm": "CM",
+                "unit_price": 50.0,
+            }
+            for month in fiscal_year_months(FISCAL_YEAR)
+        ],
+        user_id=None,
+    )
+    refresh_milk_sales_financial_forecasts(
+        db, fiscal_year=FISCAL_YEAR, today=TODAY
+    )
+
     milk_report = build_milk_sales_forecasts_report(
         db, fiscal_year=FISCAL_YEAR, today=TODAY
     )
     july = next(row for row in milk_report["rows"] if row["month_start"] == "2026-07-01")
     expected = july["farms"]["CM"]["monthly_revenue"]
-    assert expected is not None
+    assert expected != original
 
-    budget: dict[int, dict[str, float]] = {
-        mapping.id: {"2026-07-01": 1.0},
-    }
-    overlay_live_milk_sales_budgets(
-        db,
-        farms=["CM"],
-        months=fiscal_year_months(FISCAL_YEAR),
-        budget_by_mapping=budget,
-        today=TODAY,
+    updated = list_financial_forecasts(db, fiscal_year=FISCAL_YEAR)
+    july_updated = next(
+        row
+        for row in updated["bands"]["Profit & Loss|Sales"]["headings"][str(mapping.id)]["rows"]
+        if row["forecast_month"] == "2026-07-01"
     )
-    assert budget[mapping.id]["2026-07-01"] == expected
+    assert july_updated["CM"] == expected
 
 
 def test_milk_price_change_updates_filled_milk_sales(db: Session) -> None:
