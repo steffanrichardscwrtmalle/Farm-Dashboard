@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models import HERD_FARM_OPTIONS, FinancialForecastLine, FinancialForecastMapping
 from app.services.benchmarking import fiscal_year_months
+from app.services.events_common import _fiscal_year_from_date
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
 from app.services.financial_forecasts import (
     ensure_milk_deductions_data_source,
@@ -71,7 +72,7 @@ def _build_feed_index(report: dict[str, Any]) -> dict[tuple[str, dt.date], dict[
         straw_rows = tables.get("straw", {}).get("rows", [])
         forage_rows = tables.get("forage", {}).get("rows", [])
         for conc_row, straw_row, forage_row in zip(
-            concentrate_rows, straw_rows, forage_rows, strict=True
+            concentrate_rows, straw_rows, forage_rows
         ):
             month = dt.date.fromisoformat(conc_row["month_start"])
             index[(farm, month)] = {
@@ -84,30 +85,102 @@ def _build_feed_index(report: dict[str, Any]) -> dict[tuple[str, dt.date], dict[
     return index
 
 
+def _needed_source_prefixes(source_keys: list[str] | tuple[str, ...]) -> set[str]:
+    prefixes: set[str] = set()
+    for key in source_keys:
+        if key.startswith("milk_sales."):
+            prefixes.add("milk_sales")
+        elif key.startswith("stock_sales_purchases."):
+            prefixes.add("stock_sales_purchases")
+        elif key.startswith("feed_purchases."):
+            prefixes.add("feed_purchases")
+        elif key.startswith("hp_schedules."):
+            prefixes.add("hp_schedules")
+        elif key.startswith("rents."):
+            prefixes.add("rents")
+        elif key.startswith("stock_valuations."):
+            prefixes.add("stock_valuations")
+    return prefixes
+
+
+def _try_build(builder):
+    try:
+        return builder()
+    except Exception:
+        return None
+
+
 def _build_data_source_context(
     db: Session,
     *,
     fiscal_year: int,
     today: dt.date | None,
+    source_keys: list[str] | None = None,
 ) -> _DataSourceContext:
-    milk_report = build_milk_sales_forecasts_report(
-        db, fiscal_year=fiscal_year, today=today
-    )
-    stock_report = build_stock_sales_purchases_forecasts_report(
-        db, fiscal_year=fiscal_year, today=today
-    )
-    feed_report = build_feed_purchase_forecasts_report(
-        db, fiscal_year=fiscal_year, today=today
-    )
+    need = _needed_source_prefixes(source_keys or [])
+    build_all = not need
+
+    milk: dict[tuple[str, dt.date], dict[str, float | None]] = {}
+    if build_all or "milk_sales" in need:
+        report = _try_build(
+            lambda: build_milk_sales_forecasts_report(
+                db, fiscal_year=fiscal_year, today=today
+            )
+        )
+        if report:
+            milk = _build_milk_index(report)
+
+    stock: dict[tuple[str, dt.date], dict[str, Any]] = {}
+    if build_all or "stock_sales_purchases" in need:
+        report = _try_build(
+            lambda: build_stock_sales_purchases_forecasts_report(
+                db, fiscal_year=fiscal_year, today=today
+            )
+        )
+        if report:
+            stock = _build_stock_index(report)
+
+    feed: dict[tuple[str, dt.date], dict[str, Any]] = {}
+    if build_all or "feed_purchases" in need:
+        report = _try_build(
+            lambda: build_feed_purchase_forecasts_report(
+                db, fiscal_year=fiscal_year, today=today
+            )
+        )
+        if report:
+            feed = _build_feed_index(report)
+
+    hp: dict[tuple[str, dt.date], dict[str, float]] = {}
+    if build_all or "hp_schedules" in need:
+        built = _try_build(lambda: build_hp_payment_index(db, fiscal_year=fiscal_year))
+        if built:
+            hp = built
+
+    rents: dict[tuple[str, dt.date], float] = {}
+    if build_all or "rents" in need:
+        built = _try_build(
+            lambda: build_rental_payment_index(db, fiscal_year=fiscal_year)
+        )
+        if built:
+            rents = built
+
+    stock_valuations: dict[tuple[str, dt.date], float] = {}
+    if build_all or "stock_valuations" in need:
+        built = _try_build(
+            lambda: build_stock_valuation_change_index(
+                db, fiscal_year=fiscal_year, today=today
+            )
+        )
+        if built:
+            stock_valuations = built
+
     return _DataSourceContext(
-        milk=_build_milk_index(milk_report),
-        stock=_build_stock_index(stock_report),
-        feed=_build_feed_index(feed_report),
-        hp=build_hp_payment_index(db, fiscal_year=fiscal_year),
-        rents=build_rental_payment_index(db, fiscal_year=fiscal_year),
-        stock_valuations=build_stock_valuation_change_index(
-            db, fiscal_year=fiscal_year, today=today
-        ),
+        milk=milk,
+        stock=stock,
+        feed=feed,
+        hp=hp,
+        rents=rents,
+        stock_valuations=stock_valuations,
     )
 
 
@@ -214,7 +287,12 @@ def fill_financial_forecasts_from_data_sources(
     if not mappings:
         return {"updated": 0, "mappings_filled": 0, "skipped": 0}
 
-    ctx = _build_data_source_context(db, fiscal_year=fiscal_year, today=today)
+    source_keys = [
+        key for mapping in mappings for key in (mapping.get("data_sources") or [])
+    ]
+    ctx = _build_data_source_context(
+        db, fiscal_year=fiscal_year, today=today, source_keys=source_keys
+    )
     updated = 0
     skipped = 0
     mappings_filled: set[int] = set()
@@ -270,3 +348,60 @@ def fill_financial_forecasts_from_data_sources(
         "mappings_filled": len(mappings_filled),
         "skipped": skipped,
     }
+
+
+def overlay_live_milk_sales_budgets(
+    db: Session,
+    *,
+    farms: list[str],
+    months: list[dt.date],
+    budget_by_mapping: dict[int, dict[str, float]],
+    today: dt.date | None = None,
+) -> None:
+    """Replace P&L budget cells for milk mappings with live livestock figures."""
+    if not farms or not months:
+        return
+
+    ensure_milk_sales_data_source(db)
+    ensure_milk_deductions_data_source(db)
+    milk_mappings = [
+        row
+        for row in list_financial_mappings(db)
+        if any(
+            str(key).startswith("milk_sales.")
+            for key in (row.get("data_sources") or [])
+        )
+    ]
+    if not milk_mappings:
+        return
+
+    month_set = set(months)
+    years = sorted({_fiscal_year_from_date(month) for month in months})
+    for year in years:
+        ctx = _DataSourceContext(
+            milk=_build_milk_index(
+                build_milk_sales_forecasts_report(db, fiscal_year=year, today=today)
+            ),
+            stock={},
+            feed={},
+            hp={},
+            rents={},
+            stock_valuations={},
+        )
+        for mapping in milk_mappings:
+            mapping_id = int(mapping["id"])
+            source_keys = mapping["data_sources"]
+            for month in fiscal_year_months(year):
+                if month not in month_set:
+                    continue
+                values: list[float] = []
+                for farm in farms:
+                    amount = _sum_source_values(
+                        source_keys, farm=farm, month=month, ctx=ctx
+                    )
+                    if amount is not None:
+                        values.append(float(amount))
+                if not values:
+                    continue
+                budget_by_mapping.setdefault(mapping_id, {})
+                budget_by_mapping[mapping_id][month.isoformat()] = float(sum(values))

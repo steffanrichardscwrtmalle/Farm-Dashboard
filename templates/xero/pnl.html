@@ -975,8 +975,21 @@
       } else if (fiscalYear) {
         params.set("fiscal_year", fiscalYear);
       }
-      const res = await fetch(`/api/xero/pnl?${params.toString()}`);
-      const data = await res.json().catch(() => ({}));
+      let res;
+      try {
+        res = await fetch(`/api/xero/pnl?${params.toString()}`);
+      } catch (_) {
+        document.getElementById("meta-line").textContent = "Failed to load P&L.";
+        return;
+      }
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        document.getElementById("meta-line").textContent = "Failed to load P&L.";
+        return;
+      }
       if (!res.ok) {
         document.getElementById("meta-line").textContent = data.detail || "Failed to load P&L.";
         return;

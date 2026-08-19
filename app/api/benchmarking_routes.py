@@ -745,6 +745,11 @@ def api_fill_financial_forecasts_from_sources(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not refresh from data sources: {exc}",
+        ) from exc
 
 
 @router.put("/financial-forecasts")

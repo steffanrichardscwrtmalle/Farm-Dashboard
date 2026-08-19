@@ -31,8 +31,7 @@ from app.services.events_common import (
     _iter_month_starts,
     _month_start,
 )
-from app.services.benchmarking import available_fiscal_years
-from app.services.financial_forecast_autofill import fill_financial_forecasts_from_data_sources
+from app.services.financial_forecast_autofill import overlay_live_milk_sales_budgets
 from app.services.financial_forecasts import (
     list_band_definitions,
     seed_financial_forecasts_if_empty,
@@ -690,19 +689,6 @@ def list_xero_pnl(
     start, end = months[0], _last_day_of_month(months[-1])
     business_value, businesses = _resolve_businesses(business)
 
-    # Keep P&L "Show forecast" in sync with livestock milk price and other
-    # mapped benchmarking sources, without requiring a visit to Financial Forecasts.
-    forecast_years = set(available_fiscal_years())
-    years_to_refresh = sorted(
-        {
-            _fiscal_year_from_date(month)
-            for month in months
-            if _fiscal_year_from_date(month) in forecast_years
-        }
-    )
-    for year in years_to_refresh:
-        fill_financial_forecasts_from_data_sources(db, fiscal_year=year, fill_mode="replace")
-
     mapping_by_account_id, account_class_by_id, account_id_by_code = _lookup_maps(db)
     inclusive_invoices = _inclusive_invoice_pks(
         db, start=start, end=end, businesses=businesses
@@ -920,6 +906,15 @@ def list_xero_pnl(
         months=months,
         mapping_ids=sorted(set(pnl_mapping_ids + litre_mapping_ids)),
     )
+    try:
+        overlay_live_milk_sales_budgets(
+            db,
+            farms=budget_farms,
+            months=months,
+            budget_by_mapping=budget_by_mapping,
+        )
+    except Exception:
+        pass
     budget_litres_by_month: dict[str, float] = {key: 0.0 for key in month_keys}
     for mapping_id in litre_mapping_ids:
         for key, value in budget_by_mapping.get(mapping_id, {}).items():

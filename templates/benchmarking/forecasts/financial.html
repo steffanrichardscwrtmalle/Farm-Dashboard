@@ -928,7 +928,7 @@
       try {
         return JSON.parse(text);
       } catch (_) {
-        return { detail: text || `HTTP ${res.status} ${res.statusText}` };
+        return { detail: `Request failed (${res.status || 'network'})` };
       }
     }
     function buildSelectOptions(options, selected, placeholder) {
@@ -1938,8 +1938,9 @@
     async function fetchAndRenderForecasts() {
       const fy = document.getElementById('fiscal-year-select').value;
       const res = await fetch(`/api/benchmarking/financial-forecasts?fiscal_year=${encodeURIComponent(fy)}`);
-      if (!res.ok) throw new Error('load failed');
-      forecastData = await res.json();
+      const data = await readResponse(res);
+      if (!res.ok) throw new Error(data.detail || 'load failed');
+      forecastData = data;
       renderForecastGrid();
       bindGridAmountFormatting();
       bindGridKeyboard();
@@ -1976,7 +1977,8 @@
             fill_mode: 'replace',
           }),
         });
-        if (!res.ok) throw new Error('fill failed');
+        const data = await readResponse(res);
+        if (!res.ok) throw new Error(data.detail || 'fill failed');
         // Re-render only if the user hasn't changed year/farm and isn't mid-edit.
         const fyNow = document.getElementById('fiscal-year-select').value;
         const editing = document.activeElement
@@ -2004,7 +2006,7 @@
             fill_mode: 'replace',
           }),
         });
-        const data = await res.json();
+        const data = await readResponse(res);
         if (!res.ok) throw new Error(data.detail || 'Refresh failed');
         await loadForecasts({ autoFill: false });
         setSaveStatus(`Filled ${data.updated} cell(s) across ${data.mappings_filled} heading(s)`, 'ok');
