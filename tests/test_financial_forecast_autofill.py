@@ -95,15 +95,6 @@ def test_fill_milk_sales_revenue_into_mapped_heading(db: Session) -> None:
     ).first()
     assert mapping is not None
 
-    update_financial_mapping(
-        db,
-        mapping.id,
-        heading=mapping.heading,
-        item_type=mapping.item_type,
-        band=mapping.band,
-        group=mapping.group,
-        data_sources=["milk_sales.monthly_revenue"],
-    )
     _seed_milk_sales_inputs(db)
 
     milk_report = build_milk_sales_forecasts_report(
@@ -129,6 +120,57 @@ def test_fill_milk_sales_revenue_into_mapped_heading(db: Session) -> None:
     )
     assert july_row["CM"] == expected_revenue
     assert july_row["GAD"] is None
+
+
+def test_milk_price_change_updates_filled_milk_sales(db: Session) -> None:
+    mapping = db.scalars(
+        select(FinancialForecastMapping).where(
+            FinancialForecastMapping.heading == "Milk Sales",
+            FinancialForecastMapping.band == "Sales",
+        )
+    ).first()
+    assert mapping is not None
+    _seed_milk_sales_inputs(db)
+
+    fill_financial_forecasts_from_data_sources(
+        db, fiscal_year=FISCAL_YEAR, today=TODAY
+    )
+    first = list_financial_forecasts(db, fiscal_year=FISCAL_YEAR)
+    july_first = next(
+        row
+        for row in first["bands"]["Profit & Loss|Sales"]["headings"][str(mapping.id)]["rows"]
+        if row["forecast_month"] == "2026-07-01"
+    )
+    original = july_first["CM"]
+    assert original is not None
+
+    for line in db.scalars(
+        select(BenchmarkForecastLine).where(
+            BenchmarkForecastLine.fiscal_year == FISCAL_YEAR,
+            BenchmarkForecastLine.metric == "milk_price",
+            BenchmarkForecastLine.farm == "CM",
+        )
+    ).all():
+        line.unit_price = 50.0
+    db.commit()
+
+    fill_financial_forecasts_from_data_sources(
+        db, fiscal_year=FISCAL_YEAR, today=TODAY
+    )
+    milk_report = build_milk_sales_forecasts_report(
+        db, fiscal_year=FISCAL_YEAR, today=TODAY
+    )
+    july = next(row for row in milk_report["rows"] if row["month_start"] == "2026-07-01")
+    expected = july["farms"]["CM"]["monthly_revenue"]
+    assert expected != original
+
+    updated = list_financial_forecasts(db, fiscal_year=FISCAL_YEAR)
+    july_updated = next(
+        row
+        for row in updated["bands"]["Profit & Loss|Sales"]["headings"][str(mapping.id)]["rows"]
+        if row["forecast_month"] == "2026-07-01"
+    )
+    assert july_updated["CM"] == expected
 
 
 def test_fill_milk_deductions_from_projected_litres(db: Session) -> None:

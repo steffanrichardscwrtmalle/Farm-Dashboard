@@ -15,6 +15,7 @@ from app.services.financial_forecasts import (
     add_financial_option,
     create_financial_mapping,
     delete_financial_mapping,
+    ensure_milk_sales_data_source,
     list_financial_forecasts,
     list_financial_mappings,
     save_financial_forecasts,
@@ -37,6 +38,8 @@ def db() -> Session:
 def test_seed_creates_default_mappings(db: Session) -> None:
     mappings = list_financial_mappings(db)
     assert len(mappings) == len(DEFAULT_FINANCIAL_MAPPINGS)
+    milk_sales = next(m for m in mappings if m["heading"] == "Milk Sales")
+    assert milk_sales["data_sources"] == ["milk_sales.monthly_revenue"]
     milk_deductions = next(
         m for m in mappings if m["heading"] == "Milk Deductions"
     )
@@ -47,6 +50,22 @@ def test_seed_creates_default_mappings(db: Session) -> None:
     assert stock_valuation_change["data_sources"] == [
         "stock_valuations.monthly_change"
     ]
+
+
+def test_ensure_milk_sales_does_not_overwrite_custom_sources(db: Session) -> None:
+    mapping = next(m for m in list_financial_mappings(db) if m["heading"] == "Milk Sales")
+    update_financial_mapping(
+        db,
+        mapping["id"],
+        heading=mapping["heading"],
+        item_type=mapping["item_type"],
+        band=mapping["band"],
+        group=mapping["group"],
+        data_sources=["milk_sales.monthly_litres"],
+    )
+    assert ensure_milk_sales_data_source(db) is False
+    refreshed = next(m for m in list_financial_mappings(db) if m["id"] == mapping["id"])
+    assert refreshed["data_sources"] == ["milk_sales.monthly_litres"]
 
 
 def test_duplicate_heading_allowed_in_different_groups(db: Session) -> None:

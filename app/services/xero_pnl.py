@@ -31,6 +31,8 @@ from app.services.events_common import (
     _iter_month_starts,
     _month_start,
 )
+from app.services.benchmarking import available_fiscal_years
+from app.services.financial_forecast_autofill import fill_financial_forecasts_from_data_sources
 from app.services.financial_forecasts import (
     list_band_definitions,
     seed_financial_forecasts_if_empty,
@@ -687,6 +689,19 @@ def list_xero_pnl(
     month_key_set = set(month_keys)
     start, end = months[0], _last_day_of_month(months[-1])
     business_value, businesses = _resolve_businesses(business)
+
+    # Keep P&L "Show forecast" in sync with livestock milk price and other
+    # mapped benchmarking sources, without requiring a visit to Financial Forecasts.
+    forecast_years = set(available_fiscal_years())
+    years_to_refresh = sorted(
+        {
+            _fiscal_year_from_date(month)
+            for month in months
+            if _fiscal_year_from_date(month) in forecast_years
+        }
+    )
+    for year in years_to_refresh:
+        fill_financial_forecasts_from_data_sources(db, fiscal_year=year, fill_mode="replace")
 
     mapping_by_account_id, account_class_by_id, account_id_by_code = _lookup_maps(db)
     inclusive_invoices = _inclusive_invoice_pks(

@@ -14,6 +14,7 @@ from app.services.benchmarking import fiscal_year_months
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
 from app.services.financial_forecasts import (
     ensure_milk_deductions_data_source,
+    ensure_milk_sales_data_source,
     ensure_stock_valuation_change_data_source,
     list_financial_mappings,
 )
@@ -206,6 +207,7 @@ def fill_financial_forecasts_from_data_sources(
             raise ValueError(f"Unknown farm: {farm}")
 
     months = fiscal_year_months(fiscal_year)
+    ensure_milk_sales_data_source(db)
     ensure_milk_deductions_data_source(db)
     ensure_stock_valuation_change_data_source(db)
     mappings = [row for row in list_financial_mappings(db) if row.get("data_sources")]

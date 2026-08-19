@@ -152,6 +152,8 @@ def seed_financial_forecasts_if_empty(db: Session) -> int:
     existing = db.scalars(select(FinancialForecastMapping).limit(1)).first()
     if existing is not None:
         changed = False
+        if ensure_milk_sales_data_source(db):
+            changed = True
         if ensure_milk_deductions_data_source(db):
             changed = True
         if ensure_stock_valuation_change_data_source(db):
@@ -177,12 +179,14 @@ def seed_financial_forecasts_if_empty(db: Session) -> int:
         )
         added += 1
     db.flush()
+    ensure_milk_sales_data_source(db)
     ensure_milk_deductions_data_source(db)
     ensure_stock_valuation_change_data_source(db)
     db.commit()
     return added
 
 
+MILK_SALES_SOURCE_KEY = "milk_sales.monthly_revenue"
 MILK_DEDUCTIONS_SOURCE_KEY = "milk_sales.monthly_deductions"
 STOCK_VALUATION_CHANGE_SOURCE_KEY = "stock_valuations.monthly_change"
 
@@ -382,6 +386,33 @@ def _set_mapping_sources(
     for key in normalized:
         db.add(FinancialForecastMappingSource(mapping_id=mapping_id, source_key=key))
     return normalized
+
+
+def ensure_milk_sales_data_source(db: Session) -> bool:
+    """Wire Milk Sales heading to livestock milk price × projected litres."""
+    mapping = db.scalars(
+        select(FinancialForecastMapping).where(
+            FinancialForecastMapping.heading == "Milk Sales",
+            FinancialForecastMapping.band == "Sales",
+            FinancialForecastMapping.group == "Milk Sales",
+        )
+    ).first()
+    if mapping is None:
+        return False
+
+    existing = db.scalars(
+        select(FinancialForecastMappingSource).where(
+            FinancialForecastMappingSource.mapping_id == mapping.id
+        )
+    ).all()
+    current_keys = {row.source_key for row in existing}
+    if MILK_SALES_SOURCE_KEY in current_keys:
+        return False
+    if current_keys:
+        return False
+
+    _set_mapping_sources(db, mapping.id, [MILK_SALES_SOURCE_KEY])
+    return True
 
 
 def ensure_milk_deductions_data_source(db: Session) -> bool:
