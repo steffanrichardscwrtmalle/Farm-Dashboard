@@ -812,7 +812,7 @@
         <span class="muted" id="combined-view-hint" hidden>Combined = CM + GAD (view only)</span>
         {% if can_edit %}<span class="save-status" id="save-status"></span>{% endif %}
       </div>
-      <p class="muted" style="margin:0;font-size:0.8rem">Changes save automatically. Rows linked to a data source on the <strong>Heading mappings</strong> tab are filled automatically and shown read-only. Drag across month cells to see Count, Sum and Average.</p>
+      <p class="muted" style="margin:0;font-size:0.8rem">Changes save automatically. Rows linked to a data source are read-only. Milk Sales updates when livestock milk price is saved; use <strong>Refresh from data sources</strong> to refill other linked headings. Drag across month cells to see Count, Sum and Average.</p>
 
       <div class="grid-panel">
         <div class="grid-table-wrap">
@@ -1095,7 +1095,8 @@
 
     async function loadDataSources() {
       const res = await fetch('/api/benchmarking/financial-forecasts/data-sources');
-      const data = await res.json();
+      const data = await readResponse(res);
+      if (!res.ok) throw new Error(data.detail || 'Failed to load data sources');
       dataSourcePages = data.pages || [];
       renderAddDataSourceDropdown();
     }
@@ -1151,7 +1152,8 @@
 
     async function loadOptions() {
       const res = await fetch('/api/benchmarking/financial-forecasts/options');
-      const data = await res.json();
+      const data = await readResponse(res);
+      if (!res.ok) throw new Error(data.detail || 'Failed to load options');
       itemTypeOptions = data.item_types || [];
       bandOptions = data.bands || [];
       groupOptions = data.groups || [];
@@ -1202,7 +1204,8 @@
 
     async function loadMappings() {
       const res = await fetch('/api/benchmarking/financial-forecasts/mappings');
-      const data = await res.json();
+      const data = await readResponse(res);
+      if (!res.ok) throw new Error(data.detail || 'Failed to load mappings');
       allMappings = data.items || [];
       renderMappings(document.getElementById('search-mappings')?.value || '');
     }
@@ -1952,7 +1955,7 @@
       }
     }
 
-    async function loadForecasts({ autoFill = true } = {}) {
+    async function loadForecasts({ autoFill = false } = {}) {
       document.getElementById('load-error').hidden = true;
       try {
         await fetchAndRenderForecasts();
@@ -2032,7 +2035,7 @@
             rows: collectForecastRows(),
           }),
         });
-        const data = await res.json();
+        const data = await readResponse(res);
         if (!res.ok) throw new Error(data.detail || 'Save failed');
         setSaveStatus('All changes saved', 'ok');
       } catch (err) {
@@ -2098,7 +2101,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ option_type: btn.dataset.addOption, value }),
           });
-          const data = await res.json();
+          const data = await readResponse(res);
           if (!res.ok) { showMsg('options-message', data.detail || 'Failed', false); return; }
           input.value = '';
           showMsg('options-message', 'Option added.', true);
@@ -2170,7 +2173,7 @@
         if (!btn) return;
         if (!confirm('Delete this option?')) return;
         const res = await fetch(`/api/benchmarking/financial-forecasts/options/${btn.dataset.deleteOption}`, { method: 'DELETE' });
-        const data = await res.json();
+        const data = await readResponse(res);
         if (!res.ok) { showMsg('options-message', data.detail || 'Delete failed', false); return; }
         await loadOptions();
       });
@@ -2251,7 +2254,7 @@
         if (!btn) return;
         if (!confirm('Delete this mapping? Forecast amounts for this heading will also be removed.')) return;
         const res = await fetch(`/api/benchmarking/financial-forecasts/mappings/${btn.dataset.deleteMapping}`, { method: 'DELETE' });
-        const data = await res.json();
+        const data = await readResponse(res);
         if (!res.ok) { showMsg('mapping-message', data.detail || 'Delete failed', false); return; }
         await loadMappings();
         forecastData = null;
@@ -2293,9 +2296,17 @@
 
     async function init() {
       bindDataSourceDropdowns();
-      await loadDataSources();
-      await loadOptions();
-      await loadMappings();
+      try {
+        await loadDataSources();
+        await loadOptions();
+        await loadMappings();
+      } catch (err) {
+        const el = document.getElementById('mapping-message');
+        if (el) {
+          el.textContent = err.message || 'Failed to load mappings.';
+          el.className = 'message err';
+        }
+      }
     }
     init();
   </script>
