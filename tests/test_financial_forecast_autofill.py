@@ -437,3 +437,23 @@ def test_fill_stock_valuation_change_into_mapped_heading(
     )
     assert july_row["CM"] == 4250
     assert july_row["GAD"] == -1100
+
+
+def test_refresh_milk_sales_does_not_build_stock_valuations(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_milk_sales_inputs(db)
+    called = {"valuations": False}
+
+    def fake_valuations(*_args, **_kwargs):
+        called["valuations"] = True
+        return {}
+
+    monkeypatch.setattr(
+        "app.services.financial_forecast_autofill.build_stock_valuation_change_index",
+        fake_valuations,
+    )
+    refresh_milk_sales_financial_forecasts(
+        db, fiscal_year=FISCAL_YEAR, today=TODAY
+    )
+    assert called["valuations"] is False

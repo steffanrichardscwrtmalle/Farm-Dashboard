@@ -47,6 +47,17 @@ STOCK_FORECAST_GROUPS: tuple[str, ...] = (
     STOCK_GROUP_BEEF,
 )
 
+_FORECAST_METRICS_BY_GROUP: dict[str, tuple[str, ...]] = {
+    STOCK_GROUP_COWS: ("cull", "cow_sale", "cow_death", "cow_purchase"),
+    STOCK_GROUP_YOUNGSTOCK: (
+        "youngstock_sale",
+        "youngstock_death",
+        "youngstock_purchase",
+        "holstein_calves_born",
+    ),
+    STOCK_GROUP_BEEF: ("beef_calf_sale", "beef_cattle_sale", "beef_calf_birth"),
+}
+
 
 def _subtract_month(value: dt.date) -> dt.date:
     if value.month == 1:
@@ -60,32 +71,46 @@ def _forecast_quantity(value: float | None) -> int:
     return int(value)
 
 
+def _metrics_for_stock_groups(stock_groups: tuple[str, ...]) -> tuple[str, ...]:
+    metrics: list[str] = []
+    seen: set[str] = set()
+    for group in stock_groups:
+        for metric in _FORECAST_METRICS_BY_GROUP.get(group, ()):
+            if metric not in seen:
+                seen.add(metric)
+                metrics.append(metric)
+    return tuple(metrics)
+
+
 def _load_forecast_index(
     db: Session,
     *,
     farms: list[str],
     month_starts: list[dt.date],
+    metrics: tuple[str, ...] | None = None,
 ) -> dict[tuple[str, str, dt.date], int]:
     if not month_starts:
         return {}
 
     fiscal_years = {_fiscal_year_from_date(month) for month in month_starts}
     month_set = set(month_starts)
+    farm_set = set(farms)
     index: dict[tuple[str, str, dt.date], int] = {}
 
-    lines = db.scalars(
-        select(BenchmarkForecastLine).where(
-            BenchmarkForecastLine.fiscal_year.in_(fiscal_years)
-        )
-    ).all()
-    for line in lines:
-        if line.farm not in farms:
+    stmt = select(
+        BenchmarkForecastLine.metric,
+        BenchmarkForecastLine.farm,
+        BenchmarkForecastLine.forecast_month,
+        BenchmarkForecastLine.quantity,
+    ).where(BenchmarkForecastLine.fiscal_year.in_(fiscal_years))
+    if metrics:
+        stmt = stmt.where(BenchmarkForecastLine.metric.in_(metrics))
+    for metric, farm, forecast_month, quantity in db.execute(stmt):
+        if farm not in farm_set:
             continue
-        if line.forecast_month not in month_set:
+        if forecast_month not in month_set:
             continue
-        index[(line.metric, line.farm, line.forecast_month)] = _forecast_quantity(
-            line.quantity
-        )
+        index[(metric, farm, forecast_month)] = _forecast_quantity(quantity)
     return index
 
 
@@ -348,7 +373,9 @@ def _build_forecast_shared_context(
     farms: list[str],
     fiscal_year: int,
     today: dt.date,
+    stock_groups: tuple[str, ...] | None = None,
 ) -> _ForecastSharedContext:
+    groups = stock_groups or STOCK_FORECAST_GROUPS
     current_month = _month_start(today)
     last_actual_month = _subtract_month(current_month)
     fy_start_month, fy_end_month = _fiscal_year_month_range(fiscal_year)
@@ -358,6 +385,7 @@ def _build_forecast_shared_context(
         for month in _iter_month_starts(projected_from, fy_end_month)
         if month >= current_month
     ]
+    needs_heifers = STOCK_GROUP_COWS in groups or STOCK_GROUP_YOUNGSTOCK in groups
     return _ForecastSharedContext(
         current_month=current_month,
         last_actual_month=last_actual_month,
@@ -365,10 +393,17 @@ def _build_forecast_shared_context(
         fy_end_month=fy_end_month,
         projected_month_starts=projected_month_starts,
         forecast_index=_load_forecast_index(
-            db, farms=farms, month_starts=projected_month_starts
+            db,
+            farms=farms,
+            month_starts=projected_month_starts,
+            metrics=_metrics_for_stock_groups(groups),
         ),
-        heifers_due_index=_build_heifers_due_index(
-            db, farms=farms, month_starts=projected_month_starts
+        heifers_due_index=(
+            _build_heifers_due_index(
+                db, farms=farms, month_starts=projected_month_starts
+            )
+            if needs_heifers
+            else {}
         ),
         today=today,
     )
@@ -456,12 +491,14 @@ def build_stock_forecast_heads_index(
     fiscal_year: int,
     today: dt.date | None = None,
     shared: _ForecastSharedContext | None = None,
+    stock_groups: tuple[str, ...] | None = None,
 ) -> dict[str, dict[str, dict[str, dict[str, int]]]]:
-    """Per-farm projected head counts for all valuation categories in one pass."""
+    """Per-farm projected head counts for valuation categories in one pass."""
     selected_farms = normalize_farms(farms)
     if not selected_farms:
         return {}
 
+    groups = stock_groups or STOCK_FORECAST_GROUPS
     reference_today = today or dt.date.today()
     if shared is None:
         shared = _build_forecast_shared_context(
@@ -469,12 +506,13 @@ def build_stock_forecast_heads_index(
             farms=selected_farms,
             fiscal_year=fiscal_year,
             today=reference_today,
+            stock_groups=groups,
         )
 
     heads: dict[str, dict[str, dict[str, dict[str, int]]]] = {
         farm: {} for farm in selected_farms
     }
-    for stock_group in STOCK_FORECAST_GROUPS:
+    for stock_group in groups:
         category = VALUATION_CATEGORY_BY_STOCK_GROUP[stock_group]
         for farm in selected_farms:
             rows = _build_stock_forecast_rows(

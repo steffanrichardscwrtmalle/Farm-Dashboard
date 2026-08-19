@@ -1972,16 +1972,7 @@
       const fyAtStart = document.getElementById('fiscal-year-select').value;
       setSaveStatus('Updating from data sources…');
       try {
-        const res = await fetch('/api/benchmarking/financial-forecasts/fill-from-sources', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fiscal_year: Number(fyAtStart),
-            fill_mode: 'replace',
-          }),
-        });
-        const data = await readResponse(res);
-        if (!res.ok) throw new Error(data.detail || 'fill failed');
+        await postFillFromSources(['milk_sales.'], fyAtStart);
         // Re-render only if the user hasn't changed year/farm and isn't mid-edit.
         const fyNow = document.getElementById('fiscal-year-select').value;
         const editing = document.activeElement
@@ -1995,24 +1986,47 @@
       }
     }
 
+    async function postFillFromSources(sourcePrefixes, fiscalYear) {
+      const res = await fetch('/api/benchmarking/financial-forecasts/fill-from-sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fiscal_year: Number(fiscalYear),
+          fill_mode: 'replace',
+          source_prefixes: sourcePrefixes,
+        }),
+      });
+      const data = await readResponse(res);
+      if (!res.ok) throw new Error(data.detail || 'Refresh failed');
+      return data;
+    }
+
     async function fillFromDataSources() {
       if (!CAN_EDIT) return;
       const btn = document.getElementById('fill-from-sources-btn');
       btn.disabled = true;
       setSaveStatus('Refreshing from data sources…');
       try {
-        const res = await fetch('/api/benchmarking/financial-forecasts/fill-from-sources', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fiscal_year: Number(document.getElementById('fiscal-year-select').value),
-            fill_mode: 'replace',
-          }),
-        });
-        const data = await readResponse(res);
-        if (!res.ok) throw new Error(data.detail || 'Refresh failed');
+        // One prefix per request so milk / feed / valuations never share the 512MB worker.
+        const fy = document.getElementById('fiscal-year-select').value;
+        const prefixes = [
+          'hp_schedules.',
+          'rents.',
+          'stock_sales_purchases.',
+          'milk_sales.',
+          'feed_purchases.',
+          'stock_valuations.',
+        ];
+        let updated = 0;
+        let mappingsFilled = 0;
+        for (const prefix of prefixes) {
+          setSaveStatus(`Refreshing ${prefix.replace(/\.$/, '').replace(/_/g, ' ')}…`);
+          const data = await postFillFromSources([prefix], fy);
+          updated += Number(data.updated || 0);
+          mappingsFilled += Number(data.mappings_filled || 0);
+        }
         await loadForecasts({ autoFill: false });
-        setSaveStatus(`Filled ${data.updated} cell(s) across ${data.mappings_filled} heading(s)`, 'ok');
+        setSaveStatus(`Filled ${updated} cell(s) across ${mappingsFilled} heading(s)`, 'ok');
       } catch (err) {
         setSaveStatus(err.message, 'err');
       } finally {

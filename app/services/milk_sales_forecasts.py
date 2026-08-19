@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import HERD_FARM_OPTIONS, BenchmarkForecastLine
+from app.models import HERD_FARM_OPTIONS, STOCK_GROUP_COWS, BenchmarkForecastLine
 from app.services.benchmarking import available_fiscal_years, fiscal_year_months
 from app.services.stock_forecasts import build_stock_forecast_heads_index
 
@@ -176,6 +176,7 @@ def build_milk_sales_forecasts_report(
         farms=farms,
         fiscal_year=fiscal_year,
         today=reference_today,
+        stock_groups=(STOCK_GROUP_COWS,),
     )
     yield_index = _load_milk_yield_index(
         db,

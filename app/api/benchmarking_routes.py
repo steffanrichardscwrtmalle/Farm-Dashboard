@@ -570,6 +570,7 @@ class FillFinancialForecastsBody(BaseModel):
     fiscal_year: int
     farms: list[str] = Field(default_factory=list)
     fill_mode: str = "replace"
+    source_prefixes: list[str] = Field(default_factory=list)
 
 
 @router.get("/financial-forecasts/options")
@@ -755,6 +756,7 @@ def api_fill_financial_forecasts_from_sources(
             farms=body.farms or None,
             fill_mode=body.fill_mode,
             user_id=user.id,
+            source_prefixes=tuple(body.source_prefixes) if body.source_prefixes else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

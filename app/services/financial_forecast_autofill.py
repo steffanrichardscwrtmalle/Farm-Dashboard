@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import gc
 from dataclasses import dataclass
 from typing import Any
 
@@ -84,6 +85,18 @@ def _build_feed_index(report: dict[str, Any]) -> dict[tuple[str, dt.date], dict[
     return index
 
 
+# Light sources first; stock heads / valuations last so earlier prefixes can commit
+# and free memory on the 512MB Render worker before the heavy builders run.
+_PREFIX_FILL_ORDER: tuple[str, ...] = (
+    "hp_schedules",
+    "rents",
+    "stock_sales_purchases",
+    "milk_sales",
+    "feed_purchases",
+    "stock_valuations",
+)
+
+
 def _needed_source_prefixes(source_keys: list[str] | tuple[str, ...]) -> set[str]:
     prefixes: set[str] = set()
     for key in source_keys:
@@ -100,6 +113,11 @@ def _needed_source_prefixes(source_keys: list[str] | tuple[str, ...]) -> set[str
         elif key.startswith("stock_valuations."):
             prefixes.add("stock_valuations")
     return prefixes
+
+
+def _release_session_memory(db: Session) -> None:
+    db.expire_all()
+    gc.collect()
 
 
 def _try_build(builder):
@@ -128,6 +146,8 @@ def _build_data_source_context(
         )
         if report:
             milk = _build_milk_index(report)
+            del report
+        _release_session_memory(db)
 
     stock: dict[tuple[str, dt.date], dict[str, Any]] = {}
     if build_all or "stock_sales_purchases" in need:
@@ -138,6 +158,8 @@ def _build_data_source_context(
         )
         if report:
             stock = _build_stock_index(report)
+            del report
+        _release_session_memory(db)
 
     feed: dict[tuple[str, dt.date], dict[str, Any]] = {}
     if build_all or "feed_purchases" in need:
@@ -148,12 +170,15 @@ def _build_data_source_context(
         )
         if report:
             feed = _build_feed_index(report)
+            del report
+        _release_session_memory(db)
 
     hp: dict[tuple[str, dt.date], dict[str, float]] = {}
     if build_all or "hp_schedules" in need:
         built = _try_build(lambda: build_hp_payment_index(db, fiscal_year=fiscal_year))
         if built:
             hp = built
+        _release_session_memory(db)
 
     rents: dict[tuple[str, dt.date], float] = {}
     if build_all or "rents" in need:
@@ -162,6 +187,7 @@ def _build_data_source_context(
         )
         if built:
             rents = built
+        _release_session_memory(db)
 
     stock_valuations: dict[tuple[str, dt.date], float] = {}
     if build_all or "stock_valuations" in need:
@@ -172,6 +198,7 @@ def _build_data_source_context(
         )
         if built:
             stock_valuations = built
+        _release_session_memory(db)
 
     return _DataSourceContext(
         milk=milk,
@@ -260,49 +287,17 @@ def _sum_source_values(
     return round(sum(values))
 
 
-def fill_financial_forecasts_from_data_sources(
+def _write_mapping_amounts(
     db: Session,
     *,
+    mappings: list[dict[str, Any]],
+    months: list[dt.date],
+    target_farms: list[str],
     fiscal_year: int,
-    farms: list[str] | None = None,
-    fill_mode: str = "replace",
-    user_id: int | None = None,
-    today: dt.date | None = None,
-    source_prefixes: tuple[str, ...] | None = None,
-) -> dict[str, int]:
-    """Write monthly amounts for mappings that have data sources configured."""
-    if fill_mode not in ("replace", "fill_empty"):
-        raise ValueError("fill_mode must be 'replace' or 'fill_empty'")
-
-    target_farms = farms or list(HERD_FARM_OPTIONS)
-    for farm in target_farms:
-        if farm not in HERD_FARM_OPTIONS:
-            raise ValueError(f"Unknown farm: {farm}")
-
-    months = fiscal_year_months(fiscal_year)
-    ensure_milk_sales_data_source(db)
-    ensure_milk_deductions_data_source(db)
-    ensure_stock_valuation_change_data_source(db)
-    mappings = [row for row in list_financial_mappings(db) if row.get("data_sources")]
-    if source_prefixes:
-        mappings = [
-            row
-            for row in mappings
-            if any(
-                str(key).startswith(prefix)
-                for key in row["data_sources"]
-                for prefix in source_prefixes
-            )
-        ]
-    if not mappings:
-        return {"updated": 0, "mappings_filled": 0, "skipped": 0}
-
-    source_keys = [
-        key for mapping in mappings for key in (mapping.get("data_sources") or [])
-    ]
-    ctx = _build_data_source_context(
-        db, fiscal_year=fiscal_year, today=today, source_keys=source_keys
-    )
+    fill_mode: str,
+    user_id: int | None,
+    ctx: _DataSourceContext,
+) -> tuple[int, int, set[int]]:
     updated = 0
     skipped = 0
     mappings_filled: set[int] = set()
@@ -352,7 +347,89 @@ def fill_financial_forecasts_from_data_sources(
                 updated += 1
                 mappings_filled.add(mapping_id)
 
-    db.commit()
+    return updated, skipped, mappings_filled
+
+
+def fill_financial_forecasts_from_data_sources(
+    db: Session,
+    *,
+    fiscal_year: int,
+    farms: list[str] | None = None,
+    fill_mode: str = "replace",
+    user_id: int | None = None,
+    today: dt.date | None = None,
+    source_prefixes: tuple[str, ...] | None = None,
+) -> dict[str, int]:
+    """Write monthly amounts for mappings that have data sources configured."""
+    if fill_mode not in ("replace", "fill_empty"):
+        raise ValueError("fill_mode must be 'replace' or 'fill_empty'")
+
+    target_farms = farms or list(HERD_FARM_OPTIONS)
+    for farm in target_farms:
+        if farm not in HERD_FARM_OPTIONS:
+            raise ValueError(f"Unknown farm: {farm}")
+
+    months = fiscal_year_months(fiscal_year)
+    ensure_milk_sales_data_source(db)
+    ensure_milk_deductions_data_source(db)
+    ensure_stock_valuation_change_data_source(db)
+    mappings = [row for row in list_financial_mappings(db) if row.get("data_sources")]
+    if source_prefixes:
+        mappings = [
+            row
+            for row in mappings
+            if any(
+                str(key).startswith(prefix)
+                for key in row["data_sources"]
+                for prefix in source_prefixes
+            )
+        ]
+    if not mappings:
+        return {"updated": 0, "mappings_filled": 0, "skipped": 0}
+
+    needed = _needed_source_prefixes(
+        [key for mapping in mappings for key in (mapping.get("data_sources") or [])]
+    )
+    prefix_order = [prefix for prefix in _PREFIX_FILL_ORDER if prefix in needed]
+
+    updated = 0
+    skipped = 0
+    mappings_filled: set[int] = set()
+
+    for prefix in prefix_order:
+        subset = [
+            row
+            for row in mappings
+            if any(
+                str(key).startswith(f"{prefix}.")
+                for key in (row.get("data_sources") or [])
+            )
+        ]
+        if not subset:
+            continue
+        source_keys = [
+            key for mapping in subset for key in (mapping.get("data_sources") or [])
+        ]
+        ctx = _build_data_source_context(
+            db, fiscal_year=fiscal_year, today=today, source_keys=source_keys
+        )
+        prefix_updated, prefix_skipped, prefix_filled = _write_mapping_amounts(
+            db,
+            mappings=subset,
+            months=months,
+            target_farms=target_farms,
+            fiscal_year=fiscal_year,
+            fill_mode=fill_mode,
+            user_id=user_id,
+            ctx=ctx,
+        )
+        db.commit()
+        del ctx
+        _release_session_memory(db)
+        updated += prefix_updated
+        skipped += prefix_skipped
+        mappings_filled.update(prefix_filled)
+
     return {
         "updated": updated,
         "mappings_filled": len(mappings_filled),
