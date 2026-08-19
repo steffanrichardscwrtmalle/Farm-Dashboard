@@ -2037,16 +2037,21 @@
     let autosaveTimer = null;
     let currentSave = Promise.resolve();
 
-    async function doAutosave() {
-      if (!CAN_EDIT || isCombinedFarm()) return;
+    async function doAutosave(payload) {
+      if (!CAN_EDIT) return;
+      const rows = payload?.rows || (isCombinedFarm() ? null : collectForecastRows());
+      if (!rows) return;
+      const fiscalYear = payload?.fiscal_year != null
+        ? payload.fiscal_year
+        : Number(document.getElementById('fiscal-year-select').value);
       try {
         const res = await fetch('/api/benchmarking/financial-forecasts', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            fiscal_year: Number(document.getElementById('fiscal-year-select').value),
+            fiscal_year: fiscalYear,
             band_id: 'all',
-            rows: collectForecastRows(),
+            rows,
           }),
         });
         const data = await readResponse(res);
@@ -2055,6 +2060,18 @@
       } catch (err) {
         setSaveStatus(err.message, 'err');
       }
+    }
+
+    function queueBackgroundAutosave() {
+      if (!CAN_EDIT || isCombinedFarm()) return;
+      clearTimeout(autosaveTimer);
+      autosaveTimer = null;
+      const payload = {
+        fiscal_year: Number(document.getElementById('fiscal-year-select').value),
+        rows: collectForecastRows(),
+      };
+      setSaveStatus('Saving…');
+      currentSave = currentSave.then(() => doAutosave(payload));
     }
 
     function scheduleAutosave() {
@@ -2294,7 +2311,7 @@
     document.getElementById('farm-select').addEventListener('change', async (e) => {
       if (!isCombinedFarm()) {
         applyActiveFarmDomToForecastData();
-        if (CAN_EDIT) await flushAutosave();
+        queueBackgroundAutosave();
       }
       activeFarm = e.target.value;
       updateFarmViewHints();
