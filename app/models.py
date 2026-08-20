@@ -1444,6 +1444,7 @@ class RentalAgreement(Base):
     business: Mapped[str] = mapped_column(String(8), index=True, default="CM")
     farm_name: Mapped[str] = mapped_column(String(128))
     farm_size: Mapped[float] = mapped_column(Float)  # acres
+    payment_day: Mapped[int] = mapped_column(Integer, default=1)  # 1–31, same day each month
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime.datetime] = mapped_column(

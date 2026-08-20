@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 from typing import Any
 
@@ -37,8 +38,24 @@ def _normalize_farm_size(farm_size: float) -> float:
     return value
 
 
-def _month_start(value: dt.date) -> dt.date:
-    return value.replace(day=1)
+def _normalize_payment_day(payment_day: int | None) -> int:
+    try:
+        value = 1 if payment_day is None else int(payment_day)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Payment day must be a whole number") from exc
+    if value < 1 or value > 31:
+        raise ValueError("Payment day must be between 1 and 31")
+    return value
+
+
+def rent_payment_due_date(payment_month: dt.date, payment_day: int | None) -> dt.date:
+    """Calendar date the rent goes out in payment_month (clamped to month length)."""
+    month = _month_start(payment_month)
+    day = min(
+        _normalize_payment_day(payment_day),
+        calendar.monthrange(month.year, month.month)[1],
+    )
+    return dt.date(month.year, month.month, day)
 
 
 def _round_money(value: float) -> float:
@@ -49,6 +66,10 @@ def _per_acre(total: float | None, farm_size: float | None) -> float | None:
     if total is None or farm_size is None or farm_size <= 0:
         return None
     return round(total / farm_size, 2)
+
+
+def _month_start(value: dt.date) -> dt.date:
+    return value.replace(day=1)
 
 
 def _serialize_agreement(
@@ -72,6 +93,7 @@ def _serialize_agreement(
         "business": agreement.business,
         "farm_name": agreement.farm_name,
         "farm_size": agreement.farm_size,
+        "payment_day": int(agreement.payment_day or 1),
         "sort_order": agreement.sort_order,
         "amounts": amounts,
         "total": year_total,
@@ -120,6 +142,7 @@ def list_rental_agreements(db: Session) -> list[dict[str, Any]]:
             "business": row.business,
             "farm_name": row.farm_name,
             "farm_size": row.farm_size,
+            "payment_day": int(row.payment_day or 1),
             "sort_order": row.sort_order,
         }
         for row in rows
@@ -132,11 +155,13 @@ def create_rental_agreement(
     business: str,
     farm_name: str,
     farm_size: float,
+    payment_day: int = 1,
     user_id: int | None = None,
 ) -> dict[str, Any]:
     business = _normalize_business(business)
     farm_name = _normalize_farm_name(farm_name)
     farm_size = _normalize_farm_size(farm_size)
+    payment_day = _normalize_payment_day(payment_day)
 
     existing = db.scalars(
         select(RentalAgreement).where(
@@ -150,6 +175,7 @@ def create_rental_agreement(
         existing.is_active = True
         existing.farm_name = farm_name
         existing.farm_size = farm_size
+        existing.payment_day = payment_day
         existing.updated_by_user_id = user_id
         db.commit()
         db.refresh(existing)
@@ -158,6 +184,7 @@ def create_rental_agreement(
             "business": existing.business,
             "farm_name": existing.farm_name,
             "farm_size": existing.farm_size,
+            "payment_day": int(existing.payment_day or 1),
             "sort_order": existing.sort_order,
         }
 
@@ -166,6 +193,7 @@ def create_rental_agreement(
         business=business,
         farm_name=farm_name,
         farm_size=farm_size,
+        payment_day=payment_day,
         sort_order=int(max_sort) + 1,
         created_by_user_id=user_id,
         updated_by_user_id=user_id,
@@ -182,6 +210,7 @@ def create_rental_agreement(
         "business": agreement.business,
         "farm_name": agreement.farm_name,
         "farm_size": agreement.farm_size,
+        "payment_day": int(agreement.payment_day or 1),
         "sort_order": agreement.sort_order,
     }
 
@@ -193,6 +222,7 @@ def update_rental_agreement(
     business: str,
     farm_name: str,
     farm_size: float,
+    payment_day: int = 1,
     user_id: int | None = None,
 ) -> dict[str, Any]:
     agreement = db.get(RentalAgreement, agreement_id)
@@ -202,6 +232,7 @@ def update_rental_agreement(
     business = _normalize_business(business)
     farm_name = _normalize_farm_name(farm_name)
     farm_size = _normalize_farm_size(farm_size)
+    payment_day = _normalize_payment_day(payment_day)
 
     clash = db.scalars(
         select(RentalAgreement).where(
@@ -217,6 +248,7 @@ def update_rental_agreement(
     agreement.business = business
     agreement.farm_name = farm_name
     agreement.farm_size = farm_size
+    agreement.payment_day = payment_day
     agreement.updated_by_user_id = user_id
     try:
         db.commit()
@@ -229,6 +261,7 @@ def update_rental_agreement(
         "business": agreement.business,
         "farm_name": agreement.farm_name,
         "farm_size": agreement.farm_size,
+        "payment_day": int(agreement.payment_day or 1),
         "sort_order": agreement.sort_order,
     }
 

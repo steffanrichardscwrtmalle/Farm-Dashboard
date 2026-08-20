@@ -61,6 +61,7 @@
       min-width: 7rem;
     }
     .add-land-form input[name="farm_name"] { min-width: 12rem; }
+    .add-land-form input[name="payment_day"] { min-width: 4.5rem; width: 4.5rem; }
     .add-land-form button { margin: 0; }
     .save-status {
       font-size: 0.85rem;
@@ -160,10 +161,17 @@
       width: 4.5rem;
       min-width: 4.5rem;
       max-width: 4.5rem;
-      border-right: 2px solid #94a3b8;
       text-align: right;
     }
-    .grid-table thead .col-size { border-right-color: #64748b; }
+    .grid-table .col-day {
+      left: 17rem;
+      width: 4.2rem;
+      min-width: 4.2rem;
+      max-width: 4.2rem;
+      border-right: 2px solid #94a3b8;
+      text-align: center;
+    }
+    .grid-table thead .col-day { border-right-color: #64748b; }
     .grid-table .month-col {
       min-width: 5rem;
       max-width: 5rem;
@@ -292,6 +300,10 @@
       <label for="add-farm-size">Farm size (acres)</label>
       <input id="add-farm-size" name="farm_size" type="number" min="0" step="0.01" required placeholder="0">
       <span class="muted" style="font-size:0.68rem">Use 0 for buildings / houses</span>
+    </div>
+    <div class="field">
+      <label for="add-payment-day">Payment day</label>
+      <input id="add-payment-day" name="payment_day" type="number" min="1" max="31" step="1" required value="1">
     </div>
     <button type="submit">Add land</button>
   </form>
@@ -426,6 +438,7 @@
         <th class="sticky-col col-business">Business</th>
         <th class="sticky-col col-farm">Farm name</th>
         <th class="sticky-col col-size">Acres</th>
+        <th class="sticky-col col-day">Pay day</th>
         ${monthHeaders(labels)}
         <th class="total-col">Total</th>
         <th class="per-acre-col">£/acre</th>
@@ -450,12 +463,24 @@
     </td>`;
   }
 
+  function ordinal(day) {
+    const n = Number(day) || 1;
+    const mod = n % 100;
+    if (mod >= 11 && mod <= 13) return `${n}th`;
+    if (mod % 10 === 1) return `${n}st`;
+    if (mod % 10 === 2) return `${n}nd`;
+    if (mod % 10 === 3) return `${n}rd`;
+    return `${n}th`;
+  }
+
   function metaInputs(row) {
+    const payDay = Number(row.payment_day) || 1;
     if (!isRowEditing(row.id)) {
       return `
         <td class="sticky-col col-business">${esc(row.business)}</td>
         <td class="sticky-col col-farm">${esc(row.farm_name)}</td>
-        <td class="sticky-col col-size">${esc(row.farm_size)}</td>`;
+        <td class="sticky-col col-size">${esc(row.farm_size)}</td>
+        <td class="sticky-col col-day">${esc(ordinal(payDay))}</td>`;
     }
     const businessOptions = FARM_OPTIONS.map(farm =>
       `<option value="${esc(farm)}"${farm === row.business ? ' selected' : ''}>${esc(farm)}</option>`
@@ -471,6 +496,10 @@
       <td class="sticky-col col-size">
         <input class="size-input meta-farm-size" type="number" min="0" step="0.01"
           data-agreement-id="${row.id}" value="${esc(row.farm_size)}">
+      </td>
+      <td class="sticky-col col-day">
+        <input class="size-input meta-payment-day" type="number" min="1" max="31" step="1"
+          data-agreement-id="${row.id}" value="${esc(payDay)}" aria-label="Payment day">
       </td>`;
   }
 
@@ -497,7 +526,7 @@
     const months = reportData.months || [];
     const body = document.getElementById('rents-grid-body');
     if (!(reportData.agreements || []).length) {
-      const cols = 3 + months.length + 2 + (CAN_EDIT ? 1 : 0);
+      const cols = 4 + months.length + 2 + (CAN_EDIT ? 1 : 0);
       body.innerHTML = `<tr><td colspan="${cols}" class="muted" style="padding:0.6rem">No rental agreements yet. Add land above.</td></tr>`;
       return;
     }
@@ -699,12 +728,18 @@
     const farmName = row.querySelector('.meta-farm-name')?.value?.trim();
     const farmSizeRaw = row.querySelector('.meta-farm-size')?.value;
     const farmSize = farmSizeRaw === '' || farmSizeRaw == null ? null : Number(farmSizeRaw);
+    const paymentDayRaw = row.querySelector('.meta-payment-day')?.value;
+    const paymentDay = paymentDayRaw === '' || paymentDayRaw == null ? null : Number(paymentDayRaw);
     if (!farmName) {
       setSaveStatus('Farm name is required', 'err');
       return;
     }
     if (farmSize == null || !Number.isFinite(farmSize) || farmSize < 0) {
       setSaveStatus('Farm size cannot be negative', 'err');
+      return;
+    }
+    if (paymentDay == null || !Number.isInteger(paymentDay) || paymentDay < 1 || paymentDay > 31) {
+      setSaveStatus('Payment day must be between 1 and 31', 'err');
       return;
     }
     setSaveStatus('Saving…', 'busy');
@@ -716,6 +751,7 @@
           business,
           farm_name: farmName,
           farm_size: farmSize,
+          payment_day: paymentDay,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -731,6 +767,7 @@
         agreement.business = business;
         agreement.farm_name = farmName;
         agreement.farm_size = farmSize;
+        agreement.payment_day = paymentDay;
       }
       refreshComputedFromDom();
       setSaveStatus('Saved ✓', 'ok');
@@ -777,6 +814,7 @@
       business: form.business.value,
       farm_name: form.farm_name.value.trim(),
       farm_size: Number(form.farm_size.value),
+      payment_day: Number(form.payment_day.value) || 1,
     };
     setSaveStatus('Adding…', 'busy');
     try {
@@ -796,6 +834,7 @@
       form.reset();
       form.business.value = FARM_OPTIONS[0] || 'CM';
       form.farm_size.value = '0';
+      form.payment_day.value = '1';
       editingId = data.agreement?.id ?? null;
       await loadReport();
       setSaveStatus(editingId ? 'Land added — enter monthly amounts' : 'Land added', 'ok');

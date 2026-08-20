@@ -36,6 +36,7 @@ from app.services.benchmarking_rations import (
     save_ingredient_costs,
     update_ingredient,
 )
+from app.services.cash_requirements import build_cash_requirements_report
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
 from app.services.financial_data_sources import list_financial_data_sources
 from app.services.financial_forecast_autofill import (
@@ -898,6 +899,7 @@ class RentalAgreementBody(BaseModel):
     business: str = Field(default="CM", min_length=1, max_length=8)
     farm_name: str = Field(min_length=1, max_length=128)
     farm_size: float = Field(ge=0)
+    payment_day: int = Field(default=1, ge=1, le=31)
 
 
 class RentalPaymentRowBody(BaseModel):
@@ -937,6 +939,7 @@ def api_create_rental_agreement(
                 business=body.business,
                 farm_name=body.farm_name,
                 farm_size=body.farm_size,
+                payment_day=body.payment_day,
                 user_id=user.id,
             )
         }
@@ -976,6 +979,7 @@ def api_update_rental_agreement(
                 business=body.business,
                 farm_name=body.farm_name,
                 farm_size=body.farm_size,
+                payment_day=body.payment_day,
                 user_id=user.id,
             )
         }
@@ -992,5 +996,22 @@ def api_deactivate_rental_agreement(
     try:
         deactivate_rental_agreement(db, agreement_id=agreement_id)
         return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/cash-requirements")
+def api_cash_requirements(
+    business: str | None = Query(None),
+    month: dt.date | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    try:
+        return build_cash_requirements_report(
+            db,
+            business=business,
+            month=month,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

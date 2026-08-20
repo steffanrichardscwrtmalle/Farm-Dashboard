@@ -1717,6 +1717,28 @@ def benchmarking_rental_agreements_page(request: Request):
     )
 
 
+@app.get("/benchmarking/cash-requirements", response_class=HTMLResponse)
+def benchmarking_cash_requirements_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/cash_requirements.html",
+        _template_ctx(
+            request,
+            page_heading="Cash requirements",
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_benchmarking_context(
+                "Cash requirements",
+                "cash-requirements",
+                "Cash requirements",
+            ),
+        ),
+    )
+
+
 @app.get("/benchmarking/feed-purchase-forecasts", response_class=HTMLResponse)
 def benchmarking_feed_purchase_forecasts_page(request: Request):
     if denied := _page_guard(request, PAGE_BENCHMARKING):

@@ -15,6 +15,7 @@ from app.services.rental_agreements import (
     build_rental_payment_index,
     create_rental_agreement,
     deactivate_rental_agreement,
+    rent_payment_due_date,
     save_rental_payments,
     update_rental_agreement,
 )
@@ -43,6 +44,7 @@ def test_create_and_list_rental_agreement(db: Session) -> None:
     assert created["business"] == "CM"
     assert created["farm_name"] == "Home Farm"
     assert created["farm_size"] == 120.5
+    assert created["payment_day"] == 1
 
     report = build_rental_agreements_report(db, fiscal_year=FISCAL_YEAR)
     assert report["fiscal_year"] == FISCAL_YEAR
@@ -122,10 +124,12 @@ def test_update_and_deactivate_agreement(db: Session) -> None:
         business="GAD",
         farm_name="New Name",
         farm_size=20,
+        payment_day=15,
     )
     assert updated["business"] == "GAD"
     assert updated["farm_name"] == "New Name"
     assert updated["farm_size"] == 20
+    assert updated["payment_day"] == 15
 
     deactivate_rental_agreement(db, agreement_id=created["id"])
     report = build_rental_agreements_report(db, fiscal_year=FISCAL_YEAR)
@@ -248,3 +252,22 @@ def test_rent_amounts_saved_to_two_decimal_places(db: Session) -> None:
 def test_rejects_negative_farm_size(db: Session) -> None:
     with pytest.raises(ValueError, match="cannot be negative"):
         create_rental_agreement(db, business="CM", farm_name="Bad", farm_size=-1)
+
+
+def test_payment_day_defaults_to_first_and_clamps_short_months() -> None:
+    assert rent_payment_due_date(dt.date(2026, 8, 1), 1) == dt.date(2026, 8, 1)
+    assert rent_payment_due_date(dt.date(2026, 8, 1), 15) == dt.date(2026, 8, 15)
+    assert rent_payment_due_date(dt.date(2026, 2, 1), 31) == dt.date(2026, 2, 28)
+
+
+def test_create_with_custom_payment_day(db: Session) -> None:
+    created = create_rental_agreement(
+        db,
+        business="CM",
+        farm_name="Late Rent",
+        farm_size=10,
+        payment_day=28,
+    )
+    assert created["payment_day"] == 28
+    report = build_rental_agreements_report(db, fiscal_year=FISCAL_YEAR)
+    assert report["agreements"][0]["payment_day"] == 28

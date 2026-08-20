@@ -67,13 +67,23 @@ def _validate_inputs(
     return name
 
 
+def _roll_weekend_to_monday(due: dt.date) -> dt.date:
+    """HP payments do not go out at the weekend: Saturday/Sunday move to Monday."""
+    weekday = due.weekday()
+    if weekday == 5:  # Saturday
+        return due + dt.timedelta(days=2)
+    if weekday == 6:  # Sunday
+        return due + dt.timedelta(days=1)
+    return due
+
+
 def _payment_due_date(start_month: dt.date, installment_index: int, payment_day: int) -> dt.date:
     """Return the due date for installment_index (0-based) of an agreement."""
     month_offset = start_month.month - 1 + installment_index
     year = start_month.year + month_offset // 12
     month = month_offset % 12 + 1
     day = min(payment_day, calendar.monthrange(year, month)[1])
-    return dt.date(year, month, day)
+    return _roll_weekend_to_monday(dt.date(year, month, day))
 
 
 def months_remaining(

@@ -151,7 +151,7 @@ def _migrate_xero_line_amount_types() -> None:
 
 
 def _migrate_rental_agreements_schema() -> None:
-    """Ensure rental agreement tables exist."""
+    """Ensure rental agreement tables exist and have payment_day."""
     from app.models import RentalAgreement, RentalAgreementPayment
 
     inspector = inspect(engine)
@@ -160,6 +160,25 @@ def _migrate_rental_agreements_schema() -> None:
         RentalAgreement.__table__.create(bind=engine, checkfirst=True)
     if "rental_agreement_payments" not in tables:
         RentalAgreementPayment.__table__.create(bind=engine, checkfirst=True)
+
+    inspector = inspect(engine)
+    if "rental_agreements" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("rental_agreements")}
+    if "payment_day" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE rental_agreements ADD COLUMN payment_day INTEGER DEFAULT 1"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE rental_agreements SET payment_day = 1 "
+                "WHERE payment_day IS NULL OR payment_day < 1 OR payment_day > 31"
+            )
+        )
 
 
 def _migrate_hp_schedules_schema() -> None:

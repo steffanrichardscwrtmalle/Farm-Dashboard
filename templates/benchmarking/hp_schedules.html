@@ -298,7 +298,7 @@
 
     <div class="section-panel" id="section-agreements">
     <div class="hp-top">
-      <span class="muted">Store hire purchase agreements and see monthly capital / interest and months remaining.</span>
+      <span class="muted">Store hire purchase agreements and see monthly capital / interest and months remaining. Payments due on a Saturday or Sunday go out on the Monday.</span>
       {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
     </div>
 
@@ -327,7 +327,7 @@
       <label>Months
         <input type="number" id="hp-months" required min="1" max="600" step="1" placeholder="36">
       </label>
-      <label>Payment day
+      <label title="If that day is a Saturday or Sunday, the payment goes out on the Monday.">Payment day
         <input type="number" id="hp-payment-day" required min="1" max="31" step="1" placeholder="18">
       </label>
       <label>First payment month

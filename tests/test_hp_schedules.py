@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Base, HpSchedule
 from app.services.hp_schedules import (
+    _payment_due_date,
     build_hp_payment_chart,
     create_hp_schedule,
     deactivate_hp_schedule,
@@ -28,7 +29,15 @@ def db() -> Session:
     session.close()
 
 
-def test_months_remaining_counts_due_payments() -> None:
+def test_weekend_due_dates_roll_to_monday() -> None:
+    # 18 Apr 2026 is Saturday → Monday 20 Apr
+    assert _payment_due_date(dt.date(2026, 4, 1), 0, 18) == dt.date(2026, 4, 20)
+    # 19 Apr 2026 is Sunday → Monday 20 Apr
+    assert _payment_due_date(dt.date(2026, 4, 1), 0, 19) == dt.date(2026, 4, 20)
+    # Friday stays Friday
+    assert _payment_due_date(dt.date(2026, 4, 1), 0, 17) == dt.date(2026, 4, 17)
+    # 31 Jan 2026 is Saturday → Monday 2 Feb
+    assert _payment_due_date(dt.date(2026, 1, 1), 0, 31) == dt.date(2026, 2, 2)
     start = dt.date(2025, 4, 1)
     # Before first payment day in April → all 12 remaining
     assert months_remaining(start_month=start, months=12, payment_day=18, as_of=dt.date(2025, 4, 10)) == 12

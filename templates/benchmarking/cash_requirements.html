@@ -1,0 +1,361 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Cash requirements{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .cash-page {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      min-height: calc(100vh - 7.5rem);
+    }
+    .cash-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      gap: 0.5rem 0.85rem;
+      padding: 0.55rem 0.7rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      font-size: 0.82rem;
+    }
+    .cash-top label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      margin: 0;
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .cash-top select,
+    .cash-top input[type="month"] {
+      margin: 0;
+      padding: 0.22rem 0.4rem;
+      font-size: 0.82rem;
+    }
+    .cash-top .muted { margin: 0; align-self: center; padding-bottom: 0.1rem; }
+    .cash-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(8rem, 1fr));
+      gap: 0.55rem;
+    }
+    .cash-card {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      padding: 0.55rem 0.7rem;
+    }
+    .cash-card .label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .cash-card .value {
+      font-size: 1.15rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      margin-top: 0.15rem;
+    }
+    .cash-card.remaining { background: #fff7ed; }
+    .cash-card.paid { background: #f0fdf4; }
+    .cash-layout {
+      display: grid;
+      grid-template-columns: minmax(22rem, 1.1fr) minmax(22rem, 1fr);
+      gap: 0.75rem;
+      flex: 1;
+      min-height: 0;
+    }
+    @media (max-width: 1100px) {
+      .cash-layout { grid-template-columns: 1fr; }
+    }
+    .cash-panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.55rem 0.7rem;
+    }
+    .cash-panel h2 {
+      margin: 0 0 0.35rem;
+      font-size: 0.95rem;
+    }
+    .cash-panel .hint {
+      margin: 0 0 0.45rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .table-wrap { overflow: auto; flex: 1; }
+    .cash-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    .cash-table th,
+    .cash-table td {
+      border-bottom: 1px solid var(--border);
+      padding: 0.4rem 0.5rem;
+      white-space: nowrap;
+    }
+    .cash-table th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      text-align: left;
+      position: sticky;
+      top: 0;
+    }
+    .cash-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .cash-table tbody tr.due td { background: #ffedd5; }
+    .cash-table tbody tr.paid td { background: #dcfce7; }
+    .cash-table tfoot td {
+      font-weight: 700;
+      background: #f1f5f9;
+    }
+    .type-pill {
+      display: inline-block;
+      padding: 0.05rem 0.4rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: #e2e8f0;
+    }
+    .chart-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 22rem;
+    }
+    .empty-state { color: var(--muted); font-style: italic; }
+{% endblock %}
+
+{% block content %}
+  <div class="cash-page">
+    <div class="cash-top">
+      <label>Business
+        <select id="business-filter">
+          <option value="">All</option>
+          {% for farm in farm_options %}
+          <option value="{{ farm }}">{{ farm }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Month
+        <input type="month" id="month-filter">
+      </label>
+      <p class="muted">HP and rent payments going out, in date order. Green has gone out (including due today); orange is still ahead. HP due on a Saturday or Sunday goes out on the Monday.</p>
+    </div>
+
+    <div class="cash-summary">
+      <div class="cash-card">
+        <div class="label">This month</div>
+        <div class="value" id="sum-total">—</div>
+      </div>
+      <div class="cash-card paid">
+        <div class="label">Gone out</div>
+        <div class="value" id="sum-paid">—</div>
+      </div>
+      <div class="cash-card remaining">
+        <div class="label">Still to go</div>
+        <div class="value" id="sum-remaining">—</div>
+      </div>
+    </div>
+
+    <div class="cash-layout">
+      <div class="cash-panel">
+        <h2 id="list-heading">Payments this month</h2>
+        <p class="hint" id="list-hint">Loading…</p>
+        <div class="table-wrap">
+          <table class="cash-table" id="cash-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Business</th>
+                <th>Name</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody id="cash-body">
+              <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+            </tbody>
+            <tfoot id="cash-foot"></tfoot>
+          </table>
+        </div>
+      </div>
+      <div class="cash-panel">
+        <h2>Monthly requirement</h2>
+        <p class="hint" id="chart-hint">Loading chart…</p>
+        <div class="chart-wrap">
+          <canvas id="cash-chart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script>
+    let cashChart = null;
+
+    function money(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '—';
+      return '£' + n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function esc(value) {
+      return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;');
+    }
+
+    function typeLabel(source) {
+      return source === 'hp' ? 'HP' : 'Rent';
+    }
+
+    function monthInputValue(iso) {
+      return (iso || '').slice(0, 7);
+    }
+
+    function renderList(data) {
+      const body = document.getElementById('cash-body');
+      const foot = document.getElementById('cash-foot');
+      const heading = document.getElementById('list-heading');
+      const hint = document.getElementById('list-hint');
+      heading.textContent = `Payments in ${data.month_label}`;
+      hint.textContent = data.today
+        ? `As of ${esc(data.today)}. Green has gone out (including due today); orange is still ahead.`
+        : '';
+      document.getElementById('sum-total').textContent = money(data.totals?.total);
+      document.getElementById('sum-paid').textContent = money(data.totals?.paid);
+      document.getElementById('sum-remaining').textContent = money(data.totals?.remaining);
+
+      const rows = data.payments || [];
+      if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="5" class="empty-state">No HP or rent payments this month.</td></tr>`;
+        foot.innerHTML = '';
+        return;
+      }
+      body.innerHTML = rows.map(row => `<tr class="${row.paid ? 'paid' : 'due'}">
+        <td>${esc(row.due_label)}</td>
+        <td><span class="type-pill">${esc(typeLabel(row.source))}</span></td>
+        <td>${esc(row.business)}</td>
+        <td>${esc(row.name)}</td>
+        <td class="num">${money(row.amount)}</td>
+      </tr>`).join('');
+      foot.innerHTML = `<tr>
+        <td colspan="4">Total</td>
+        <td class="num">${money(data.totals?.total)}</td>
+      </tr>`;
+    }
+
+    function renderChart(data) {
+      const hint = document.getElementById('chart-hint');
+      const months = data.months || [];
+      const current = months.find(m => m.is_current);
+      hint.textContent = current
+        ? `FY ${data.fiscal_year}. Current month still to go: ${money(current.remaining)}.`
+        : `FY ${data.fiscal_year}.`;
+      const canvas = document.getElementById('cash-chart');
+      if (typeof Chart === 'undefined') {
+        hint.textContent = 'Chart library failed to load.';
+        return;
+      }
+      if (cashChart) {
+        cashChart.destroy();
+        cashChart = null;
+      }
+      cashChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: months.map(m => m.month_label),
+          datasets: [
+            {
+              label: 'Gone out',
+              data: months.map(m => m.paid),
+              backgroundColor: 'rgba(34, 197, 94, 0.75)',
+              stack: 'req',
+            },
+            {
+              label: 'Still to go',
+              data: months.map(m => m.remaining),
+              backgroundColor: 'rgba(251, 146, 60, 0.8)',
+              stack: 'req',
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'bottom' },
+            tooltip: {
+              callbacks: {
+                label: (item) => `${item.dataset.label}: ${money(item.raw)}`,
+                footer: (items) => {
+                  if (!items.length) return '';
+                  const idx = items[0].dataIndex;
+                  return `Total: ${money(months[idx]?.total)}`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              stacked: true,
+              title: { display: true, text: 'Month' },
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              title: { display: true, text: 'Cash required (£)' },
+              ticks: {
+                callback: (v) => '£' + Number(v).toLocaleString('en-GB'),
+              },
+            },
+          },
+        },
+      });
+    }
+
+    async function loadCashRequirements() {
+      const business = document.getElementById('business-filter').value;
+      const month = document.getElementById('month-filter').value;
+      const params = new URLSearchParams();
+      if (business) params.set('business', business);
+      if (month) params.set('month', `${month}-01`);
+      const res = await fetch(`/api/benchmarking/cash-requirements?${params.toString()}`);
+      if (!res.ok) throw new Error('Could not load cash requirements');
+      const data = await res.json();
+      if (!document.getElementById('month-filter').value) {
+        document.getElementById('month-filter').value = monthInputValue(data.month);
+      }
+      renderList(data);
+      renderChart(data);
+    }
+
+    document.getElementById('business-filter').addEventListener('change', () => {
+      loadCashRequirements().catch(() => {
+        document.getElementById('list-hint').textContent = 'Could not load cash requirements.';
+      });
+    });
+    document.getElementById('month-filter').addEventListener('change', () => {
+      loadCashRequirements().catch(() => {
+        document.getElementById('list-hint').textContent = 'Could not load cash requirements.';
+      });
+    });
+    loadCashRequirements().catch(() => {
+      document.getElementById('list-hint').textContent = 'Could not load cash requirements.';
+    });
+  </script>
+{% endblock %}
