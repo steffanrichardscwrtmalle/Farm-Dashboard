@@ -18,6 +18,11 @@ from app.services.beef_inventory import (
     get_beef_inventory_report,
 )
 from app.services.calves_due import get_calves_due_report
+from app.services.cow_inventory import (
+    build_cow_inventory_csv,
+    build_cow_inventory_pdf,
+    get_cow_inventory_report,
+)
 from app.services.heifer_inventory import (
     PDF_CONTENT_TYPE,
     build_heifer_inventory_csv,
@@ -85,6 +90,61 @@ def api_heifer_inventory_export_pdf(
         content=content,
         media_type=PDF_CONTENT_TYPE,
         headers={"Content-Disposition": 'attachment; filename="heifer_inventory.pdf"'},
+    )
+
+
+@router.get("/cow-inventory")
+def api_cow_inventory(
+    farm: list[str] = Query(default=[]),
+    min_lact: int | None = Query(default=None, ge=0),
+    max_lact: int | None = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_STOCK_INVENTORY)),
+):
+    farms = farm or None
+    return get_cow_inventory_report(
+        db,
+        farms=farms,
+        min_lact=min_lact,
+        max_lact=max_lact,
+    )
+
+
+@router.get("/cow-inventory/export.csv")
+def api_cow_inventory_export_csv(
+    farm: list[str] = Query(default=[]),
+    min_lact: int | None = Query(default=None, ge=0),
+    max_lact: int | None = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_STOCK_INVENTORY)),
+):
+    report = get_cow_inventory_report(
+        db, farms=farm or None, min_lact=min_lact, max_lact=max_lact
+    )
+    content = build_cow_inventory_csv(report, _selected_farms(farm))
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="cow_inventory.csv"'},
+    )
+
+
+@router.get("/cow-inventory/export.pdf")
+def api_cow_inventory_export_pdf(
+    farm: list[str] = Query(default=[]),
+    min_lact: int | None = Query(default=None, ge=0),
+    max_lact: int | None = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_STOCK_INVENTORY)),
+):
+    report = get_cow_inventory_report(
+        db, farms=farm or None, min_lact=min_lact, max_lact=max_lact
+    )
+    content = build_cow_inventory_pdf(report, _selected_farms(farm))
+    return Response(
+        content=content,
+        media_type=PDF_CONTENT_TYPE,
+        headers={"Content-Disposition": 'attachment; filename="cow_inventory.pdf"'},
     )
 
 

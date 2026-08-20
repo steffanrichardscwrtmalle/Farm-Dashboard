@@ -742,6 +742,27 @@ def prostock_monthly_spend_page(request: Request):
     )
 
 
+@app.get("/stock-inventory/cow-inventory", response_class=HTMLResponse)
+def stock_inventory_cow_page(request: Request):
+    if denied := _page_guard(request, PAGE_STOCK_INVENTORY):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "stock_inventory/cow_inventory.html",
+        _template_ctx(
+            request,
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_stock_inventory_context(
+                "Cow Inventory",
+                "cow-inventory",
+                "Cow Inventory",
+            ),
+        ),
+    )
+
+
 @app.get("/stock-inventory/heifer-inventory", response_class=HTMLResponse)
 def stock_inventory_heifer_page(request: Request):
     if denied := _page_guard(request, PAGE_STOCK_INVENTORY):
@@ -1728,12 +1749,12 @@ def benchmarking_cash_requirements_page(request: Request):
         "benchmarking/cash_requirements.html",
         _template_ctx(
             request,
-            page_heading="Cash requirements",
+            page_heading="Cash Requirements",
             farm_options=list(HERD_FARM_OPTIONS),
             **_benchmarking_context(
-                "Cash requirements",
+                "Cash Requirements",
                 "cash-requirements",
-                "Cash requirements",
+                "Cash Requirements",
             ),
         ),
     )
