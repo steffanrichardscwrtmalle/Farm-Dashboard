@@ -619,6 +619,12 @@
         || agreement?.business
         || 'CM';
       const farmSize = Number(tr.querySelector('.meta-farm-size')?.value ?? agreement?.farm_size ?? 0);
+      const farmName = tr.querySelector('.meta-farm-name')?.value?.trim()
+        || agreement?.farm_name;
+      const paymentDayRaw = tr.querySelector('.meta-payment-day')?.value;
+      const paymentDay = paymentDayRaw === '' || paymentDayRaw == null
+        ? (agreement?.payment_day ?? 1)
+        : Number(paymentDayRaw);
       let total = 0;
       let hasAmount = false;
       months.forEach(month => {
@@ -637,7 +643,11 @@
       const yearTotal = hasAmount ? roundMoney(total) : null;
       if (agreement) {
         agreement.business = business;
+        if (farmName) agreement.farm_name = farmName;
         agreement.farm_size = farmSize;
+        if (Number.isInteger(paymentDay) && paymentDay >= 1 && paymentDay <= 31) {
+          agreement.payment_day = paymentDay;
+        }
         agreement.total = yearTotal;
         agreement.per_acre = perAcre(yearTotal, farmSize);
       }
@@ -721,9 +731,9 @@
   }
 
   async function saveAgreementMeta(agreementId) {
-    if (!isRowEditing(agreementId)) return;
+    if (!isRowEditing(agreementId)) return false;
     const row = document.querySelector(`#rents-grid-body tr[data-agreement-id="${agreementId}"]`);
-    if (!row) return;
+    if (!row) return false;
     const business = row.querySelector('.meta-business')?.value;
     const farmName = row.querySelector('.meta-farm-name')?.value?.trim();
     const farmSizeRaw = row.querySelector('.meta-farm-size')?.value;
@@ -732,15 +742,15 @@
     const paymentDay = paymentDayRaw === '' || paymentDayRaw == null ? null : Number(paymentDayRaw);
     if (!farmName) {
       setSaveStatus('Farm name is required', 'err');
-      return;
+      return false;
     }
     if (farmSize == null || !Number.isFinite(farmSize) || farmSize < 0) {
       setSaveStatus('Farm size cannot be negative', 'err');
-      return;
+      return false;
     }
     if (paymentDay == null || !Number.isInteger(paymentDay) || paymentDay < 1 || paymentDay > 31) {
       setSaveStatus('Payment day must be between 1 and 31', 'err');
-      return;
+      return false;
     }
     setSaveStatus('Saving…', 'busy');
     try {
@@ -772,8 +782,10 @@
       refreshComputedFromDom();
       setSaveStatus('Saved ✓', 'ok');
       showRowSaved(agreementId);
+      return true;
     } catch (err) {
       setSaveStatus(err.message || 'Update failed', 'err');
+      return false;
     }
   }
 
@@ -782,6 +794,7 @@
     if (editingId != null && Number(editingId) !== Number(agreementId)) {
       clearTimeout(autosaveTimer);
       pendingSave = false;
+      await saveAgreementMeta(editingId);
       await flushAutosave();
     }
     editingId = Number(agreementId);
@@ -798,6 +811,8 @@
     const savedId = editingId;
     clearTimeout(autosaveTimer);
     pendingSave = false;
+    const metaOk = await saveAgreementMeta(savedId);
+    if (!metaOk) return;
     await flushAutosave();
     editingId = null;
     renderAll();
@@ -899,7 +914,7 @@
 
   document.getElementById('rents-grid-body').addEventListener('change', (event) => {
     const target = event.target;
-    if (!target.matches('.meta-business, .meta-farm-name, .meta-farm-size')) return;
+    if (!target.matches('.meta-business, .meta-farm-name, .meta-farm-size, .meta-payment-day')) return;
     if (!isRowEditing(target.dataset.agreementId)) return;
     saveAgreementMeta(Number(target.dataset.agreementId));
   });

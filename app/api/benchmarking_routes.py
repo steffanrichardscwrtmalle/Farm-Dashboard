@@ -71,6 +71,12 @@ from app.services.rental_agreements import (
     save_rental_payments,
     update_rental_agreement,
 )
+from app.services.standing_orders import (
+    create_standing_order,
+    deactivate_standing_order,
+    list_standing_orders,
+    update_standing_order,
+)
 from app.services.stock_sales_purchases_forecasts import (
     build_stock_sales_purchases_forecasts_report,
 )
@@ -890,6 +896,87 @@ def api_deactivate_hp_schedule(
 ):
     try:
         deactivate_hp_schedule(db, schedule_id=schedule_id)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class StandingOrderBody(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    business: str = Field(default="CM", min_length=1, max_length=8)
+    description: str = Field(default="", max_length=255)
+    amount: float = Field(ge=0)
+    months: int = Field(ge=1, le=600)
+    payment_day: int = Field(ge=1, le=31)
+    start_month: dt.date
+
+
+@router.get("/standing-orders")
+def api_list_standing_orders(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    return {"orders": list_standing_orders(db)}
+
+
+@router.post("/standing-orders")
+def api_create_standing_order(
+    body: StandingOrderBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        return {
+            "order": create_standing_order(
+                db,
+                name=body.name,
+                business=body.business,
+                description=body.description,
+                amount=body.amount,
+                months=body.months,
+                payment_day=body.payment_day,
+                start_month=body.start_month,
+                user_id=user.id,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/standing-orders/{order_id}")
+def api_update_standing_order(
+    order_id: int,
+    body: StandingOrderBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        return {
+            "order": update_standing_order(
+                db,
+                order_id=order_id,
+                name=body.name,
+                business=body.business,
+                description=body.description,
+                amount=body.amount,
+                months=body.months,
+                payment_day=body.payment_day,
+                start_month=body.start_month,
+                user_id=user.id,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/standing-orders/{order_id}")
+def api_deactivate_standing_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        deactivate_standing_order(db, order_id=order_id)
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

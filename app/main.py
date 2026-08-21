@@ -186,7 +186,7 @@ _REPORTS_BREADCRUMB = (
 )
 _BENCHMARKING_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
-    '<a href="/benchmarking/forecasts">Benchmarking</a>'
+    '<a href="/benchmarking/forecasts">Budgeting</a>'
 )
 
 _login_attempts: dict[str, list[float]] = defaultdict(list)
@@ -1709,6 +1709,25 @@ def benchmarking_hp_schedules_page(request: Request):
             can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
             farm_options=list(HERD_FARM_OPTIONS),
             **_benchmarking_context("HP Schedules", "hp-schedules", "HP Schedules"),
+        ),
+    )
+
+
+@app.get("/benchmarking/standing-orders", response_class=HTMLResponse)
+def benchmarking_standing_orders_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/standing_orders.html",
+        _template_ctx(
+            request,
+            page_heading="Standing Orders",
+            can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_benchmarking_context("Standing Orders", "standing-orders", "Standing Orders"),
         ),
     )
 

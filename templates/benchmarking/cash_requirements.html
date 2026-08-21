@@ -150,7 +150,7 @@
       <label>Month
         <input type="month" id="month-filter">
       </label>
-      <p class="muted">HP and rent payments going out, in date order. Green has gone out (including due today); orange is still ahead. HP due on a Saturday or Sunday goes out on the Monday.</p>
+      <p class="muted">HP, standing order, and rent payments going out, in date order. Green has gone out (including due today); orange is still ahead. HP and standing orders due on a Saturday or Sunday go out on the Monday.</p>
     </div>
 
     <div class="cash-summary">
@@ -219,7 +219,10 @@
     }
 
     function typeLabel(source) {
-      return source === 'hp' ? 'HP' : 'Rent';
+      if (source === 'hp') return 'HP';
+      if (source === 'rent') return 'Rent';
+      if (source === 'standing_order') return 'Standing order';
+      return source || '';
     }
 
     function monthInputValue(iso) {
@@ -241,7 +244,7 @@
 
       const rows = data.payments || [];
       if (!rows.length) {
-        body.innerHTML = `<tr><td colspan="5" class="empty-state">No HP or rent payments this month.</td></tr>`;
+        body.innerHTML = `<tr><td colspan="5" class="empty-state">No HP, standing order, or rent payments this month.</td></tr>`;
         foot.innerHTML = '';
         return;
       }

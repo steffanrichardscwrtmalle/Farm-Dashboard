@@ -177,3 +177,27 @@ def test_rent_uses_agreement_payment_day(db: Session) -> None:
     row = next(item for item in report["payments"] if item["name"] == "Mid month")
     assert row["due_date"] == "2026-08-15"
     assert row["paid"] is False
+
+
+def test_standing_order_feeds_cash_requirements(db: Session) -> None:
+    from app.services.standing_orders import create_standing_order
+
+    create_standing_order(
+        db,
+        name="Contractor",
+        business="CM",
+        amount=1800,
+        months=12,
+        payment_day=12,
+        start_month="2026-04",
+    )
+    report = build_cash_requirements_report(
+        db, month="2026-08", today=dt.date(2026, 8, 10)
+    )
+    row = next(item for item in report["payments"] if item["name"] == "Contractor")
+    assert row["source"] == "standing_order"
+    assert row["amount"] == 1800
+    assert row["due_date"] == "2026-08-12"
+    assert row["paid"] is False
+    august = next(m for m in report["months"] if m["month"] == "2026-08-01")
+    assert august["remaining"] == 1800

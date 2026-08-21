@@ -59,6 +59,7 @@ def init_db() -> None:
     _migrate_financial_forecasts_schema()
     _migrate_rations_schema()
     _migrate_hp_schedules_schema()
+    _migrate_standing_orders_schema()
     _migrate_rental_agreements_schema()
     _migrate_xero_line_amount_types()
     _migrate_parlour_schema()
@@ -231,6 +232,16 @@ def _migrate_hp_schedules_schema() -> None:
                     f"OR business NOT IN ({', '.join(repr(v) for v in HERD_FARM_OPTIONS)})"
                 )
             )
+
+
+def _migrate_standing_orders_schema() -> None:
+    """Ensure standing_orders exists on databases created before this table."""
+    from app.models import StandingOrder
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "standing_orders" not in tables:
+        StandingOrder.__table__.create(bind=engine, checkfirst=True)
 
 
 def _migrate_financial_forecasts_schema() -> None:

@@ -1,0 +1,572 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Standing Orders{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .so-page {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      min-height: calc(100vh - 7.5rem);
+    }
+    .so-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 1rem;
+      font-size: 0.82rem;
+    }
+    .so-top .muted { margin: 0; }
+    .so-form {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      gap: 0.5rem 0.75rem;
+      padding: 0.55rem 0.7rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      font-size: 0.82rem;
+    }
+    .so-form label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      margin: 0;
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .so-form input,
+    .so-form select {
+      margin: 0;
+      padding: 0.25rem 0.4rem;
+      font-size: 0.85rem;
+      min-width: 0;
+    }
+    .so-form #so-name { width: 12rem; }
+    .so-form #so-business { width: 5rem; }
+    .so-form #so-description { width: 14rem; }
+    .so-form #so-amount { width: 8rem; }
+    .so-form #so-months { width: 5rem; }
+    .so-form #so-payment-day { width: 4.5rem; }
+    .so-form #so-start-month { width: 8rem; }
+    .so-form .form-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding-bottom: 0.05rem;
+    }
+    .so-form button {
+      padding: 0.3rem 0.7rem;
+      font-size: 0.82rem;
+    }
+    .form-status { font-size: 0.8rem; color: var(--muted); }
+    .form-status.ok { color: #15803d; }
+    .form-status.err { color: #b91c1c; }
+    .so-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.65rem;
+    }
+    .so-panel h2 {
+      margin: 0 0 0.35rem;
+      font-size: 0.95rem;
+    }
+    .so-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 0.85rem;
+      margin-bottom: 0.45rem;
+      font-size: 0.82rem;
+    }
+    .so-toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin: 0;
+      font-weight: 500;
+      color: var(--muted);
+    }
+    .so-toolbar input[type="search"],
+    .so-toolbar select {
+      margin: 0;
+      padding: 0.22rem 0.4rem;
+      font-size: 0.82rem;
+    }
+    .so-toolbar #so-search { width: 14rem; }
+    .so-toolbar #so-sort { min-width: 10rem; }
+    .so-toolbar #so-business-filter { width: 5.5rem; }
+    .so-toolbar .toggle-finished {
+      color: var(--text);
+      font-weight: 500;
+    }
+    .so-table th.sortable {
+      cursor: pointer;
+      user-select: none;
+    }
+    .so-table th.sortable:hover { background: #274b73; }
+    .so-table th.sorted-asc::after { content: ' ▲'; font-size: 0.65rem; }
+    .so-table th.sorted-desc::after { content: ' ▼'; font-size: 0.65rem; }
+    .table-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      border: 1px solid var(--border);
+    }
+    .so-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .so-table th,
+    .so-table td {
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      padding: 0.35rem 0.5rem;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .so-table th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .so-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .so-table tbody tr:nth-child(even) td { background: #fafbfc; }
+    .so-table tbody tr.is-complete td,
+    .so-table tbody tr.is-complete:nth-child(even) td {
+      background: #ecfdf5;
+      color: #166534;
+    }
+    .so-table tbody tr.is-complete td:first-child,
+    .so-table tbody tr.is-complete:nth-child(even) td:first-child {
+      background: #d1fae5;
+    }
+    .so-table .actions {
+      display: flex;
+      gap: 0.35rem;
+    }
+    .so-table .actions button {
+      padding: 0.15rem 0.45rem;
+      font-size: 0.75rem;
+    }
+    .so-table .btn-remove {
+      color: #b91c1c;
+      border-color: #fecaca;
+      background: #fef2f2;
+    }
+    .so-totals {
+      margin-top: 0.45rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .empty-state {
+      padding: 1.25rem;
+      text-align: center;
+      color: var(--muted);
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="so-page">
+    <div class="so-top">
+      <span class="muted">Monthly standing orders such as contractors. Each payment uses the amount and day you enter, for the number of months set. Payments due on a Saturday or Sunday go out on the Monday, and they appear on Cash Requirements.</span>
+      {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
+    </div>
+
+    {% if can_edit %}
+    <form class="so-form" id="so-form" autocomplete="off">
+      <input type="hidden" id="so-id" value="">
+      <label>Business
+        <select id="so-business" required>
+          {% for farm in farm_options %}
+          <option value="{{ farm }}"{% if farm == 'CM' %} selected{% endif %}>{{ farm }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Name
+        <input type="text" id="so-name" required maxlength="128" placeholder="e.g. Contractor">
+      </label>
+      <label>Description
+        <input type="text" id="so-description" maxlength="255" placeholder="Optional">
+      </label>
+      <label>Amount / payment (£)
+        <input type="number" id="so-amount" required min="0" step="0.01" placeholder="0.00">
+      </label>
+      <label>Months
+        <input type="number" id="so-months" required min="1" max="600" step="1" placeholder="12">
+      </label>
+      <label title="If that day is a Saturday or Sunday, the payment goes out on the Monday.">Payment day
+        <input type="number" id="so-payment-day" required min="1" max="31" step="1" placeholder="1">
+      </label>
+      <label>First payment month
+        <input type="month" id="so-start-month" required>
+      </label>
+      <div class="form-actions">
+        <button type="submit" class="small" id="so-save-btn">Add standing order</button>
+        <button type="button" class="small" id="so-cancel-btn" hidden>Cancel</button>
+        <span class="form-status" id="form-status"></span>
+      </div>
+    </form>
+    {% endif %}
+
+    <div class="so-panel">
+      <h2>Standing orders</h2>
+      <div class="so-toolbar">
+        <label>Search
+          <input type="search" id="so-search" placeholder="Name or description…" autocomplete="off">
+        </label>
+        <label>Business
+          <select id="so-business-filter">
+            <option value="">All</option>
+            {% for farm in farm_options %}
+            <option value="{{ farm }}">{{ farm }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Sort by
+          <select id="so-sort">
+            <option value="payment_day">Payment day</option>
+            <option value="business">Business</option>
+            <option value="name">Name</option>
+            <option value="description">Description</option>
+            <option value="amount">Amount / payment</option>
+            <option value="months_remaining">Months left</option>
+            <option value="last_payment_date">Last payment</option>
+            <option value="amount_remaining">Amount left</option>
+          </select>
+        </label>
+        <label>Order
+          <select id="so-sort-dir">
+            <option value="asc">Ascending</option>
+            <option value="desc">Descending</option>
+          </select>
+        </label>
+        <label class="toggle-finished">
+          <input type="checkbox" id="so-show-finished">
+          Show finished orders
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table class="so-table" id="so-table">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="business">Business</th>
+              <th class="sortable" data-sort="name">Name</th>
+              <th class="sortable" data-sort="description">Description</th>
+              <th class="sortable" data-sort="amount">Amount / payment</th>
+              <th class="sortable" data-sort="months">Months</th>
+              <th class="sortable" data-sort="months_remaining">Months left</th>
+              <th class="sortable" data-sort="last_payment_date">Last payment</th>
+              <th class="sortable" data-sort="payment_day">Payment day</th>
+              <th class="sortable" data-sort="amount_remaining">Amount left</th>
+              {% if can_edit %}<th></th>{% endif %}
+            </tr>
+          </thead>
+          <tbody id="so-body">
+            <tr><td colspan="{% if can_edit %}10{% else %}9{% endif %}" class="empty-state">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="so-totals" id="so-totals"></div>
+    </div>
+  </div>
+
+  <script>
+    const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+    let orders = [];
+    let editingId = null;
+    let sortKey = 'payment_day';
+    let sortDir = 'asc';
+
+    function money(v) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '—';
+      return '£' + n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    function ordinal(day) {
+      const n = Number(day);
+      const j = n % 10, k = n % 100;
+      if (j === 1 && k !== 11) return n + 'st';
+      if (j === 2 && k !== 12) return n + 'nd';
+      if (j === 3 && k !== 13) return n + 'rd';
+      return n + 'th';
+    }
+
+    function setStatus(msg, ok) {
+      const el = document.getElementById('form-status');
+      if (!el) return;
+      el.textContent = msg || '';
+      el.className = 'form-status' + (msg ? (ok ? ' ok' : ' err') : '');
+    }
+
+    async function readResponse(res) {
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (_) {}
+      if (!res.ok) {
+        const detail = data?.detail;
+        const msg = typeof detail === 'string'
+          ? detail
+          : (Array.isArray(detail) ? detail.map(d => d.msg || JSON.stringify(d)).join('; ') : (text || res.statusText));
+        throw new Error(msg || 'Request failed');
+      }
+      return data;
+    }
+
+    function resetForm() {
+      editingId = null;
+      const form = document.getElementById('so-form');
+      if (!form) return;
+      form.reset();
+      document.getElementById('so-id').value = '';
+      document.getElementById('so-save-btn').textContent = 'Add standing order';
+      document.getElementById('so-cancel-btn').hidden = true;
+      setStatus('');
+    }
+
+    function fillForm(row) {
+      editingId = row.id;
+      document.getElementById('so-id').value = row.id;
+      document.getElementById('so-business').value = row.business || 'CM';
+      document.getElementById('so-name').value = row.name;
+      document.getElementById('so-description').value = row.description || '';
+      document.getElementById('so-amount').value = row.amount;
+      document.getElementById('so-months').value = row.months;
+      document.getElementById('so-payment-day').value = row.payment_day;
+      document.getElementById('so-start-month').value = String(row.start_month).slice(0, 7);
+      document.getElementById('so-save-btn').textContent = 'Save changes';
+      document.getElementById('so-cancel-btn').hidden = false;
+      setStatus('Editing ' + row.name, true);
+      document.getElementById('so-name').focus();
+    }
+
+    function sortValue(row, key) {
+      const v = row[key];
+      if (key === 'name' || key === 'description' || key === 'last_payment_date' || key === 'start_month' || key === 'business') {
+        return String(v || '').toLowerCase();
+      }
+      return Number(v) || 0;
+    }
+
+    function filteredOrders() {
+      const q = (document.getElementById('so-search')?.value || '').trim().toLowerCase();
+      const businessFilter = (document.getElementById('so-business-filter')?.value || '').trim();
+      const showFinished = !!document.getElementById('so-show-finished')?.checked;
+      let rows = orders.slice();
+      if (!showFinished) {
+        rows = rows.filter(r => Number(r.months_remaining) > 0);
+      }
+      if (businessFilter) {
+        rows = rows.filter(r => String(r.business || '') === businessFilter);
+      }
+      if (q) {
+        rows = rows.filter(r => {
+          const hay = `${r.business || ''} ${r.name || ''} ${r.description || ''}`.toLowerCase();
+          return hay.includes(q);
+        });
+      }
+      const dir = sortDir === 'desc' ? -1 : 1;
+      rows.sort((a, b) => {
+        const av = sortValue(a, sortKey);
+        const bv = sortValue(b, sortKey);
+        if (av < bv) return -1 * dir;
+        if (av > bv) return 1 * dir;
+        const day = (Number(a.payment_day) || 0) - (Number(b.payment_day) || 0);
+        if (day) return day;
+        return String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+      });
+      return rows;
+    }
+
+    function updateSortHeaderMarks() {
+      document.querySelectorAll('#so-table thead th.sortable').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        if (th.dataset.sort === sortKey) {
+          th.classList.add(sortDir === 'desc' ? 'sorted-desc' : 'sorted-asc');
+        }
+      });
+      const sortSel = document.getElementById('so-sort');
+      const dirSel = document.getElementById('so-sort-dir');
+      if (sortSel) sortSel.value = sortKey;
+      if (dirSel) dirSel.value = sortDir;
+    }
+
+    function renderTable() {
+      const body = document.getElementById('so-body');
+      const cols = CAN_EDIT ? 10 : 9;
+      updateSortHeaderMarks();
+
+      if (!orders.length) {
+        body.innerHTML = `<tr><td colspan="${cols}" class="empty-state">No standing orders yet.</td></tr>`;
+        document.getElementById('so-totals').textContent = '';
+        return;
+      }
+
+      const rows = filteredOrders();
+      const finishedCount = orders.filter(r => Number(r.months_remaining) === 0).length;
+      const showFinished = !!document.getElementById('so-show-finished')?.checked;
+
+      if (!rows.length) {
+        const msg = (!showFinished && finishedCount && !(document.getElementById('so-search')?.value || '').trim())
+          ? 'No active standing orders. Turn on “Show finished orders” to see completed ones.'
+          : 'No standing orders match the current search/filters.';
+        body.innerHTML = `<tr><td colspan="${cols}" class="empty-state">${esc(msg)}</td></tr>`;
+      } else {
+        body.innerHTML = rows.map(row => {
+          const done = Number(row.months_remaining) === 0;
+          const actions = CAN_EDIT
+            ? `<td><div class="actions">
+                 <button type="button" class="small" data-edit="${row.id}">Edit</button>
+                 <button type="button" class="small btn-remove" data-remove="${row.id}">Remove</button>
+               </div></td>`
+            : '';
+          return `<tr class="${done ? 'is-complete' : ''}" data-id="${row.id}">
+            <td>${esc(row.business || 'CM')}</td>
+            <td>${esc(row.name)}</td>
+            <td>${esc(row.description || '')}</td>
+            <td class="num">${money(row.amount)}</td>
+            <td class="num">${row.months}</td>
+            <td class="num">${row.months_remaining}</td>
+            <td>${esc(row.last_payment_label)}</td>
+            <td>${ordinal(row.payment_day)}</td>
+            <td class="num">${money(row.amount_remaining)}</td>
+            ${actions}
+          </tr>`;
+        }).join('');
+      }
+
+      const sumPay = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+      const activeTotal = orders.filter(r => Number(r.months_remaining) > 0).length;
+      const hiddenNote = (!showFinished && finishedCount)
+        ? ` · ${finishedCount} finished hidden`
+        : '';
+      document.getElementById('so-totals').textContent =
+        `Showing ${rows.length} of ${orders.length} · ${activeTotal} active${hiddenNote} · ` +
+        `Monthly total ${money(sumPay)}`;
+    }
+
+    async function loadOrders() {
+      const res = await fetch('/api/benchmarking/standing-orders');
+      const data = await readResponse(res);
+      orders = data.orders || [];
+      renderTable();
+    }
+
+    function readForm() {
+      const startMonth = document.getElementById('so-start-month').value;
+      if (!startMonth) throw new Error('First payment month is required.');
+      return {
+        name: document.getElementById('so-name').value.trim(),
+        business: document.getElementById('so-business').value,
+        description: document.getElementById('so-description').value.trim(),
+        amount: Number(document.getElementById('so-amount').value),
+        months: Number(document.getElementById('so-months').value),
+        payment_day: Number(document.getElementById('so-payment-day').value),
+        start_month: startMonth + '-01',
+      };
+    }
+
+    document.getElementById('so-search').addEventListener('input', renderTable);
+    document.getElementById('so-business-filter').addEventListener('change', renderTable);
+    document.getElementById('so-show-finished').addEventListener('change', renderTable);
+    document.getElementById('so-sort').addEventListener('change', (e) => {
+      sortKey = e.target.value;
+      renderTable();
+    });
+    document.getElementById('so-sort-dir').addEventListener('change', (e) => {
+      sortDir = e.target.value;
+      renderTable();
+    });
+    document.querySelectorAll('#so-table thead th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.sort;
+        if (sortKey === key) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKey = key;
+          sortDir = 'asc';
+        }
+        renderTable();
+      });
+    });
+
+    if (CAN_EDIT) {
+      document.getElementById('so-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          const body = readForm();
+          const editing = editingId;
+          const url = editing
+            ? `/api/benchmarking/standing-orders/${editing}`
+            : '/api/benchmarking/standing-orders';
+          const method = editing ? 'PUT' : 'POST';
+          setStatus(editing ? 'Saving…' : 'Adding…', true);
+          const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          await readResponse(res);
+          resetForm();
+          await loadOrders();
+          setStatus(editing ? 'Saved.' : 'Added.', true);
+        } catch (err) {
+          setStatus(err.message || String(err), false);
+        }
+      });
+
+      document.getElementById('so-cancel-btn').addEventListener('click', resetForm);
+
+      document.getElementById('so-body').addEventListener('click', async (e) => {
+        const editBtn = e.target.closest('[data-edit]');
+        const removeBtn = e.target.closest('[data-remove]');
+        if (editBtn) {
+          const row = orders.find(s => String(s.id) === editBtn.dataset.edit);
+          if (row) fillForm(row);
+          return;
+        }
+        if (removeBtn) {
+          const id = removeBtn.dataset.remove;
+          const row = orders.find(s => String(s.id) === id);
+          if (!row) return;
+          if (!confirm(`Remove standing order "${row.name}"?`)) return;
+          try {
+            const res = await fetch(`/api/benchmarking/standing-orders/${id}`, { method: 'DELETE' });
+            await readResponse(res);
+            if (editingId === Number(id)) resetForm();
+            await loadOrders();
+            setStatus('Removed.', true);
+          } catch (err) {
+            setStatus(err.message || String(err), false);
+          }
+        }
+      });
+    }
+
+    loadOrders().catch(err => {
+      document.getElementById('so-body').innerHTML =
+        `<tr><td colspan="${CAN_EDIT ? 10 : 9}" class="empty-state">Failed to load: ${esc(err.message)}</td></tr>`;
+    });
+  </script>
+{% endblock %}

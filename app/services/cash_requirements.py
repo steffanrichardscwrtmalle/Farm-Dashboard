@@ -1,4 +1,4 @@
-"""Cash requirements: dated HP and rent payments for the month and FY chart."""
+"""Cash requirements: dated HP, standing order, and rent payments for the month and FY chart."""
 
 from __future__ import annotations
 
@@ -8,7 +8,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import HERD_FARM_OPTIONS, HpSchedule, RentalAgreement, RentalAgreementPayment
+from app.models import (
+    HERD_FARM_OPTIONS,
+    HpSchedule,
+    RentalAgreement,
+    RentalAgreementPayment,
+    StandingOrder,
+)
 from app.services.benchmarking import fiscal_year_months
 from app.services.events_common import _fiscal_year_from_date
 from app.services.hp_schedules import _normalize_business, _payment_due_date
@@ -97,6 +103,52 @@ def _hp_payments(
             payments.append(
                 _payment_row(
                     source="hp",
+                    source_id=row.id,
+                    business=farm,
+                    name=row.name,
+                    due_date=due,
+                    amount=amount,
+                    today=today,
+                )
+            )
+    return payments
+
+
+def _standing_order_payments(
+    db: Session,
+    *,
+    month_starts: list[dt.date],
+    business: str | None,
+    today: dt.date,
+) -> list[dict[str, Any]]:
+    month_set = set(month_starts)
+    if not month_set:
+        return []
+    query = select(StandingOrder).where(StandingOrder.is_active.is_(True))
+    if business:
+        query = query.where(StandingOrder.business == business)
+    rows = db.scalars(query).all()
+
+    payments: list[dict[str, Any]] = []
+    for row in rows:
+        months = int(row.months)
+        if months < 1:
+            continue
+        farm = (row.business or "CM").strip().upper()
+        if farm not in HERD_FARM_OPTIONS:
+            continue
+        start = row.start_month.replace(day=1)
+        amount = float(row.amount or 0)
+        if amount <= 0:
+            continue
+        payment_day = int(row.payment_day)
+        for i in range(months):
+            due = _payment_due_date(start, i, payment_day)
+            if due.replace(day=1) not in month_set:
+                continue
+            payments.append(
+                _payment_row(
+                    source="standing_order",
                     source_id=row.id,
                     business=farm,
                     name=row.name,
@@ -223,7 +275,7 @@ def build_cash_requirements_report(
     month: dt.date | str | None = None,
     today: dt.date | None = None,
 ) -> dict[str, Any]:
-    """Dated HP and rent outflows for a month, plus FY monthly requirement."""
+    """Dated HP, standing-order, and rent outflows for a month, plus FY monthly requirement."""
     as_of = today or dt.date.today()
     selected_month = _normalize_month(month, today=as_of)
     fiscal_year = _fiscal_year_from_date(selected_month)
@@ -235,6 +287,9 @@ def build_cash_requirements_report(
 
     all_payments = _sort_payments(
         _hp_payments(
+            db, month_starts=months, business=business_filter, today=as_of
+        )
+        + _standing_order_payments(
             db, month_starts=months, business=business_filter, today=as_of
         )
         + _rent_payments(
