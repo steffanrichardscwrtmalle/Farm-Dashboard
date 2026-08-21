@@ -62,7 +62,7 @@ def _validate_inputs(
     if months < 1:
         raise ValueError("Total payments must be at least 1.")
     if payment_day < 1 or payment_day > 31:
-        raise ValueError("Payment day must be between 1 and 31.")
+        raise ValueError("1st payment day must be between 1 and 31.")
     frequency = _normalize_frequency(frequency)
     interval = _normalize_interval_days(frequency, interval_days)
     return name, frequency, interval
@@ -122,7 +122,9 @@ def _serialize(row: StandingOrder, *, as_of: dt.date | None = None) -> dict[str,
         interval_days=interval_days,
     )
     as_of_date = as_of or dt.date.today()
-    remaining = sum(1 for due in dues if due > as_of_date)
+    remaining_dues = [due for due in dues if due > as_of_date]
+    remaining = len(remaining_dues)
+    next_payment = remaining_dues[0] if remaining_dues else None
     last_payment = dues[-1] if dues else _payment_due_date(
         row.start_month.replace(day=1),
         max(0, months - 1),
@@ -147,6 +149,8 @@ def _serialize(row: StandingOrder, *, as_of: dt.date | None = None) -> dict[str,
         "payment_day": int(row.payment_day),
         "start_month": row.start_month.isoformat(),
         "start_month_label": row.start_month.strftime("%b-%y"),
+        "next_payment_date": next_payment.isoformat() if next_payment else None,
+        "next_payment_label": next_payment.strftime("%d %b %y") if next_payment else "—",
         "last_payment_date": last_payment.isoformat(),
         "last_payment_label": last_label,
         "sort_order": row.sort_order,

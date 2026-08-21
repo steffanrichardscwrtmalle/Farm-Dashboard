@@ -51,6 +51,12 @@ def test_create_lists_amount_and_remaining(db: Session) -> None:
     assert len(listed) == 1
     assert listed[0]["months_remaining"] == 12
     assert listed[0]["amount_remaining"] == 30000.0
+    assert listed[0]["next_payment_date"] == "2025-04-18"
+    assert listed[0]["next_payment_label"] == "18 Apr 25"
+
+    after_first = list_standing_orders(db, as_of=dt.date(2025, 4, 18))
+    assert after_first[0]["months_remaining"] == 11
+    assert after_first[0]["next_payment_date"] == "2025-05-19"
 
 
 def test_update_and_deactivate(db: Session) -> None:
@@ -141,6 +147,8 @@ def test_other_frequency_every_seven_days(db: Session) -> None:
     listed = list_standing_orders(db, as_of=dt.date(2026, 4, 1))
     # First payment is due today so it is treated as gone out
     assert listed[0]["payments_remaining"] == 4
+    assert listed[0]["next_payment_date"] == "2026-04-08"
+    assert listed[0]["next_payment_label"] == "08 Apr 26"
 
 
 def test_other_frequency_requires_interval_days(db: Session) -> None:

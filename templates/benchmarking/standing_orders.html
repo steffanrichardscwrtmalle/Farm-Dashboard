@@ -55,7 +55,7 @@
     .so-form #so-months { width: 6.5rem; }
     .so-form #so-frequency { width: 7.5rem; }
     .so-form #so-interval-days { width: 4.5rem; }
-    .so-form #so-payment-day { width: 4.5rem; }
+    .so-form #so-payment-day { width: 8rem; }
     .so-form #so-start-month { width: 8rem; }
     .so-form .form-actions {
       display: flex;
@@ -221,7 +221,7 @@
       <label>Total payments
         <input type="number" id="so-months" required min="1" max="600" step="1" placeholder="12">
       </label>
-      <label title="If that day is a Saturday or Sunday, the payment goes out on the Monday.">Payment day
+      <label title="If that day is a Saturday or Sunday, the payment goes out on the Monday.">1st payment day
         <input type="number" id="so-payment-day" required min="1" max="31" step="1" placeholder="1">
       </label>
       <label>First payment month
@@ -251,7 +251,8 @@
         </label>
         <label>Sort by
           <select id="so-sort">
-            <option value="payment_day">Payment day</option>
+            <option value="next_payment_date" selected>Next payment</option>
+            <option value="payment_day">1st payment day</option>
             <option value="business">Business</option>
             <option value="name">Name</option>
             <option value="description">Description</option>
@@ -285,14 +286,15 @@
               <th class="sortable" data-sort="frequency_label">Repeat</th>
               <th class="sortable" data-sort="months">Total payments</th>
               <th class="sortable" data-sort="months_remaining">Payments left</th>
+              <th class="sortable" data-sort="next_payment_date">Next payment</th>
               <th class="sortable" data-sort="last_payment_date">Last payment</th>
-              <th class="sortable" data-sort="payment_day">Payment day</th>
+              <th class="sortable" data-sort="payment_day">1st payment day</th>
               <th class="sortable" data-sort="amount_remaining">Amount left</th>
               {% if can_edit %}<th></th>{% endif %}
             </tr>
           </thead>
           <tbody id="so-body">
-            <tr><td colspan="{% if can_edit %}11{% else %}10{% endif %}" class="empty-state">Loading…</td></tr>
+            <tr><td colspan="{% if can_edit %}12{% else %}11{% endif %}" class="empty-state">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -304,7 +306,7 @@
     const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
     let orders = [];
     let editingId = null;
-    let sortKey = 'payment_day';
+    let sortKey = 'next_payment_date';
     let sortDir = 'asc';
 
     function money(v) {
@@ -386,6 +388,9 @@
 
     function sortValue(row, key) {
       const v = row[key];
+      if (key === 'next_payment_date') {
+        return String(v || '9999-12-31');
+      }
       if (key === 'name' || key === 'description' || key === 'last_payment_date' || key === 'start_month' || key === 'business' || key === 'frequency_label') {
         return String(v || '').toLowerCase();
       }
@@ -437,7 +442,7 @@
 
     function renderTable() {
       const body = document.getElementById('so-body');
-      const cols = CAN_EDIT ? 11 : 10;
+      const cols = CAN_EDIT ? 12 : 11;
       updateSortHeaderMarks();
 
       if (!orders.length) {
@@ -472,6 +477,7 @@
             <td>${esc(row.frequency_label || 'Monthly')}</td>
             <td class="num">${row.months}</td>
             <td class="num">${row.months_remaining}</td>
+            <td>${esc(row.next_payment_label || '—')}</td>
             <td>${esc(row.last_payment_label)}</td>
             <td>${ordinal(row.payment_day)}</td>
             <td class="num">${money(row.amount_remaining)}</td>
@@ -620,7 +626,7 @@
     syncFrequencyFields();
     loadOrders().catch(err => {
       document.getElementById('so-body').innerHTML =
-        `<tr><td colspan="${CAN_EDIT ? 11 : 10}" class="empty-state">Failed to load: ${esc(err.message)}</td></tr>`;
+        `<tr><td colspan="${CAN_EDIT ? 12 : 11}" class="empty-state">Failed to load: ${esc(err.message)}</td></tr>`;
     });
   </script>
 {% endblock %}
