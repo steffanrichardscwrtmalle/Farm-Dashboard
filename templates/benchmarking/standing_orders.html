@@ -40,6 +40,7 @@
       text-transform: uppercase;
       letter-spacing: 0.02em;
     }
+    .so-form label[hidden] { display: none !important; }
     .so-form input,
     .so-form select {
       margin: 0;
@@ -615,6 +616,7 @@
       });
     }
 
+    syncFrequencyFields();
     loadOrders().catch(err => {
       document.getElementById('so-body').innerHTML =
         `<tr><td colspan="${CAN_EDIT ? 11 : 10}" class="empty-state">Failed to load: ${esc(err.message)}</td></tr>`;
