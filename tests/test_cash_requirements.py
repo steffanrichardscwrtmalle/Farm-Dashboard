@@ -211,7 +211,7 @@ def test_standing_order_other_frequency_lists_each_due_in_month(db: Session) -> 
         name="Weekly feed",
         business="CM",
         amount=250,
-        months=12,
+        months=22,
         payment_day=1,
         start_month="2026-04",
         frequency="other",

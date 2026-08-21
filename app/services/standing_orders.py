@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from app.models import StandingOrder
 from app.services.hp_schedules import (
-    _add_month,
     _normalize_business,
     _normalize_description,
     _normalize_name,
@@ -61,7 +60,7 @@ def _validate_inputs(
     if amount < 0:
         raise ValueError("Payment amount cannot be negative.")
     if months < 1:
-        raise ValueError("Months of payments must be at least 1.")
+        raise ValueError("Total payments must be at least 1.")
     if payment_day < 1 or payment_day > 31:
         raise ValueError("Payment day must be between 1 and 31.")
     frequency = _normalize_frequency(frequency)
@@ -75,12 +74,6 @@ def _first_unrolled_date(start_month: dt.date, payment_day: int) -> dt.date:
     return dt.date(start.year, start.month, day)
 
 
-def _period_end(start_month: dt.date, months: int) -> dt.date:
-    last_month = _add_month(start_month.replace(day=1), max(0, months - 1))
-    last_day = calendar.monthrange(last_month.year, last_month.month)[1]
-    return dt.date(last_month.year, last_month.month, last_day)
-
-
 def iter_standing_order_due_dates(
     *,
     start_month: dt.date,
@@ -89,24 +82,24 @@ def iter_standing_order_due_dates(
     frequency: str | None = None,
     interval_days: int | None = None,
 ) -> list[dt.date]:
-    """Due dates for a standing order, with weekend dues rolled to Monday."""
+    """Due dates for a standing order, with weekend dues rolled to Monday.
+
+    ``months`` is the total number of payments for every frequency.
+    """
     start = start_month.replace(day=1)
+    count = max(0, int(months))
     freq = _normalize_frequency(frequency)
     if freq != FREQUENCY_OTHER:
-        return [_payment_due_date(start, i, int(payment_day)) for i in range(max(0, months))]
+        return [_payment_due_date(start, i, int(payment_day)) for i in range(count)]
 
     days = int(interval_days or 0)
-    if days < 1 or months < 1:
+    if days < 1 or count < 1:
         return []
     cursor = _first_unrolled_date(start, int(payment_day))
-    end = _period_end(start, months)
-    dues: list[dt.date] = []
-    while cursor <= end:
-        dues.append(_roll_weekend_to_monday(cursor))
-        cursor = cursor + dt.timedelta(days=days)
-        if len(dues) > 5000:
-            break
-    return dues
+    return [
+        _roll_weekend_to_monday(cursor + dt.timedelta(days=days * i))
+        for i in range(count)
+    ]
 
 
 def _frequency_label(frequency: str, interval_days: int | None) -> str:
@@ -147,6 +140,7 @@ def _serialize(row: StandingOrder, *, as_of: dt.date | None = None) -> dict[str,
         "description": row.description or "",
         "amount": round(amount, 2),
         "months": months,
+        "total_payments": months,
         "frequency": frequency,
         "interval_days": int(interval_days) if frequency == FREQUENCY_OTHER and interval_days else None,
         "frequency_label": _frequency_label(frequency, interval_days),

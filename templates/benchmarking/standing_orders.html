@@ -52,7 +52,7 @@
     .so-form #so-business { width: 5rem; }
     .so-form #so-description { width: 14rem; }
     .so-form #so-amount { width: 8rem; }
-    .so-form #so-months { width: 5rem; }
+    .so-form #so-months { width: 6.5rem; }
     .so-form #so-frequency { width: 7.5rem; }
     .so-form #so-interval-days { width: 4.5rem; }
     .so-form #so-payment-day { width: 4.5rem; }
@@ -186,7 +186,7 @@
 {% block content %}
   <div class="so-page">
     <div class="so-top">
-      <span class="muted">Standing orders such as contractors. Monthly is the default; choose Other to repeat every set number of days. Payments due on a Saturday or Sunday go out on the Monday, and they appear on Cash Requirements.</span>
+      <span class="muted">Standing orders such as contractors. Monthly is the default; choose Other to repeat every set number of days. Total payments is how many times it goes out. Payments due on a Saturday or Sunday go out on the Monday, and they appear on Cash Requirements.</span>
       {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
     </div>
 
@@ -218,7 +218,7 @@
       <label id="so-interval-wrap" hidden>Every (days)
         <input type="number" id="so-interval-days" min="1" max="365" step="1" value="7" placeholder="7">
       </label>
-      <label>Months
+      <label>Total payments
         <input type="number" id="so-months" required min="1" max="600" step="1" placeholder="12">
       </label>
       <label title="If that day is a Saturday or Sunday, the payment goes out on the Monday.">Payment day
@@ -257,6 +257,7 @@
             <option value="description">Description</option>
             <option value="amount">Amount / payment</option>
             <option value="frequency_label">Repeat</option>
+            <option value="months">Total payments</option>
             <option value="months_remaining">Payments left</option>
             <option value="last_payment_date">Last payment</option>
             <option value="amount_remaining">Amount left</option>
@@ -282,7 +283,7 @@
               <th class="sortable" data-sort="description">Description</th>
               <th class="sortable" data-sort="amount">Amount / payment</th>
               <th class="sortable" data-sort="frequency_label">Repeat</th>
-              <th class="sortable" data-sort="months">Months</th>
+              <th class="sortable" data-sort="months">Total payments</th>
               <th class="sortable" data-sort="months_remaining">Payments left</th>
               <th class="sortable" data-sort="last_payment_date">Last payment</th>
               <th class="sortable" data-sort="payment_day">Payment day</th>

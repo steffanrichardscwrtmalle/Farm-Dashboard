@@ -116,7 +116,7 @@ def test_other_frequency_every_seven_days(db: Session) -> None:
 
     dues = iter_standing_order_due_dates(
         start_month=dt.date(2026, 4, 1),
-        months=1,
+        months=5,
         payment_day=1,
         frequency="other",
         interval_days=7,
@@ -129,7 +129,7 @@ def test_other_frequency_every_seven_days(db: Session) -> None:
         db,
         name="Weekly contractor",
         amount=100,
-        months=1,
+        months=5,
         payment_day=1,
         start_month="2026-04",
         frequency="other",
