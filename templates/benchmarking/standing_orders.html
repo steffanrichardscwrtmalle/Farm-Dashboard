@@ -181,10 +181,124 @@
       text-align: center;
       color: var(--muted);
     }
+    .page-tabs {
+      display: flex;
+      gap: 0.35rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0.15rem;
+    }
+    .page-tab {
+      border: 1px solid transparent;
+      border-bottom: none;
+      background: transparent;
+      padding: 0.4rem 0.85rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+      color: var(--muted);
+      border-radius: 6px 6px 0 0;
+    }
+    .page-tab.active {
+      background: var(--card);
+      border-color: var(--border);
+      color: var(--text);
+      font-weight: 600;
+    }
+    .section-panel[hidden] { display: none !important; }
+    .chart-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.65rem 0.85rem;
+      gap: 0.45rem;
+    }
+    .chart-panel h2 {
+      margin: 0;
+      font-size: 0.95rem;
+    }
+    .chart-meta {
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .chart-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 28rem;
+      max-height: calc(100vh - 14rem);
+    }
+    .payments-filters {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      gap: 0.5rem 0.85rem;
+      padding: 0.55rem 0.7rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      font-size: 0.82rem;
+    }
+    .payments-filters label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      margin: 0;
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .payments-filters select,
+    .payments-filters input[type="month"] {
+      margin: 0;
+      padding: 0.22rem 0.4rem;
+      font-size: 0.82rem;
+    }
+    .payments-filters #pay-business { width: 5.5rem; }
+    .payments-filters #pay-from,
+    .payments-filters #pay-to { width: 8.5rem; }
+    .payment-summary-table {
+      width: max-content;
+      max-width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .payment-summary-table th,
+    .payment-summary-table td {
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      padding: 0.35rem 0.5rem;
+      white-space: nowrap;
+    }
+    .payment-summary-table th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      text-align: center;
+    }
+    .payment-summary-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .payment-summary-table tbody tr:nth-child(even) td { background: #fafbfc; }
+    .payment-summary-table tfoot td {
+      font-weight: 700;
+      background: #f1f5f9;
+    }
 {% endblock %}
 
 {% block content %}
   <div class="so-page">
+    <div class="page-tabs" role="tablist">
+      <button type="button" class="page-tab active" data-section="orders">Standing orders</button>
+      <button type="button" class="page-tab" data-section="chart">Payment chart</button>
+      <button type="button" class="page-tab" data-section="table">Payment table</button>
+    </div>
+
+    <div class="section-panel" id="section-orders">
     <div class="so-top">
       <span class="muted">Standing orders such as contractors. Monthly is the default; choose Other to repeat every set number of days. Total payments is how many times it goes out. Payments due on a Saturday or Sunday go out on the Monday, and they appear on Cash Requirements.</span>
       {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
@@ -300,8 +414,61 @@
       </div>
       <div class="so-totals" id="so-totals"></div>
     </div>
+    </div>
+
+    <div id="payments-filters" class="payments-filters" hidden>
+      <label>Business
+        <select id="pay-business">
+          <option value="">All</option>
+          {% for farm in farm_options %}
+          <option value="{{ farm }}">{{ farm }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>From
+        <input type="month" id="pay-from">
+      </label>
+      <label>To
+        <input type="month" id="pay-to">
+      </label>
+      <button type="button" class="small" id="pay-apply-btn">Apply</button>
+      <button type="button" class="small" id="pay-reset-btn">Reset range</button>
+    </div>
+
+    <div class="section-panel" id="section-chart" hidden>
+      <div class="chart-panel">
+        <h2>Monthly standing order payments</h2>
+        <p class="chart-meta" id="chart-meta">Loading chart…</p>
+        <div class="chart-wrap">
+          <canvas id="so-payment-chart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-panel" id="section-table" hidden>
+      <div class="so-panel">
+        <h2>Monthly standing order payments</h2>
+        <p class="chart-meta" id="table-meta">Loading table…</p>
+        <div class="table-wrap">
+          <table class="payment-summary-table" id="payment-summary-table">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Payments</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody id="payment-summary-body">
+              <tr><td colspan="3" class="empty-state">Loading…</td></tr>
+            </tbody>
+            <tfoot id="payment-summary-foot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script>
     const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
     let orders = [];
@@ -589,6 +756,7 @@
           await readResponse(res);
           resetForm();
           await loadOrders();
+          paymentFiltersReady = false;
           setStatus(editing ? 'Saved.' : 'Added.', true);
         } catch (err) {
           setStatus(err.message || String(err), false);
@@ -615,6 +783,7 @@
             await readResponse(res);
             if (editingId === Number(id)) resetForm();
             await loadOrders();
+            paymentFiltersReady = false;
             setStatus('Removed.', true);
           } catch (err) {
             setStatus(err.message || String(err), false);
@@ -622,6 +791,178 @@
         }
       });
     }
+
+    let paymentChart = null;
+    let paymentData = null;
+    let paymentFiltersReady = false;
+
+    function toMonthInput(isoDate) {
+      return String(isoDate || '').slice(0, 7);
+    }
+
+    function paymentQueryParams({ includeRange = true } = {}) {
+      const params = new URLSearchParams();
+      const business = document.getElementById('pay-business')?.value || '';
+      if (business) params.set('business', business);
+      if (includeRange) {
+        const from = document.getElementById('pay-from')?.value || '';
+        const to = document.getElementById('pay-to')?.value || '';
+        if (from) params.set('from_month', from + '-01');
+        if (to) params.set('to_month', to + '-01');
+      }
+      return params;
+    }
+
+    function syncPaymentFilterBounds(data, { resetRange = false } = {}) {
+      const fromEl = document.getElementById('pay-from');
+      const toEl = document.getElementById('pay-to');
+      if (!fromEl || !toEl) return;
+      const availFrom = toMonthInput(data.available_from);
+      const availTo = toMonthInput(data.available_to);
+      fromEl.min = availFrom;
+      fromEl.max = availTo;
+      toEl.min = availFrom;
+      toEl.max = availTo;
+      if (resetRange || !fromEl.value) fromEl.value = toMonthInput(data.from_month) || availFrom;
+      if (resetRange || !toEl.value) toEl.value = toMonthInput(data.to_month) || availTo;
+      paymentFiltersReady = true;
+    }
+
+    function paymentMetaText(data) {
+      const months = data.months || [];
+      const biz = data.business ? ` · ${data.business}` : ' · All businesses';
+      const count = Number(data.totals?.payment_count || 0);
+      if (!months.length) {
+        return `FY${data.fiscal_year}${biz} · No scheduled payments in this range.`;
+      }
+      return `FY${data.fiscal_year}${biz} · ${months[0].month_label} to ${months[months.length - 1].month_label} · ` +
+        `${count} payment${count === 1 ? '' : 's'} · Total ${money(data.totals?.total)}`;
+    }
+
+    function renderPaymentTable(data) {
+      const body = document.getElementById('payment-summary-body');
+      const foot = document.getElementById('payment-summary-foot');
+      const meta = document.getElementById('table-meta');
+      const months = data.months || [];
+      meta.textContent = paymentMetaText(data);
+      if (!months.length) {
+        body.innerHTML = `<tr><td colspan="3" class="empty-state">No payments in this range.</td></tr>`;
+        foot.innerHTML = '';
+        return;
+      }
+      body.innerHTML = months.map(m => `<tr>
+        <td>${esc(m.month_label)}</td>
+        <td class="num">${Number(m.payment_count || 0)}</td>
+        <td class="num">${money(m.total)}</td>
+      </tr>`).join('');
+      foot.innerHTML = `<tr>
+        <td>Total</td>
+        <td class="num">${Number(data.totals?.payment_count || 0)}</td>
+        <td class="num">${money(data.totals?.total)}</td>
+      </tr>`;
+    }
+
+    function renderPaymentChart(data) {
+      const meta = document.getElementById('chart-meta');
+      const months = data.months || [];
+      meta.textContent = paymentMetaText(data);
+      const canvas = document.getElementById('so-payment-chart');
+      if (typeof Chart === 'undefined') {
+        meta.textContent = 'Chart library failed to load.';
+        return;
+      }
+      if (paymentChart) {
+        paymentChart.destroy();
+        paymentChart = null;
+      }
+      paymentChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: months.map(m => m.month_label),
+          datasets: [
+            {
+              label: 'Payment',
+              data: months.map(m => m.total),
+              backgroundColor: 'rgba(30, 58, 95, 0.85)',
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'bottom' },
+            tooltip: {
+              callbacks: {
+                label: (item) => `${item.dataset.label}: ${money(item.raw)}`,
+                footer: (items) => {
+                  if (!items.length) return '';
+                  const idx = items[0].dataIndex;
+                  const count = Number(months[idx]?.payment_count || 0);
+                  return `${count} payment${count === 1 ? '' : 's'}`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'Month' },
+            },
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: 'Payment (£)' },
+              ticks: {
+                callback: (v) => '£' + Number(v).toLocaleString('en-GB'),
+              },
+            },
+          },
+        },
+      });
+    }
+
+    async function loadPaymentViews({ resetRange = false } = {}) {
+      const chartMeta = document.getElementById('chart-meta');
+      const tableMeta = document.getElementById('table-meta');
+      try {
+        if (!paymentFiltersReady || resetRange) {
+          const boundsRes = await fetch('/api/benchmarking/standing-orders/payment-chart?' + paymentQueryParams({ includeRange: false }).toString());
+          const bounds = await readResponse(boundsRes);
+          syncPaymentFilterBounds(bounds, { resetRange: true });
+        }
+        const res = await fetch('/api/benchmarking/standing-orders/payment-chart?' + paymentQueryParams().toString());
+        paymentData = await readResponse(res);
+        syncPaymentFilterBounds(paymentData);
+        renderPaymentChart(paymentData);
+        renderPaymentTable(paymentData);
+        if (paymentChart) paymentChart.resize();
+      } catch (err) {
+        const msg = 'Failed to load payments: ' + (err.message || String(err));
+        if (chartMeta) chartMeta.textContent = msg;
+        if (tableMeta) tableMeta.textContent = msg;
+      }
+    }
+
+    document.getElementById('pay-apply-btn').addEventListener('click', () => loadPaymentViews());
+    document.getElementById('pay-reset-btn').addEventListener('click', () => loadPaymentViews({ resetRange: true }));
+    document.getElementById('pay-business').addEventListener('change', () => loadPaymentViews({ resetRange: true }));
+
+    document.querySelectorAll('.page-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const section = tab.dataset.section;
+        document.getElementById('section-orders').hidden = section !== 'orders';
+        document.getElementById('section-chart').hidden = section !== 'chart';
+        document.getElementById('section-table').hidden = section !== 'table';
+        document.getElementById('payments-filters').hidden = !(section === 'chart' || section === 'table');
+        if (section === 'chart' || section === 'table') {
+          loadPaymentViews().then(() => {
+            if (section === 'chart' && paymentChart) paymentChart.resize();
+          });
+        }
+      });
+    });
 
     syncFrequencyFields();
     loadOrders().catch(err => {

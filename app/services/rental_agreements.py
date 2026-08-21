@@ -8,10 +8,15 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models import HERD_FARM_OPTIONS, RentalAgreement, RentalAgreementPayment
 from app.services.benchmarking import available_fiscal_years, fiscal_year_months
+from app.services.events_common import (
+    _fiscal_year_calendar_bounds,
+    _fiscal_year_from_date,
+)
+from app.services.hp_schedules import _add_month, _normalize_start_month
 
 
 def _normalize_business(business: str) -> str:
@@ -423,3 +428,102 @@ def build_rental_payment_index(
                 continue
             index[(farm, dt.date.fromisoformat(month_iso))] = float(value)
     return index
+
+
+def build_rental_payment_chart(
+    db: Session,
+    *,
+    as_of: dt.date | None = None,
+    business: str | None = None,
+    from_month: dt.date | str | None = None,
+    to_month: dt.date | str | None = None,
+) -> dict[str, Any]:
+    """Sum rental payments by month from the current fiscal-year start."""
+    as_of = as_of or dt.date.today()
+    fiscal_year = _fiscal_year_from_date(as_of)
+    fy_start, _fy_end = _fiscal_year_calendar_bounds(fiscal_year)
+
+    business_filter = None
+    if business and str(business).strip():
+        business_filter = _normalize_business(business)
+
+    query = (
+        select(RentalAgreementPayment)
+        .join(RentalAgreement)
+        .options(selectinload(RentalAgreementPayment.agreement))
+        .where(
+            RentalAgreement.is_active.is_(True),
+            RentalAgreementPayment.amount.isnot(None),
+        )
+    )
+    if business_filter:
+        query = query.where(RentalAgreement.business == business_filter)
+    rows = db.scalars(query).all()
+
+    amount_by_month: dict[dt.date, float] = {}
+    count_by_month: dict[dt.date, int] = {}
+    data_max = fy_start
+
+    for row in rows:
+        amount = float(row.amount or 0)
+        if amount <= 0:
+            continue
+        agreement = row.agreement
+        farm = (agreement.business or "CM").strip().upper()
+        if farm not in HERD_FARM_OPTIONS:
+            continue
+        due = rent_payment_due_date(row.payment_month, agreement.payment_day)
+        month_key = due.replace(day=1)
+        if month_key < fy_start:
+            continue
+        amount_by_month[month_key] = amount_by_month.get(month_key, 0.0) + amount
+        count_by_month[month_key] = count_by_month.get(month_key, 0) + 1
+        if month_key > data_max:
+            data_max = month_key
+
+    if not amount_by_month:
+        data_max = fy_start
+
+    available_from = fy_start
+    available_to = data_max
+
+    range_from = available_from
+    range_to = available_to
+    if from_month is not None and str(from_month).strip():
+        range_from = _normalize_start_month(from_month)
+    if to_month is not None and str(to_month).strip():
+        range_to = _normalize_start_month(to_month)
+    if range_from < available_from:
+        range_from = available_from
+    if range_to > available_to:
+        range_to = available_to
+    if range_to < range_from:
+        range_to = range_from
+
+    months_out: list[dict[str, Any]] = []
+    cursor = range_from
+    while cursor <= range_to:
+        total = round(amount_by_month.get(cursor, 0.0), 2)
+        months_out.append(
+            {
+                "month": cursor.isoformat(),
+                "month_label": cursor.strftime("%b-%y"),
+                "total": total,
+                "payment_count": int(count_by_month.get(cursor, 0)),
+            }
+        )
+        cursor = _add_month(cursor, 1)
+
+    return {
+        "fiscal_year": fiscal_year,
+        "business": business_filter,
+        "from_month": range_from.isoformat(),
+        "to_month": range_to.isoformat(),
+        "available_from": available_from.isoformat(),
+        "available_to": available_to.isoformat(),
+        "months": months_out,
+        "totals": {
+            "total": round(sum(m["total"] for m in months_out), 2),
+            "payment_count": sum(m["payment_count"] for m in months_out),
+        },
+    }

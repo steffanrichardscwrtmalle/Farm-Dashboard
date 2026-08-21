@@ -66,12 +66,14 @@ from app.services.hp_schedules import (
 from app.services.milk_sales_forecasts import build_milk_sales_forecasts_report
 from app.services.rental_agreements import (
     build_rental_agreements_report,
+    build_rental_payment_chart,
     create_rental_agreement,
     deactivate_rental_agreement,
     save_rental_payments,
     update_rental_agreement,
 )
 from app.services.standing_orders import (
+    build_standing_order_payment_chart,
     create_standing_order,
     deactivate_standing_order,
     list_standing_orders,
@@ -921,6 +923,25 @@ def api_list_standing_orders(
     return {"orders": list_standing_orders(db)}
 
 
+@router.get("/standing-orders/payment-chart")
+def api_standing_order_payment_chart(
+    business: str | None = Query(None),
+    from_month: dt.date | None = Query(None),
+    to_month: dt.date | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    try:
+        return build_standing_order_payment_chart(
+            db,
+            business=business,
+            from_month=from_month,
+            to_month=to_month,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/standing-orders")
 def api_create_standing_order(
     body: StandingOrderBody,
@@ -1015,6 +1036,25 @@ def api_rental_agreements_report(
     fy = fiscal_year if fiscal_year is not None else available_fiscal_years()[0]
     try:
         return build_rental_agreements_report(db, fiscal_year=fy)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/rental-agreements/payment-chart")
+def api_rental_payment_chart(
+    business: str | None = Query(None),
+    from_month: dt.date | None = Query(None),
+    to_month: dt.date | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    try:
+        return build_rental_payment_chart(
+            db,
+            business=business,
+            from_month=from_month,
+            to_month=to_month,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

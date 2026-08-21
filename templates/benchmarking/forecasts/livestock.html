@@ -221,6 +221,18 @@
       background: #fef2f2;
       color: #7f1d1d;
     }
+    .forecast-table tfoot td {
+      font-weight: 700;
+      background: #eef2ff;
+      font-variant-numeric: tabular-nums;
+    }
+    .forecast-table tfoot td:first-child {
+      background: #e0e7ff;
+      text-align: left;
+      position: sticky;
+      left: 0;
+      z-index: 3;
+    }
     .forecasts-legend {
       display: flex;
       flex-wrap: wrap;
@@ -292,6 +304,7 @@
         <table class="forecast-table" id="forecast-table">
           <thead id="forecast-thead"></thead>
           <tbody id="forecast-tbody"></tbody>
+          <tfoot id="forecast-tfoot"></tfoot>
         </table>
       </div>
       {% if can_edit %}
@@ -587,8 +600,52 @@
         }
         return `<tr class="${rowPeriodClass(row.forecast_month)}">${cells}</tr>`;
       }).join('');
+      updateColumnAverages();
 
       captureSnapshot();
+    }
+
+    function formatAverage(value, field) {
+      if (!Number.isFinite(value)) return '—';
+      const digits = field === 'unit_price' ? 2 : 2;
+      return value.toLocaleString('en-GB', {
+        minimumFractionDigits: field === 'unit_price' ? 2 : 0,
+        maximumFractionDigits: digits,
+      });
+    }
+
+    function updateColumnAverages() {
+      const tbody = document.getElementById('forecast-tbody');
+      const tfoot = document.getElementById('forecast-tfoot');
+      if (!tbody || !tfoot) return;
+      const rows = [...tbody.querySelectorAll('tr')];
+      if (!rows.length) {
+        tfoot.innerHTML = '';
+        return;
+      }
+      const colCount = rows[0].children.length;
+      const sums = Array(colCount).fill(0);
+      const counts = Array(colCount).fill(0);
+      const fields = Array(colCount).fill('');
+      rows.forEach(tr => {
+        [...tr.children].forEach((td, i) => {
+          if (i === 0) return;
+          const input = td.querySelector('input');
+          if (input && !fields[i]) fields[i] = input.dataset.field || '';
+          const raw = input ? input.value.trim() : td.textContent.trim();
+          if (raw === '') return;
+          const n = Number(raw);
+          if (!Number.isFinite(n)) return;
+          sums[i] += n;
+          counts[i] += 1;
+        });
+      });
+      let cells = '<td>Average</td>';
+      for (let i = 1; i < colCount; i += 1) {
+        const text = counts[i] ? formatAverage(sums[i] / counts[i], fields[i]) : '—';
+        cells += `<td>${text}</td>`;
+      }
+      tfoot.innerHTML = `<tr>${cells}</tr>`;
     }
 
     function bindTableInputs() {
@@ -597,6 +654,7 @@
       tbody.dataset.inputsBound = '1';
       tbody.addEventListener('input', (e) => {
         if (!e.target.matches('input') || e.target.disabled) return;
+        updateColumnAverages();
         updateUnsavedIndicators();
         scheduleAutosave();
       });

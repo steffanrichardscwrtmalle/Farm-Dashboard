@@ -12,6 +12,7 @@ from app.models import Base
 from app.services.financial_data_sources import FINANCIAL_DATA_SOURCE_KEYS
 from app.services.rental_agreements import (
     build_rental_agreements_report,
+    build_rental_payment_chart,
     build_rental_payment_index,
     create_rental_agreement,
     deactivate_rental_agreement,
@@ -271,3 +272,44 @@ def test_create_with_custom_payment_day(db: Session) -> None:
     assert created["payment_day"] == 28
     report = build_rental_agreements_report(db, fiscal_year=FISCAL_YEAR)
     assert report["agreements"][0]["payment_day"] == 28
+
+
+def test_payment_chart_sums_from_fiscal_year_start(db: Session) -> None:
+    cm = create_rental_agreement(db, business="CM", farm_name="Home Farm", farm_size=100)
+    gad = create_rental_agreement(db, business="GAD", farm_name="Top Field", farm_size=50)
+    save_rental_payments(
+        db,
+        fiscal_year=2026,
+        rows=[
+            {"agreement_id": cm["id"], "payment_month": "2026-03-01", "amount": 900},
+        ],
+    )
+    save_rental_payments(
+        db,
+        fiscal_year=FISCAL_YEAR,
+        rows=[
+            {"agreement_id": cm["id"], "payment_month": "2026-04-01", "amount": 1000},
+            {"agreement_id": cm["id"], "payment_month": "2026-05-01", "amount": 1000},
+            {"agreement_id": gad["id"], "payment_month": "2026-04-01", "amount": 400},
+            {"agreement_id": gad["id"], "payment_month": "2026-05-01", "amount": 400},
+        ],
+    )
+    chart = build_rental_payment_chart(db, as_of=dt.date(2026, 7, 1))
+    assert chart["fiscal_year"] == 2027
+    assert chart["from_month"] == "2026-04-01"
+    assert chart["months"][0]["month_label"] == "Apr-26"
+    assert chart["months"][0]["total"] == 1400.0
+    assert chart["months"][0]["payment_count"] == 2
+    assert chart["months"][1]["total"] == 1400.0
+
+    cm_only = build_rental_payment_chart(db, as_of=dt.date(2026, 7, 1), business="CM")
+    assert cm_only["months"][0]["total"] == 1000.0
+    clipped = build_rental_payment_chart(
+        db,
+        as_of=dt.date(2026, 7, 1),
+        business="CM",
+        from_month="2026-05-01",
+        to_month="2026-05-01",
+    )
+    assert [m["month_label"] for m in clipped["months"]] == ["May-26"]
+    assert clipped["totals"]["total"] == 1000.0

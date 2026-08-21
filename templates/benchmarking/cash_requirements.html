@@ -131,13 +131,110 @@
     .chart-wrap {
       position: relative;
       flex: 1;
-      min-height: 22rem;
+      min-height: 28rem;
+      max-height: calc(100vh - 14rem);
     }
     .empty-state { color: var(--muted); font-style: italic; }
+    .page-tabs {
+      display: flex;
+      gap: 0.35rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0.15rem;
+    }
+    .page-tab {
+      border: 1px solid transparent;
+      border-bottom: none;
+      background: transparent;
+      padding: 0.4rem 0.85rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+      color: var(--muted);
+      border-radius: 6px 6px 0 0;
+    }
+    .page-tab.active {
+      background: var(--card);
+      border-color: var(--border);
+      color: var(--text);
+      font-weight: 600;
+    }
+    .section-panel[hidden] { display: none !important; }
+    .section-panel:not([hidden]) {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      gap: 0.75rem;
+    }
+    .payments-filters {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      gap: 0.5rem 0.85rem;
+      padding: 0.55rem 0.7rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      font-size: 0.82rem;
+    }
+    .payments-filters label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      margin: 0;
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .payments-filters select,
+    .payments-filters input[type="month"] {
+      margin: 0;
+      padding: 0.22rem 0.4rem;
+      font-size: 0.82rem;
+    }
+    .payments-filters #pay-from,
+    .payments-filters #pay-to { width: 8.5rem; }
+    .payment-summary-table {
+      width: max-content;
+      max-width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .payment-summary-table th,
+    .payment-summary-table td {
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      padding: 0.35rem 0.5rem;
+      white-space: nowrap;
+    }
+    .payment-summary-table th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      text-align: center;
+    }
+    .payment-summary-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .payment-summary-table tbody tr:nth-child(even) td { background: #fafbfc; }
+    .payment-summary-table tfoot td {
+      font-weight: 700;
+      background: #f1f5f9;
+    }
+    .month-filter-wrap[hidden],
+    .payments-range[hidden] { display: none !important; }
 {% endblock %}
 
 {% block content %}
   <div class="cash-page">
+    <div class="page-tabs" role="tablist">
+      <button type="button" class="page-tab active" data-section="month">This month</button>
+      <button type="button" class="page-tab" data-section="chart">Payment chart</button>
+      <button type="button" class="page-tab" data-section="table">Payment table</button>
+    </div>
+
     <div class="cash-top">
       <label>Business
         <select id="business-filter">
@@ -147,29 +244,37 @@
           {% endfor %}
         </select>
       </label>
-      <label>Month
+      <label class="month-filter-wrap" id="month-filter-wrap">Month
         <input type="month" id="month-filter">
       </label>
-      <p class="muted">HP, standing order, and rent payments going out, in date order. Green has gone out (including due today); orange is still ahead. HP and standing orders due on a Saturday or Sunday go out on the Monday.</p>
+      <label class="payments-range" id="pay-from-wrap" hidden>From
+        <input type="month" id="pay-from">
+      </label>
+      <label class="payments-range" id="pay-to-wrap" hidden>To
+        <input type="month" id="pay-to">
+      </label>
+      <button type="button" class="small payments-range" id="pay-apply-btn" hidden>Apply</button>
+      <button type="button" class="small payments-range" id="pay-reset-btn" hidden>Reset range</button>
+      <p class="muted" id="cash-intro">HP, standing order, and rent payments going out, in date order. Green has gone out (including due today); orange is still ahead. HP and standing orders due on a Saturday or Sunday go out on the Monday.</p>
     </div>
 
-    <div class="cash-summary">
-      <div class="cash-card">
-        <div class="label">This month</div>
-        <div class="value" id="sum-total">—</div>
+    <div class="section-panel" id="section-month">
+      <div class="cash-summary">
+        <div class="cash-card">
+          <div class="label">This month</div>
+          <div class="value" id="sum-total">—</div>
+        </div>
+        <div class="cash-card paid">
+          <div class="label">Gone out</div>
+          <div class="value" id="sum-paid">—</div>
+        </div>
+        <div class="cash-card remaining">
+          <div class="label">Still to go</div>
+          <div class="value" id="sum-remaining">—</div>
+        </div>
       </div>
-      <div class="cash-card paid">
-        <div class="label">Gone out</div>
-        <div class="value" id="sum-paid">—</div>
-      </div>
-      <div class="cash-card remaining">
-        <div class="label">Still to go</div>
-        <div class="value" id="sum-remaining">—</div>
-      </div>
-    </div>
 
-    <div class="cash-layout">
-      <div class="cash-panel">
+      <div class="cash-panel" style="flex:1; min-height:0;">
         <h2 id="list-heading">Payments this month</h2>
         <p class="hint" id="list-hint">Loading…</p>
         <div class="table-wrap">
@@ -190,11 +295,37 @@
           </table>
         </div>
       </div>
-      <div class="cash-panel">
+    </div>
+
+    <div class="section-panel" id="section-chart" hidden>
+      <div class="cash-panel" style="flex:1; min-height:0;">
         <h2>Monthly requirement</h2>
         <p class="hint" id="chart-hint">Loading chart…</p>
         <div class="chart-wrap">
           <canvas id="cash-chart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-panel" id="section-table" hidden>
+      <div class="cash-panel">
+        <h2>Monthly requirement</h2>
+        <p class="hint" id="table-hint">Loading table…</p>
+        <div class="table-wrap">
+          <table class="payment-summary-table" id="payment-summary-table">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Gone out</th>
+                <th>Still to go</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="payment-summary-body">
+              <tr><td colspan="4" class="empty-state">Loading…</td></tr>
+            </tbody>
+            <tfoot id="payment-summary-foot"></tfoot>
+          </table>
         </div>
       </div>
     </div>
@@ -203,6 +334,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script>
     let cashChart = null;
+    let cashData = null;
+    let activeSection = 'month';
 
     function money(value) {
       const n = Number(value);
@@ -227,6 +360,51 @@
 
     function monthInputValue(iso) {
       return (iso || '').slice(0, 7);
+    }
+
+    function clippedMonths(data) {
+      const months = data.months || [];
+      const from = document.getElementById('pay-from')?.value || '';
+      const to = document.getElementById('pay-to')?.value || '';
+      return months.filter(m => {
+        const key = monthInputValue(m.month);
+        if (from && key < from) return false;
+        if (to && key > to) return false;
+        return true;
+      });
+    }
+
+    function rangeTotals(months) {
+      return months.reduce((acc, m) => ({
+        paid: acc.paid + Number(m.paid || 0),
+        remaining: acc.remaining + Number(m.remaining || 0),
+        total: acc.total + Number(m.total || 0),
+      }), { paid: 0, remaining: 0, total: 0 });
+    }
+
+    function syncRangeBounds(data, { reset = false } = {}) {
+      const months = data.months || [];
+      const first = monthInputValue(months[0]?.month);
+      const last = monthInputValue(months[months.length - 1]?.month);
+      const fromEl = document.getElementById('pay-from');
+      const toEl = document.getElementById('pay-to');
+      if (!fromEl || !toEl) return;
+      fromEl.min = first;
+      fromEl.max = last;
+      toEl.min = first;
+      toEl.max = last;
+      if (reset || !fromEl.value) fromEl.value = first;
+      if (reset || !toEl.value) toEl.value = last;
+    }
+
+    function paymentMetaText(data, months) {
+      const biz = data.business ? ` · ${data.business}` : ' · All businesses';
+      const totals = rangeTotals(months);
+      if (!months.length) {
+        return `FY${data.fiscal_year}${biz} · No scheduled payments in this range.`;
+      }
+      return `FY${data.fiscal_year}${biz} · ${months[0].month_label} to ${months[months.length - 1].month_label} · ` +
+        `Total ${money(totals.total)} (gone out ${money(totals.paid)} · still to go ${money(totals.remaining)})`;
     }
 
     function renderList(data) {
@@ -261,13 +439,36 @@
       </tr>`;
     }
 
+    function renderPaymentTable(data) {
+      const body = document.getElementById('payment-summary-body');
+      const foot = document.getElementById('payment-summary-foot');
+      const hint = document.getElementById('table-hint');
+      const months = clippedMonths(data);
+      const totals = rangeTotals(months);
+      hint.textContent = paymentMetaText(data, months);
+      if (!months.length) {
+        body.innerHTML = `<tr><td colspan="4" class="empty-state">No payments in this range.</td></tr>`;
+        foot.innerHTML = '';
+        return;
+      }
+      body.innerHTML = months.map(m => `<tr>
+        <td>${esc(m.month_label)}</td>
+        <td class="num">${money(m.paid)}</td>
+        <td class="num">${money(m.remaining)}</td>
+        <td class="num">${money(m.total)}</td>
+      </tr>`).join('');
+      foot.innerHTML = `<tr>
+        <td>Total</td>
+        <td class="num">${money(totals.paid)}</td>
+        <td class="num">${money(totals.remaining)}</td>
+        <td class="num">${money(totals.total)}</td>
+      </tr>`;
+    }
+
     function renderChart(data) {
       const hint = document.getElementById('chart-hint');
-      const months = data.months || [];
-      const current = months.find(m => m.is_current);
-      hint.textContent = current
-        ? `FY ${data.fiscal_year}. Current month still to go: ${money(current.remaining)}.`
-        : `FY ${data.fiscal_year}.`;
+      const months = clippedMonths(data);
+      hint.textContent = paymentMetaText(data, months);
       const canvas = document.getElementById('cash-chart');
       if (typeof Chart === 'undefined') {
         hint.textContent = 'Chart library failed to load.';
@@ -331,7 +532,31 @@
       });
     }
 
-    async function loadCashRequirements() {
+    function renderPaymentViews({ resetRange = false } = {}) {
+      if (!cashData) return;
+      syncRangeBounds(cashData, { reset: resetRange });
+      renderChart(cashData);
+      renderPaymentTable(cashData);
+      if (cashChart) cashChart.resize();
+    }
+
+    function showSection(section) {
+      activeSection = section;
+      const onMonth = section === 'month';
+      const onPayments = section === 'chart' || section === 'table';
+      document.getElementById('section-month').hidden = !onMonth;
+      document.getElementById('section-chart').hidden = section !== 'chart';
+      document.getElementById('section-table').hidden = section !== 'table';
+      document.getElementById('month-filter-wrap').hidden = !onMonth;
+      document.querySelectorAll('.payments-range').forEach(el => { el.hidden = !onPayments; });
+      document.getElementById('cash-intro').hidden = !onMonth;
+      if (onPayments) {
+        renderPaymentViews();
+        if (section === 'chart' && cashChart) cashChart.resize();
+      }
+    }
+
+    async function loadCashRequirements({ resetRange = false } = {}) {
       const business = document.getElementById('business-filter').value;
       const month = document.getElementById('month-filter').value;
       const params = new URLSearchParams();
@@ -339,24 +564,35 @@
       if (month) params.set('month', `${month}-01`);
       const res = await fetch(`/api/benchmarking/cash-requirements?${params.toString()}`);
       if (!res.ok) throw new Error('Could not load cash requirements');
-      const data = await res.json();
+      cashData = await res.json();
       if (!document.getElementById('month-filter').value) {
-        document.getElementById('month-filter').value = monthInputValue(data.month);
+        document.getElementById('month-filter').value = monthInputValue(cashData.month);
       }
-      renderList(data);
-      renderChart(data);
+      renderList(cashData);
+      renderPaymentViews({ resetRange });
     }
 
     document.getElementById('business-filter').addEventListener('change', () => {
-      loadCashRequirements().catch(() => {
+      loadCashRequirements({ resetRange: true }).catch(() => {
         document.getElementById('list-hint').textContent = 'Could not load cash requirements.';
       });
     });
     document.getElementById('month-filter').addEventListener('change', () => {
-      loadCashRequirements().catch(() => {
+      loadCashRequirements({ resetRange: true }).catch(() => {
         document.getElementById('list-hint').textContent = 'Could not load cash requirements.';
       });
     });
+    document.getElementById('pay-apply-btn').addEventListener('click', () => renderPaymentViews());
+    document.getElementById('pay-reset-btn').addEventListener('click', () => renderPaymentViews({ resetRange: true }));
+
+    document.querySelectorAll('.page-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        showSection(tab.dataset.section);
+      });
+    });
+
     loadCashRequirements().catch(() => {
       document.getElementById('list-hint').textContent = 'Could not load cash requirements.';
     });

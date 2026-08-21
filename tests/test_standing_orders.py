@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Base, StandingOrder
 from app.services.standing_orders import (
+    build_standing_order_payment_chart,
     create_standing_order,
     deactivate_standing_order,
     list_standing_orders,
@@ -162,3 +163,64 @@ def test_other_frequency_requires_interval_days(db: Session) -> None:
             start_month="2026-04",
             frequency="other",
         )
+
+
+def test_payment_chart_sums_by_month(db: Session) -> None:
+    # FY2027 starts Apr 2026. Feb/Mar dues are excluded.
+    create_standing_order(
+        db,
+        name="Monthly contractor",
+        business="CM",
+        amount=100,
+        months=4,
+        payment_day=10,
+        start_month="2026-02",
+    )
+    create_standing_order(
+        db,
+        name="GAD contractor",
+        business="GAD",
+        amount=50,
+        months=4,
+        payment_day=10,
+        start_month="2026-02",
+    )
+    chart = build_standing_order_payment_chart(db, as_of=dt.date(2026, 7, 1))
+    assert chart["fiscal_year"] == 2027
+    assert chart["from_month"] == "2026-04-01"
+    assert chart["months"][0]["month_label"] == "Apr-26"
+    assert chart["months"][0]["total"] == 150.0
+    assert chart["months"][0]["payment_count"] == 2
+    assert chart["months"][1]["total"] == 150.0
+
+    cm_only = build_standing_order_payment_chart(db, as_of=dt.date(2026, 7, 1), business="CM")
+    assert cm_only["months"][0]["total"] == 100.0
+    clipped = build_standing_order_payment_chart(
+        db,
+        as_of=dt.date(2026, 7, 1),
+        business="CM",
+        from_month="2026-05-01",
+        to_month="2026-05-01",
+    )
+    assert [m["month_label"] for m in clipped["months"]] == ["May-26"]
+    assert clipped["totals"]["total"] == 100.0
+
+
+def test_payment_chart_weekly_sums_in_month(db: Session) -> None:
+    create_standing_order(
+        db,
+        name="Weekly feed",
+        amount=50,
+        months=5,
+        payment_day=1,
+        start_month="2026-04",
+        frequency="other",
+        interval_days=7,
+    )
+    chart = build_standing_order_payment_chart(db, as_of=dt.date(2026, 4, 15))
+    april = chart["months"][0]
+    assert april["month_label"] == "Apr-26"
+    assert april["payment_count"] == 5
+    assert april["total"] == 250.0
+    assert chart["totals"]["total"] == 250.0
+    assert chart["totals"]["payment_count"] == 5

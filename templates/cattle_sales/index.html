@@ -105,9 +105,32 @@
     #cattle-sales-table tbody tr.unmatched { background: #fff8ef; }
     .empty-state { padding: 1.5rem; color: var(--muted); text-align: center; }
     .message.warn {
-      display: block; background: #fef3e2; color: #92400e;
+      background: #fef3e2; color: #92400e;
       border: 1px solid #f5d9ad; margin-bottom: 0.75rem;
     }
+    #import-message:not([hidden]) {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    #import-message[hidden] { display: none !important; }
+    #import-message .message-body { flex: 1; min-width: 0; }
+    #import-message .message-close {
+      flex-shrink: 0;
+      margin: 0;
+      padding: 0;
+      width: 1.6rem;
+      height: 1.6rem;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: #92400e;
+      font-size: 1.2rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    #import-message .message-close:hover { background: #f5d9ad; }
     .import-log { margin-top: 0.5rem; max-height: 12rem; overflow: auto; font-size: 0.8rem; }
 {% endblock %}
 
@@ -163,7 +186,10 @@
         <button type="button" id="upload-btn" class="secondary">Upload PDFs</button>
         <span id="import-status" class="meta-line" style="margin:0;"></span>
       </div>
-      <div id="import-message" class="message warn" hidden></div>
+      <div id="import-message" class="message" hidden>
+        <div class="message-body"></div>
+        <button type="button" class="message-close" id="import-message-close" aria-label="Close notification">&times;</button>
+      </div>
       {% endif %}
 
       <p class="meta-line" id="meta-line">Loading cattle sales…</p>
@@ -830,13 +856,30 @@
 
     {% if can_import %}
     let importPoll = null;
-    function showImportMessage(result) {
+    function hideImportMessage() {
       const el = document.getElementById('import-message');
-      if (!result) { el.hidden = true; return; }
-      const warnings = [...(result.warnings || []), ...(result.skipped_files || [])];
+      if (!el) return;
+      el.hidden = true;
+      el.className = 'message';
+      const body = el.querySelector('.message-body');
+      if (body) body.innerHTML = '';
+    }
+
+    function showImportNotice(html, text) {
+      const el = document.getElementById('import-message');
+      const body = el.querySelector('.message-body');
+      el.className = 'message warn';
       el.hidden = false;
-      el.innerHTML = `<div>Imported ${result.rows_total || 0} line(s)</div>` +
+      if (html) body.innerHTML = html;
+      else body.textContent = text || '';
+    }
+
+    function showImportMessage(result) {
+      if (!result) { hideImportMessage(); return; }
+      const warnings = [...(result.warnings || []), ...(result.skipped_files || [])];
+      const html = `<div>Imported ${result.rows_total || 0} line(s)</div>` +
         (warnings.length ? `<div class="import-log">${warnings.map(w => `<div>${w}</div>`).join('')}</div>` : '');
+      showImportNotice(html);
     }
 
     async function pollImportStatus() {
@@ -853,6 +896,8 @@
       }
     }
 
+    document.getElementById('import-message-close').addEventListener('click', hideImportMessage);
+
     document.getElementById('import-btn').addEventListener('click', async () => {
       const scope = document.getElementById('import-scope').value;
       let days = null;
@@ -861,10 +906,7 @@
         if (input === null) return;
         days = parseInt(input, 10);
         if (!Number.isFinite(days) || days <= 0) {
-          const el = document.getElementById('import-message');
-          el.hidden = false;
-          el.className = 'message warn';
-          el.textContent = 'Enter a positive whole number of days.';
+          showImportNotice('', 'Enter a positive whole number of days.');
           return;
         }
       } else if (!window.confirm('Check the mailboxes for new Eurofarm, Pathway Farming, Buitelaar, and Game Changer cattle-sale PDFs and import them now?')) {
