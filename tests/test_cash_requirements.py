@@ -201,3 +201,33 @@ def test_standing_order_feeds_cash_requirements(db: Session) -> None:
     assert row["paid"] is False
     august = next(m for m in report["months"] if m["month"] == "2026-08-01")
     assert august["remaining"] == 1800
+
+
+def test_standing_order_other_frequency_lists_each_due_in_month(db: Session) -> None:
+    from app.services.standing_orders import create_standing_order
+
+    create_standing_order(
+        db,
+        name="Weekly feed",
+        business="CM",
+        amount=250,
+        months=12,
+        payment_day=1,
+        start_month="2026-04",
+        frequency="other",
+        interval_days=7,
+    )
+    report = build_cash_requirements_report(
+        db, month="2026-08", today=dt.date(2026, 8, 10)
+    )
+    rows = [row for row in report["payments"] if row["name"] == "Weekly feed"]
+    assert [row["due_date"] for row in rows] == [
+        "2026-08-05",
+        "2026-08-12",
+        "2026-08-19",
+        "2026-08-26",
+    ]
+    assert rows[0]["paid"] is True
+    assert rows[1]["paid"] is False
+    assert report["totals"]["paid"] == 250
+    assert report["totals"]["remaining"] == 750

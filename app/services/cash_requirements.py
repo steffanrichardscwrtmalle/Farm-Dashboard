@@ -19,6 +19,7 @@ from app.services.benchmarking import fiscal_year_months
 from app.services.events_common import _fiscal_year_from_date
 from app.services.hp_schedules import _normalize_business, _payment_due_date
 from app.services.rental_agreements import rent_payment_due_date
+from app.services.standing_orders import iter_standing_order_due_dates
 
 
 def _month_start(value: dt.date) -> dt.date:
@@ -141,9 +142,13 @@ def _standing_order_payments(
         amount = float(row.amount or 0)
         if amount <= 0:
             continue
-        payment_day = int(row.payment_day)
-        for i in range(months):
-            due = _payment_due_date(start, i, payment_day)
+        for due in iter_standing_order_due_dates(
+            start_month=start,
+            months=months,
+            payment_day=int(row.payment_day),
+            frequency=getattr(row, "frequency", None),
+            interval_days=getattr(row, "interval_days", None),
+        ):
             if due.replace(day=1) not in month_set:
                 continue
             payments.append(

@@ -1436,9 +1436,6 @@ class StandingOrder(Base):
     """Recurring standing-order payment for budgeting cash requirements."""
 
     __tablename__ = "standing_orders"
-    __table_args__ = (
-        UniqueConstraint("business", "name", name="uq_standing_order_business_name"),
-    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     business: Mapped[str] = mapped_column(String(8), index=True, default="CM")
@@ -1446,7 +1443,9 @@ class StandingOrder(Base):
     description: Mapped[str] = mapped_column(String(255), default="")
     amount: Mapped[float] = mapped_column(Float)  # total paid each installment
     months: Mapped[int] = mapped_column(Integer)
-    payment_day: Mapped[int] = mapped_column(Integer)  # 1–31, same day each month
+    frequency: Mapped[str] = mapped_column(String(16), default="monthly")
+    interval_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    payment_day: Mapped[int] = mapped_column(Integer)  # 1–31, first / monthly payment day
     start_month: Mapped[datetime.date] = mapped_column(Date, index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

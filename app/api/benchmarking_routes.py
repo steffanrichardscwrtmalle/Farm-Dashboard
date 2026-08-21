@@ -907,6 +907,8 @@ class StandingOrderBody(BaseModel):
     description: str = Field(default="", max_length=255)
     amount: float = Field(ge=0)
     months: int = Field(ge=1, le=600)
+    frequency: str = Field(default="monthly")
+    interval_days: int | None = None
     payment_day: int = Field(ge=1, le=31)
     start_month: dt.date
 
@@ -934,6 +936,8 @@ def api_create_standing_order(
                 description=body.description,
                 amount=body.amount,
                 months=body.months,
+                frequency=body.frequency,
+                interval_days=body.interval_days,
                 payment_day=body.payment_day,
                 start_month=body.start_month,
                 user_id=user.id,
@@ -960,6 +964,8 @@ def api_update_standing_order(
                 description=body.description,
                 amount=body.amount,
                 months=body.months,
+                frequency=body.frequency,
+                interval_days=body.interval_days,
                 payment_day=body.payment_day,
                 start_month=body.start_month,
                 user_id=user.id,

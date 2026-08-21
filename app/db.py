@@ -235,13 +235,57 @@ def _migrate_hp_schedules_schema() -> None:
 
 
 def _migrate_standing_orders_schema() -> None:
-    """Ensure standing_orders exists on databases created before this table."""
+    """Ensure standing_orders exists, names are not unique, and frequency columns exist."""
     from app.models import StandingOrder
 
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
     if "standing_orders" not in tables:
         StandingOrder.__table__.create(bind=engine, checkfirst=True)
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
+    if "standing_orders" not in tables:
+        return
+
+    unique_names = {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints("standing_orders")
+        if constraint.get("name")
+    }
+    index_names = {
+        index["name"] for index in inspector.get_indexes("standing_orders") if index.get("name")
+    }
+    columns = {col["name"] for col in inspector.get_columns("standing_orders")}
+
+    with engine.begin() as conn:
+        if (
+            "uq_standing_order_business_name" in unique_names
+            or "uq_standing_order_business_name" in index_names
+        ):
+            if DATABASE_URL.startswith("sqlite"):
+                conn.execute(text("DROP INDEX IF EXISTS uq_standing_order_business_name"))
+            else:
+                conn.execute(
+                    text(
+                        "ALTER TABLE standing_orders "
+                        "DROP CONSTRAINT IF EXISTS uq_standing_order_business_name"
+                    )
+                )
+        if "frequency" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE standing_orders "
+                    "ADD COLUMN frequency VARCHAR(16) DEFAULT 'monthly'"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE standing_orders SET frequency = 'monthly' "
+                    "WHERE frequency IS NULL OR frequency = ''"
+                )
+            )
+        if "interval_days" not in columns:
+            conn.execute(text("ALTER TABLE standing_orders ADD COLUMN interval_days INTEGER"))
 
 
 def _migrate_financial_forecasts_schema() -> None:

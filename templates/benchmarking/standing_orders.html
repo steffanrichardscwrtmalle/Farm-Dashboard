@@ -52,6 +52,8 @@
     .so-form #so-description { width: 14rem; }
     .so-form #so-amount { width: 8rem; }
     .so-form #so-months { width: 5rem; }
+    .so-form #so-frequency { width: 7.5rem; }
+    .so-form #so-interval-days { width: 4.5rem; }
     .so-form #so-payment-day { width: 4.5rem; }
     .so-form #so-start-month { width: 8rem; }
     .so-form .form-actions {
@@ -183,7 +185,7 @@
 {% block content %}
   <div class="so-page">
     <div class="so-top">
-      <span class="muted">Monthly standing orders such as contractors. Each payment uses the amount and day you enter, for the number of months set. Payments due on a Saturday or Sunday go out on the Monday, and they appear on Cash Requirements.</span>
+      <span class="muted">Standing orders such as contractors. Monthly is the default; choose Other to repeat every set number of days. Payments due on a Saturday or Sunday go out on the Monday, and they appear on Cash Requirements.</span>
       {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
     </div>
 
@@ -205,6 +207,15 @@
       </label>
       <label>Amount / payment (£)
         <input type="number" id="so-amount" required min="0" step="0.01" placeholder="0.00">
+      </label>
+      <label>Repeat
+        <select id="so-frequency">
+          <option value="monthly" selected>Monthly</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
+      <label id="so-interval-wrap" hidden>Every (days)
+        <input type="number" id="so-interval-days" min="1" max="365" step="1" value="7" placeholder="7">
       </label>
       <label>Months
         <input type="number" id="so-months" required min="1" max="600" step="1" placeholder="12">
@@ -244,7 +255,8 @@
             <option value="name">Name</option>
             <option value="description">Description</option>
             <option value="amount">Amount / payment</option>
-            <option value="months_remaining">Months left</option>
+            <option value="frequency_label">Repeat</option>
+            <option value="months_remaining">Payments left</option>
             <option value="last_payment_date">Last payment</option>
             <option value="amount_remaining">Amount left</option>
           </select>
@@ -268,8 +280,9 @@
               <th class="sortable" data-sort="name">Name</th>
               <th class="sortable" data-sort="description">Description</th>
               <th class="sortable" data-sort="amount">Amount / payment</th>
+              <th class="sortable" data-sort="frequency_label">Repeat</th>
               <th class="sortable" data-sort="months">Months</th>
-              <th class="sortable" data-sort="months_remaining">Months left</th>
+              <th class="sortable" data-sort="months_remaining">Payments left</th>
               <th class="sortable" data-sort="last_payment_date">Last payment</th>
               <th class="sortable" data-sort="payment_day">Payment day</th>
               <th class="sortable" data-sort="amount_remaining">Amount left</th>
@@ -277,7 +290,7 @@
             </tr>
           </thead>
           <tbody id="so-body">
-            <tr><td colspan="{% if can_edit %}10{% else %}9{% endif %}" class="empty-state">Loading…</td></tr>
+            <tr><td colspan="{% if can_edit %}11{% else %}10{% endif %}" class="empty-state">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -342,6 +355,11 @@
       document.getElementById('so-id').value = '';
       document.getElementById('so-save-btn').textContent = 'Add standing order';
       document.getElementById('so-cancel-btn').hidden = true;
+      const frequency = document.getElementById('so-frequency');
+      if (frequency) frequency.value = 'monthly';
+      const interval = document.getElementById('so-interval-days');
+      if (interval) interval.value = '7';
+      syncFrequencyFields();
       setStatus('');
     }
 
@@ -352,6 +370,9 @@
       document.getElementById('so-name').value = row.name;
       document.getElementById('so-description').value = row.description || '';
       document.getElementById('so-amount').value = row.amount;
+      document.getElementById('so-frequency').value = row.frequency === 'other' ? 'other' : 'monthly';
+      document.getElementById('so-interval-days').value = row.interval_days || 7;
+      syncFrequencyFields();
       document.getElementById('so-months').value = row.months;
       document.getElementById('so-payment-day').value = row.payment_day;
       document.getElementById('so-start-month').value = String(row.start_month).slice(0, 7);
@@ -363,7 +384,7 @@
 
     function sortValue(row, key) {
       const v = row[key];
-      if (key === 'name' || key === 'description' || key === 'last_payment_date' || key === 'start_month' || key === 'business') {
+      if (key === 'name' || key === 'description' || key === 'last_payment_date' || key === 'start_month' || key === 'business' || key === 'frequency_label') {
         return String(v || '').toLowerCase();
       }
       return Number(v) || 0;
@@ -414,7 +435,7 @@
 
     function renderTable() {
       const body = document.getElementById('so-body');
-      const cols = CAN_EDIT ? 10 : 9;
+      const cols = CAN_EDIT ? 11 : 10;
       updateSortHeaderMarks();
 
       if (!orders.length) {
@@ -446,6 +467,7 @@
             <td>${esc(row.name)}</td>
             <td>${esc(row.description || '')}</td>
             <td class="num">${money(row.amount)}</td>
+            <td>${esc(row.frequency_label || 'Monthly')}</td>
             <td class="num">${row.months}</td>
             <td class="num">${row.months_remaining}</td>
             <td>${esc(row.last_payment_label)}</td>
@@ -473,21 +495,44 @@
       renderTable();
     }
 
+    function hasRunningNameClash(name, excludeId) {
+      const needle = String(name || '').trim().toLowerCase();
+      if (!needle) return false;
+      return orders.some(row =>
+        String(row.name || '').trim().toLowerCase() === needle
+        && Number(row.months_remaining) > 0
+        && Number(row.id) !== Number(excludeId || 0)
+      );
+    }
+
+    function syncFrequencyFields() {
+      const other = document.getElementById('so-frequency')?.value === 'other';
+      const wrap = document.getElementById('so-interval-wrap');
+      if (wrap) wrap.hidden = !other;
+      const input = document.getElementById('so-interval-days');
+      if (input) input.required = other;
+    }
+
     function readForm() {
       const startMonth = document.getElementById('so-start-month').value;
       if (!startMonth) throw new Error('First payment month is required.');
+      const frequency = document.getElementById('so-frequency')?.value || 'monthly';
+      const intervalRaw = document.getElementById('so-interval-days')?.value;
       return {
         name: document.getElementById('so-name').value.trim(),
         business: document.getElementById('so-business').value,
         description: document.getElementById('so-description').value.trim(),
         amount: Number(document.getElementById('so-amount').value),
         months: Number(document.getElementById('so-months').value),
+        frequency,
+        interval_days: frequency === 'other' ? Number(intervalRaw) : null,
         payment_day: Number(document.getElementById('so-payment-day').value),
         start_month: startMonth + '-01',
       };
     }
 
     document.getElementById('so-search').addEventListener('input', renderTable);
+    document.getElementById('so-frequency')?.addEventListener('change', syncFrequencyFields);
     document.getElementById('so-business-filter').addEventListener('change', renderTable);
     document.getElementById('so-show-finished').addEventListener('change', renderTable);
     document.getElementById('so-sort').addEventListener('change', (e) => {
@@ -517,6 +562,12 @@
         try {
           const body = readForm();
           const editing = editingId;
+          if (hasRunningNameClash(body.name, editing)) {
+            const ok = window.confirm(
+              `There is already a standing order named "${body.name}". Do you want to continue?`
+            );
+            if (!ok) return;
+          }
           const url = editing
             ? `/api/benchmarking/standing-orders/${editing}`
             : '/api/benchmarking/standing-orders';
@@ -566,7 +617,7 @@
 
     loadOrders().catch(err => {
       document.getElementById('so-body').innerHTML =
-        `<tr><td colspan="${CAN_EDIT ? 10 : 9}" class="empty-state">Failed to load: ${esc(err.message)}</td></tr>`;
+        `<tr><td colspan="${CAN_EDIT ? 11 : 10}" class="empty-state">Failed to load: ${esc(err.message)}</td></tr>`;
     });
   </script>
 {% endblock %}

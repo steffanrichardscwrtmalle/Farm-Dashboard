@@ -85,8 +85,8 @@ def test_update_and_deactivate(db: Session) -> None:
     assert row.is_active is False
 
 
-def test_duplicate_name_on_same_business_rejected(db: Session) -> None:
-    create_standing_order(
+def test_duplicate_name_allowed(db: Session) -> None:
+    first = create_standing_order(
         db,
         name="Contractor",
         amount=100,
@@ -95,23 +95,62 @@ def test_duplicate_name_on_same_business_rejected(db: Session) -> None:
         start_month="2026-04",
         business="CM",
     )
-    with pytest.raises(ValueError, match="already exists"):
-        create_standing_order(
-            db,
-            name="contractor",
-            amount=200,
-            months=12,
-            payment_day=2,
-            start_month="2026-05",
-            business="CM",
-        )
-    other = create_standing_order(
+    second = create_standing_order(
         db,
-        name="Contractor",
+        name="contractor",
         amount=200,
         months=12,
         payment_day=2,
         start_month="2026-05",
-        business="GAD",
+        business="CM",
     )
-    assert other["business"] == "GAD"
+    assert first["id"] != second["id"]
+    listed = list_standing_orders(db)
+    names = [row["name"] for row in listed]
+    assert names.count("Contractor") == 1
+    assert names.count("contractor") == 1
+
+
+def test_other_frequency_every_seven_days(db: Session) -> None:
+    from app.services.standing_orders import iter_standing_order_due_dates
+
+    dues = iter_standing_order_due_dates(
+        start_month=dt.date(2026, 4, 1),
+        months=1,
+        payment_day=1,
+        frequency="other",
+        interval_days=7,
+    )
+    assert dues[0] == dt.date(2026, 4, 1)
+    assert dues[-1] == dt.date(2026, 4, 29)
+    assert len(dues) == 5
+
+    row = create_standing_order(
+        db,
+        name="Weekly contractor",
+        amount=100,
+        months=1,
+        payment_day=1,
+        start_month="2026-04",
+        frequency="other",
+        interval_days=7,
+    )
+    assert row["frequency"] == "other"
+    assert row["interval_days"] == 7
+    assert row["frequency_label"] == "Every 7 days"
+    listed = list_standing_orders(db, as_of=dt.date(2026, 4, 1))
+    # First payment is due today so it is treated as gone out
+    assert listed[0]["payments_remaining"] == 4
+
+
+def test_other_frequency_requires_interval_days(db: Session) -> None:
+    with pytest.raises(ValueError, match="at least 1 day"):
+        create_standing_order(
+            db,
+            name="Missing interval",
+            amount=50,
+            months=3,
+            payment_day=1,
+            start_month="2026-04",
+            frequency="other",
+        )
