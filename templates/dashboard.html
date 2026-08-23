@@ -144,6 +144,12 @@
       <p class="widget-title">GAD</p>
     </a>
     {% endif %}
+    {% if perms.page('sensehub') %}
+    <a href="/sensehub" class="home-widget" aria-label="SenseHub young stock health">
+      <p class="widget-kicker">SenseHub</p>
+      <p class="widget-title">Health</p>
+    </a>
+    {% endif %}
     {% if perms.page('events') %}
     <a href="/events/breedings?semen=dairy" class="home-widget home-widget-wide status-loading" id="dairy-semen-widget" aria-label="Dairy semen used in the last 30 days" aria-live="polite">
       <p class="widget-kicker">Dairy Semen - 30 Days</p>
@@ -151,7 +157,7 @@
       <p class="widget-sub" id="dairy-semen-avg" title="120-day dairy semen ÷ 4 (avg per 30 days)">—</p>
     </a>
     {% endif %}
-    {% if not perms.page('bcms') and not perms.page('events') and not perms.page('milk_quality') %}
+    {% if not perms.page('bcms') and not perms.page('events') and not perms.page('milk_quality') and not perms.page('sensehub') %}
     <div class="card">
       <p class="muted" style="margin:0">Use the sidebar to open a section.</p>
     </div>

@@ -13,6 +13,24 @@
     }
     .toolbar label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
     .toolbar input { margin: 0; width: 6rem; }
+    .toolbar .btn-compact {
+      padding: 0.28rem 0.5rem;
+      font-size: 0.75rem;
+      line-height: 1.2;
+    }
+    .toolbar .btn-icon {
+      width: 2.1rem;
+      height: 2.1rem;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .toolbar .btn-icon svg {
+      width: 1.1rem;
+      height: 1.1rem;
+      display: block;
+    }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin: 0 0 0.75rem; }
     .table-wrap {
       display: inline-block;
@@ -294,9 +312,13 @@
       <input id="threshold" type="number" min="0" max="100" step="1" value="86">
     </label>
     <button type="button" id="apply-btn">Show list</button>
-    <button type="button" id="refresh-btn">Refresh from SenseHub</button>
-    <button type="button" id="backfill-btn">Fill all history</button>
-    <button type="button" id="print-btn">Print table</button>
+    <button type="button" class="btn-compact" id="refresh-btn" title="Refresh from SenseHub">Refresh</button>
+    <button type="button" class="btn-compact" id="backfill-btn" title="Fill all missing SenseHub history">Fill history</button>
+    <button type="button" class="btn-icon" id="print-btn" title="Print table" aria-label="Print table">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 8V3h10v5M6 18H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-1M7 14h10v7H7z"/>
+      </svg>
+    </button>
   </div>
   <p class="meta-line" id="meta-line">Loading…</p>
   <div class="print-only">
