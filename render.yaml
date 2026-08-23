@@ -373,14 +373,15 @@ services:
           type: web
           envVarKey: CTS_HOLDING_GAD
 
-  # Send pending BCMS movements on their UK reporting deadline day, 9pm UK.
-  # Runs hourly (UTC); the script exits immediately unless Europe/London hour
-  # is 21 — so BST/GMT stay correct year-round.
+  # Send pending BCMS movements on their UK reporting deadline day.
+  # Render cron is UTC-only, so run at 20:10 and 21:10 UTC: one of those is
+  # 9:10pm UK in both BST and GMT. A second same-day run is a no-op after send.
+  # No hour gate — Trigger from the dashboard sends immediately.
   - type: cron
     name: farm-dashboard-cts-deadline-send
     runtime: docker
-    schedule: "10 * * * *"
-    dockerCommand: python scripts/send_cts_deadline_movements.py --only-at-uk-hours 21
+    schedule: "10 20,21 * * *"
+    dockerCommand: python scripts/send_cts_deadline_movements.py
     envVars:
       - key: DATABASE_URL
         fromDatabase:

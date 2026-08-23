@@ -1,15 +1,11 @@
 """Send pending BCMS movements that are on their UK reporting deadline day.
 
-Designed for Render cron at 9pm UK time. Schedule hourly and pass
-``--only-at-uk-hours 21`` so BST/GMT stay correct year-round:
-
-    python scripts/send_cts_deadline_movements.py --only-at-uk-hours 21
+Render cron runs at 20:10 and 21:10 UTC (one of those is 9:10pm UK year-round).
+There is no time gate on the default command, so a dashboard Trigger sends now.
 
 Only sends animals whose Days Since Event equals the deadline (births 17,
 sales/move-ons 3, deaths 7). Already-reported rows are not pending. Overdue
 rows are left for manual send on Record Movements.
-
-Manual:
 
     python scripts/send_cts_deadline_movements.py
     python scripts/send_cts_deadline_movements.py --farm CM --dry-run
