@@ -518,6 +518,23 @@
         {% if perms.page('reports') %}
         <a href="/reports" class="{% if active_nav == 'reports' %}active{% endif %}">Reports</a>
         {% endif %}
+        {% if perms.page('sensehub') %}
+        <div class="nav-group{% if active_nav_group == 'sensehub' %} expanded{% endif %}" data-nav-group="sensehub">
+          <button
+            type="button"
+            class="nav-group-toggle{% if active_nav == 'sensehub' or active_nav == 'sensehub-reports' %} active{% endif %}"
+            aria-expanded="{% if active_nav_group == 'sensehub' %}true{% else %}false{% endif %}"
+            aria-controls="sensehub-nav-items"
+          >
+            <span class="nav-chevron" aria-hidden="true">&#9654;</span>
+            <span class="nav-collapsible-label">SenseHub</span>
+          </button>
+          <div class="nav-group-items" id="sensehub-nav-items">
+            <a href="/sensehub" class="{% if active_nav == 'sensehub' %}active{% endif %}">Young stock health</a>
+            <a href="/sensehub/reports" class="{% if active_nav == 'sensehub-reports' %}active{% endif %}">All reports</a>
+          </div>
+        </div>
+        {% endif %}
 
         <div class="nav-section">
           {% if perms.page('wynnstay') or perms.page('prostock') %}
@@ -1075,6 +1092,9 @@
           }
           if (group === "feed-rate" && !window.location.pathname.startsWith("/feed-rate")) {
             window.location.href = "/feed-rate";
+          }
+          if (group === "sensehub" && !window.location.pathname.startsWith("/sensehub")) {
+            window.location.href = "/sensehub";
           }
           if (group === "office-admin" && !window.location.pathname.startsWith("/office-admin")) {
             window.location.href = "/office-admin/sales-payments";

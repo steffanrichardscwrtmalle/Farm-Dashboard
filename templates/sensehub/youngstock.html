@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: end;
+      margin-bottom: 1rem;
+    }
+    .toolbar label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+    .toolbar input { margin: 0; width: 6rem; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin: 0 0 0.75rem; }
+    .table-wrap { overflow: auto; max-height: calc(100vh - 16rem); border: 1px solid var(--border); border-radius: 8px; }
+    #health-table { width: 100%; border-collapse: collapse; }
+    #health-table th, #health-table td {
+      padding: 0.5rem 0.6rem;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      white-space: nowrap;
+    }
+    #health-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      cursor: pointer;
+      user-select: none;
+    }
+    #health-table thead th[data-sort]::after { content: " ↕"; font-size: 0.7rem; opacity: 0.6; }
+    #health-table thead th.sort-asc::after { content: " ▲"; opacity: 1; }
+    #health-table thead th.sort-desc::after { content: " ▼"; opacity: 1; }
+    #health-table tbody tr { cursor: pointer; }
+    #health-table tbody tr:hover { background: #eef6fb; }
+    .empty-state { padding: 1.5rem; color: var(--muted); text-align: center; }
+    .drawer {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .drawer[hidden] { display: none; }
+    .drawer-backdrop { flex: 1; background: rgba(0,0,0,0.35); }
+    .drawer-panel {
+      width: min(42rem, 100%);
+      background: var(--card);
+      overflow: auto;
+      padding: 1.25rem;
+      box-shadow: -8px 0 24px rgba(0,0,0,0.15);
+    }
+    .drawer-panel h2 { margin: 0 0 0.5rem; font-size: 1.15rem; }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+      gap: 0.6rem;
+      margin: 0.75rem 0 1rem;
+    }
+    .detail-grid div { background: #f3f4f6; border-radius: 6px; padding: 0.5rem 0.65rem; }
+    .detail-grid .label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; }
+    .detail-grid .value { font-weight: 700; }
+    .chart-block { margin: 0 0 1.25rem; }
+    .chart-block h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+    .chart-wrap { position: relative; height: 220px; }
+    #events-table { width: 100%; border-collapse: collapse; }
+    #events-table th, #events-table td {
+      padding: 0.4rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      font-size: 0.875rem;
+    }
+    #events-table th { background: #f3f4f6; }
+{% endblock %}
+
+{% block content %}
+  <div class="toolbar">
+    <label>
+      Health index at or below
+      <input id="threshold" type="number" min="0" max="100" step="1" value="86">
+    </label>
+    <button type="button" id="apply-btn">Show list</button>
+    <button type="button" id="refresh-btn">Refresh from SenseHub</button>
+  </div>
+  <p class="meta-line" id="meta-line">Loading…</p>
+  <div class="table-wrap">
+    <table id="health-table">
+      <thead>
+        <tr>
+          <th data-sort="animal_id">Animal ID</th>
+          <th data-sort="etag4">ETAG4</th>
+          <th data-sort="health_index">Health index</th>
+          <th data-sort="age_days">Age in days</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="empty-state" id="empty-state" hidden>No animals at or below that health index.</p>
+
+  <div class="drawer" id="drawer" hidden>
+    <div class="drawer-backdrop" id="drawer-backdrop"></div>
+    <aside class="drawer-panel">
+      <h2 id="detail-title">Calf</h2>
+      <div class="detail-grid" id="detail-grid"></div>
+      <div class="chart-block">
+        <h3>Health index</h3>
+        <div class="chart-wrap">
+          <canvas id="health-chart"></canvas>
+        </div>
+      </div>
+      <table id="events-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Event</th>
+            <th>Remark</th>
+            <th>Protocols</th>
+            <th>Farm</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p class="empty-state" id="events-empty" hidden>No DairyComp events since birth.</p>
+    </aside>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script>
+    const thresholdEl = document.getElementById("threshold");
+    const applyBtn = document.getElementById("apply-btn");
+    const refreshBtn = document.getElementById("refresh-btn");
+    const metaEl = document.getElementById("meta-line");
+    const tbody = document.querySelector("#health-table tbody");
+    const emptyEl = document.getElementById("empty-state");
+    const drawer = document.getElementById("drawer");
+    const detailTitle = document.getElementById("detail-title");
+    const detailGrid = document.getElementById("detail-grid");
+    const eventsBody = document.querySelector("#events-table tbody");
+    const eventsEmpty = document.getElementById("events-empty");
+    let animals = [];
+    let sortKey = "etag4";
+    let sortDir = "asc";
+    let healthChart = null;
+
+    function barColor(value) {
+      if (value == null || value === "") return "#9ca3af";
+      if (value < 80) return "#dc2626";
+      if (value < 90) return "#eab308";
+      return "#16a34a";
+    }
+
+    function renderHealthChart(history) {
+      const canvas = document.getElementById("health-chart");
+      if (healthChart) {
+        healthChart.destroy();
+        healthChart = null;
+      }
+      if (typeof Chart === "undefined" || !canvas) return;
+      const points = history || [];
+      healthChart = new Chart(canvas, {
+        type: "bar",
+        data: {
+          labels: points.map((point) => point.label || point.slot || ""),
+          datasets: [{
+            label: "Health index",
+            data: points.map((point) => point.health_index),
+            backgroundColor: points.map((point) => barColor(point.health_index)),
+            borderWidth: 0,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (item) => `Health index: ${item.raw}`,
+              },
+            },
+          },
+          scales: {
+            y: {
+              min: 0,
+              max: 100,
+              ticks: { stepSize: 10 },
+              title: { display: true, text: "Health index" },
+            },
+            x: {
+              ticks: { maxRotation: 60, minRotation: 45 },
+            },
+          },
+        },
+      });
+    }
+
+    function fmtWhen(iso) {
+      if (!iso) return "unknown";
+      const d = new Date(iso);
+      return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+    }
+
+    function sortValue(row, key) {
+      const value = row[key];
+      if (value == null || value === "") return sortDir === "asc" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+      if (key === "etag4" || key === "health_index" || key === "age_days") {
+        const number = Number(value);
+        return Number.isNaN(number) ? value : number;
+      }
+      return String(value).toLowerCase();
+    }
+
+    function sortedAnimals() {
+      return [...animals].sort((a, b) => {
+        const av = sortValue(a, sortKey);
+        const bv = sortValue(b, sortKey);
+        if (av < bv) return sortDir === "asc" ? -1 : 1;
+        if (av > bv) return sortDir === "asc" ? 1 : -1;
+        return String(a.animal_id).localeCompare(String(b.animal_id));
+      });
+    }
+
+    function renderTable() {
+      const rows = sortedAnimals();
+      tbody.innerHTML = rows.map(row => `
+        <tr data-id="${row.animal_id}">
+          <td>${row.animal_id}</td>
+          <td>${row.etag4 || "—"}</td>
+          <td>${row.health_index ?? "—"}</td>
+          <td>${row.age_days ?? "—"}</td>
+        </tr>
+      `).join("");
+      emptyEl.hidden = rows.length > 0;
+      document.querySelectorAll("#health-table th[data-sort]").forEach((th) => {
+        th.classList.toggle("sort-asc", th.dataset.sort === sortKey && sortDir === "asc");
+        th.classList.toggle("sort-desc", th.dataset.sort === sortKey && sortDir === "desc");
+      });
+    }
+
+    async function loadList() {
+      const threshold = thresholdEl.value || "86";
+      const res = await fetch(`/api/sensehub/youngstock?threshold=${encodeURIComponent(threshold)}`);
+      const payload = await res.json();
+      metaEl.textContent = payload.sampled_at
+        ? `${payload.count} animal(s) at or below ${payload.threshold} · ${payload.slot || ""} ${fmtWhen(payload.sampled_at)}`
+        : "No young-stock health samples yet. Click Refresh from SenseHub.";
+      animals = payload.animals || [];
+      sortKey = "etag4";
+      sortDir = "asc";
+      renderTable();
+    }
+
+    async function openCalf(animalId) {
+      drawer.hidden = false;
+      detailTitle.textContent = `Animal ${animalId}`;
+      detailGrid.innerHTML = "<div>Loading…</div>";
+      eventsBody.innerHTML = "";
+      const res = await fetch(`/api/sensehub/youngstock/${encodeURIComponent(animalId)}/events`);
+      const payload = await res.json();
+      const cells = [
+        ["Health index", payload.health_index ?? "—"],
+        ["ETAG4", payload.etag4 || "—"],
+        ["Age in days", payload.age_days ?? "—"],
+        ["Group", payload.group_name || "—"],
+        ["Birth date", payload.birth_date || "—"],
+        ["DairyComp ID", payload.cow_id || "—"],
+        ["Eartag", payload.etag || "—"],
+        ["Pen", payload.pen || "—"],
+        ["Farm", payload.farm || "—"],
+      ];
+      detailGrid.innerHTML = cells.map(([label, value]) => `
+        <div><div class="label">${label}</div><div class="value">${value}</div></div>
+      `).join("");
+      const events = payload.events || [];
+      eventsBody.innerHTML = events.map(event => `
+        <tr>
+          <td>${event.event_date || "—"}</td>
+          <td>${event.event || "—"}</td>
+          <td>${event.remark || "—"}</td>
+          <td>${event.protocols || "—"}</td>
+          <td>${event.farm || "—"}</td>
+        </tr>
+      `).join("");
+      eventsEmpty.hidden = events.length > 0;
+      renderHealthChart(payload.health_history || []);
+    }
+
+    applyBtn.addEventListener("click", loadList);
+    thresholdEl.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") loadList();
+    });
+    refreshBtn.addEventListener("click", async () => {
+      refreshBtn.disabled = true;
+      metaEl.textContent = "Refreshing Young Stock Health by Age All from SenseHub…";
+      try {
+        const res = await fetch("/api/sensehub/youngstock/import", { method: "POST" });
+        const body = await res.json();
+        if (!res.ok) {
+          metaEl.textContent = body.detail || "Refresh failed.";
+        }
+        await loadList();
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    });
+    document.querySelectorAll("#health-table th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const key = th.dataset.sort;
+        if (sortKey === key) {
+          sortDir = sortDir === "asc" ? "desc" : "asc";
+        } else {
+          sortKey = key;
+          sortDir = "asc";
+        }
+        renderTable();
+      });
+    });
+    tbody.addEventListener("click", (ev) => {
+      const row = ev.target.closest("tr[data-id]");
+      if (row) openCalf(row.dataset.id);
+    });
+    document.getElementById("drawer-backdrop").addEventListener("click", () => {
+      drawer.hidden = true;
+    });
+
+    loadList();
+  </script>
+{% endblock %}

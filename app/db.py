@@ -406,7 +406,9 @@ def _migrate_user_permissions() -> None:
         ACTION_MILK_QUALITY_IMPORT,
         ACTION_MILK_STATEMENTS_IMPORT,
         PAGE_CATTLE_SALES,
+        PAGE_EVENTS,
         PAGE_MILK_QUALITY,
+        PAGE_SENSEHUB,
         parse_permissions,
         serialize_permissions,
     )
@@ -454,6 +456,11 @@ def _migrate_user_permissions() -> None:
                 pages = list(perms.get("pages", []))
                 if PAGE_CATTLE_SALES not in pages and PAGE_MILK_QUALITY in pages:
                     pages.append(PAGE_CATTLE_SALES)
+                    perms["pages"] = sorted(set(pages))
+                    user.permissions = serialize_permissions(perms)
+                    changed = True
+                if PAGE_SENSEHUB not in pages and PAGE_EVENTS in pages:
+                    pages.append(PAGE_SENSEHUB)
                     perms["pages"] = sorted(set(pages))
                     user.permissions = serialize_permissions(perms)
                     changed = True

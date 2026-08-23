@@ -239,6 +239,14 @@ the B2C sign-in flow over HTTP — no browser/Chromium needed):
 3. On the **Feed Rate** page, click **Refresh from Feedlync** (polls every 3 seconds until complete).
 4. Cron: `python scripts/import_feed_data.py` (uses stored DB token, or auto-login if configured).
 
+### SenseHub (SCR Allflex)
+
+Uses the same REST API as [https://st.scrdairy.com](https://st.scrdairy.com) (username, password, and farm ID). No browser is required.
+
+- `SENSEHUB_USERNAME` / `SENSEHUB_PASSWORD` / `SENSEHUB_FARM_ID` — store as Render secrets
+- On the **SenseHub** page, click **Refresh from SenseHub**
+- Optional cron: `python scripts/import_sensehub.py`
+
 ---
 
 ## 6. HR / Staff management (DocuSeal)

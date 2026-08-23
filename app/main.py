@@ -33,6 +33,7 @@ from app.api.prostock_routes import router as prostock_api_router
 from app.api.routes import router as api_router
 from app.api.schedule_routes import router as schedule_api_router
 from app.api.reports_routes import router as reports_api_router
+from app.api.sensehub_routes import router as sensehub_api_router
 from app.auth.deps import require_admin
 from app.auth.middleware import AuthMiddleware
 from app.auth.passwords import verify_password
@@ -58,6 +59,7 @@ from app.auth.permissions import (
     PAGE_PARLOUR,
     PAGE_SCHEDULE,
     PAGE_REPORTS,
+    PAGE_SENSEHUB,
     PAGE_OFFICE_ADMIN,
     PAGE_XERO,
     PAGE_PROSTOCK,
@@ -129,6 +131,7 @@ app.include_router(admin_api_router)
 app.include_router(hr_api_router)
 app.include_router(schedule_api_router)
 app.include_router(reports_api_router)
+app.include_router(sensehub_api_router)
 
 _WYNNSTAY_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/wynnstay">Wynnstay</a>'
 _PROSTOCK_BREADCRUMB = '<a href="/">Farm Dashboard</a> &rsaquo; <a href="/prostock">Prostock</a>'
@@ -183,6 +186,10 @@ _SCHEDULE_BREADCRUMB = (
 _REPORTS_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
     '<a href="/reports">Reports</a>'
+)
+_SENSEHUB_BREADCRUMB = (
+    '<a href="/">Farm Dashboard</a> &rsaquo; '
+    '<a href="/sensehub">SenseHub</a>'
 )
 _BENCHMARKING_BREADCRUMB = (
     '<a href="/">Farm Dashboard</a> &rsaquo; '
@@ -405,6 +412,19 @@ def _reports_context(title: str, active_nav: str, page_name: str | None = None) 
         "title": title,
         "active_nav_group": "reports",
         "active_section": "reports",
+        "active_nav": active_nav,
+        "breadcrumb": breadcrumb,
+    }
+
+
+def _sensehub_context(title: str, active_nav: str, page_name: str | None = None) -> dict:
+    breadcrumb = _SENSEHUB_BREADCRUMB
+    if page_name:
+        breadcrumb += f" &rsaquo; {page_name}"
+    return {
+        "title": title,
+        "active_nav_group": "sensehub",
+        "active_section": "sensehub",
         "active_nav": active_nav,
         "breadcrumb": breadcrumb,
     }
@@ -1587,6 +1607,36 @@ def schedule_farm_page(request: Request, farm: str):
             page_heading=f"Schedule · {FARM_LABELS[farm_key]}",
             farm=farm_key,
             **_schedule_context("Schedule", "schedule", FARM_LABELS[farm_key]),
+        ),
+    )
+
+
+@app.get("/sensehub", response_class=HTMLResponse)
+def sensehub_page(request: Request):
+    if denied := _page_guard(request, PAGE_SENSEHUB):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "sensehub/youngstock.html",
+        _template_ctx(
+            request,
+            page_heading="Young stock health",
+            **_sensehub_context("SenseHub", "sensehub", None),
+        ),
+    )
+
+
+@app.get("/sensehub/reports", response_class=HTMLResponse)
+def sensehub_reports_page(request: Request):
+    if denied := _page_guard(request, PAGE_SENSEHUB):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "sensehub/reports.html",
+        _template_ctx(
+            request,
+            page_heading="SenseHub reports",
+            **_sensehub_context("SenseHub reports", "sensehub-reports", "Reports"),
         ),
     )
 

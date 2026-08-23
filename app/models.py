@@ -499,6 +499,72 @@ class FeedRateRecord(Base):
         }
 
 
+class SenseHubReportSnapshot(Base):
+    """Latest SenseHub report snapshot imported from st.scrdairy.com."""
+
+    __tablename__ = "sensehub_report_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    report_key: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    report_name: Mapped[str] = mapped_column(String(128), index=True)
+    category: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(128))
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    fetched_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "report_key": self.report_key,
+            "report_name": self.report_name,
+            "category": self.category,
+            "title": self.title,
+            "row_count": self.row_count,
+            "payload": self.payload or {},
+            "fetched_at": self.fetched_at.isoformat() if self.fetched_at else None,
+        }
+
+
+class SenseHubYoungstockHealth(Base):
+    """Health-index snapshot for one animal at one SenseHub sample slot."""
+
+    __tablename__ = "sensehub_youngstock_health"
+    __table_args__ = (
+        UniqueConstraint("animal_id", "sampled_at", name="uq_sensehub_ys_animal_sampled"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    animal_id: Mapped[str] = mapped_column(String(16), index=True)
+    raw_animal_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sampled_at: Mapped[datetime.datetime] = mapped_column(DateTime, index=True)
+    slot: Mapped[str] = mapped_column(String(16), index=True)
+    health_index: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
+    age_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rumination: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    group_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "animal_id": self.animal_id,
+            "raw_animal_id": self.raw_animal_id,
+            "sampled_at": self.sampled_at.isoformat() if self.sampled_at else None,
+            "slot": self.slot,
+            "health_index": self.health_index,
+            "age_days": self.age_days,
+            "rumination": self.rumination,
+            "eating": self.eating,
+            "group_name": self.group_name,
+        }
+
+
 class FeedContract(Base):
     """Purchased feed contract / delivery agreement."""
 

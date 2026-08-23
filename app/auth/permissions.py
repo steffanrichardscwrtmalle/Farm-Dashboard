@@ -13,6 +13,7 @@ PAGE_PROSTOCK = "prostock"
 PAGE_STOCK_INVENTORY = "stock_inventory"
 PAGE_BCMS = "bcms"
 PAGE_EVENTS = "events"
+PAGE_SENSEHUB = "sensehub"
 PAGE_FEED_RATE = "feed_rate"
 PAGE_OFFICE_ADMIN = "office_admin"
 PAGE_XERO = "xero"
@@ -31,6 +32,7 @@ PAGE_KEYS: tuple[str, ...] = (
     PAGE_STOCK_INVENTORY,
     PAGE_BCMS,
     PAGE_EVENTS,
+    PAGE_SENSEHUB,
     PAGE_FEED_RATE,
     PAGE_OFFICE_ADMIN,
     PAGE_HR,
@@ -50,6 +52,7 @@ PAGE_LABELS: dict[str, str] = {
     PAGE_STOCK_INVENTORY: "Stock Inventory",
     PAGE_BCMS: "BCMS",
     PAGE_EVENTS: "Events",
+    PAGE_SENSEHUB: "SenseHub",
     PAGE_FEED_RATE: "Feed",
     PAGE_OFFICE_ADMIN: "Office Admin",
     PAGE_XERO: "Xero",
@@ -80,6 +83,7 @@ ACTION_BENCHMARKING_EDIT = "benchmarking.edit"
 ACTION_HR_ENROLL = "hr.enroll"
 ACTION_HR_VIEW_SENSITIVE = "hr.view_sensitive"
 ACTION_PARLOUR_IMPORT = "parlour.import"
+ACTION_SENSEHUB_IMPORT = "sensehub.import"
 ACTION_CTS_SYNC = "cts.sync"
 
 ACTION_KEYS: tuple[str, ...] = (
@@ -100,6 +104,7 @@ ACTION_KEYS: tuple[str, ...] = (
     ACTION_HR_ENROLL,
     ACTION_HR_VIEW_SENSITIVE,
     ACTION_PARLOUR_IMPORT,
+    ACTION_SENSEHUB_IMPORT,
     ACTION_CTS_SYNC,
 )
 
@@ -121,6 +126,7 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_HR_ENROLL: "HR — enroll new staff",
     ACTION_HR_VIEW_SENSITIVE: "HR — view sensitive (NI, pay, contracts, documents)",
     ACTION_PARLOUR_IMPORT: "Parlour — import milk flow shift reports",
+    ACTION_SENSEHUB_IMPORT: "SenseHub — refresh heat / health reports",
     ACTION_CTS_SYNC: "CTS — sync cattle on holding",
 }
 
@@ -143,6 +149,7 @@ ACTION_PAGES: dict[str, str] = {
     ACTION_HR_ENROLL: PAGE_HR,
     ACTION_HR_VIEW_SENSITIVE: PAGE_HR,
     ACTION_PARLOUR_IMPORT: PAGE_PARLOUR,
+    ACTION_SENSEHUB_IMPORT: PAGE_SENSEHUB,
     ACTION_CTS_SYNC: PAGE_BCMS,
 }
 
@@ -159,6 +166,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "pages": [
             PAGE_FEED_RATE,
             PAGE_EVENTS,
+            PAGE_SENSEHUB,
             PAGE_STOCK_INVENTORY,
             PAGE_BCMS,
             PAGE_SCHEDULE,

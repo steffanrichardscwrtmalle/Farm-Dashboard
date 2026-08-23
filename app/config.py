@@ -367,3 +367,24 @@ def cts_farm_credentials(farm: str) -> dict[str, str] | None:
 
 def cts_ddts_is_configured() -> bool:
     return bool(CTS_DDTS_USERNAME and CTS_DDTS_PASSWORD)
+
+
+# SenseHub (SCR Allflex) — same username / password / farm ID as https://st.scrdairy.com
+SENSEHUB_USERNAME = os.getenv("SENSEHUB_USERNAME", "").strip()
+SENSEHUB_PASSWORD = os.getenv("SENSEHUB_PASSWORD", "")
+SENSEHUB_FARM_ID = os.getenv("SENSEHUB_FARM_ID", "EU4005774").strip()
+SENSEHUB_REGION = os.getenv("SENSEHUB_REGION", "IL01").strip() or "IL01"
+SENSEHUB_LOGIN_BASE = os.getenv(
+    "SENSEHUB_LOGIN_BASE", "https://st.scrdairy.com"
+).strip().rstrip("/")
+SENSEHUB_PROXY_BASE = os.getenv(
+    "SENSEHUB_PROXY_BASE", "https://rp.scrdairy.com/ReverseProxy"
+).strip().rstrip("/")
+SENSEHUB_DOMAIN_RESOLVER_URL = os.getenv(
+    "SENSEHUB_DOMAIN_RESOLVER_URL",
+    "https://shc-common-services-api.scrdairy.com/ShcCommonServices/api/v1/domain/demo",
+).strip()
+
+
+def sensehub_is_configured() -> bool:
+    return bool(SENSEHUB_USERNAME and SENSEHUB_PASSWORD and SENSEHUB_FARM_ID)
