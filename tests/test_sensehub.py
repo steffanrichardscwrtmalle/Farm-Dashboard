@@ -356,8 +356,10 @@ def test_treatment_counts_use_disease_episode_gap() -> None:
         "S",
         "S",
         "R",
+        "R",
         "I",
         "V",
+        "I",
         "I",
     ]
 
@@ -490,13 +492,23 @@ def test_list_low_health_filters_threshold_and_joins_events() -> None:
     assert detail["resp_count"] == 1
     assert detail["scours_count"] == 2
     assert detail["ill_count"] == 1
-    assert [marker["letter"] for marker in detail["chart_markers"]] == ["S", "S", "R", "V", "I"]
+    assert [marker["letter"] for marker in detail["chart_markers"]] == [
+        "S",
+        "S",
+        "R",
+        "R",
+        "V",
+        "I",
+        "I",
+    ]
     assert [point["sampled_at"][:10] for point in detail["health_history"]] == [
         "2026-07-10",
         "2026-07-18",
         "2026-08-01",
+        "2026-08-03",
         "2026-08-05",
         "2026-08-08",
+        "2026-08-10",
         "2026-08-23",
     ]
     assert detail["health_history"][-1]["health_index"] == 82

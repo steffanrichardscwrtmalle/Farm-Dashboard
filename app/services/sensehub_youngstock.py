@@ -203,30 +203,20 @@ def treatment_counts(events: list[CowEvent]) -> dict[str, int]:
 
 
 def chart_event_markers(events: list[CowEvent]) -> list[dict[str, str]]:
-    """One R/S/I marker per disease episode, plus VACC on its own date."""
+    """One R/S/I/V icon for every event date. Counts still use the episode gap."""
     seen: set[tuple[str, str]] = set()
     markers: list[dict[str, str]] = []
-    for record in treatment_episodes(events):
-        letter = CHART_EVENT_LETTERS.get(record["event"])
-        date_str = _event_date_iso(record.get("event_date"))
+    for event in events:
+        code = _event_code(event.event)
+        letter = CHART_EVENT_LETTERS.get(code)
+        date_str = _event_date_iso(event.event_date)
         if not letter or not date_str:
             continue
         key = (date_str, letter)
         if key in seen:
             continue
         seen.add(key)
-        markers.append({"date": date_str, "letter": letter, "event": record["event"]})
-    for event in events:
-        if _event_code(event.event) != "VACC":
-            continue
-        date_str = _event_date_iso(event.event_date)
-        if not date_str:
-            continue
-        key = (date_str, "V")
-        if key in seen:
-            continue
-        seen.add(key)
-        markers.append({"date": date_str, "letter": "V", "event": "VACC"})
+        markers.append({"date": date_str, "letter": letter, "event": code})
     markers.sort(key=lambda item: (item["date"], item["letter"]))
     return markers
 
