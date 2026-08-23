@@ -149,6 +149,9 @@ def _empty_bundle(days: int | str) -> dict[str, Any]:
         "milk_per_day": None,
         "butterfat_pct": None,
         "protein_pct": None,
+        "bactoscan": None,
+        "scc": None,
+        "milk_temp": None,
     }
 
 
@@ -162,6 +165,9 @@ def _bundle_from_metric_fn(
     per_cow = metric_fn(points, key="litres_per_cow", dp=1)
     fat = metric_fn(points, key="butterfat_pct", dp=2)
     protein = metric_fn(points, key="protein_pct", dp=2)
+    bactoscan = metric_fn(points, key="bactoscan", dp=0, as_int=True)
+    scc = metric_fn(points, key="scc", dp=0, as_int=True)
+    temp = metric_fn(points, key="temp_c", dp=1)
     return {
         "days": days_label,
         "from": volume["from"],
@@ -172,6 +178,9 @@ def _bundle_from_metric_fn(
         "milk_per_day": volume["value"],
         "butterfat_pct": fat["value"],
         "protein_pct": protein["value"],
+        "bactoscan": bactoscan["value"],
+        "scc": scc["value"],
+        "milk_temp": temp["value"],
         "windows": {
             "milk_per_day": {
                 "from": volume["from"],
@@ -192,6 +201,21 @@ def _bundle_from_metric_fn(
                 "from": protein["from"],
                 "to": protein["to"],
                 "days_with_data": protein["days_with_data"],
+            },
+            "bactoscan": {
+                "from": bactoscan["from"],
+                "to": bactoscan["to"],
+                "days_with_data": bactoscan["days_with_data"],
+            },
+            "scc": {
+                "from": scc["from"],
+                "to": scc["to"],
+                "days_with_data": scc["days_with_data"],
+            },
+            "milk_temp": {
+                "from": temp["from"],
+                "to": temp["to"],
+                "days_with_data": temp["days_with_data"],
             },
         },
     }

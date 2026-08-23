@@ -312,8 +312,10 @@
       <input id="threshold" type="number" min="0" max="100" step="1" value="86">
     </label>
     <button type="button" id="apply-btn">Show list</button>
+    {% if perms.action('sensehub.import') %}
     <button type="button" class="btn-compact" id="refresh-btn" title="Refresh from SenseHub">Refresh</button>
     <button type="button" class="btn-compact" id="backfill-btn" title="Fill all missing SenseHub history">Fill history</button>
+    {% endif %}
     <button type="button" class="btn-icon" id="print-btn" title="Print table" aria-label="Print table">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 8V3h10v5M6 18H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-1M7 14h10v7H7z"/>
@@ -708,20 +710,24 @@
     thresholdEl.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") loadList();
     });
-    refreshBtn.addEventListener("click", async () => {
-      refreshBtn.disabled = true;
-      metaEl.textContent = "Refreshing from SenseHub and filling any missing slots…";
-      try {
-        const res = await fetch("/api/sensehub/youngstock/import", { method: "POST" });
-        const body = await res.json();
-        if (!res.ok) {
-          metaEl.textContent = body.detail || "Refresh failed.";
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", async () => {
+        refreshBtn.disabled = true;
+        if (backfillBtn) backfillBtn.disabled = true;
+        metaEl.textContent = "Refreshing from SenseHub and filling any missing slots…";
+        try {
+          const res = await fetch("/api/sensehub/youngstock/import", { method: "POST" });
+          const body = await res.json();
+          if (!res.ok) {
+            metaEl.textContent = body.detail || "Refresh failed.";
+          }
+          await loadList();
+        } finally {
+          refreshBtn.disabled = false;
+          if (backfillBtn) backfillBtn.disabled = false;
         }
-        await loadList();
-      } finally {
-        refreshBtn.disabled = false;
-      }
-    });
+      });
+    }
     async function pollBackfill() {
       const res = await fetch("/api/sensehub/youngstock/job");
       const status = await res.json();
@@ -730,19 +736,21 @@
         setTimeout(pollBackfill, 2000);
         return;
       }
-      backfillBtn.disabled = false;
-      refreshBtn.disabled = false;
+      if (backfillBtn) backfillBtn.disabled = false;
+      if (refreshBtn) refreshBtn.disabled = false;
       await loadList();
     }
-    backfillBtn.addEventListener("click", async () => {
-      backfillBtn.disabled = true;
-      refreshBtn.disabled = true;
-      metaEl.textContent = "Starting full SenseHub history backfill…";
-      const res = await fetch("/api/sensehub/youngstock/backfill", { method: "POST" });
-      const body = await res.json();
-      metaEl.textContent = body.message || "";
-      pollBackfill();
-    });
+    if (backfillBtn) {
+      backfillBtn.addEventListener("click", async () => {
+        backfillBtn.disabled = true;
+        if (refreshBtn) refreshBtn.disabled = true;
+        metaEl.textContent = "Starting full SenseHub history backfill…";
+        const res = await fetch("/api/sensehub/youngstock/backfill", { method: "POST" });
+        const body = await res.json();
+        metaEl.textContent = body.message || "";
+        pollBackfill();
+      });
+    }
     document.querySelectorAll("#health-table th[data-sort]").forEach((th) => {
       th.addEventListener("click", () => {
         const key = th.dataset.sort;

@@ -5,8 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.auth.deps import get_current_user, require_page
-from app.auth.permissions import PAGE_SENSEHUB
+from app.auth.deps import get_current_user, require_action, require_page
+from app.auth.permissions import ACTION_SENSEHUB_IMPORT, PAGE_SENSEHUB
 from app.db import SessionLocal, get_db
 from app.models import User
 from app.services.sensehub_api import SenseHubError
@@ -50,7 +50,7 @@ def api_sensehub_youngstock_job(
 def api_sensehub_youngstock_backfill(
     background_tasks: BackgroundTasks,
     days: int | None = Query(None, ge=1, le=730),
-    _: User = Depends(require_page(PAGE_SENSEHUB)),
+    _: User = Depends(require_action(ACTION_SENSEHUB_IMPORT)),
 ):
     if is_youngstock_job_running():
         return {"status": "running", "message": "A SenseHub backfill is already running."}
@@ -77,7 +77,7 @@ def api_sensehub_youngstock_events(
 
 @router.post("/youngstock/import")
 def api_sensehub_youngstock_import(
-    _: User = Depends(require_page(PAGE_SENSEHUB)),
+    _: User = Depends(require_action(ACTION_SENSEHUB_IMPORT)),
     db: Session = Depends(get_db),
 ):
     try:
@@ -105,7 +105,7 @@ def api_sensehub_import_status(
 @router.post("/import")
 def api_sensehub_import(
     background_tasks: BackgroundTasks,
-    _: User = Depends(require_page(PAGE_SENSEHUB)),
+    _: User = Depends(require_action(ACTION_SENSEHUB_IMPORT)),
 ):
     if is_import_running():
         return {"status": "running", "message": "SenseHub import already in progress."}

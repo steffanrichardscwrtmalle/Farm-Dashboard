@@ -80,7 +80,9 @@
         <h2>SenseHub reports</h2>
         <p class="meta-line" id="sensehub-meta">Loading…</p>
         <div class="action-bar">
+          {% if perms.action('sensehub.import') %}
           <button type="button" id="refresh-btn">Refresh from SenseHub</button>
+          {% endif %}
         </div>
         <p class="meta-line" id="import-status"></p>
         <div class="report-list" id="report-list"></div>
@@ -174,18 +176,20 @@
         return;
       }
       pollTimer = null;
-      refreshBtn.disabled = false;
+      if (refreshBtn) refreshBtn.disabled = false;
       await loadReport(selectedName);
     }
 
-    refreshBtn.addEventListener("click", async () => {
-      refreshBtn.disabled = true;
-      statusEl.textContent = "Starting SenseHub import…";
-      const res = await fetch("/api/sensehub/import", { method: "POST" });
-      const body = await res.json();
-      statusEl.textContent = body.message || "";
-      pollStatus();
-    });
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", async () => {
+        refreshBtn.disabled = true;
+        statusEl.textContent = "Starting SenseHub import…";
+        const res = await fetch("/api/sensehub/import", { method: "POST" });
+        const body = await res.json();
+        statusEl.textContent = body.message || "";
+        pollStatus();
+      });
+    }
 
     document.addEventListener("click", (ev) => {
       const btn = ev.target.closest("[data-name]");

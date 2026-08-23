@@ -31,6 +31,9 @@ def _add_load(
     cows: int | None = None,
     fat: float | None = None,
     protein: float | None = None,
+    scc: int | None = None,
+    bactoscan: int | None = None,
+    temp: float | None = None,
 ) -> None:
     db.add(
         MilkCollection(
@@ -39,10 +42,11 @@ def _add_load(
             sample_id=sample_id,
             volume_litres=volume,
             cows_in_milk=cows,
+            temp_c=temp,
             source_file="test",
         )
     )
-    if fat is not None or protein is not None:
+    if fat is not None or protein is not None or scc is not None or bactoscan is not None:
         db.add(
             NmlMilkResult(
                 farm=farm,
@@ -51,6 +55,8 @@ def _add_load(
                 sample_id=sample_id,
                 butterfat_pct=fat,
                 protein_pct=protein,
+                scc=scc,
+                bactoscan=bactoscan,
             )
         )
 
@@ -124,6 +130,9 @@ def test_production_summary_ignores_trailing_empty_days_after_latest() -> None:
         cows=500,
         fat=4.10,
         protein=3.30,
+        scc=140,
+        bactoscan=22,
+        temp=3.6,
     )
     _add_load(
         db,
@@ -134,6 +143,9 @@ def test_production_summary_ignores_trailing_empty_days_after_latest() -> None:
         cows=500,
         fat=4.30,
         protein=3.50,
+        scc=160,
+        bactoscan=28,
+        temp=3.8,
     )
     _add_load(
         db,
@@ -144,6 +156,9 @@ def test_production_summary_ignores_trailing_empty_days_after_latest() -> None:
         cows=500,
         fat=4.00,
         protein=3.20,
+        scc=150,
+        bactoscan=20,
+        temp=3.7,
     )
     # GAD: only Aug 7 — window ends there even though as_of is Aug 10
     _add_load(
@@ -170,6 +185,9 @@ def test_production_summary_ignores_trailing_empty_days_after_latest() -> None:
     assert cm["d7"]["milk_per_day"] == 19000
     assert cm["d7"]["butterfat_pct"] == 4.1
     assert cm["d7"]["protein_pct"] == 3.3
+    assert cm["d7"]["scc"] == 150
+    assert cm["d7"]["bactoscan"] == 22
+    assert cm["d7"]["milk_temp"] == 3.7
     assert cm["d30"]["milk_per_day"] == 19000
 
     gad = by_farm["GAD"]
