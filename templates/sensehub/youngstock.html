@@ -209,9 +209,11 @@
     #events-table th { background: #f3f4f6; }
     .col-short { display: none; }
     .print-only { display: none; }
-    @page { size: A4 landscape; margin: 8mm; }
+    @page { size: A4 portrait; margin: 8mm; }
     @media print {
-      .sidebar, .topbar, .sidebar-backdrop, .no-print, .drawer, .toolbar, .meta-line { display: none !important; }
+      .sidebar, .topbar, .sidebar-backdrop, .no-print, .drawer, .toolbar, .meta-line {
+        display: none !important;
+      }
       .app-shell { display: block; }
       .main-panel, main {
         max-width: none;
@@ -220,15 +222,17 @@
       }
       .print-only { display: block !important; }
       .print-title {
-        margin: 0 0 0.2rem;
-        font-size: 14pt;
+        margin: 0 0 1mm;
+        font-size: 11pt;
         font-weight: 700;
       }
       .print-meta {
-        margin: 0 0 0.5rem;
-        font-size: 9pt;
+        margin: 0 0 2.5mm;
+        font-size: 8pt;
         color: #333;
       }
+      .col-full { display: none !important; }
+      .col-short { display: inline !important; }
       .table-wrap {
         display: block;
         max-height: none;
@@ -238,28 +242,43 @@
       }
       #health-table {
         width: 100%;
-        font-size: 8.5pt;
+        font-size: 7.5pt;
+        line-height: 1.1;
       }
       #health-table th,
       #health-table td {
+        padding: 1.2pt 2.5pt;
         text-align: center;
         border-right: 0.4pt solid #c5cdd6;
+        line-height: 1.1;
+      }
+      #health-table thead {
+        display: table-header-group;
       }
       #health-table thead th {
         position: static;
+        padding: 1.6pt 2.5pt;
         background: #1e3a5f !important;
         color: #fff !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
       #health-table thead th[data-sort]::after { display: none; }
-      #health-table tbody tr { cursor: default; }
+      #health-table tbody tr {
+        cursor: default;
+        break-inside: avoid;
+        page-break-inside: avoid;
+        height: 6.8mm;
+      }
       #health-table tbody tr.unmatched {
         background: #fecaca !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
+      .trend { gap: 1px; }
       .trend-dot {
+        width: 5pt;
+        height: 5pt;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
@@ -334,10 +353,10 @@
           <th data-sort="animal_id"><span class="col-full">Animal ID</span><span class="col-short">ID</span></th>
           <th data-sort="etag4">ETAG4</th>
           <th data-sort="health_index"><span class="col-full">Health index</span><span class="col-short">HI</span></th>
+          <th>Trend</th>
           <th data-sort="age_days"><span class="col-full">Age in days</span><span class="col-short">Age</span></th>
           <th data-sort="days_since_last_treatment" title="Days since last treatment (ILL or RESP)">DSLT</th>
           <th data-sort="resp_count" title="Respiratory episodes">xResp</th>
-          <th>Trend</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -638,10 +657,10 @@
           <td>${row.animal_id}</td>
           <td>${row.etag4 || "—"}</td>
           <td>${row.health_index ?? "—"}</td>
+          <td>${trendHtml(row.trend)}</td>
           <td>${row.age_days ?? "—"}</td>
           <td>${row.days_since_last_treatment ?? "—"}</td>
           <td>${row.resp_count ?? 0}</td>
-          <td>${trendHtml(row.trend)}</td>
         </tr>`;
       }).join("");
       emptyEl.hidden = rows.length > 0;
