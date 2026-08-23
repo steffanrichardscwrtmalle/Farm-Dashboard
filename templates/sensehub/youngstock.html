@@ -189,6 +189,7 @@
       font-size: 0.875rem;
     }
     #events-table th { background: #f3f4f6; }
+    .col-short { display: none; }
     .print-only { display: none; }
     @page { size: A4 landscape; margin: 8mm; }
     @media print {
@@ -245,6 +246,45 @@
         print-color-adjust: exact;
       }
     }
+    @media (max-width: 768px) {
+      .col-full { display: none; }
+      .col-short { display: inline; }
+      .table-wrap { max-height: calc(100vh - 11rem); width: 100%; }
+      #health-table th,
+      #health-table td {
+        padding: 0.28rem 0.28rem;
+        font-size: 0.75rem;
+      }
+      #health-table thead th[data-sort]::after {
+        font-size: 0.55rem;
+      }
+      .trend { gap: 1px; }
+      .trend-dot {
+        width: 0.45rem;
+        height: 0.45rem;
+      }
+      .detail-grid {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 0.28rem;
+        margin: 0.35rem 0 0.55rem;
+      }
+      .detail-grid div { padding: 0.2rem 0.28rem; border-radius: 4px; }
+      .detail-grid .label {
+        font-size: 0.55rem;
+        letter-spacing: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .detail-grid .value { font-size: 0.8rem; }
+      .drawer { padding: 0; }
+      .drawer-panel {
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+        padding: 0.65rem 0.7rem;
+      }
+    }
 {% endblock %}
 
 {% block content %}
@@ -267,10 +307,10 @@
     <table id="health-table">
       <thead>
         <tr>
-          <th data-sort="animal_id">Animal ID</th>
+          <th data-sort="animal_id"><span class="col-full">Animal ID</span><span class="col-short">ID</span></th>
           <th data-sort="etag4">ETAG4</th>
-          <th data-sort="health_index">Health index</th>
-          <th data-sort="age_days">Age in days</th>
+          <th data-sort="health_index"><span class="col-full">Health index</span><span class="col-short">HI</span></th>
+          <th data-sort="age_days"><span class="col-full">Age in days</span><span class="col-short">Age</span></th>
           <th data-sort="days_since_last_treatment" title="Days since last treatment (ILL or RESP)">DSLT</th>
           <th data-sort="resp_count" title="Respiratory episodes">xResp</th>
           <th>Trend</th>
