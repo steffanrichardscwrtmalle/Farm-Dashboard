@@ -341,6 +341,7 @@ def test_bull_search_page_is_wired() -> None:
     assert "negative-pct" in page
     assert 'col.key === "fat_pct"' in page
     assert 'col.key === "protein_pct"' in page
+    assert 'col.key === "fertility_index"' in page
 
 
 def test_ensure_imported_skips_fetch_when_all_lists_populated() -> None:

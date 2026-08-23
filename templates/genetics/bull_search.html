@@ -722,7 +722,7 @@
           const classes = [
             col.type === "num" ? "num" : "",
             col.key === "bull_name" ? "bull-name" : "",
-            (col.key === "fat_pct" || col.key === "protein_pct") &&
+            (col.key === "fat_pct" || col.key === "protein_pct" || col.key === "fertility_index") &&
               Number.isFinite(Number(row[col.key])) && Number(row[col.key]) < 0
               ? "negative-pct"
               : "",
