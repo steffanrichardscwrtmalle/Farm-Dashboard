@@ -57,9 +57,14 @@ def main() -> int:
         default=0,
         help="Re-run Young Stock Health by Age All at past 6-hour slots for this many days.",
     )
+    parser.add_argument(
+        "--backfill-all",
+        action="store_true",
+        help="Fill every missing SenseHub slot back to the oldest current calf.",
+    )
     args = parser.parse_args()
 
-    if args.backfill_days and args.backfill_days > 0:
+    if args.backfill_all or (args.backfill_days and args.backfill_days > 0):
         args.only_at_uk_hours = ""
 
     if args.only_at_uk_hours.strip():
@@ -80,10 +85,14 @@ def main() -> int:
     init_db()
     db = SessionLocal()
     try:
-        if args.backfill_days and args.backfill_days > 0:
-            result = backfill_youngstock_health(db, days=args.backfill_days)
+        if args.backfill_all or (args.backfill_days and args.backfill_days > 0):
+            result = backfill_youngstock_health(
+                db,
+                days=None if args.backfill_all else args.backfill_days,
+            )
             print(
-                f"Backfilled {result['slots']} slots, saved {result['saved']} rows."
+                f"Backfilled {result['slots']} slots, saved {result['saved']} rows "
+                f"(span {result.get('span_days')} days)."
             )
             if result.get("errors"):
                 print("Errors:", "; ".join(result["errors"][:5]), file=sys.stderr)

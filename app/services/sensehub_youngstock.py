@@ -15,6 +15,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import CowEvent, HerdInventory, SenseHubReportSnapshot, SenseHubYoungstockHealth
+from app.services.events_common import filter_disease_episode_records
 from app.services.sensehub_api import (
     DEFAULT_REPORT,
     SenseHubError,
@@ -34,7 +35,16 @@ SLOTS: tuple[tuple[int, str], ...] = (
     (18, "6pm"),
 )
 DEFAULT_THRESHOLD = 86.0
+MAX_BACKFILL_DAYS = 730
+EMPTY_SLOT_STOP = 28
 TREND_DOTS = 12
+CHART_EVENT_LETTERS: dict[str, str] = {
+    "RESP": "R",
+    "SCOURS": "S",
+    "ILL": "I",
+    "VACC": "V",
+}
+TREATMENT_EVENTS = frozenset({"RESP", "SCOURS", "ILL"})
 
 
 def health_band(value: float | None) -> str | None:
@@ -42,8 +52,10 @@ def health_band(value: float | None) -> str | None:
         return None
     if value < 80:
         return "red"
-    if value < 90:
+    if value < 85:
         return "yellow"
+    if value < 90:
+        return "blue"
     return "green"
 
 
@@ -67,6 +79,78 @@ def etag4(raw: Any) -> str | None:
     if not digits:
         return None
     return digits[-4:]
+
+
+def _event_code(name: Any) -> str:
+    return str(name or "").strip().upper()
+
+
+def _event_date_iso(value: Any) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    text = str(value)
+    return text[:10] if text else None
+
+
+def treatment_episodes(events: list[CowEvent]) -> list[dict[str, Any]]:
+    """RESP, SCOURS, and ILL events after the shared disease episode gap."""
+    records = [
+        {
+            "cow_id": event.cow_id,
+            "etag": event.etag,
+            "event": _event_code(event.event),
+            "event_date": event.event_date,
+            "farm": event.farm,
+        }
+        for event in events
+        if _event_code(event.event) in TREATMENT_EVENTS
+    ]
+    return filter_disease_episode_records(records)
+
+
+def treatment_counts(events: list[CowEvent]) -> dict[str, int]:
+    """Count pneumonia, scours, and illness episodes, not repeat treatments."""
+    counts = {"resp_count": 0, "scours_count": 0, "ill_count": 0}
+    for record in treatment_episodes(events):
+        code = record["event"]
+        if code == "RESP":
+            counts["resp_count"] += 1
+        elif code == "SCOURS":
+            counts["scours_count"] += 1
+        elif code == "ILL":
+            counts["ill_count"] += 1
+    return counts
+
+
+def chart_event_markers(events: list[CowEvent]) -> list[dict[str, str]]:
+    """One R/S/I marker per disease episode, plus VACC on its own date."""
+    seen: set[tuple[str, str]] = set()
+    markers: list[dict[str, str]] = []
+    for record in treatment_episodes(events):
+        letter = CHART_EVENT_LETTERS.get(record["event"])
+        date_str = _event_date_iso(record.get("event_date"))
+        if not letter or not date_str:
+            continue
+        key = (date_str, letter)
+        if key in seen:
+            continue
+        seen.add(key)
+        markers.append({"date": date_str, "letter": letter, "event": record["event"]})
+    for event in events:
+        if _event_code(event.event) != "VACC":
+            continue
+        date_str = _event_date_iso(event.event_date)
+        if not date_str:
+            continue
+        key = (date_str, "V")
+        if key in seen:
+            continue
+        seen.add(key)
+        markers.append({"date": date_str, "letter": "V", "event": "VACC"})
+    markers.sort(key=lambda item: (item["date"], item["letter"]))
+    return markers
 
 
 def dairycomp_age_days(inventory: HerdInventory | None) -> int | None:
@@ -119,6 +203,41 @@ def past_slots(
             slots.append((naive, name, int(sampled_uk.timestamp())))
         day += dt.timedelta(days=1)
     return slots
+
+
+def backfill_span_days(db: Session, *, now: dt.datetime | None = None) -> int:
+    """Days back to the oldest current youngstock animal's birth / SenseHub age."""
+    current = now or dt.datetime.now(_UK)
+    if current.tzinfo is None:
+        today = current.date()
+    else:
+        today = current.astimezone(_UK).date()
+    max_age = int(db.scalar(select(func.max(SenseHubYoungstockHealth.age_days))) or 0)
+    latest = db.scalar(select(func.max(SenseHubYoungstockHealth.sampled_at)))
+    animal_ids: list[str] = []
+    if latest is not None:
+        animal_ids = list(
+            db.scalars(
+                select(SenseHubYoungstockHealth.animal_id).where(
+                    SenseHubYoungstockHealth.sampled_at == latest
+                )
+            ).all()
+        )
+    by_cow, by_tag = _inventory_indexes(db)
+    earliest_birth: dt.date | None = None
+    for animal_id in animal_ids:
+        inventory = match_inventory(animal_id, by_cow, by_tag)
+        age = dairycomp_age_days(inventory)
+        if age:
+            max_age = max(max_age, int(age))
+        if inventory is not None and inventory.bdat is not None:
+            if earliest_birth is None or inventory.bdat < earliest_birth:
+                earliest_birth = inventory.bdat
+    if earliest_birth is not None:
+        max_age = max(max_age, (today - earliest_birth).days)
+    if max_age <= 0:
+        max_age = 365
+    return max(1, min(max_age, MAX_BACKFILL_DAYS))
 
 
 _job_lock = threading.Lock()
@@ -285,17 +404,36 @@ def import_youngstock_health(db: Session) -> dict[str, Any]:
     }
 
 
-def backfill_youngstock_health(db: Session, *, days: int = 7) -> dict[str, Any]:
-    """Re-run Young Stock Health by Age All at past UK sample slots."""
-    slots = past_slots(days)
+def backfill_youngstock_health(db: Session, *, days: int | None = None) -> dict[str, Any]:
+    """Re-run Young Stock Health by Age All at past UK sample slots.
+
+    When `days` is None, walk back to the oldest current calf's birth (or SenseHub
+    age). Slots already stored are skipped. Walking newest-first, stop after several
+    empty SenseHub reports so we do not keep calling once history has run out.
+    """
+    if db.scalar(select(func.count()).select_from(SenseHubYoungstockHealth)) == 0:
+        try:
+            import_youngstock_health(db)
+        except Exception:
+            db.rollback()
+    span = days if days is not None else backfill_span_days(db)
+    all_slots = past_slots(span)
+    existing = set(db.scalars(select(SenseHubYoungstockHealth.sampled_at).distinct()).all())
+    slots = [item for item in reversed(all_slots) if item[0] not in existing]
+    stop_on_empty = days is None
     _set_job(
         status="running",
-        message="Logging in to SenseHub…",
+        message=(
+            f"Logging in to SenseHub to fill {len(slots)} missing slots "
+            f"(up to {span} days)…"
+        ),
         slots_done=0,
         slots_total=len(slots),
     )
     saved_total = 0
     errors: list[str] = []
+    empty_streak = 0
+    fetched = 0
     try:
         with httpx.Client(timeout=90.0, follow_redirects=True) as client:
             token, version = login(client)
@@ -326,33 +464,52 @@ def backfill_youngstock_health(db: Session, *, days: int = 7) -> dict[str, Any]:
                         display_version=version,
                         past_report_time=unix,
                     )
-                    flat = flatten_report(raw, catalog_item=item)
+                    rows = list(flatten_report(raw, catalog_item=item).get("rows") or [])
                     saved_total += save_rows(
                         db,
-                        list(flat.get("rows") or []),
+                        rows,
                         sampled_at=sampled,
                         slot=slot,
                     )
                     db.commit()
+                    fetched += 1
+                    if rows:
+                        empty_streak = 0
+                    else:
+                        empty_streak += 1
                 except Exception as exc:
                     db.rollback()
                     errors.append(f"{sampled:%Y-%m-%d} {slot}: {exc}")
+                    empty_streak += 1
+                if stop_on_empty and empty_streak >= EMPTY_SLOT_STOP:
+                    _set_job(
+                        message=(
+                            f"Reached the start of SenseHub history after "
+                            f"{sampled:%d %b %Y}."
+                        )
+                    )
+                    break
         _set_job(
             status="complete",
             message=(
-                f"Backfilled {len(slots) - len(errors)} of {len(slots)} time slots "
-                f"({saved_total} rows)."
+                f"Backfilled {fetched} time slots ({saved_total} rows)"
+                + (f", {len(errors)} failed." if errors else ".")
             ),
             slots_done=len(slots),
             slots_total=len(slots),
         )
-        return {"saved": saved_total, "slots": len(slots), "errors": errors}
+        return {
+            "saved": saved_total,
+            "slots": len(slots),
+            "span_days": span,
+            "errors": errors,
+        }
     except Exception as exc:
         _set_job(status="error", message=str(exc))
         raise
 
 
-def run_backfill_in_background(db_factory, days: int) -> None:
+def run_backfill_in_background(db_factory, days: int | None = None) -> None:
     db = db_factory()
     try:
         backfill_youngstock_health(db, days=days)
@@ -520,6 +677,26 @@ def animal_events(db: Session, animal_id: str) -> dict[str, Any]:
         }
         for sample in samples
     ]
+    markers = chart_event_markers(events)
+    sampled_dates = {
+        sample.sampled_at.date().isoformat()
+        for sample in samples
+        if sample.sampled_at
+    }
+    for marker in markers:
+        if marker["date"] in sampled_dates:
+            continue
+        sampled_dates.add(marker["date"])
+        day = dt.date.fromisoformat(marker["date"])
+        health_history.append(
+            {
+                "sampled_at": f"{marker['date']}T12:00:00",
+                "slot": None,
+                "health_index": None,
+                "label": f"{day:%d %b}",
+            }
+        )
+    health_history.sort(key=lambda item: item.get("sampled_at") or "")
     history = [
         {
             "event_date": event.event_date.isoformat() if event.event_date else None,
@@ -548,4 +725,6 @@ def animal_events(db: Session, animal_id: str) -> dict[str, Any]:
         "has_dairycomp": inventory is not None,
         "health_history": health_history,
         "events": history,
+        **treatment_counts(events),
+        "chart_markers": markers,
     }

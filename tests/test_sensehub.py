@@ -248,12 +248,92 @@ def test_past_slots_skips_future_uk_times() -> None:
     assert all(unix > 0 for _sampled, _name, unix in slots)
 
 
+def test_backfill_span_days_uses_oldest_calf_birth() -> None:
+    from zoneinfo import ZoneInfo
+
+    from app.services.sensehub_youngstock import backfill_span_days, save_rows
+
+    session = _youngstock_db()
+    sampled = dt.datetime(2026, 8, 23, 12, 0, 0)
+    save_rows(
+        session,
+        [
+            {
+                "AnimalID": "435259",
+                "YoungStockHealthIndex": 82,
+                "AgeInDays": 56,
+            },
+            {
+                "AnimalID": "412300",
+                "YoungStockHealthIndex": 80,
+                "AgeInDays": 30,
+            },
+        ],
+        sampled_at=sampled,
+        slot="midday",
+    )
+    session.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="435259",
+            etag="UK123456435259",
+            bdat=dt.date(2026, 6, 28),
+            aged=57,
+        )
+    )
+    session.commit()
+    now = dt.datetime(2026, 8, 23, 18, 0, tzinfo=ZoneInfo("Europe/London"))
+    assert backfill_span_days(session, now=now) == 57
+    session.close()
+
+
+def test_health_band_uses_four_colour_thresholds() -> None:
+    from app.services.sensehub_youngstock import health_band
+
+    assert health_band(79.9) == "red"
+    assert health_band(80) == "yellow"
+    assert health_band(84.9) == "yellow"
+    assert health_band(85) == "blue"
+    assert health_band(89.9) == "blue"
+    assert health_band(90) == "green"
+    assert health_band(None) is None
+
+
 def test_etag4_is_last_four_digits_after_trim() -> None:
     from app.services.sensehub_youngstock import etag4
 
     assert etag4("435259") == "5259"
     assert etag4(" UK123456435259 ") == "5259"
     assert etag4("12") == "12"
+
+
+def test_treatment_counts_use_disease_episode_gap() -> None:
+    from app.services.sensehub_youngstock import chart_event_markers, treatment_counts
+
+    events = [
+        CowEvent(farm="CM", cow_id="435259", event="RESP", event_date=dt.date(2026, 8, 1)),
+        CowEvent(farm="CM", cow_id="435259", event="RESP", event_date=dt.date(2026, 8, 1)),
+        CowEvent(farm="CM", cow_id="435259", event="RESP", event_date=dt.date(2026, 8, 3)),
+        CowEvent(farm="CM", cow_id="435259", event="ILL", event_date=dt.date(2026, 8, 4)),
+        CowEvent(farm="CM", cow_id="435259", event="ILL", event_date=dt.date(2026, 8, 6)),
+        CowEvent(farm="CM", cow_id="435259", event="ILL", event_date=dt.date(2026, 8, 15)),
+        CowEvent(farm="CM", cow_id="435259", event="SCOURS", event_date=dt.date(2026, 7, 10)),
+        CowEvent(farm="CM", cow_id="435259", event="SCOURS", event_date=dt.date(2026, 7, 18)),
+        CowEvent(farm="CM", cow_id="435259", event="VACC", event_date=dt.date(2026, 8, 5)),
+    ]
+    assert treatment_counts(events) == {
+        "resp_count": 1,
+        "scours_count": 2,
+        "ill_count": 2,
+    }
+    assert [marker["letter"] for marker in chart_event_markers(events)] == [
+        "S",
+        "S",
+        "R",
+        "I",
+        "V",
+        "I",
+    ]
 
 
 def test_list_low_health_filters_threshold_and_joins_events() -> None:
@@ -302,6 +382,60 @@ def test_list_low_health_filters_threshold_and_joins_events() -> None:
             remark="Scours",
         )
     )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="435259",
+            event="SCOURS",
+            event_date=dt.date(2026, 7, 18),
+            remark="Scours",
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="435259",
+            event="RESP",
+            event_date=dt.date(2026, 8, 1),
+            remark="Pneumonia",
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="435259",
+            event="RESP",
+            event_date=dt.date(2026, 8, 3),
+            remark="Pneumonia",
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="435259",
+            event="VACC",
+            event_date=dt.date(2026, 8, 5),
+            remark="BRSV",
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="435259",
+            event="ILL",
+            event_date=dt.date(2026, 8, 8),
+            remark="Off colour",
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="435259",
+            event="ILL",
+            event_date=dt.date(2026, 8, 10),
+            remark="Off colour",
+        )
+    )
     session.commit()
 
     listing = list_low_health(session, threshold=86)
@@ -318,6 +452,17 @@ def test_list_low_health_filters_threshold_and_joins_events() -> None:
     detail = animal_events(session, "435259ABC")
     assert detail["animal_id"] == "435259"
     assert detail["events"][0]["event"] == "SCOURS"
-    assert detail["health_history"]
-    assert detail["health_history"][0]["health_index"] == 82
+    assert detail["resp_count"] == 1
+    assert detail["scours_count"] == 2
+    assert detail["ill_count"] == 1
+    assert [marker["letter"] for marker in detail["chart_markers"]] == ["S", "S", "R", "V", "I"]
+    assert [point["sampled_at"][:10] for point in detail["health_history"]] == [
+        "2026-07-10",
+        "2026-07-18",
+        "2026-08-01",
+        "2026-08-05",
+        "2026-08-08",
+        "2026-08-23",
+    ]
+    assert detail["health_history"][-1]["health_index"] == 82
     session.close()

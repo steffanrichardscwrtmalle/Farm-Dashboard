@@ -63,6 +63,7 @@
       border: 1px solid #d1d5db;
     }
     .trend-dot.green { background: #16a34a; border-color: #15803d; }
+    .trend-dot.blue { background: #2563eb; border-color: #1d4ed8; }
     .trend-dot.yellow { background: #eab308; border-color: #ca8a04; }
     .trend-dot.red { background: #dc2626; border-color: #b91c1c; }
     .empty-state { padding: 1.5rem; color: var(--muted); text-align: center; }
@@ -111,9 +112,35 @@
     .detail-grid div { background: #f3f4f6; border-radius: 6px; padding: 0.5rem 0.65rem; }
     .detail-grid .label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; }
     .detail-grid .value { font-weight: 700; }
+    .detail-grid .count-warn .value { color: #b91c1c; }
     .chart-block { margin: 0 0 1.25rem; }
     .chart-block h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
-    .chart-wrap { position: relative; height: 220px; }
+    .chart-scroll { overflow-x: auto; }
+    .chart-wrap { position: relative; height: 240px; min-width: 100%; }
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin: 0.45rem 0 0;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .chart-legend span { display: inline-flex; align-items: center; gap: 0.3rem; }
+    .marker-key {
+      width: 1.1rem;
+      height: 1.1rem;
+      border-radius: 50%;
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .marker-key.r { background: #b91c1c; }
+    .marker-key.s { background: #1d4ed8; }
+    .marker-key.i { background: #ea580c; }
+    .marker-key.v { background: #6d28d9; }
     #events-table { width: 100%; border-collapse: collapse; }
     #events-table th, #events-table td {
       padding: 0.4rem 0.5rem;
@@ -132,7 +159,7 @@
     </label>
     <button type="button" id="apply-btn">Show list</button>
     <button type="button" id="refresh-btn">Refresh from SenseHub</button>
-    <button type="button" id="backfill-btn">Fill last 7 days</button>
+    <button type="button" id="backfill-btn">Fill all history</button>
   </div>
   <p class="meta-line" id="meta-line">Loading…</p>
   <div class="table-wrap">
@@ -161,8 +188,16 @@
       <div class="detail-grid" id="detail-grid"></div>
       <div class="chart-block">
         <h3>Health index</h3>
-        <div class="chart-wrap">
-          <canvas id="health-chart"></canvas>
+        <div class="chart-scroll" id="chart-scroll">
+          <div class="chart-wrap" id="health-chart-wrap">
+            <canvas id="health-chart"></canvas>
+          </div>
+        </div>
+        <div class="chart-legend">
+          <span><span class="marker-key r">R</span> Pneumonia (Resp)</span>
+          <span><span class="marker-key s">S</span> Scours</span>
+          <span><span class="marker-key i">I</span> Ill</span>
+          <span><span class="marker-key v">V</span> Vaccine</span>
         </div>
       </div>
       <table id="events-table">
@@ -172,7 +207,6 @@
             <th>Event</th>
             <th>Remark</th>
             <th>Protocols</th>
-            <th>Farm</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -200,12 +234,77 @@
     let sortDir = "asc";
     let healthChart = null;
 
+    const MARKER_COLORS = { R: "#b91c1c", S: "#1d4ed8", I: "#ea580c", V: "#6d28d9" };
+    const MARKER_LABELS = { R: "Pneumonia (Resp)", S: "Scours", I: "Ill", V: "Vaccine" };
+
     function barColor(value) {
       if (value == null || value === "") return "#9ca3af";
       if (value < 80) return "#dc2626";
-      if (value < 90) return "#eab308";
+      if (value < 85) return "#eab308";
+      if (value < 90) return "#2563eb";
       return "#16a34a";
     }
+
+    function sampleDate(point) {
+      return String(point && point.sampled_at ? point.sampled_at : "").slice(0, 10);
+    }
+
+    function markerPositions(history, markers) {
+      const points = history || [];
+      const byDate = {};
+      points.forEach((point, index) => {
+        const date = sampleDate(point);
+        if (!date) return;
+        (byDate[date] ||= []).push(index);
+      });
+      const placed = [];
+      (markers || []).forEach((marker) => {
+        const indexes = byDate[marker.date];
+        if (!indexes || !indexes.length) return;
+        const mid = indexes[Math.floor((indexes.length - 1) / 2)];
+        placed.push({
+          index: mid,
+          letter: marker.letter,
+          color: MARKER_COLORS[marker.letter] || "#374151",
+          label: MARKER_LABELS[marker.letter] || marker.event || marker.letter,
+          date: marker.date,
+        });
+      });
+      return placed;
+    }
+
+    const eventMarkerPlugin = {
+      id: "eventMarkers",
+      afterDatasetsDraw(chart, _args, options) {
+        const items = (options && options.items) || [];
+        if (!items.length) return;
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x;
+        const grouped = {};
+        items.forEach((item) => {
+          if (item.index == null) return;
+          (grouped[item.index] ||= []).push(item);
+        });
+        ctx.save();
+        Object.entries(grouped).forEach(([index, list]) => {
+          const px = xScale.getPixelForValue(Number(index));
+          const py = chartArea.top - 14;
+          list.forEach((item, offset) => {
+            const cx = px + (offset - (list.length - 1) / 2) * 20;
+            ctx.beginPath();
+            ctx.arc(cx, py, 9, 0, Math.PI * 2);
+            ctx.fillStyle = item.color;
+            ctx.fill();
+            ctx.fillStyle = "#fff";
+            ctx.font = "bold 11px sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(item.letter, cx, py + 0.5);
+          });
+        });
+        ctx.restore();
+      },
+    };
 
     function trendHtml(trend) {
       const dots = Array.isArray(trend) ? trend.slice(-12) : [];
@@ -217,7 +316,7 @@
       }).join("")}</span>`;
     }
 
-    function renderHealthChart(history) {
+    function renderHealthChart(history, markers) {
       const canvas = document.getElementById("health-chart");
       if (healthChart) {
         healthChart.destroy();
@@ -225,8 +324,19 @@
       }
       if (typeof Chart === "undefined" || !canvas) return;
       const points = history || [];
+      const scroll = document.getElementById("chart-scroll");
+      const wrap = document.getElementById("health-chart-wrap");
+      if (scroll && wrap) {
+        wrap.style.width = `${Math.max(scroll.clientWidth, points.length * 16)}px`;
+      }
+      const placed = markerPositions(points, markers);
+      const byIndex = {};
+      placed.forEach((item) => {
+        (byIndex[item.index] ||= []).push(item);
+      });
       healthChart = new Chart(canvas, {
         type: "bar",
+        plugins: [eventMarkerPlugin],
         data: {
           labels: points.map((point) => point.label || point.slot || ""),
           datasets: [{
@@ -234,16 +344,23 @@
             data: points.map((point) => point.health_index),
             backgroundColor: points.map((point) => barColor(point.health_index)),
             borderWidth: 0,
+            skipNull: true,
           }],
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          layout: { padding: { top: 22 } },
           plugins: {
             legend: { display: false },
+            eventMarkers: { items: placed },
             tooltip: {
               callbacks: {
                 label: (item) => `Health index: ${item.raw}`,
+                afterBody: (items) => {
+                  const extra = byIndex[items[0].dataIndex] || [];
+                  return extra.map((item) => `${item.letter}: ${item.label}`);
+                },
               },
             },
           },
@@ -266,6 +383,13 @@
       if (!iso) return "unknown";
       const d = new Date(iso);
       return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+    }
+
+    function fmtDate(iso) {
+      if (!iso) return "—";
+      const match = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!match) return iso;
+      return `${match[3]}/${match[2]}/${match[1].slice(2)}`;
     }
 
     function sortValue(row, key) {
@@ -326,32 +450,30 @@
       eventsBody.innerHTML = "";
       const res = await fetch(`/api/sensehub/youngstock/${encodeURIComponent(animalId)}/events`);
       const payload = await res.json();
+      const respCount = payload.resp_count ?? 0;
+      const scoursCount = payload.scours_count ?? 0;
+      const illCount = payload.ill_count ?? 0;
       const cells = [
-        ["Health index", payload.health_index ?? "—"],
-        ["ETAG4", payload.etag4 || "—"],
-        ["Age in days", payload.age_days ?? "—"],
-        ["Group", payload.group_name || "—"],
-        ["Birth date", payload.birth_date || "—"],
-        ["DairyComp ID", payload.cow_id || "—"],
-        ["Eartag", payload.etag || "—"],
-        ["Pen", payload.pen || "—"],
-        ["Farm", payload.farm || "—"],
+        ["Health index", payload.health_index ?? "—", ""],
+        ["Age in days", payload.age_days ?? "—", ""],
+        ["Pneumonia (Resp)", respCount, respCount > 0 ? "count-warn" : ""],
+        ["Scours", scoursCount, scoursCount > 0 ? "count-warn" : ""],
+        ["Ill", illCount, illCount > 0 ? "count-warn" : ""],
       ];
-      detailGrid.innerHTML = cells.map(([label, value]) => `
-        <div><div class="label">${label}</div><div class="value">${value}</div></div>
+      detailGrid.innerHTML = cells.map(([label, value, extraClass]) => `
+        <div class="${extraClass}"><div class="label">${label}</div><div class="value">${value}</div></div>
       `).join("");
       const events = payload.events || [];
       eventsBody.innerHTML = events.map(event => `
         <tr>
-          <td>${event.event_date || "—"}</td>
+          <td>${fmtDate(event.event_date)}</td>
           <td>${event.event || "—"}</td>
           <td>${event.remark || "—"}</td>
           <td>${event.protocols || "—"}</td>
-          <td>${event.farm || "—"}</td>
         </tr>
       `).join("");
       eventsEmpty.hidden = events.length > 0;
-      renderHealthChart(payload.health_history || []);
+      renderHealthChart(payload.health_history || [], payload.chart_markers || []);
     }
 
     applyBtn.addEventListener("click", loadList);
@@ -387,8 +509,8 @@
     backfillBtn.addEventListener("click", async () => {
       backfillBtn.disabled = true;
       refreshBtn.disabled = true;
-      metaEl.textContent = "Starting 7-day SenseHub backfill…";
-      const res = await fetch("/api/sensehub/youngstock/backfill?days=7", { method: "POST" });
+      metaEl.textContent = "Starting full SenseHub history backfill…";
+      const res = await fetch("/api/sensehub/youngstock/backfill", { method: "POST" });
       const body = await res.json();
       metaEl.textContent = body.message || "";
       pollBackfill();

@@ -49,15 +49,19 @@ def api_sensehub_youngstock_job(
 @router.post("/youngstock/backfill")
 def api_sensehub_youngstock_backfill(
     background_tasks: BackgroundTasks,
-    days: int = Query(7, ge=1, le=14),
+    days: int | None = Query(None, ge=1, le=730),
     _: User = Depends(require_page(PAGE_SENSEHUB)),
 ):
     if is_youngstock_job_running():
         return {"status": "running", "message": "A SenseHub backfill is already running."}
     background_tasks.add_task(run_backfill_in_background, SessionLocal, days)
+    if days is None:
+        message = "Backfilling all SenseHub youngstock history…"
+    else:
+        message = f"Backfilling the last {days} days from SenseHub…"
     return {
         "status": "started",
-        "message": f"Backfilling the last {days} days from SenseHub…",
+        "message": message,
         "days": days,
     }
 
