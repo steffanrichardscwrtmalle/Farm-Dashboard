@@ -1316,6 +1316,21 @@ def genetics_pedigree_registrations_page(request: Request):
     )
 
 
+@app.get("/genetics/bull-search", response_class=HTMLResponse)
+def genetics_bull_search_page(request: Request):
+    if denied := _page_guard(request, PAGE_GENETICS):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "genetics/bull_search.html",
+        _template_ctx(
+            request,
+            page_heading="Bull Search",
+            **_genetics_context("Bull Search", "bull-search", "Bull Search"),
+        ),
+    )
+
+
 @app.get("/genetics/genomic-progress", response_class=HTMLResponse)
 def genetics_genomic_progress_page(request: Request):
     if denied := _page_guard(request, PAGE_GENETICS):

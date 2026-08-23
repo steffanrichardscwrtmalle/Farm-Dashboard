@@ -41,6 +41,7 @@ def init_db() -> None:
     _migrate_herd_inventory_schema()
     _migrate_pedigree_registration_schema()
     _migrate_genomic_results_schema()
+    _migrate_ahdb_bulls_schema()
     _migrate_nml_results_schema()
     _migrate_milk_collections_schema()
     _migrate_milk_statements_schema()
@@ -562,6 +563,64 @@ def _migrate_genomic_results_schema() -> None:
             if name not in columns:
                 conn.execute(
                     text(f"ALTER TABLE genomic_results ADD COLUMN {name} {col_type}")
+                )
+
+
+def _migrate_ahdb_bulls_schema() -> None:
+    """Collapse international into proven, one row per HBN, unique on hbn."""
+    inspector = inspect(engine)
+    if "ahdb_bulls" not in inspector.get_table_names():
+        return
+    unique_names = {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints("ahdb_bulls")
+        if constraint.get("name")
+    }
+    index_names = {
+        index["name"] for index in inspector.get_indexes("ahdb_bulls") if index.get("name")
+    }
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "DELETE FROM ahdb_bulls WHERE list_type = 'international' AND hbn IN "
+                "(SELECT hbn FROM ("
+                "SELECT hbn FROM ahdb_bulls WHERE list_type != 'international'"
+                "))"
+            )
+        )
+        conn.execute(
+            text("UPDATE ahdb_bulls SET list_type = 'proven' WHERE list_type = 'international'")
+        )
+        if DATABASE_URL.startswith("sqlite"):
+            conn.execute(
+                text(
+                    "DELETE FROM ahdb_bulls WHERE id NOT IN "
+                    "(SELECT MIN(id) FROM ahdb_bulls GROUP BY hbn)"
+                )
+            )
+        else:
+            conn.execute(
+                text(
+                    "DELETE FROM ahdb_bulls a USING ahdb_bulls b "
+                    "WHERE a.hbn = b.hbn AND a.id > b.id"
+                )
+            )
+        if (
+            "uq_ahdb_bull_list_hbn" in unique_names
+            or "uq_ahdb_bull_list_hbn" in index_names
+        ):
+            if DATABASE_URL.startswith("sqlite"):
+                conn.execute(text("DROP INDEX IF EXISTS uq_ahdb_bull_list_hbn"))
+            else:
+                conn.execute(
+                    text("ALTER TABLE ahdb_bulls DROP CONSTRAINT IF EXISTS uq_ahdb_bull_list_hbn")
+                )
+        if "uq_ahdb_bull_hbn" not in unique_names and "uq_ahdb_bull_hbn" not in index_names:
+            if DATABASE_URL.startswith("sqlite"):
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_ahdb_bull_hbn ON ahdb_bulls (hbn)"))
+            else:
+                conn.execute(
+                    text("ALTER TABLE ahdb_bulls ADD CONSTRAINT uq_ahdb_bull_hbn UNIQUE (hbn)")
                 )
 
 

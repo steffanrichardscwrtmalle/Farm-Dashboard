@@ -32,6 +32,8 @@ from app.services.pedigree_registrations import (
     set_recipient,
 )
 from app.services.sire_conflicts import build_sire_conflicts_csv, list_sire_conflicts
+from app.services.ahdb_bulls import AhdbBullsError, ensure_imported, list_bulls, refresh_bulls
+from app.services.custom_indexes import reset_index_settings, save_index_settings
 from app.services.pending_results import (
     EMAIL_BODY as PENDING_EMAIL_BODY,
     XLSX_CONTENT_TYPE,
@@ -318,3 +320,70 @@ def api_pending_results_email(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return {"sent": len(rows), "recipient": body.recipient}
+
+
+@router.get("/bull-search")
+def api_bull_search(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_GENETICS)),
+):
+    try:
+        return ensure_imported(db)
+    except AhdbBullsError as exc:
+        existing = list_bulls(db)
+        if existing["count"]:
+            existing["warning"] = str(exc)
+            return existing
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/bull-search/refresh")
+def api_bull_search_refresh(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_GENETICS)),
+):
+    try:
+        return refresh_bulls(db)
+    except AhdbBullsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+class IndexSchemeBody(BaseModel):
+    fat_pct_base: float | None = None
+    protein_pct_base: float | None = None
+    milk_volume_base: float | None = None
+    fat_price: float | None = None
+    protein_price: float | None = None
+    volume_price: float | None = None
+    lameness_weight: float | None = None
+    include_lameness: bool | None = None
+
+
+class IndexSettingsBody(BaseModel):
+    ebv_conv: float | None = None
+    fertility_weight: float | None = None
+    lifespan_weight: float | None = None
+    scc_value: float | None = None
+    mastitis_weight: float | None = None
+    include_mastitis: bool | None = None
+    dp: IndexSchemeBody | None = None
+    fw: IndexSchemeBody | None = None
+
+
+@router.put("/bull-search/index-settings")
+def api_bull_search_save_index_settings(
+    body: IndexSettingsBody,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_GENETICS)),
+):
+    save_index_settings(db, body.model_dump(exclude_none=True))
+    return list_bulls(db)
+
+
+@router.post("/bull-search/index-settings/reset")
+def api_bull_search_reset_index_settings(
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_GENETICS)),
+):
+    reset_index_settings(db)
+    return list_bulls(db)

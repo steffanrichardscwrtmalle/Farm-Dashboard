@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import re
 from typing import Any
 
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, Time, UniqueConstraint, func
@@ -990,6 +991,105 @@ class GenomicResult(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class AhdbBull(Base):
+    """AHDB Holstein bull proofs (genomic, marketed proven, and top international)."""
+
+    __tablename__ = "ahdb_bulls"
+    __table_args__ = (
+        UniqueConstraint("hbn", name="uq_ahdb_bull_hbn"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    list_type: Mapped[str] = mapped_column(String(16), index=True)
+    hbn: Mapped[str] = mapped_column(String(32), index=True)
+    rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bull_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    bull_name_full: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    breed_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    pli: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pli_reliability: Mapped[float | None] = mapped_column(Float, nullable=True)
+    milk_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fat_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    protein_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fat_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    protein_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    healthycow: Mapped[float | None] = mapped_column(Float, nullable=True)
+    envirocow: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fertility_index: Mapped[float | None] = mapped_column(Float, nullable=True)
+    calf_survival: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lifespan_days: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scc: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mastitis: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lameness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    digital_dermatitis: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gestation_length: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dairy_carcass_index: Mapped[float | None] = mapped_column(Float, nullable=True)
+    maintenance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    feed_advantage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    direct_ce: Mapped[float | None] = mapped_column(Float, nullable=True)
+    maternal_ce: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tb_advantage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    legs: Mapped[float | None] = mapped_column(Float, nullable=True)
+    udder: Mapped[float | None] = mapped_column(Float, nullable=True)
+    type_merit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    supplier_gb: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    supplier_ni: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    genomic_indicator: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    sexed_gb: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    uk_proven: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    sire_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    grandsire_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    supplier_url: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    fetched_at: Mapped[datetime.datetime] = mapped_column(DateTime, index=True)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "list_type": "proven" if self.list_type != "genomic" else "genomic",
+            "proof": "G" if self.list_type == "genomic" else "P",
+            "list_label": "G" if self.list_type == "genomic" else "P",
+            "hbn": self.hbn,
+            "rank": self.rank,
+            "bull_name": _clean_bull_name(self.bull_name),
+            "bull_name_full": self.bull_name_full,
+            "breed_code": self.breed_code,
+            "pli": self.pli,
+            "pli_reliability": self.pli_reliability,
+            "milk_kg": self.milk_kg,
+            "fat_kg": self.fat_kg,
+            "protein_kg": self.protein_kg,
+            "fat_pct": self.fat_pct,
+            "protein_pct": self.protein_pct,
+            "healthycow": self.healthycow,
+            "envirocow": self.envirocow,
+            "fertility_index": self.fertility_index,
+            "calf_survival": self.calf_survival,
+            "lifespan_days": self.lifespan_days,
+            "scc": self.scc,
+            "mastitis": self.mastitis,
+            "lameness": self.lameness,
+            "digital_dermatitis": self.digital_dermatitis,
+            "gestation_length": self.gestation_length,
+            "dairy_carcass_index": self.dairy_carcass_index,
+            "maintenance": self.maintenance,
+            "feed_advantage": self.feed_advantage,
+            "direct_ce": self.direct_ce,
+            "maternal_ce": self.maternal_ce,
+            "tb_advantage": self.tb_advantage,
+            "legs": self.legs,
+            "udder": self.udder,
+            "type_merit": self.type_merit,
+            "supplier_gb": self.supplier_gb,
+            "supplier_ni": self.supplier_ni,
+            "genomic_indicator": self.genomic_indicator,
+            "sexed_gb": self.sexed_gb,
+            "uk_proven": self.uk_proven,
+            "sire_name": self.sire_name,
+            "grandsire_name": self.grandsire_name,
+            "supplier_url": self.supplier_url,
+            "fetched_at": self.fetched_at.isoformat() if self.fetched_at else None,
+        }
 
 
 class NmlMilkResult(Base):
@@ -2000,10 +2100,32 @@ def _str_or_none(value: Any) -> str | None:
     return s if s else None
 
 
+_BULL_NAME_CODES = re.compile(r"\s+A[12]A[12]\b.*$", re.IGNORECASE)
+
+
+def _clean_bull_name(name: str | None) -> str | None:
+    cleaned = _str_or_none(name)
+    if cleaned is None:
+        return None
+    stripped = _BULL_NAME_CODES.sub("", cleaned).strip()
+    return stripped or cleaned
+
+
 def _float_or_none(value: Any) -> float | None:
     if value is None:
         return None
     try:
         return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    try:
+        return int(float(value))
     except (TypeError, ValueError):
         return None
