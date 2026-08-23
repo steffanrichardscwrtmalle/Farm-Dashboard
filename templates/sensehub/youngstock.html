@@ -30,10 +30,13 @@
     #health-table th, #health-table td {
       padding: 0.5rem 0.6rem;
       border-bottom: 1px solid var(--border);
-      text-align: left;
+      border-right: 1px solid var(--border);
+      text-align: center;
       white-space: nowrap;
       width: 1%;
     }
+    #health-table th:last-child,
+    #health-table td:last-child { border-right: none; }
     #health-table thead th {
       background: #1e3a5f;
       color: #fff;
@@ -42,15 +45,22 @@
       top: 0;
       cursor: pointer;
       user-select: none;
+      border-right-color: rgba(255, 255, 255, 0.28);
     }
     #health-table thead th[data-sort]::after { content: " ↕"; font-size: 0.7rem; opacity: 0.6; }
     #health-table thead th.sort-asc::after { content: " ▲"; opacity: 1; }
     #health-table thead th.sort-desc::after { content: " ▼"; opacity: 1; }
     #health-table tbody tr { cursor: pointer; }
     #health-table tbody tr:hover { background: #eef6fb; }
+    #health-table tbody tr.unmatched {
+      background: #fecaca;
+      color: #7f1d1d;
+    }
+    #health-table tbody tr.unmatched:hover { background: #fca5a5; }
     .trend {
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 3px;
     }
     .trend-dot {
@@ -72,16 +82,25 @@
       inset: 0;
       z-index: 40;
       display: flex;
-      justify-content: flex-end;
+      align-items: center;
+      justify-content: center;
+      padding: 0.75rem;
     }
     .drawer[hidden] { display: none; }
-    .drawer-backdrop { flex: 1; background: rgba(0,0,0,0.35); }
+    .drawer-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+    }
     .drawer-panel {
-      width: min(42rem, 100%);
+      position: relative;
+      width: min(96vw, 100%);
+      height: calc(100vh - 1.5rem);
       background: var(--card);
       overflow: auto;
-      padding: 1.25rem;
-      box-shadow: -8px 0 24px rgba(0,0,0,0.15);
+      padding: 1.25rem 1.5rem;
+      border-radius: 10px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.25);
     }
     .drawer-header {
       display: flex;
@@ -90,19 +109,40 @@
       gap: 0.75rem;
       margin: 0 0 0.5rem;
     }
-    .drawer-panel h2 { margin: 0; font-size: 1.15rem; }
-    .drawer-close {
-      width: 2.25rem;
-      height: 2.25rem;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      background: #fff;
-      font-size: 1.4rem;
-      line-height: 1;
-      cursor: pointer;
-      color: var(--text);
+    .drawer-nav {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-width: 0;
     }
+    .drawer-panel h2 { margin: 0; font-size: 1.15rem; }
+    .drawer-nav-btn,
+    .drawer-close {
+      width: 2.5rem;
+      height: 2.5rem;
+      padding: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: #1f2937;
+      flex-shrink: 0;
+    }
+    .drawer-nav-btn svg,
+    .drawer-close svg {
+      display: block;
+      width: 1.25rem;
+      height: 1.25rem;
+    }
+    .drawer-nav-btn:hover:not(:disabled),
     .drawer-close:hover { background: #f3f4f6; }
+    .drawer-nav-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
     .detail-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
@@ -116,7 +156,7 @@
     .chart-block { margin: 0 0 1.25rem; }
     .chart-block h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
     .chart-scroll { overflow-x: auto; }
-    .chart-wrap { position: relative; height: 240px; min-width: 100%; }
+    .chart-wrap { position: relative; height: 320px; min-width: 100%; }
     .chart-legend {
       display: flex;
       flex-wrap: wrap;
@@ -149,6 +189,62 @@
       font-size: 0.875rem;
     }
     #events-table th { background: #f3f4f6; }
+    .print-only { display: none; }
+    @page { size: A4 landscape; margin: 8mm; }
+    @media print {
+      .sidebar, .topbar, .sidebar-backdrop, .no-print, .drawer, .toolbar, .meta-line { display: none !important; }
+      .app-shell { display: block; }
+      .main-panel, main {
+        max-width: none;
+        padding: 0;
+        width: auto;
+      }
+      .print-only { display: block !important; }
+      .print-title {
+        margin: 0 0 0.2rem;
+        font-size: 14pt;
+        font-weight: 700;
+      }
+      .print-meta {
+        margin: 0 0 0.5rem;
+        font-size: 9pt;
+        color: #333;
+      }
+      .table-wrap {
+        display: block;
+        max-height: none;
+        overflow: visible;
+        border: none;
+        border-radius: 0;
+      }
+      #health-table {
+        width: 100%;
+        font-size: 8.5pt;
+      }
+      #health-table th,
+      #health-table td {
+        text-align: center;
+        border-right: 0.4pt solid #c5cdd6;
+      }
+      #health-table thead th {
+        position: static;
+        background: #1e3a5f !important;
+        color: #fff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      #health-table thead th[data-sort]::after { display: none; }
+      #health-table tbody tr { cursor: default; }
+      #health-table tbody tr.unmatched {
+        background: #fecaca !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .trend-dot {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
 {% endblock %}
 
 {% block content %}
@@ -160,8 +256,13 @@
     <button type="button" id="apply-btn">Show list</button>
     <button type="button" id="refresh-btn">Refresh from SenseHub</button>
     <button type="button" id="backfill-btn">Fill all history</button>
+    <button type="button" id="print-btn">Print table</button>
   </div>
   <p class="meta-line" id="meta-line">Loading…</p>
+  <div class="print-only">
+    <h2 class="print-title">Youngstock health</h2>
+    <p class="print-meta" id="print-meta"></p>
+  </div>
   <div class="table-wrap">
     <table id="health-table">
       <thead>
@@ -170,6 +271,8 @@
           <th data-sort="etag4">ETAG4</th>
           <th data-sort="health_index">Health index</th>
           <th data-sort="age_days">Age in days</th>
+          <th data-sort="days_since_last_treatment" title="Days since last treatment (ILL or RESP)">DSLT</th>
+          <th data-sort="resp_count" title="Respiratory episodes">xResp</th>
           <th>Trend</th>
         </tr>
       </thead>
@@ -182,7 +285,19 @@
     <div class="drawer-backdrop" id="drawer-backdrop"></div>
     <aside class="drawer-panel">
       <div class="drawer-header">
-        <h2 id="detail-title">Calf</h2>
+        <div class="drawer-nav">
+          <button type="button" class="drawer-nav-btn" id="calf-prev" aria-label="Previous calf">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M15 5 8 12l7 7"/>
+            </svg>
+          </button>
+          <h2 id="detail-title">Calf</h2>
+          <button type="button" class="drawer-nav-btn" id="calf-next" aria-label="Next calf">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="m9 5 7 7-7 7"/>
+            </svg>
+          </button>
+        </div>
         <button type="button" class="drawer-close" id="drawer-close" aria-label="Close">&times;</button>
       </div>
       <div class="detail-grid" id="detail-grid"></div>
@@ -221,7 +336,9 @@
     const applyBtn = document.getElementById("apply-btn");
     const refreshBtn = document.getElementById("refresh-btn");
     const backfillBtn = document.getElementById("backfill-btn");
+    const printBtn = document.getElementById("print-btn");
     const metaEl = document.getElementById("meta-line");
+    const printMetaEl = document.getElementById("print-meta");
     const tbody = document.querySelector("#health-table tbody");
     const emptyEl = document.getElementById("empty-state");
     const drawer = document.getElementById("drawer");
@@ -233,6 +350,10 @@
     let sortKey = "etag4";
     let sortDir = "asc";
     let healthChart = null;
+    let currentAnimalId = null;
+    let openToken = 0;
+    const prevBtn = document.getElementById("calf-prev");
+    const nextBtn = document.getElementById("calf-next");
 
     const MARKER_COLORS = { R: "#b91c1c", S: "#1d4ed8", I: "#ea580c", V: "#6d28d9" };
     const MARKER_LABELS = { R: "Pneumonia (Resp)", S: "Scours", I: "Ill", V: "Vaccine" };
@@ -328,6 +449,7 @@
       const wrap = document.getElementById("health-chart-wrap");
       if (scroll && wrap) {
         wrap.style.width = `${Math.max(scroll.clientWidth, points.length * 16)}px`;
+        scroll.scrollLeft = 0;
       }
       const placed = markerPositions(points, markers);
       const byIndex = {};
@@ -377,6 +499,34 @@
           },
         },
       });
+      scrollChartToLatest();
+      setTimeout(scrollChartToLatest, 80);
+      setTimeout(scrollChartToLatest, 250);
+    }
+
+    function scrollChartToLatest() {
+      const scroll = document.getElementById("chart-scroll");
+      if (!scroll) return;
+      const go = () => { scroll.scrollLeft = scroll.scrollWidth; };
+      requestAnimationFrame(() => requestAnimationFrame(go));
+    }
+
+    function calfIndex(animalId) {
+      return sortedAnimals().findIndex((row) => String(row.animal_id) === String(animalId));
+    }
+
+    function updateNavButtons() {
+      const rows = sortedAnimals();
+      const index = calfIndex(currentAnimalId);
+      prevBtn.disabled = index <= 0;
+      nextBtn.disabled = index < 0 || index >= rows.length - 1;
+    }
+
+    function stepCalf(delta) {
+      const rows = sortedAnimals();
+      const next = calfIndex(currentAnimalId) + delta;
+      if (next < 0 || next >= rows.length) return;
+      openCalf(rows[next].animal_id);
     }
 
     function fmtWhen(iso) {
@@ -395,7 +545,7 @@
     function sortValue(row, key) {
       const value = row[key];
       if (value == null || value === "") return sortDir === "asc" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
-      if (key === "etag4" || key === "health_index" || key === "age_days") {
+      if (key === "etag4" || key === "health_index" || key === "age_days" || key === "days_since_last_treatment" || key === "resp_count") {
         const number = Number(value);
         return Number.isNaN(number) ? value : number;
       }
@@ -414,15 +564,22 @@
 
     function renderTable() {
       const rows = sortedAnimals();
-      tbody.innerHTML = rows.map(row => `
-        <tr data-id="${row.animal_id}">
+      tbody.innerHTML = rows.map(row => {
+        const unmatched = row.has_dairycomp === false;
+        const title = unmatched
+          ? "No DairyComp match — check the SenseHub calf ID"
+          : "";
+        return `
+        <tr data-id="${row.animal_id}" class="${unmatched ? "unmatched" : ""}" title="${title}">
           <td>${row.animal_id}</td>
           <td>${row.etag4 || "—"}</td>
           <td>${row.health_index ?? "—"}</td>
           <td>${row.age_days ?? "—"}</td>
+          <td>${row.days_since_last_treatment ?? "—"}</td>
+          <td>${row.resp_count ?? 0}</td>
           <td>${trendHtml(row.trend)}</td>
-        </tr>
-      `).join("");
+        </tr>`;
+      }).join("");
       emptyEl.hidden = rows.length > 0;
       document.querySelectorAll("#health-table th[data-sort]").forEach((th) => {
         th.classList.toggle("sort-asc", th.dataset.sort === sortKey && sortDir === "asc");
@@ -437,6 +594,7 @@
       metaEl.textContent = payload.sampled_at
         ? `${payload.count} animal(s) at or below ${payload.threshold} · ${payload.slot || ""} ${fmtWhen(payload.sampled_at)}`
         : "No young-stock health samples yet. Click Refresh from SenseHub.";
+      if (printMetaEl) printMetaEl.textContent = metaEl.textContent;
       animals = payload.animals || [];
       sortKey = "etag4";
       sortDir = "asc";
@@ -444,12 +602,16 @@
     }
 
     async function openCalf(animalId) {
+      const token = ++openToken;
+      currentAnimalId = animalId;
       drawer.hidden = false;
+      updateNavButtons();
       detailTitle.textContent = `Animal ${animalId}`;
       detailGrid.innerHTML = "<div>Loading…</div>";
       eventsBody.innerHTML = "";
       const res = await fetch(`/api/sensehub/youngstock/${encodeURIComponent(animalId)}/events`);
       const payload = await res.json();
+      if (token !== openToken) return;
       const respCount = payload.resp_count ?? 0;
       const scoursCount = payload.scours_count ?? 0;
       const illCount = payload.ill_count ?? 0;
@@ -476,13 +638,17 @@
       renderHealthChart(payload.health_history || [], payload.chart_markers || []);
     }
 
+    printBtn.addEventListener("click", () => {
+      if (printMetaEl) printMetaEl.textContent = metaEl.textContent || "";
+      window.print();
+    });
     applyBtn.addEventListener("click", loadList);
     thresholdEl.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") loadList();
     });
     refreshBtn.addEventListener("click", async () => {
       refreshBtn.disabled = true;
-      metaEl.textContent = "Refreshing Young Stock Health by Age All from SenseHub…";
+      metaEl.textContent = "Refreshing from SenseHub and filling any missing slots…";
       try {
         const res = await fetch("/api/sensehub/youngstock/import", { method: "POST" });
         const body = await res.json();
@@ -533,11 +699,29 @@
     });
     function closeDrawer() {
       drawer.hidden = true;
+      currentAnimalId = null;
     }
+    prevBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      stepCalf(-1);
+    });
+    nextBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      stepCalf(1);
+    });
     document.getElementById("drawer-close").addEventListener("click", closeDrawer);
     document.getElementById("drawer-backdrop").addEventListener("click", closeDrawer);
     document.addEventListener("keydown", (ev) => {
-      if (ev.key === "Escape" && !drawer.hidden) closeDrawer();
+      if (drawer.hidden) return;
+      if (ev.key === "Escape") closeDrawer();
+      if (ev.key === "ArrowLeft") {
+        ev.preventDefault();
+        stepCalf(-1);
+      }
+      if (ev.key === "ArrowRight") {
+        ev.preventDefault();
+        stepCalf(1);
+      }
     });
 
     loadList();

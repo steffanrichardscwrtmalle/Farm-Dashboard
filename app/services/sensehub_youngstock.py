@@ -45,6 +45,7 @@ CHART_EVENT_LETTERS: dict[str, str] = {
     "VACC": "V",
 }
 TREATMENT_EVENTS = frozenset({"RESP", "SCOURS", "ILL"})
+LAST_TREATMENT_EVENTS = frozenset({"RESP", "ILL"})
 
 
 def health_band(value: float | None) -> str | None:
@@ -108,6 +109,83 @@ def treatment_episodes(events: list[CowEvent]) -> list[dict[str, Any]]:
         if _event_code(event.event) in TREATMENT_EVENTS
     ]
     return filter_disease_episode_records(records)
+
+
+def days_since_last_treatment(
+    events: list[CowEvent],
+    *,
+    today: dt.date | None = None,
+) -> int | None:
+    """Days since the most recent ILL or RESP event."""
+    today = today or dt.date.today()
+    latest: dt.date | None = None
+    for event in events:
+        if _event_code(event.event) not in LAST_TREATMENT_EVENTS:
+            continue
+        if event.event_date is None:
+            continue
+        if latest is None or event.event_date > latest:
+            latest = event.event_date
+    if latest is None:
+        return None
+    return (today - latest).days
+
+
+def _events_for_animals(
+    db: Session,
+    animals: list[tuple[str, HerdInventory | None]],
+) -> dict[str, list[CowEvent]]:
+    cow_ids: set[str] = set()
+    etags: set[str] = set()
+    for animal_id, inventory in animals:
+        cow_ids.add(animal_id)
+        if inventory is None:
+            continue
+        if inventory.cow_id:
+            cow_ids.add(inventory.cow_id)
+        if inventory.etag:
+            etags.add(inventory.etag)
+    if not cow_ids and not etags:
+        return {animal_id: [] for animal_id, _inventory in animals}
+    filters = []
+    if cow_ids:
+        filters.append(CowEvent.cow_id.in_(cow_ids))
+    if etags:
+        filters.append(CowEvent.etag.in_(etags))
+    events = list(db.scalars(select(CowEvent).where(or_(*filters))).all())
+    by_cow: dict[str, list[CowEvent]] = defaultdict(list)
+    by_etag: dict[str, list[CowEvent]] = defaultdict(list)
+    for event in events:
+        if event.cow_id:
+            by_cow[event.cow_id].append(event)
+        if event.etag:
+            by_etag[event.etag].append(event)
+    result: dict[str, list[CowEvent]] = {}
+    for animal_id, inventory in animals:
+        seen: set[int] = set()
+        collected: list[CowEvent] = []
+        keys = {animal_id}
+        if inventory is not None and inventory.cow_id:
+            keys.add(inventory.cow_id)
+        for key in keys:
+            for event in by_cow.get(key, []):
+                if event.id not in seen:
+                    seen.add(event.id)
+                    collected.append(event)
+        if inventory is not None and inventory.etag:
+            for event in by_etag.get(inventory.etag, []):
+                if event.id not in seen:
+                    seen.add(event.id)
+                    collected.append(event)
+        birth = inventory.bdat if inventory is not None else None
+        if birth is not None:
+            collected = [
+                event
+                for event in collected
+                if event.event_date is None or event.event_date >= birth
+            ]
+        result[animal_id] = collected
+    return result
 
 
 def treatment_counts(events: list[CowEvent]) -> dict[str, int]:
@@ -203,6 +281,31 @@ def past_slots(
             slots.append((naive, name, int(sampled_uk.timestamp())))
         day += dt.timedelta(days=1)
     return slots
+
+
+def slots_to_fetch(
+    all_slots: list[tuple[dt.datetime, str, int]],
+    existing: set[dt.datetime],
+    *,
+    catch_up: bool,
+    current: dt.datetime | None = None,
+) -> list[tuple[dt.datetime, str, int]]:
+    """Newest-first slots to pull from SenseHub.
+
+    Catch-up keeps the current slot (even if already stored) then walks back
+    through missing times until it meets already-saved history. A full fill
+    requests every missing slot in the span.
+    """
+    newest_first = list(reversed(all_slots))
+    if not catch_up:
+        return [item for item in newest_first if item[0] not in existing]
+    pending: list[tuple[dt.datetime, str, int]] = []
+    for item in newest_first:
+        sampled = item[0]
+        if sampled in existing and (current is None or sampled != current):
+            break
+        pending.append(item)
+    return pending
 
 
 def backfill_span_days(db: Session, *, now: dt.datetime | None = None) -> int:
@@ -390,7 +493,7 @@ def seed_from_latest_snapshot(db: Session) -> int:
     return saved
 
 
-def import_youngstock_health(db: Session) -> dict[str, Any]:
+def _import_current_slot(db: Session) -> dict[str, Any]:
     payload = fetch_named_reports([DEFAULT_REPORT])
     reports = payload.get("reports") or []
     sampled, slot = sample_slot()
@@ -404,22 +507,46 @@ def import_youngstock_health(db: Session) -> dict[str, Any]:
     }
 
 
-def backfill_youngstock_health(db: Session, *, days: int | None = None) -> dict[str, Any]:
+def import_youngstock_health(db: Session) -> dict[str, Any]:
+    """Fetch the current slot, then any older missing slots until stored history.
+
+    Cron can therefore catch up after a failed run, and only pulls the latest
+    sample when every older slot is already saved.
+    """
+    sampled, slot = sample_slot()
+    result = backfill_youngstock_health(db, days=None, catch_up=True)
+    result["sampled_at"] = sampled.isoformat()
+    result["slot"] = slot
+    return result
+
+
+def backfill_youngstock_health(
+    db: Session,
+    *,
+    days: int | None = None,
+    catch_up: bool = False,
+) -> dict[str, Any]:
     """Re-run Young Stock Health by Age All at past UK sample slots.
 
     When `days` is None, walk back to the oldest current calf's birth (or SenseHub
-    age). Slots already stored are skipped. Walking newest-first, stop after several
-    empty SenseHub reports so we do not keep calling once history has run out.
+    age). Slots already stored are skipped. Catch-up mode fetches the current
+    slot, then only the missing older ones until saved history is reached.
     """
     if db.scalar(select(func.count()).select_from(SenseHubYoungstockHealth)) == 0:
         try:
-            import_youngstock_health(db)
+            _import_current_slot(db)
         except Exception:
             db.rollback()
     span = days if days is not None else backfill_span_days(db)
     all_slots = past_slots(span)
     existing = set(db.scalars(select(SenseHubYoungstockHealth.sampled_at).distinct()).all())
-    slots = [item for item in reversed(all_slots) if item[0] not in existing]
+    current, _slot_name = sample_slot()
+    slots = slots_to_fetch(
+        all_slots,
+        existing,
+        catch_up=catch_up,
+        current=current if catch_up else None,
+    )
     stop_on_empty = days is None
     _set_job(
         status="running",
@@ -581,16 +708,23 @@ def list_low_health(
         for sample in history_rows:
             history_by_animal[sample.animal_id].append(sample.health_index)
     by_cow, by_tag = _inventory_indexes(db)
+    matched = [
+        (row.animal_id, match_inventory(row.animal_id, by_cow, by_tag))
+        for row in rows
+    ]
+    events_by_animal = _events_for_animals(db, matched)
     animals = []
-    for row in rows:
-        inventory = match_inventory(row.animal_id, by_cow, by_tag)
+    for row, (_animal_id, inventory) in zip(rows, matched, strict=True):
         etag_value = (inventory.etag if inventory else None) or row.animal_id
+        events = events_by_animal.get(row.animal_id, [])
         animals.append(
             {
                 "animal_id": row.animal_id,
                 "etag4": etag4(etag_value) or etag4(row.animal_id),
                 "health_index": row.health_index,
                 "age_days": dairycomp_age_days(inventory),
+                "days_since_last_treatment": days_since_last_treatment(events),
+                "resp_count": treatment_counts(events)["resp_count"],
                 "trend": trend_dots(history_by_animal.get(row.animal_id, [])),
                 "group_name": row.group_name,
                 "farm": inventory.farm if inventory else None,

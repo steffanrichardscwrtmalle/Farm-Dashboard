@@ -6,6 +6,10 @@ hourly and pass ``--only-at-uk-hours 0,6,12,18`` so BST/GMT stay correct:
 
     python scripts/import_sensehub_youngstock.py --only-at-uk-hours 0,6,12,18
 
+Each run fetches the current slot, then walks backward through any missing
+slots until it meets already-saved history, so a failed cron is filled in
+by the next one.
+
 Manual / forced run:
     python scripts/import_sensehub_youngstock.py
 """

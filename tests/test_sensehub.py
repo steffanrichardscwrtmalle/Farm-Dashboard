@@ -248,6 +248,32 @@ def test_past_slots_skips_future_uk_times() -> None:
     assert all(unix > 0 for _sampled, _name, unix in slots)
 
 
+def test_slots_to_fetch_catch_up_stops_at_saved_history() -> None:
+    from app.services.sensehub_youngstock import slots_to_fetch
+
+    midnight = dt.datetime(2026, 8, 23, 0, 0, 0)
+    six_am = dt.datetime(2026, 8, 23, 6, 0, 0)
+    midday = dt.datetime(2026, 8, 23, 12, 0, 0)
+    six_pm = dt.datetime(2026, 8, 23, 18, 0, 0)
+    all_slots = [
+        (midnight, "midnight", 1),
+        (six_am, "6am", 2),
+        (midday, "midday", 3),
+        (six_pm, "6pm", 4),
+    ]
+    existing = {midnight, six_am}
+    catch_up = slots_to_fetch(
+        all_slots, existing, catch_up=True, current=six_pm
+    )
+    assert [item[1] for item in catch_up] == ["6pm", "midday"]
+    full = slots_to_fetch(all_slots, existing, catch_up=False)
+    assert [item[1] for item in full] == ["6pm", "midday"]
+    caught_up = slots_to_fetch(
+        all_slots, {midnight, six_am, midday, six_pm}, catch_up=True, current=six_pm
+    )
+    assert [item[1] for item in caught_up] == ["6pm"]
+
+
 def test_backfill_span_days_uses_oldest_calf_birth() -> None:
     from zoneinfo import ZoneInfo
 
@@ -444,6 +470,14 @@ def test_list_low_health_filters_threshold_and_joins_events() -> None:
     assert listing["animals"][1]["etag4"] == "5259"
     assert listing["animals"][1]["health_index"] == 82
     assert listing["animals"][1]["age_days"] == 57
+    assert listing["animals"][0]["has_dairycomp"] is False
+    assert listing["animals"][1]["has_dairycomp"] is True
+    assert listing["animals"][0]["resp_count"] == 0
+    assert listing["animals"][0]["days_since_last_treatment"] is None
+    assert listing["animals"][1]["resp_count"] == 1
+    assert listing["animals"][1]["days_since_last_treatment"] == (
+        dt.date.today() - dt.date(2026, 8, 10)
+    ).days
     assert listing["animals"][1]["etag"] == "UK123456435259"
     assert len(listing["animals"][1]["trend"]) == 12
     assert listing["animals"][1]["trend"][-1]["band"] == "yellow"
