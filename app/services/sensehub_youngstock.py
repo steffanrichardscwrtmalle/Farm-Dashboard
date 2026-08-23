@@ -773,7 +773,7 @@ def animal_events(db: Session, animal_id: str) -> dict[str, Any]:
         db.scalars(
             select(CowEvent)
             .where(or_(*filters))
-            .order_by(CowEvent.event_date.asc(), CowEvent.id.asc())
+            .order_by(CowEvent.event_date.desc(), CowEvent.id.desc())
         ).all()
     )
     birth = inventory.bdat if inventory else None

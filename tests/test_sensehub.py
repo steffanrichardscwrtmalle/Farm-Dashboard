@@ -485,7 +485,8 @@ def test_list_low_health_filters_threshold_and_joins_events() -> None:
 
     detail = animal_events(session, "435259ABC")
     assert detail["animal_id"] == "435259"
-    assert detail["events"][0]["event"] == "SCOURS"
+    assert detail["events"][0]["event"] == "ILL"
+    assert detail["events"][0]["event_date"] == "2026-08-10"
     assert detail["resp_count"] == 1
     assert detail["scours_count"] == 2
     assert detail["ill_count"] == 1
