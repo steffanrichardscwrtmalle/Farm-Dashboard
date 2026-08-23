@@ -11,10 +11,12 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
+from app.models import CtsReportedMovement
 from app.services.cts_submit import (
     CtsSubmitError,
     _parse_receipt,
     _parse_validation_results,
+    record_deadline_day_receipt,
     send_deadline_day_movements,
     send_pending_movements,
 )
@@ -349,3 +351,71 @@ def test_send_deadline_day_dry_run_does_not_submit(
     assert result["dry_run"] is True
     assert result["results"][0]["due_count"] == 1
     assert "Dry run" in result["results"][0]["message"]
+
+
+@patch("app.services.cts_submit.transfer_ctws")
+@patch("app.services.cts_submit.cts_farm_credentials", return_value=_FAKE_CREDS)
+@patch("app.services.cts_submit_xml.cts_farm_credentials", return_value=_FAKE_CREDS)
+def test_send_pending_timeout_parks_receipt_as_awaiting(
+    _creds_xml, _creds_submit, mock_transfer
+) -> None:
+    receipt_ns = "http://defra.bcms.ctws/asynchronous_receipt"
+    pending = ET.fromstring(
+        '<GetResults><SystemException ExNum="CTWS806" ExMsg="Queued"/></GetResults>'
+    )
+    receipt = ET.fromstring(
+        f'<AsyncReceipt xmlns="{receipt_ns}"><Receipt Num="44028126"/></AsyncReceipt>'
+    )
+
+    def _side_effect(kind: str, request: ET.Element, **kwargs):
+        if kind.startswith("Register_"):
+            return receipt
+        return pending
+
+    mock_transfer.side_effect = _side_effect
+    session = _session()
+    result = send_pending_movements(
+        session,
+        farm="CM",
+        rows=[_sale_row()],
+        poll_attempts=3,
+        poll_sleep_s=0,
+    )
+    assert result["ok"] is True
+    assert result["queued"] is True
+    assert result["accepted_count"] == 1
+    assert result["receipts"] == ["44028126"]
+    assert "still queued" in result["message"].lower()
+    stored = session.query(CtsReportedMovement).one()
+    assert stored.receipt == "44028126"
+    assert stored.status == "accepted"
+    assert stored.etag == "UK444444444444"
+
+
+@patch("app.services.cts_submit.list_pending_movements")
+def test_record_deadline_day_receipt_marks_due_rows(mock_pending) -> None:
+    mock_pending.return_value = {
+        "rows": [
+            {
+                "id": "sale:CM:A",
+                "movement_type": "sale",
+                "etag": "UK354377602466",
+                "event_date": "2026-08-20",
+                "days_since_event": 3,
+            },
+            {
+                "id": "sale:CM:B",
+                "movement_type": "sale",
+                "etag": "UK724136101463",
+                "event_date": "2026-08-20",
+                "days_since_event": 4,
+            },
+        ]
+    }
+    session = _session()
+    result = record_deadline_day_receipt(session, receipt="44028126", farms=["CM"])
+    assert result["ok"] is True
+    assert result["results"][0]["accepted_count"] == 1
+    stored = session.query(CtsReportedMovement).one()
+    assert stored.etag == "UK354377602466"
+    assert stored.receipt == "44028126"

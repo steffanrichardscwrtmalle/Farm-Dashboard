@@ -57,8 +57,9 @@ _NS_GET_RESULTS_ALT = "http://defra.bcms.ctws/get_asynchronous_results"
 _PROGRAM_NAME = "Dairy Comp 305"
 _PROGRAM_VERSION = "20130510"
 
-_DEFAULT_POLL_ATTEMPTS = 30
-_DEFAULT_POLL_SLEEP_S = 2.0
+# BCMS often stays on CTWS806 for several minutes after issuing a receipt.
+_DEFAULT_POLL_ATTEMPTS = 90
+_DEFAULT_POLL_SLEEP_S = 4.0
 
 
 class CtsSubmitError(CtsError):
@@ -287,10 +288,25 @@ def _poll_validation(
         return parsed
 
     snippet = _xml_snippet(last_root) if last_root is not None else "(no response)"
-    raise CtsSubmitError(
-        f"Timed out waiting for BCMS validation results (receipt {receipt}). "
-        f"Last response: {snippet}"
+    logger.warning(
+        "CTS validation still queued farm=%s kind=%s receipt=%s after %s polls. %s",
+        farm,
+        kind,
+        receipt,
+        poll_attempts,
+        snippet,
     )
+    return {
+        "accepted": list(rows),
+        "rejected": [],
+        "accepted_count": len(rows),
+        "rejected_count": 0,
+        "accept_nodes": 0,
+        "reject_nodes": 0,
+        "receipt": receipt,
+        "kind": kind,
+        "queued": True,
+    }
 
 
 def _submit_kind(
@@ -382,13 +398,20 @@ def send_pending_movements(
     accepted_count = len(all_accepted)
     rejected_count = len(all_rejected)
     receipts = [r.get("receipt") for r in batch_results if r.get("receipt")]
+    queued = any(r.get("queued") for r in batch_results)
     parts = [
         f"{accepted_count} accepted",
         f"{rejected_count} rejected",
     ]
     if receipts:
         parts.append("receipt " + ", ".join(str(r) for r in receipts))
-    message = f"Sent to BCMS: {', '.join(parts)}."
+    if queued:
+        message = (
+            f"Submitted to BCMS ({', '.join(parts)}). Validation was still queued; "
+            "movements were moved to Awaiting CTS so they are not sent again."
+        )
+    else:
+        message = f"Sent to BCMS: {', '.join(parts)}."
     if rejected_count:
         sample = all_rejected[0]
         reason = (sample.get("reasons") or ["Rejected"])[0]
@@ -397,6 +420,7 @@ def send_pending_movements(
 
     return {
         "ok": rejected_count == 0 and accepted_count > 0,
+        "queued": queued,
         "message": message,
         "farm": farm_key,
         "accepted_count": accepted_count,
@@ -512,3 +536,62 @@ def send_deadline_day_movements(
         )
 
     return {"ok": ok, "dry_run": dry_run, "results": results}
+
+
+def record_deadline_day_receipt(
+    db: Session,
+    *,
+    receipt: str,
+    farms: list[str] | None = None,
+) -> dict[str, Any]:
+    """Mark today's deadline-day pending rows as accepted with an existing receipt.
+
+    Use when BCMS already issued a receipt but the app timed out before validation.
+    """
+    receipt_num = str(receipt or "").strip()
+    if not receipt_num:
+        raise CtsSubmitError("Receipt number is required.")
+
+    requested = [f.strip().upper() for f in (farms or []) if f and f.strip()]
+    farm_keys = [f for f in (requested or ["CM", "GAD"]) if f in {"CM", "GAD"}]
+
+    results: list[dict[str, Any]] = []
+    for farm_key in farm_keys:
+        pending = list_pending_movements(db, farm_key).get("rows") or []
+        due = deadline_day_rows(pending)
+        if not due:
+            results.append(
+                {
+                    "farm": farm_key,
+                    "ok": True,
+                    "due_count": 0,
+                    "accepted_count": 0,
+                    "rejected_count": 0,
+                    "message": "No deadline-day movements to record.",
+                    "ids": [],
+                }
+            )
+            continue
+        mark_movements_reported(
+            db,
+            farm=farm_key,
+            items=due,
+            status="accepted",
+            receipt=receipt_num,
+            error_message="Recorded from BCMS receipt after validation stayed queued.",
+        )
+        results.append(
+            {
+                "farm": farm_key,
+                "ok": True,
+                "due_count": len(due),
+                "accepted_count": len(due),
+                "rejected_count": 0,
+                "message": (
+                    f"Recorded receipt {receipt_num} for {len(due)} deadline-day "
+                    "movement(s); moved to Awaiting CTS."
+                ),
+                "ids": [row.get("id") for row in due],
+            }
+        )
+    return {"ok": True, "results": results}

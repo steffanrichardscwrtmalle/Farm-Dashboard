@@ -26,7 +26,11 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from app.db import SessionLocal, init_db
 from app.services.cts_client import CtsError, cts_status
-from app.services.cts_submit import CtsSubmitError, send_deadline_day_movements
+from app.services.cts_submit import (
+    CtsSubmitError,
+    record_deadline_day_receipt,
+    send_deadline_day_movements,
+)
 
 _UK = ZoneInfo("Europe/London")
 
@@ -79,6 +83,15 @@ def main() -> int:
         action="store_true",
         help="List deadline-day movements without submitting them to BCMS.",
     )
+    parser.add_argument(
+        "--record-receipt",
+        type=str,
+        default="",
+        help=(
+            "Do not submit. Mark today's deadline-day pending rows as already "
+            "sent with this BCMS receipt (after a validation timeout)."
+        ),
+    )
     args = parser.parse_args()
 
     if args.only_at_uk_hours.strip():
@@ -122,9 +135,13 @@ def main() -> int:
     init_db()
     db = SessionLocal()
     try:
-        result = send_deadline_day_movements(
-            db, farms=farms, dry_run=bool(args.dry_run)
-        )
+        receipt = (args.record_receipt or "").strip()
+        if receipt:
+            result = record_deadline_day_receipt(db, receipt=receipt, farms=farms)
+        else:
+            result = send_deadline_day_movements(
+                db, farms=farms, dry_run=bool(args.dry_run)
+            )
         for farm_result in result.get("results") or []:
             ids = farm_result.get("ids") or []
             id_bit = f"; ids={', '.join(str(i) for i in ids)}" if ids else ""
