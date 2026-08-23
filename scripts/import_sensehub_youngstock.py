@@ -23,7 +23,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from app.db import SessionLocal, init_db
-from app.services.sensehub_youngstock import import_youngstock_health
+from app.services.sensehub_youngstock import backfill_youngstock_health, import_youngstock_health
 
 _UK = ZoneInfo("Europe/London")
 
@@ -51,7 +51,16 @@ def main() -> int:
         default="",
         help="Comma-separated UK local hours when this job may run. Example: 0,6,12,18",
     )
+    parser.add_argument(
+        "--backfill-days",
+        type=int,
+        default=0,
+        help="Re-run Young Stock Health by Age All at past 6-hour slots for this many days.",
+    )
     args = parser.parse_args()
+
+    if args.backfill_days and args.backfill_days > 0:
+        args.only_at_uk_hours = ""
 
     if args.only_at_uk_hours.strip():
         try:
@@ -71,6 +80,14 @@ def main() -> int:
     init_db()
     db = SessionLocal()
     try:
+        if args.backfill_days and args.backfill_days > 0:
+            result = backfill_youngstock_health(db, days=args.backfill_days)
+            print(
+                f"Backfilled {result['slots']} slots, saved {result['saved']} rows."
+            )
+            if result.get("errors"):
+                print("Errors:", "; ".join(result["errors"][:5]), file=sys.stderr)
+            return 0
         result = import_youngstock_health(db)
         print(
             f"Saved {result['saved']} young-stock health rows "

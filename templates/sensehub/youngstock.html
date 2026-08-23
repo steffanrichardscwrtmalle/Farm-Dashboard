@@ -14,13 +14,25 @@
     .toolbar label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
     .toolbar input { margin: 0; width: 6rem; }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin: 0 0 0.75rem; }
-    .table-wrap { overflow: auto; max-height: calc(100vh - 16rem); border: 1px solid var(--border); border-radius: 8px; }
-    #health-table { width: 100%; border-collapse: collapse; }
+    .table-wrap {
+      display: inline-block;
+      max-width: 100%;
+      overflow: auto;
+      max-height: calc(100vh - 16rem);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    #health-table {
+      width: max-content;
+      border-collapse: collapse;
+      table-layout: auto;
+    }
     #health-table th, #health-table td {
       padding: 0.5rem 0.6rem;
       border-bottom: 1px solid var(--border);
       text-align: left;
       white-space: nowrap;
+      width: 1%;
     }
     #health-table thead th {
       background: #1e3a5f;
@@ -36,6 +48,23 @@
     #health-table thead th.sort-desc::after { content: " ▼"; opacity: 1; }
     #health-table tbody tr { cursor: pointer; }
     #health-table tbody tr:hover { background: #eef6fb; }
+    .trend {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .trend-dot {
+      width: 0.7rem;
+      height: 0.7rem;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+      background: #e5e7eb;
+      border: 1px solid #d1d5db;
+    }
+    .trend-dot.green { background: #16a34a; border-color: #15803d; }
+    .trend-dot.yellow { background: #eab308; border-color: #ca8a04; }
+    .trend-dot.red { background: #dc2626; border-color: #b91c1c; }
     .empty-state { padding: 1.5rem; color: var(--muted); text-align: center; }
     .drawer {
       position: fixed;
@@ -53,7 +82,26 @@
       padding: 1.25rem;
       box-shadow: -8px 0 24px rgba(0,0,0,0.15);
     }
-    .drawer-panel h2 { margin: 0 0 0.5rem; font-size: 1.15rem; }
+    .drawer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin: 0 0 0.5rem;
+    }
+    .drawer-panel h2 { margin: 0; font-size: 1.15rem; }
+    .drawer-close {
+      width: 2.25rem;
+      height: 2.25rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+      font-size: 1.4rem;
+      line-height: 1;
+      cursor: pointer;
+      color: var(--text);
+    }
+    .drawer-close:hover { background: #f3f4f6; }
     .detail-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
@@ -84,6 +132,7 @@
     </label>
     <button type="button" id="apply-btn">Show list</button>
     <button type="button" id="refresh-btn">Refresh from SenseHub</button>
+    <button type="button" id="backfill-btn">Fill last 7 days</button>
   </div>
   <p class="meta-line" id="meta-line">Loading…</p>
   <div class="table-wrap">
@@ -94,6 +143,7 @@
           <th data-sort="etag4">ETAG4</th>
           <th data-sort="health_index">Health index</th>
           <th data-sort="age_days">Age in days</th>
+          <th>Trend</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -104,7 +154,10 @@
   <div class="drawer" id="drawer" hidden>
     <div class="drawer-backdrop" id="drawer-backdrop"></div>
     <aside class="drawer-panel">
-      <h2 id="detail-title">Calf</h2>
+      <div class="drawer-header">
+        <h2 id="detail-title">Calf</h2>
+        <button type="button" class="drawer-close" id="drawer-close" aria-label="Close">&times;</button>
+      </div>
       <div class="detail-grid" id="detail-grid"></div>
       <div class="chart-block">
         <h3>Health index</h3>
@@ -133,6 +186,7 @@
     const thresholdEl = document.getElementById("threshold");
     const applyBtn = document.getElementById("apply-btn");
     const refreshBtn = document.getElementById("refresh-btn");
+    const backfillBtn = document.getElementById("backfill-btn");
     const metaEl = document.getElementById("meta-line");
     const tbody = document.querySelector("#health-table tbody");
     const emptyEl = document.getElementById("empty-state");
@@ -151,6 +205,16 @@
       if (value < 80) return "#dc2626";
       if (value < 90) return "#eab308";
       return "#16a34a";
+    }
+
+    function trendHtml(trend) {
+      const dots = Array.isArray(trend) ? trend.slice(-12) : [];
+      while (dots.length < 12) dots.unshift({ band: null });
+      return `<span class="trend">${dots.slice(-12).map((dot) => {
+        const band = dot && dot.band ? dot.band : "";
+        const title = dot && dot.health_index != null ? `Health index ${dot.health_index}` : "No sample";
+        return `<span class="trend-dot ${band}" title="${title}"></span>`;
+      }).join("")}</span>`;
     }
 
     function renderHealthChart(history) {
@@ -232,6 +296,7 @@
           <td>${row.etag4 || "—"}</td>
           <td>${row.health_index ?? "—"}</td>
           <td>${row.age_days ?? "—"}</td>
+          <td>${trendHtml(row.trend)}</td>
         </tr>
       `).join("");
       emptyEl.hidden = rows.length > 0;
@@ -307,6 +372,27 @@
         refreshBtn.disabled = false;
       }
     });
+    async function pollBackfill() {
+      const res = await fetch("/api/sensehub/youngstock/job");
+      const status = await res.json();
+      metaEl.textContent = status.message || status.status || "";
+      if (status.status === "running") {
+        setTimeout(pollBackfill, 2000);
+        return;
+      }
+      backfillBtn.disabled = false;
+      refreshBtn.disabled = false;
+      await loadList();
+    }
+    backfillBtn.addEventListener("click", async () => {
+      backfillBtn.disabled = true;
+      refreshBtn.disabled = true;
+      metaEl.textContent = "Starting 7-day SenseHub backfill…";
+      const res = await fetch("/api/sensehub/youngstock/backfill?days=7", { method: "POST" });
+      const body = await res.json();
+      metaEl.textContent = body.message || "";
+      pollBackfill();
+    });
     document.querySelectorAll("#health-table th[data-sort]").forEach((th) => {
       th.addEventListener("click", () => {
         const key = th.dataset.sort;
@@ -323,8 +409,13 @@
       const row = ev.target.closest("tr[data-id]");
       if (row) openCalf(row.dataset.id);
     });
-    document.getElementById("drawer-backdrop").addEventListener("click", () => {
+    function closeDrawer() {
       drawer.hidden = true;
+    }
+    document.getElementById("drawer-close").addEventListener("click", closeDrawer);
+    document.getElementById("drawer-backdrop").addEventListener("click", closeDrawer);
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && !drawer.hidden) closeDrawer();
     });
 
     loadList();

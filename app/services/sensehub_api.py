@@ -322,16 +322,20 @@ def fetch_report(
     *,
     cloud: bool = False,
     display_version: str | None = None,
+    past_report_time: int | None = None,
 ) -> dict[str, Any]:
     version_path = "v3" if cloud else "v2"
     headers = _client_headers(
         token=token,
         display_version=(display_version or "8.3.2.357") if cloud else None,
     )
+    params: dict[str, Any] = {"offset": 0, "limit": 0, "type": "full"}
+    if past_report_time is not None:
+        params["pastReportTime"] = past_report_time
     response = client.get(
         f"{SENSEHUB_PROXY_BASE}/rest/api/{version_path}/reports/{report_key}",
         headers=headers,
-        params={"offset": 0, "limit": 0, "type": "full"},
+        params=params,
     )
     response.raise_for_status()
     return response.json()

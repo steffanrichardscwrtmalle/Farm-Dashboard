@@ -4,14 +4,26 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import threading
+from collections import defaultdict
 from typing import Any
 from zoneinfo import ZoneInfo
+
+import httpx
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import CowEvent, HerdInventory, SenseHubReportSnapshot, SenseHubYoungstockHealth
-from app.services.sensehub_api import DEFAULT_REPORT, fetch_named_reports
+from app.services.sensehub_api import (
+    DEFAULT_REPORT,
+    SenseHubError,
+    fetch_named_reports,
+    fetch_report,
+    flatten_report,
+    list_reports,
+    login,
+)
 
 _UK = ZoneInfo("Europe/London")
 _DIGIT_RE = re.compile(r"\d")
@@ -22,6 +34,23 @@ SLOTS: tuple[tuple[int, str], ...] = (
     (18, "6pm"),
 )
 DEFAULT_THRESHOLD = 86.0
+TREND_DOTS = 12
+
+
+def health_band(value: float | None) -> str | None:
+    if value is None:
+        return None
+    if value < 80:
+        return "red"
+    if value < 90:
+        return "yellow"
+    return "green"
+
+
+def trend_dots(indexes: list[float | None]) -> list[dict[str, Any]]:
+    recent = list(indexes[-TREND_DOTS:])
+    padded: list[float | None] = [None] * (TREND_DOTS - len(recent)) + recent
+    return [{"health_index": value, "band": health_band(value)} for value in padded]
 
 
 def normalize_animal_id(raw: Any) -> str | None:
@@ -65,6 +94,55 @@ def sample_slot(when: dt.datetime | None = None) -> tuple[dt.datetime, str]:
             slot_hour, slot_name = start, name
     sampled = now.replace(hour=slot_hour, minute=0, second=0, microsecond=0, tzinfo=None)
     return sampled, slot_name
+
+
+def past_slots(
+    days: int,
+    *,
+    now: dt.datetime | None = None,
+) -> list[tuple[dt.datetime, str, int]]:
+    """UK midnight/6am/midday/6pm slots in the last `days` days, excluding the future."""
+    current = now or dt.datetime.now(_UK)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=_UK)
+    else:
+        current = current.astimezone(_UK)
+    slots: list[tuple[dt.datetime, str, int]] = []
+    start_day = current.date() - dt.timedelta(days=max(0, days))
+    day = start_day
+    while day <= current.date():
+        for hour, name in SLOTS:
+            sampled_uk = dt.datetime(day.year, day.month, day.day, hour, tzinfo=_UK)
+            if sampled_uk >= current:
+                continue
+            naive = sampled_uk.replace(tzinfo=None)
+            slots.append((naive, name, int(sampled_uk.timestamp())))
+        day += dt.timedelta(days=1)
+    return slots
+
+
+_job_lock = threading.Lock()
+_job_status: dict[str, Any] = {
+    "status": "idle",
+    "message": "",
+    "slots_done": 0,
+    "slots_total": 0,
+}
+
+
+def get_youngstock_job_status() -> dict[str, Any]:
+    with _job_lock:
+        return dict(_job_status)
+
+
+def _set_job(**kwargs: Any) -> None:
+    with _job_lock:
+        _job_status.update(kwargs)
+
+
+def is_youngstock_job_running() -> bool:
+    with _job_lock:
+        return _job_status.get("status") == "running"
 
 
 def _to_float(value: Any) -> float | None:
@@ -207,6 +285,83 @@ def import_youngstock_health(db: Session) -> dict[str, Any]:
     }
 
 
+def backfill_youngstock_health(db: Session, *, days: int = 7) -> dict[str, Any]:
+    """Re-run Young Stock Health by Age All at past UK sample slots."""
+    slots = past_slots(days)
+    _set_job(
+        status="running",
+        message="Logging in to SenseHub…",
+        slots_done=0,
+        slots_total=len(slots),
+    )
+    saved_total = 0
+    errors: list[str] = []
+    try:
+        with httpx.Client(timeout=90.0, follow_redirects=True) as client:
+            token, version = login(client)
+            catalog = list_reports(client, token)
+            item = next(
+                (
+                    entry
+                    for entry in catalog
+                    if str(entry.get("name") or "").casefold() == DEFAULT_REPORT.casefold()
+                ),
+                None,
+            )
+            if item is None or item.get("key") is None:
+                raise SenseHubError(f"SenseHub catalogue has no {DEFAULT_REPORT}.")
+            key = int(item["key"])
+            for index, (sampled, slot, unix) in enumerate(slots, 1):
+                _set_job(
+                    message=f"Backfilling {slot} {sampled:%d %b %Y} ({index}/{len(slots)})…",
+                    slots_done=index - 1,
+                    slots_total=len(slots),
+                )
+                try:
+                    raw = fetch_report(
+                        client,
+                        token,
+                        key,
+                        cloud=True,
+                        display_version=version,
+                        past_report_time=unix,
+                    )
+                    flat = flatten_report(raw, catalog_item=item)
+                    saved_total += save_rows(
+                        db,
+                        list(flat.get("rows") or []),
+                        sampled_at=sampled,
+                        slot=slot,
+                    )
+                    db.commit()
+                except Exception as exc:
+                    db.rollback()
+                    errors.append(f"{sampled:%Y-%m-%d} {slot}: {exc}")
+        _set_job(
+            status="complete",
+            message=(
+                f"Backfilled {len(slots) - len(errors)} of {len(slots)} time slots "
+                f"({saved_total} rows)."
+            ),
+            slots_done=len(slots),
+            slots_total=len(slots),
+        )
+        return {"saved": saved_total, "slots": len(slots), "errors": errors}
+    except Exception as exc:
+        _set_job(status="error", message=str(exc))
+        raise
+
+
+def run_backfill_in_background(db_factory, days: int) -> None:
+    db = db_factory()
+    try:
+        backfill_youngstock_health(db, days=days)
+    except Exception:
+        pass
+    finally:
+        db.close()
+
+
 def _inventory_indexes(
     db: Session,
 ) -> tuple[dict[str, HerdInventory], dict[str, HerdInventory]]:
@@ -255,6 +410,19 @@ def list_low_health(
             )
         ).all()
     )
+    animal_ids = [row.animal_id for row in rows]
+    history_by_animal: dict[str, list[float | None]] = defaultdict(list)
+    if animal_ids:
+        history_rows = db.scalars(
+            select(SenseHubYoungstockHealth)
+            .where(SenseHubYoungstockHealth.animal_id.in_(animal_ids))
+            .order_by(
+                SenseHubYoungstockHealth.animal_id.asc(),
+                SenseHubYoungstockHealth.sampled_at.asc(),
+            )
+        ).all()
+        for sample in history_rows:
+            history_by_animal[sample.animal_id].append(sample.health_index)
     by_cow, by_tag = _inventory_indexes(db)
     animals = []
     for row in rows:
@@ -266,6 +434,7 @@ def list_low_health(
                 "etag4": etag4(etag_value) or etag4(row.animal_id),
                 "health_index": row.health_index,
                 "age_days": dairycomp_age_days(inventory),
+                "trend": trend_dots(history_by_animal.get(row.animal_id, [])),
                 "group_name": row.group_name,
                 "farm": inventory.farm if inventory else None,
                 "cow_id": inventory.cow_id if inventory else None,

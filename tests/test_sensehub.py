@@ -235,6 +235,19 @@ def test_normalize_animal_id_keeps_first_six_digits() -> None:
     assert normalize_animal_id(" 435259 ABC ") == "435259"
 
 
+def test_past_slots_skips_future_uk_times() -> None:
+    from zoneinfo import ZoneInfo
+
+    from app.services.sensehub_youngstock import past_slots
+
+    now = dt.datetime(2026, 8, 23, 7, 30, tzinfo=ZoneInfo("Europe/London"))
+    slots = past_slots(1, now=now)
+    names = [(sampled.isoformat(), name) for sampled, name, _unix in slots]
+    assert ("2026-08-23T06:00:00", "6am") in names
+    assert ("2026-08-23T12:00:00", "midday") not in names
+    assert all(unix > 0 for _sampled, _name, unix in slots)
+
+
 def test_etag4_is_last_four_digits_after_trim() -> None:
     from app.services.sensehub_youngstock import etag4
 
@@ -298,6 +311,9 @@ def test_list_low_health_filters_threshold_and_joins_events() -> None:
     assert listing["animals"][1]["health_index"] == 82
     assert listing["animals"][1]["age_days"] == 57
     assert listing["animals"][1]["etag"] == "UK123456435259"
+    assert len(listing["animals"][1]["trend"]) == 12
+    assert listing["animals"][1]["trend"][-1]["band"] == "yellow"
+    assert listing["animals"][1]["trend"][-1]["health_index"] == 82
 
     detail = animal_events(session, "435259ABC")
     assert detail["animal_id"] == "435259"
