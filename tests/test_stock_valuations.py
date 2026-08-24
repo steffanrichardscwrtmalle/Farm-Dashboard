@@ -1062,3 +1062,32 @@ def test_jv_beef_counts_by_farm_lightweight(db: Session) -> None:
         db, farms=["GAD"], close_date=dt.date(2025, 4, 30)
     )
     assert april["GAD"] == 1  # only UK501 had JV by end of April
+
+
+def test_combined_report_keeps_cm_when_gad_inventory_is_newer(db: Session) -> None:
+    cm_ts = dt.datetime(2025, 6, 1, 8, 0, 0)
+    db.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="900",
+            etag="UKCM900",
+            bdat=dt.date(2020, 1, 1),
+            lact=3,
+            sbrd="HF",
+            category="Dairy",
+            import_timestamp=cm_ts,
+        )
+    )
+    db.commit()
+
+    report = build_stock_valuations_report(
+        db,
+        farms=["CM", "GAD"],
+        fiscal_year=2026,
+        selected_month=dt.date(2025, 6, 1),
+    )
+    detail = report["selected_month"]
+    assert detail is not None
+    assert detail["farms"]["GAD"]["total_animals"] >= 1
+    assert detail["farms"]["CM"]["total_animals"] >= 1
+    assert detail["farms"]["CM"]["dairy_cows"] >= 1

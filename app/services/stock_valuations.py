@@ -8,7 +8,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -538,6 +538,84 @@ def _resolve_state_at(
     }
 
 
+def _latest_inventory_timestamps_by_farm(
+    db: Session, farms: list[str] | None = None
+) -> dict[str, dt.datetime]:
+    """Each farm's current inventory snapshot time (imports can land independently)."""
+    stmt = select(
+        HerdInventory.farm, func.max(HerdInventory.import_timestamp)
+    ).group_by(HerdInventory.farm)
+    if farms:
+        stmt = stmt.where(HerdInventory.farm.in_(farms))
+    return {
+        str(farm): ts
+        for farm, ts in db.execute(stmt).all()
+        if farm and ts is not None
+    }
+
+
+def _inventory_rows_for_farms(
+    db: Session,
+    selected_farms: list[str],
+    *,
+    anchor_ts: dt.datetime,
+) -> list[HerdInventory]:
+    farm_timestamps = _latest_inventory_timestamps_by_farm(db, selected_farms)
+    clauses = [
+        and_(HerdInventory.farm == farm, HerdInventory.import_timestamp == ts)
+        for farm, ts in farm_timestamps.items()
+        if farm in selected_farms
+    ]
+    if not clauses:
+        return list(
+            db.scalars(
+                select(HerdInventory).where(
+                    HerdInventory.farm.in_(selected_farms),
+                    HerdInventory.import_timestamp == anchor_ts,
+                )
+            ).all()
+        )
+    return list(db.scalars(select(HerdInventory).where(or_(*clauses))).all())
+
+
+def _snapshots_cover_farms(
+    db: Session, anchor_ts: dt.datetime, selected_farms: list[str]
+) -> bool:
+    if not selected_farms:
+        return False
+    farms_present = set(
+        db.scalars(
+            select(StockValuationSnapshot.farm)
+            .where(StockValuationSnapshot.anchor_import_timestamp == anchor_ts)
+            .where(StockValuationSnapshot.farm.in_(selected_farms))
+            .distinct()
+        ).all()
+    )
+    return set(selected_farms) <= farms_present
+
+
+def _usable_snapshot_timestamp(
+    db: Session, selected_farms: list[str], preferred_ts: dt.datetime | None
+) -> dt.datetime | None:
+    if preferred_ts is not None and _snapshots_cover_farms(
+        db, preferred_ts, selected_farms
+    ):
+        return preferred_ts
+    rows = db.execute(
+        select(StockValuationSnapshot.anchor_import_timestamp, StockValuationSnapshot.farm)
+        .where(StockValuationSnapshot.farm.in_(selected_farms))
+        .distinct()
+    ).all()
+    farms_by_ts: dict[dt.datetime, set[str]] = {}
+    for stamp, farm in rows:
+        if stamp is None or not farm:
+            continue
+        farms_by_ts.setdefault(stamp, set()).add(str(farm))
+    wanted = set(selected_farms)
+    candidates = [stamp for stamp, farms in farms_by_ts.items() if wanted <= farms]
+    return max(candidates) if candidates else None
+
+
 def _build_profiles(
     db: Session,
     *,
@@ -564,12 +642,9 @@ def _build_profiles(
             )
         return profiles[key]
 
-    inventory_rows = db.scalars(
-        select(HerdInventory).where(
-            HerdInventory.farm.in_(selected_farms),
-            HerdInventory.import_timestamp == anchor_ts,
-        )
-    ).all()
+    inventory_rows = _inventory_rows_for_farms(
+        db, selected_farms, anchor_ts=anchor_ts
+    )
 
     inventory_keys: set[tuple[str, str]] = set()
     for row in inventory_rows:
@@ -1534,11 +1609,12 @@ def build_stock_valuations_report(
             "fiscal_year_options": fiscal_year_options,
         }
 
-    if _snapshot_has_data(db, anchor_ts):
+    snapshot_ts = _usable_snapshot_timestamp(db, selected_farms, anchor_ts)
+    if snapshot_ts is not None:
         result = _report_from_snapshots(
             db,
             selected_farms=selected_farms,
-            anchor_ts=anchor_ts,
+            anchor_ts=snapshot_ts,
             anchor_date=anchor_date,
             fiscal_year=fiscal_year,
             fiscal_year_options=fiscal_year_options,
