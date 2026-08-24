@@ -595,6 +595,11 @@ def import_youngstock_health(db: Session) -> dict[str, Any]:
     result = _import_current_slot(db)
     filled = backfill_youngstock_health(db, days=None, catch_up=False)
     result["saved"] = int(result.get("saved") or 0) + int(filled.get("saved") or 0)
+    try:
+        auto = auto_cull_exited_sensehub_animals(db)
+        result["auto_culled"] = int(auto.get("culled") or 0)
+    except Exception:
+        result["auto_culled"] = 0
     return result
 
 
@@ -1234,10 +1239,12 @@ def list_unassigned_calves(
         )
     animals.sort(
         key=lambda row: (
-            int(row["etag4"]) if str(row.get("etag4") or "").isdigit() else 10**9,
+            str(row.get("etag4") or "").isdigit(),
+            int(row["etag4"]) if str(row.get("etag4") or "").isdigit() else 0,
             str(row.get("etag4") or ""),
             str(row.get("cow_id") or ""),
-        )
+        ),
+        reverse=True,
     )
     return {
         "pen": UNASSIGNED_PEN,
@@ -1251,6 +1258,10 @@ _CALF_CATEGORIES = {"dairy", "youngstock", "heifer", "calf", ""}
 _MAX_TAG_REMOVAL_AGE_DAYS = 400
 REASON_NO_TAG = "No SCR tag"
 REASON_NO_DATA = "No Data"
+REASON_SOLD = "Sold"
+REASON_DIED = "Died"
+_EXIT_EVENTS = ("SOLD", "DIED")
+NO_DATA_TAG_GRACE_DAYS = 3
 
 
 def _inventory_by_scr_keys(db: Session) -> dict[str, HerdInventory]:
@@ -1292,12 +1303,75 @@ def _is_tag_removal_candidate(
     return bool(identity_keys & historic_keys)
 
 
-def list_tags_to_remove(db: Session) -> dict[str, Any]:
+def _latest_exit_by_identity(db: Session) -> dict[str, tuple[dt.date, str]]:
+    event_name = func.upper(func.trim(CowEvent.event))
+    rows = db.execute(
+        select(CowEvent.cow_id, CowEvent.etag, CowEvent.event, CowEvent.event_date).where(
+            event_name.in_(_EXIT_EVENTS),
+            CowEvent.event_date.isnot(None),
+        )
+    ).all()
+    exits: dict[str, tuple[dt.date, str]] = {}
+    for cow_id, etag, event, event_date in rows:
+        name = str(event or "").strip().upper()
+        for key in _scr_id_keys(cow_id) | _scr_id_keys(etag):
+            previous = exits.get(key)
+            if previous is None or event_date > previous[0]:
+                exits[key] = (event_date, name)
+    return exits
+
+
+def _exit_for_identity(
+    identity: set[str], exits: dict[str, tuple[dt.date, str]]
+) -> tuple[dt.date, str] | None:
+    best: tuple[dt.date, str] | None = None
+    for key in identity:
+        hit = exits.get(key)
+        if hit is None:
+            continue
+        if best is None or hit[0] > best[0]:
+            best = hit
+    return best
+
+
+def _apply_exit_reason(row: dict[str, Any], identity: set[str], exits: dict[str, tuple[dt.date, str]]) -> None:
+    exit_info = _exit_for_identity(identity, exits)
+    if exit_info is None:
+        return
+    row["exit_date"] = exit_info[0].isoformat()
+    row["reason"] = REASON_DIED if exit_info[1] == "DIED" else REASON_SOLD
+
+
+def _cull_rows_with_exit_dates(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    groups: dict[dt.date, list[int]] = defaultdict(list)
+    for row in rows:
+        raw = row.get("exit_date")
+        if not raw:
+            continue
+        groups[dt.date.fromisoformat(str(raw))].append(int(row["animal_id"]))
+    culled_ids: list[int] = []
+    for day, ids in groups.items():
+        try:
+            result = cull_sensehub_animals(ids, occurred_on=day)
+            culled_ids.extend(int(item) for item in (result.get("animal_ids") or ids))
+        except SenseHubError:
+            continue
+    return {"culled": len(culled_ids), "animal_ids": culled_ids}
+
+
+def auto_cull_exited_sensehub_animals(db: Session) -> dict[str, Any]:
+    """Cull SenseHub animals that already have a DairyComp SOLD or DIED event."""
+    listing = list_tags_to_remove(db, auto_cull=False)
+    return _cull_rows_with_exit_dates(listing["animals"])
+
+
+def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any]:
     """Untagged calves plus SenseHub No Data animals, ready to cull."""
     untagged = list_untagged_sensehub_animals()
     no_data = list_no_data_sensehub_animals()
     inventory = _inventory_by_scr_keys(db)
     historic_keys = _historic_youngstock_keys(db)
+    exits = _latest_exit_by_identity(db)
     animals: list[dict[str, Any]] = []
     seen: set[int] = set()
     for item in untagged:
@@ -1311,18 +1385,21 @@ def list_tags_to_remove(db: Session) -> dict[str, Any]:
             record = inventory.get(key)
             if record is not None:
                 break
+        if record is not None:
+            identity |= _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag)
         if not _is_tag_removal_candidate(record, identity, historic_keys):
             continue
         seen.add(animal_id)
-        animals.append(
-            {
-                "animal_id": animal_id,
-                "id": name,
-                "age_days": dairycomp_age_days(record),
-                "scr_tag": None,
-                "reason": REASON_NO_TAG,
-            }
-        )
+        row = {
+            "animal_id": animal_id,
+            "id": name,
+            "age_days": dairycomp_age_days(record),
+            "scr_tag": None,
+            "days_with_assigned_tag": None,
+            "reason": REASON_NO_TAG,
+        }
+        _apply_exit_reason(row, identity, exits)
+        animals.append(row)
     for item in no_data:
         animal_id = int(item["animal_id"])
         if animal_id in seen:
@@ -1334,26 +1411,42 @@ def list_tags_to_remove(db: Session) -> dict[str, Any]:
             record = inventory.get(key)
             if record is not None:
                 break
+        if record is not None:
+            identity |= _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag)
         seen.add(animal_id)
         age = item.get("age_days")
         if age is None:
             age = dairycomp_age_days(record)
-        animals.append(
-            {
-                "animal_id": animal_id,
-                "id": name,
-                "age_days": age,
-                "scr_tag": item.get("scr_tag"),
-                "reason": REASON_NO_DATA,
-            }
-        )
+        days_with_tag = item.get("days_with_assigned_tag")
+        row = {
+            "animal_id": animal_id,
+            "id": name,
+            "age_days": age,
+            "scr_tag": item.get("scr_tag"),
+            "days_with_assigned_tag": days_with_tag,
+            "reason": REASON_NO_DATA,
+        }
+        _apply_exit_reason(row, identity, exits)
+        if (
+            row["reason"] == REASON_NO_DATA
+            and days_with_tag is not None
+            and int(days_with_tag) <= NO_DATA_TAG_GRACE_DAYS
+        ):
+            continue
+        animals.append(row)
     animals.sort(
         key=lambda row: (
             int(row["id"]) if str(row.get("id") or "").isdigit() else 10**9,
             str(row.get("id") or ""),
         )
     )
-    return {"count": len(animals), "animals": animals}
+    auto_culled = 0
+    if auto_cull:
+        result = _cull_rows_with_exit_dates(animals)
+        culled = {int(item) for item in result.get("animal_ids") or []}
+        auto_culled = int(result.get("culled") or 0)
+        animals = [row for row in animals if int(row["animal_id"]) not in culled]
+    return {"count": len(animals), "animals": animals, "auto_culled": auto_culled}
 
 
 def cull_tags_to_remove(
@@ -1362,7 +1455,7 @@ def cull_tags_to_remove(
     animal_id: int | None = None,
     animal_ids: list[int] | None = None,
 ) -> dict[str, Any]:
-    listing = list_tags_to_remove(db)
+    listing = list_tags_to_remove(db, auto_cull=False)
     allowed = {int(row["animal_id"]): row for row in listing["animals"]}
     if animal_id is not None:
         wanted_ids = [int(animal_id)]
@@ -1376,13 +1469,22 @@ def cull_tags_to_remove(
         if row is None:
             raise SenseHubError("That animal is not on the Tags To Remove list.")
         animals.append(row)
-    ids = [int(row["animal_id"]) for row in animals]
-    if not ids:
+    if not animals:
         return {"culled": 0, "count": 0, "failed": [], "animals": []}
-    result = cull_sensehub_animals(ids)
+    groups: dict[dt.date | None, list[int]] = defaultdict(list)
+    for row in animals:
+        raw = row.get("exit_date")
+        day = dt.date.fromisoformat(str(raw)) if raw else None
+        groups[day].append(int(row["animal_id"]))
+    culled = 0
+    failed: list[Any] = []
+    for day, ids in groups.items():
+        result = cull_sensehub_animals(ids, occurred_on=day)
+        culled += int(result.get("culled") or 0)
+        failed.extend(result.get("failed") or [])
     return {
-        "culled": result.get("culled") or 0,
-        "count": len(ids),
-        "failed": result.get("failed") or [],
+        "culled": culled,
+        "count": len(animals),
+        "failed": failed,
         "animals": animals,
     }

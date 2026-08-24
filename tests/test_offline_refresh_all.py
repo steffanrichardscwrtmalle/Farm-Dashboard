@@ -38,6 +38,14 @@ def test_refresh_all_runs_each_cron_step() -> None:
             "app.services.offline_refresh_all.sync_farms",
             return_value={"farms": []},
         ) as cts,
+        patch(
+            "app.services.offline_refresh_all.import_sensehub",
+            return_value={"reports_imported": 2},
+        ) as sensehub,
+        patch(
+            "app.services.offline_refresh_all.import_youngstock_health",
+            return_value={"saved": 8},
+        ) as youngstock,
     ):
         result = refresh_all_cron_jobs(db, days=3)
 
@@ -48,6 +56,8 @@ def test_refresh_all_runs_each_cron_step() -> None:
     parlour.assert_called_once_with(db, days=3)
     herd.assert_called_once_with(db, include_genomics=True)
     cts.assert_called_once_with(db, source="offline-refresh")
+    sensehub.assert_called_once_with(db)
+    youngstock.assert_called_once_with(db)
     assert result["ok"] is True
     assert result["failures"] == []
     assert result["steps"]["haulier"]["rows_total"] == 1
@@ -83,6 +93,14 @@ def test_refresh_all_continues_after_step_failure() -> None:
         patch(
             "app.services.offline_refresh_all.sync_farms",
             return_value={"farms": []},
+        ),
+        patch(
+            "app.services.offline_refresh_all.import_sensehub",
+            return_value={"reports_imported": 0},
+        ),
+        patch(
+            "app.services.offline_refresh_all.import_youngstock_health",
+            return_value={"saved": 0},
         ),
     ):
         result = refresh_all_cron_jobs(db, days=2)

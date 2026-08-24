@@ -652,11 +652,11 @@ def test_list_unassigned_calves_is_pen_110_dairy_without_sensehub(monkeypatch) -
     session.commit()
 
     dairy = list_unassigned_calves(session)
-    assert [row["cow_id"] for row in dairy["animals"]] == ["111111", "888888"]
-    assert dairy["animals"][0]["etag4"] == "1111"
+    assert [row["cow_id"] for row in dairy["animals"]] == ["888888", "111111"]
+    assert dairy["animals"][0]["etag4"] == "8888"
     assert dairy["animals"][0]["reason"] == "Calf doesn't have SCR tag"
     both = list_unassigned_calves(session, categories=["Dairy", "Beef"])
-    assert [row["cow_id"] for row in both["animals"]] == ["111111", "222222", "888888"]
+    assert [row["cow_id"] for row in both["animals"]] == ["888888", "222222", "111111"]
 
     save_rows(
         session,
@@ -961,7 +961,7 @@ def test_cull_tags_to_remove_sends_today_cull_ids(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "app.services.sensehub_youngstock.cull_sensehub_animals",
-        lambda ids: sent.update({"ids": list(ids)}) or {"culled": len(ids)},
+        lambda ids, occurred_on=None, **kwargs: sent.update({"ids": list(ids), "occurred_on": occurred_on}) or {"culled": len(ids), "animal_ids": list(ids)},
     )
     session = _youngstock_db()
     session.add(
@@ -997,7 +997,7 @@ def test_cull_tags_to_remove_one_animal(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "app.services.sensehub_youngstock.cull_sensehub_animals",
-        lambda ids: sent.update({"ids": list(ids)}) or {"culled": len(ids)},
+        lambda ids, occurred_on=None, **kwargs: sent.update({"ids": list(ids), "occurred_on": occurred_on}) or {"culled": len(ids), "animal_ids": list(ids)},
     )
     session = _youngstock_db()
     session.add_all(
@@ -1069,7 +1069,7 @@ def test_cull_tags_to_remove_selected_ids(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "app.services.sensehub_youngstock.cull_sensehub_animals",
-        lambda ids: sent.update({"ids": list(ids)}) or {"culled": len(ids)},
+        lambda ids, occurred_on=None, **kwargs: sent.update({"ids": list(ids), "occurred_on": occurred_on}) or {"culled": len(ids), "animal_ids": list(ids)},
     )
     session = _youngstock_db()
     session.add_all(
@@ -1094,4 +1094,190 @@ def test_cull_tags_to_remove_selected_ids(monkeypatch) -> None:
     result = cull_tags_to_remove(session, animal_ids=[2102])
     assert sent["ids"] == [2102]
     assert result["culled"] == 1
+    session.close()
+
+
+def test_list_tags_to_remove_auto_culls_sold_animals(monkeypatch) -> None:
+    from app.services.sensehub_youngstock import list_tags_to_remove
+
+    sent: dict[str, object] = {}
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
+        lambda: [{"animal_id": 2101, "animal_name": "111111"}],
+    )
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.cull_sensehub_animals",
+        lambda ids, occurred_on=None, **kwargs: sent.update(
+            {"ids": list(ids), "occurred_on": occurred_on}
+        )
+        or {"culled": len(ids), "animal_ids": list(ids)},
+    )
+    session = _youngstock_db()
+    session.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="111111",
+            category="Dairy",
+            pen="110",
+            aged=12,
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="111111",
+            event="SOLD",
+            event_date=dt.date(2026, 8, 20),
+        )
+    )
+    session.commit()
+    listing = list_tags_to_remove(session)
+    assert sent["ids"] == [2101]
+    assert sent["occurred_on"] == dt.date(2026, 8, 20)
+    assert listing["animals"] == []
+    assert listing["auto_culled"] == 1
+    session.close()
+
+
+def test_list_tags_to_remove_auto_culls_died_animals(monkeypatch) -> None:
+    from app.services.sensehub_youngstock import list_tags_to_remove
+
+    sent: dict[str, object] = {}
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
+        lambda: [{"animal_id": 2101, "animal_name": "111111"}],
+    )
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.cull_sensehub_animals",
+        lambda ids, occurred_on=None, **kwargs: sent.update(
+            {"ids": list(ids), "occurred_on": occurred_on}
+        )
+        or {"culled": len(ids), "animal_ids": list(ids)},
+    )
+    session = _youngstock_db()
+    session.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="111111",
+            category="Dairy",
+            pen="110",
+            aged=12,
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="111111",
+            event="DIED",
+            event_date=dt.date(2026, 8, 18),
+        )
+    )
+    session.commit()
+    listing = list_tags_to_remove(session)
+    assert sent["ids"] == [2101]
+    assert sent["occurred_on"] == dt.date(2026, 8, 18)
+    assert listing["animals"] == []
+    assert listing["auto_culled"] == 1
+    session.close()
+
+
+def test_days_with_assigned_tag_reads_custom_report_field() -> None:
+    from app.services.sensehub_api import days_with_assigned_tag
+
+    assert days_with_assigned_tag({"DaysWithAssignedTagCalculation": 2}) == 2
+    assert days_with_assigned_tag({"days with assigned tag": "3"}) == 3
+    assert days_with_assigned_tag({"AgeInDays": 10}) is None
+
+
+def test_list_tags_to_remove_hides_recently_assigned_no_data(monkeypatch) -> None:
+    from app.services.sensehub_youngstock import list_tags_to_remove
+
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
+        lambda: [
+            {
+                "animal_id": 2100,
+                "animal_name": "235565",
+                "age_days": 17,
+                "scr_tag": "12345678",
+                "days_with_assigned_tag": 2,
+            },
+            {
+                "animal_id": 2101,
+                "animal_name": "111111",
+                "age_days": 40,
+                "scr_tag": "87654321",
+                "days_with_assigned_tag": 8,
+            },
+        ],
+    )
+    session = _youngstock_db()
+    listing = list_tags_to_remove(session)
+    assert [row["id"] for row in listing["animals"]] == ["111111"]
+    assert listing["animals"][0]["days_with_assigned_tag"] == 8
+    session.close()
+
+
+def test_list_tags_to_remove_still_auto_culls_recent_sold_no_data(monkeypatch) -> None:
+    from app.services.sensehub_youngstock import list_tags_to_remove
+
+    sent: dict[str, object] = {}
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
+        lambda: [
+            {
+                "animal_id": 2101,
+                "animal_name": "111111",
+                "age_days": 20,
+                "scr_tag": "12345678",
+                "days_with_assigned_tag": 1,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.cull_sensehub_animals",
+        lambda ids, occurred_on=None, **kwargs: sent.update(
+            {"ids": list(ids), "occurred_on": occurred_on}
+        )
+        or {"culled": len(ids), "animal_ids": list(ids)},
+    )
+    session = _youngstock_db()
+    session.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="111111",
+            category="Dairy",
+            pen="110",
+            aged=12,
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="111111",
+            event="SOLD",
+            event_date=dt.date(2026, 8, 20),
+        )
+    )
+    session.commit()
+    listing = list_tags_to_remove(session)
+    assert sent["ids"] == [2101]
+    assert sent["occurred_on"] == dt.date(2026, 8, 20)
+    assert listing["animals"] == []
     session.close()

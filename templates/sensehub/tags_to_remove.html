@@ -41,6 +41,13 @@
       top: 0;
       border-right-color: rgba(255,255,255,0.28);
     }
+    #tags-table thead th[data-sort] {
+      cursor: pointer;
+      user-select: none;
+    }
+    #tags-table thead th[data-sort]:hover { background: #274b73; }
+    #tags-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
+    #tags-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
     .empty-state { padding: 1.5rem; color: var(--muted); text-align: center; }
     .status-ok { color: #15803d; }
     .status-err { color: #b91c1c; }
@@ -62,10 +69,11 @@
           {% if perms.action('sensehub.import') %}
           <th><input type="checkbox" id="pick-all" checked aria-label="Select all"></th>
           {% endif %}
-          <th>ID</th>
-          <th>Age in Days</th>
-          <th>SCR Tag</th>
-          <th>Reason</th>
+          <th data-sort="id">ID</th>
+          <th data-sort="age_days">Age in Days</th>
+          <th data-sort="scr_tag">SCR Tag</th>
+          <th data-sort="days_with_assigned_tag">Days with tag</th>
+          <th data-sort="reason">Reason</th>
           {% if perms.action('sensehub.import') %}
           <th></th>
           {% endif %}
@@ -84,6 +92,10 @@
     const cullSelectedBtn = document.getElementById("cull-selected-btn");
     const pickAll = document.getElementById("pick-all");
     const canCull = {{ perms.action('sensehub.import') | tojson }};
+    const NUM_COLS = new Set(["id", "age_days", "scr_tag", "days_with_assigned_tag"]);
+    let animals = [];
+    let sortKey = "id";
+    let sortDir = "desc";
 
     function selectedIds() {
       return [...tbody.querySelectorAll(".pick:checked")].map((el) => Number(el.value));
@@ -95,19 +107,63 @@
       pickAll.checked = boxes.length > 0 && boxes.every((el) => el.checked);
     }
 
-    function renderRows(animals) {
-      tbody.innerHTML = (animals || []).map((row) => `
+    function sortValue(row, key) {
+      const value = row[key];
+      if (value === null || value === undefined || value === "") return null;
+      if (NUM_COLS.has(key)) {
+        const num = Number(value);
+        return Number.isNaN(num) ? value : num;
+      }
+      return value;
+    }
+
+    function compareRows(a, b) {
+      const av = sortValue(a, sortKey);
+      const bv = sortValue(b, sortKey);
+      const aEmpty = av === null;
+      const bEmpty = bv === null;
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      let result;
+      if (typeof av === "number" && typeof bv === "number") result = av - bv;
+      else {
+        result = String(av).localeCompare(String(bv), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }
+      return sortDir === "asc" ? result : -result;
+    }
+
+    function sortedAnimals() {
+      return [...animals].sort(compareRows);
+    }
+
+    function markSortHeaders() {
+      document.querySelectorAll("#tags-table thead th[data-sort]").forEach((th) => {
+        th.classList.remove("sorted-asc", "sorted-desc");
+        if (th.dataset.sort === sortKey) {
+          th.classList.add(sortDir === "asc" ? "sorted-asc" : "sorted-desc");
+        }
+      });
+    }
+
+    function renderRows(rows, selected) {
+      const chosen = selected || new Set(sortedAnimals().map((row) => row.animal_id));
+      tbody.innerHTML = (rows || []).map((row) => `
         <tr>
-          ${canCull ? `<td><input type="checkbox" class="pick" value="${row.animal_id}" checked></td>` : ""}
+          ${canCull ? `<td><input type="checkbox" class="pick" value="${row.animal_id}" ${chosen.has(row.animal_id) ? "checked" : ""}></td>` : ""}
           <td>${row.id || "—"}</td>
           <td>${row.age_days ?? "—"}</td>
           <td>${row.scr_tag || "None"}</td>
+          <td>${row.days_with_assigned_tag ?? "—"}</td>
           <td>${row.reason || "—"}</td>
           ${canCull ? `<td><button type="button" class="cull-row" data-id="${row.animal_id}" data-name="${row.id || ""}">Cull</button></td>` : ""}
         </tr>
       `).join("");
       emptyEl.hidden = (animals || []).length > 0;
-      if (pickAll) pickAll.checked = (animals || []).length > 0;
+      syncPickAll();
     }
 
     async function loadList() {
@@ -119,9 +175,15 @@
         metaEl.textContent = typeof detail === "string" ? detail : "Could not load animals.";
         return;
       }
-      const animals = payload.animals || [];
-      metaEl.textContent = `${payload.count ?? animals.length} animal(s) with no tag or No Data.`;
-      renderRows(animals);
+      animals = payload.animals || [];
+      const autoCulled = payload.auto_culled || 0;
+      metaEl.textContent = `${payload.count ?? animals.length} animal(s) with no tag or No Data. No Data animals are hidden for the first 3 days after a tag is assigned.`;
+      if (autoCulled) {
+        statusEl.textContent = `Automatically culled ${autoCulled} sold/died animal(s) on SenseHub.`;
+        statusEl.className = "meta-line status-ok";
+      }
+      markSortHeaders();
+      renderRows(sortedAnimals());
     }
 
     async function cullSelected() {
@@ -175,6 +237,21 @@
       statusEl.className = "meta-line status-ok";
       await loadList();
     }
+
+    document.querySelectorAll("#tags-table thead th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const key = th.dataset.sort;
+        const selected = new Set(selectedIds());
+        if (sortKey === key) {
+          sortDir = sortDir === "asc" ? "desc" : "asc";
+        } else {
+          sortKey = key;
+          sortDir = NUM_COLS.has(key) ? "desc" : "asc";
+        }
+        markSortHeaders();
+        renderRows(sortedAnimals(), selected);
+      });
+    });
 
     if (cullSelectedBtn) cullSelectedBtn.addEventListener("click", cullSelected);
     if (pickAll) {

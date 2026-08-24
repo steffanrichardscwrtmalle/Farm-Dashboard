@@ -15,6 +15,8 @@ from app.services.herd_full_import import refresh_herd_from_onedrive
 from app.services.milk_statements_import import import_milk_statements
 from app.services.nml_import import import_nml_results
 from app.services.parlour_email_import import import_parlour_milk_flow
+from app.services.sensehub_import import import_sensehub
+from app.services.sensehub_youngstock import import_youngstock_health
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,18 @@ def refresh_all_cron_jobs(
     _run_step(
         "cts",
         lambda: sync_farms(db, source="offline-refresh"),
+        results=results,
+        failures=failures,
+    )
+    _run_step(
+        "sensehub_reports",
+        lambda: import_sensehub(db),
+        results=results,
+        failures=failures,
+    )
+    _run_step(
+        "sensehub_youngstock",
+        lambda: import_youngstock_health(db),
         results=results,
         failures=failures,
     )

@@ -232,6 +232,36 @@ services:
           type: web
           envVarKey: SENSEHUB_FARM_ID
 
+  # SenseHub full report refresh once a day at 6am UK (No Data, heat, health, …).
+  # Render cron is UTC-only, so run hourly and gate on Europe/London hour 6.
+  - type: cron
+    name: farm-dashboard-sensehub
+    runtime: docker
+    schedule: "20 * * * *"
+    dockerCommand: python scripts/import_sensehub.py --only-at-uk-hours 6
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: farm-dashboard-db
+          property: connectionString
+      - key: ENVIRONMENT
+        value: production
+      - key: SENSEHUB_USERNAME
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: SENSEHUB_USERNAME
+      - key: SENSEHUB_PASSWORD
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: SENSEHUB_PASSWORD
+      - key: SENSEHUB_FARM_ID
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: SENSEHUB_FARM_ID
+
   # DC305 OneDrive exports: events, inventory, births (per-farm skip if unchanged).
   # If an older manually created "Farm-Dashboard" cron still exists, suspend/delete it
   # after this blueprint job is live to avoid double imports.

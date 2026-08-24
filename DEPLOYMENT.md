@@ -245,7 +245,9 @@ Uses the same REST API as [https://st.scrdairy.com](https://st.scrdairy.com) (us
 
 - `SENSEHUB_USERNAME` / `SENSEHUB_PASSWORD` / `SENSEHUB_FARM_ID` — store as Render secrets
 - On the **SenseHub** page, click **Refresh from SenseHub**
-- Optional cron: `python scripts/import_sensehub.py`
+- Hourly cron: `python scripts/import_sensehub_youngstock.py` (live young-stock health)
+- Daily cron (6am UK): `python scripts/import_sensehub.py --only-at-uk-hours 6` (all reports, including No Data)
+- Tags To Remove hides No Data animals for the first 3 days after a tag is assigned (`Days with assigned tag` on the SenseHub No Data report)
 
 ---
 

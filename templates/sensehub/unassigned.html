@@ -107,6 +107,17 @@
       top: 0;
       border-right-color: rgba(255,255,255,0.28);
     }
+    #unassigned-table thead th[data-sort] {
+      cursor: pointer;
+      user-select: none;
+    }
+    #unassigned-table thead th[data-sort]:hover { background: #274b73; }
+    #unassigned-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
+    #unassigned-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
+    #unassigned-table tbody tr.wrong-scr td {
+      background: #fecaca;
+      color: #7f1d1d;
+    }
     .empty-state { padding: 1.5rem; color: var(--muted); text-align: center; }
     .scr-edit {
       display: inline-flex;
@@ -157,15 +168,15 @@
         <table id="unassigned-table">
           <thead>
             <tr>
-              <th>Farm</th>
-              <th>Cow ID</th>
-              <th>SCR Tag</th>
-              <th>ETAG4</th>
-              <th>Category</th>
-              <th>Age (days)</th>
-              <th>Birth date</th>
-              <th>Pen</th>
-              <th>Reason</th>
+              <th data-sort="farm">Farm</th>
+              <th data-sort="cow_id">Cow ID</th>
+              <th data-sort="scr_tag">SCR Tag</th>
+              <th data-sort="etag4">ETAG4</th>
+              <th data-sort="category">Category</th>
+              <th data-sort="age_days">Age (days)</th>
+              <th data-sort="birth_date">Birth date</th>
+              <th data-sort="pen">Pen</th>
+              <th data-sort="reason">Reason</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -179,6 +190,10 @@
     const tbody = document.querySelector("#unassigned-table tbody");
     const metaEl = document.getElementById("meta-line");
     const emptyEl = document.getElementById("empty-state");
+    const NUM_COLS = new Set(["cow_id", "etag4", "age_days", "pen"]);
+    let animals = [];
+    let sortKey = "etag4";
+    let sortDir = "desc";
 
     function fmtDate(iso) {
       if (!iso) return "—";
@@ -200,9 +215,52 @@
         .filter(Boolean);
     }
 
-    function renderRows(animals) {
-      tbody.innerHTML = (animals || []).map((row) => `
-        <tr>
+    function sortValue(row, key) {
+      const value = row[key];
+      if (value === null || value === undefined || value === "") return null;
+      if (NUM_COLS.has(key)) {
+        const num = Number(value);
+        return Number.isNaN(num) ? value : num;
+      }
+      return value;
+    }
+
+    function compareRows(a, b) {
+      const av = sortValue(a, sortKey);
+      const bv = sortValue(b, sortKey);
+      const aEmpty = av === null;
+      const bEmpty = bv === null;
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      let result;
+      if (typeof av === "number" && typeof bv === "number") {
+        result = av - bv;
+      } else {
+        result = String(av).localeCompare(String(bv), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }
+      return sortDir === "asc" ? result : -result;
+    }
+
+    function sortedAnimals() {
+      return [...animals].sort(compareRows);
+    }
+
+    function markSortHeaders() {
+      document.querySelectorAll("#unassigned-table thead th[data-sort]").forEach((th) => {
+        th.classList.remove("sorted-asc", "sorted-desc");
+        if (th.dataset.sort === sortKey) {
+          th.classList.add(sortDir === "asc" ? "sorted-asc" : "sorted-desc");
+        }
+      });
+    }
+
+    function renderRows(rows) {
+      tbody.innerHTML = (rows || []).map((row) => `
+        <tr${row.reason === "Calf ID probably wrong on SCR" ? ' class="wrong-scr"' : ""}>
           <td>${row.farm || "—"}</td>
           <td>${row.cow_id || "—"}</td>
           <td>
@@ -228,9 +286,10 @@
       const query = categories.map((item) => `category=${encodeURIComponent(item)}`).join("&");
       const res = await fetch(`/api/sensehub/unassigned${query ? `?${query}` : ""}`);
       const payload = await res.json();
-      const animals = payload.animals || [];
+      animals = payload.animals || [];
       metaEl.textContent = `${payload.count ?? animals.length} calf(s) not assigned (missing SCR tag, or SenseHub ID not in inventory).`;
-      renderRows(animals);
+      markSortHeaders();
+      renderRows(sortedAnimals());
     }
 
     async function saveScrTag(input, statusEl) {
@@ -282,6 +341,20 @@
       ev.preventDefault();
       const wrap = input.closest(".scr-edit");
       saveScrTag(input, wrap.querySelector(".scr-status"));
+    });
+
+    document.querySelectorAll("#unassigned-table thead th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const key = th.dataset.sort;
+        if (sortKey === key) {
+          sortDir = sortDir === "asc" ? "desc" : "asc";
+        } else {
+          sortKey = key;
+          sortDir = key === "etag4" || NUM_COLS.has(key) ? "desc" : "asc";
+        }
+        markSortHeaders();
+        renderRows(sortedAnimals());
+      });
     });
 
     document.querySelectorAll(".category-slicer .slicer-btn").forEach((btn) => {

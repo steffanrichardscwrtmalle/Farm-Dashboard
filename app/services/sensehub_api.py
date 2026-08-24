@@ -732,6 +732,55 @@ def _raw_report_value(row: dict[str, Any], *names: str) -> Any:
     return None
 
 
+def _as_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return None
+    try:
+        return int(float(text.split()[0]))
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalized_field_key(name: str) -> str:
+    text = str(name or "").casefold()
+    if text.endswith("calculation"):
+        text = text[: -len("calculation")]
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def days_with_assigned_tag(row: dict[str, Any]) -> int | None:
+    """Days since the monitoring tag was assigned, from a No Data report row."""
+    direct = _raw_report_value(
+        row,
+        "DaysWithAssignedTag",
+        "DaysWithAssignedTag",
+        "AssignedTagDays",
+        "TagAssignedDays",
+        "DaysSinceTagAssigned",
+        "DaysWithTagAssigned",
+        "CowDaysWithAssignedTag",
+    )
+    parsed = _as_int(direct)
+    if parsed is not None:
+        return parsed
+    for key, value in row.items():
+        norm = _normalized_field_key(str(key))
+        if "day" in norm and "assign" in norm and "tag" in norm:
+            parsed = _as_int(value)
+            if parsed is not None:
+                return parsed
+    return None
+
+
 def list_no_data_sensehub_animals(
     client: httpx.Client | None = None,
 ) -> list[dict[str, Any]]:
@@ -777,8 +826,9 @@ def list_no_data_sensehub_animals(
                 {
                     "animal_id": int(animal_id),
                     "animal_name": name,
-                    "age_days": int(age) if age is not None else None,
+                    "age_days": _as_int(age),
                     "scr_tag": str(tag).strip() if tag not in (None, "") else None,
+                    "days_with_assigned_tag": days_with_assigned_tag(row),
                 }
             )
         return animals
@@ -790,6 +840,7 @@ def list_no_data_sensehub_animals(
 def cull_sensehub_animals(
     animal_ids: list[int],
     *,
+    occurred_on: dt.date | None = None,
     client: httpx.Client | None = None,
 ) -> dict[str, Any]:
     """Create one SenseHub culling event covering these animal IDs."""
@@ -807,9 +858,14 @@ def cull_sensehub_animals(
     try:
         token, display_version = login(client)
         headers = _animal_write_headers(token, display_version)
+        start = (
+            birth_date_to_epoch(occurred_on)
+            if occurred_on is not None
+            else int(dt.datetime.now(dt.timezone.utc).timestamp())
+        )
         payload = {
             "clientType": "Web",
-            "startDateTime": int(dt.datetime.now(dt.timezone.utc).timestamp()),
+            "startDateTime": start,
             "type": "culling",
             "animalIds": ids,
         }
