@@ -1620,8 +1620,23 @@ def sensehub_page(request: Request):
         "sensehub/youngstock.html",
         _template_ctx(
             request,
-            page_heading="Young stock health",
-            **_sensehub_context("SenseHub", "sensehub", None),
+            page_heading="Youngstock Health Report",
+            **_sensehub_context("Youngstock Health Report", "sensehub", "Youngstock Health Report"),
+        ),
+    )
+
+
+@app.get("/sensehub/unassigned", response_class=HTMLResponse)
+def sensehub_unassigned_page(request: Request):
+    if denied := _page_guard(request, PAGE_SENSEHUB):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "sensehub/unassigned.html",
+        _template_ctx(
+            request,
+            page_heading="Calves Not Assigned",
+            **_sensehub_context("Calves Not Assigned", "sensehub-unassigned", "Calves Not Assigned"),
         ),
     )
 

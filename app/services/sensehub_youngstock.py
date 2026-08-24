@@ -11,10 +11,16 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import CowEvent, HerdInventory, SenseHubReportSnapshot, SenseHubYoungstockHealth
+from app.models import (
+    CowEvent,
+    HerdInventory,
+    SenseHubCalfAssignment,
+    SenseHubReportSnapshot,
+    SenseHubYoungstockHealth,
+)
 from app.services.events_common import filter_disease_episode_records
 from app.services.sensehub_api import (
     DEFAULT_REPORT,
@@ -34,6 +40,14 @@ SLOTS: tuple[tuple[int, str], ...] = (
     (12, "midday"),
     (18, "6pm"),
 )
+LIVE_SLOT = "live"
+PERMANENT_HOURS = {hour for hour, _name in SLOTS}
+SLOT_LABELS = {
+    "midnight": "Midnight",
+    "6am": "6am",
+    "midday": "Midday",
+    "6pm": "6pm",
+}
 DEFAULT_THRESHOLD = 86.0
 MAX_BACKFILL_DAYS = 730
 EMPTY_SLOT_STOP = 28
@@ -233,7 +247,7 @@ def dairycomp_age_days(inventory: HerdInventory | None) -> int | None:
 
 
 def sample_slot(when: dt.datetime | None = None) -> tuple[dt.datetime, str]:
-    """Map a timestamp to the current UK slot: midnight, 6am, midday, 6pm."""
+    """Map a timestamp to the locked UK slot: midnight, 6am, midday, 6pm."""
     now = when or dt.datetime.now(_UK)
     if now.tzinfo is None:
         now = now.replace(tzinfo=_UK)
@@ -246,6 +260,58 @@ def sample_slot(when: dt.datetime | None = None) -> tuple[dt.datetime, str]:
             slot_hour, slot_name = start, name
     sampled = now.replace(hour=slot_hour, minute=0, second=0, microsecond=0, tzinfo=None)
     return sampled, slot_name
+
+
+def current_hour(when: dt.datetime | None = None) -> dt.datetime:
+    """UK local time rounded down to the current hour, stored naive."""
+    now = when or dt.datetime.now(_UK)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=_UK)
+    else:
+        now = now.astimezone(_UK)
+    return now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
+
+
+def reading_target(when: dt.datetime | None = None) -> tuple[dt.datetime, str]:
+    """Permanent 6-hour slot at 0/6/12/18, otherwise a live hourly reading."""
+    hour_ts = current_hour(when)
+    if hour_ts.hour in PERMANENT_HOURS:
+        return sample_slot(when)
+    return hour_ts, LIVE_SLOT
+
+
+def hour_clock_label(hour: int) -> str:
+    if hour == 0:
+        return "midnight"
+    if hour == 12:
+        return "midday"
+    if hour < 12:
+        return f"{hour}am"
+    return f"{hour - 12}pm"
+
+
+def sample_label(sampled_at: dt.datetime | None, slot: str | None) -> str:
+    if sampled_at is None:
+        return slot or ""
+    clock = hour_clock_label(sampled_at.hour) if slot == LIVE_SLOT else SLOT_LABELS.get(slot or "", slot or "")
+    return f"{sampled_at:%d %b} {clock}".strip()
+
+
+def _clear_live_rows(db: Session) -> None:
+    db.execute(delete(SenseHubYoungstockHealth).where(SenseHubYoungstockHealth.slot == LIVE_SLOT))
+
+
+def save_current_reading(
+    db: Session,
+    rows: list[dict[str, Any]],
+    *,
+    when: dt.datetime | None = None,
+) -> tuple[dt.datetime, str, int]:
+    """Save the latest SenseHub pull as live (overwritten hourly) or a locked 6-hour slot."""
+    sampled, slot = reading_target(when)
+    _clear_live_rows(db)
+    saved = save_rows(db, rows, sampled_at=sampled, slot=slot)
+    return sampled, slot, saved
 
 
 def past_slots(
@@ -443,18 +509,17 @@ def save_from_reports(
     *,
     sampled_at: dt.datetime | None = None,
 ) -> int:
-    sampled, slot = sample_slot(sampled_at)
     saved = 0
     for report in reports:
         name = str(report.get("report_name") or "")
         if name.casefold() != DEFAULT_REPORT.casefold():
             continue
-        saved += save_rows(
+        _sampled, _slot, count = save_current_reading(
             db,
             list(report.get("rows") or []),
-            sampled_at=sampled,
-            slot=slot,
+            when=sampled_at,
         )
+        saved += count
     return saved
 
 
@@ -486,8 +551,13 @@ def seed_from_latest_snapshot(db: Session) -> int:
 def _import_current_slot(db: Session) -> dict[str, Any]:
     payload = fetch_named_reports([DEFAULT_REPORT])
     reports = payload.get("reports") or []
-    sampled, slot = sample_slot()
-    saved = save_from_reports(db, reports, sampled_at=sampled)
+    rows: list[dict[str, Any]] = []
+    for report in reports:
+        name = str(report.get("report_name") or "")
+        if name.casefold() != DEFAULT_REPORT.casefold():
+            continue
+        rows.extend(list(report.get("rows") or []))
+    sampled, slot, saved = save_current_reading(db, rows)
     db.commit()
     return {
         "saved": saved,
@@ -498,15 +568,14 @@ def _import_current_slot(db: Session) -> dict[str, Any]:
 
 
 def import_youngstock_health(db: Session) -> dict[str, Any]:
-    """Fetch the current slot, then any older missing slots until stored history.
+    """Fetch the current hour, overwrite the live icon/bar, then fill missing locked slots.
 
-    Cron can therefore catch up after a failed run, and only pulls the latest
-    sample when every older slot is already saved.
+    Hours 0, 6, 12 and 18 are stored permanently. Other hours overwrite the live
+    reading so the latest table icon and graph bar stay current.
     """
-    sampled, slot = sample_slot()
-    result = backfill_youngstock_health(db, days=None, catch_up=True)
-    result["sampled_at"] = sampled.isoformat()
-    result["slot"] = slot
+    result = _import_current_slot(db)
+    filled = backfill_youngstock_health(db, days=None, catch_up=False)
+    result["saved"] = int(result.get("saved") or 0) + int(filled.get("saved") or 0)
     return result
 
 
@@ -782,22 +851,12 @@ def animal_events(db: Session, animal_id: str) -> dict[str, Any]:
             .order_by(SenseHubYoungstockHealth.sampled_at.asc())
         ).all()
     )
-    slot_labels = {hour_name: label for hour_name, label in (
-        ("midnight", "Midnight"),
-        ("6am", "6am"),
-        ("midday", "Midday"),
-        ("6pm", "6pm"),
-    )}
     health_history = [
         {
             "sampled_at": sample.sampled_at.isoformat() if sample.sampled_at else None,
             "slot": sample.slot,
             "health_index": sample.health_index,
-            "label": (
-                f"{sample.sampled_at:%d %b} {slot_labels.get(sample.slot or '', sample.slot or '')}"
-                if sample.sampled_at
-                else (sample.slot or "")
-            ),
+            "label": sample_label(sample.sampled_at, sample.slot),
         }
         for sample in samples
     ]
@@ -851,4 +910,170 @@ def animal_events(db: Session, animal_id: str) -> dict[str, Any]:
         "events": history,
         **treatment_counts(events),
         "chart_markers": markers,
+    }
+
+
+UNASSIGNED_PEN = "110"
+REASON_NO_SCR = "Calf doesn't have SCR tag"
+REASON_WRONG_SCR = "Calf ID probably wrong on SCR"
+
+
+def inventory_assignment_key(farm: str | None, cow_id: str | None) -> str:
+    return f"inventory|{(farm or '').strip()}|{(cow_id or '').strip()}"
+
+
+def sensehub_assignment_key(animal_id: str | None) -> str:
+    return f"sensehub||{(animal_id or '').strip()}"
+
+
+def _assignment_map(db: Session) -> dict[str, str]:
+    rows = db.scalars(select(SenseHubCalfAssignment)).all()
+    return {row.row_key: row.scr_tag for row in rows if row.scr_tag}
+
+
+def save_scr_tag(
+    db: Session,
+    *,
+    row_key: str,
+    farm: str | None,
+    cow_id: str | None,
+    etag: str | None,
+    scr_tag: str | None,
+) -> dict[str, str | None]:
+    key = str(row_key or "").strip()
+    if not key:
+        raise ValueError("Missing row key.")
+    tag = str(scr_tag or "").strip()
+    existing = db.scalar(
+        select(SenseHubCalfAssignment).where(SenseHubCalfAssignment.row_key == key)
+    )
+    if not tag:
+        if existing is not None:
+            db.delete(existing)
+            db.commit()
+        return {"row_key": key, "scr_tag": None}
+    if existing is None:
+        existing = SenseHubCalfAssignment(row_key=key)
+        db.add(existing)
+    existing.farm = (farm or "").strip() or None
+    existing.cow_id = (cow_id or "").strip() or None
+    existing.etag = (etag or "").strip() or None
+    existing.scr_tag = tag
+    db.commit()
+    return {"row_key": key, "scr_tag": tag}
+
+
+def _pen_is_unassigned_pen(pen: str | None) -> bool:
+    text = str(pen or "").strip()
+    if text == UNASSIGNED_PEN:
+        return True
+    try:
+        return int(float(text)) == 110
+    except (TypeError, ValueError):
+        return False
+
+
+def _latest_sensehub_samples(db: Session) -> list[SenseHubYoungstockHealth]:
+    latest = db.scalar(select(func.max(SenseHubYoungstockHealth.sampled_at)))
+    if latest is None:
+        return []
+    return list(
+        db.scalars(
+            select(SenseHubYoungstockHealth).where(
+                SenseHubYoungstockHealth.sampled_at == latest
+            )
+        ).all()
+    )
+
+
+def _sensehub_id_keys(samples: list[SenseHubYoungstockHealth]) -> set[str]:
+    keys: set[str] = set()
+    for sample in samples:
+        keys.update(_digit_keys(sample.animal_id))
+        normalized = normalize_animal_id(sample.animal_id)
+        if normalized:
+            keys.add(normalized)
+    return keys
+
+
+def list_unassigned_calves(
+    db: Session,
+    *,
+    categories: list[str] | None = None,
+) -> dict[str, Any]:
+    """Pen 110 calves missing SCR, plus SenseHub IDs that do not match inventory."""
+    wanted = {
+        str(item).strip().casefold()
+        for item in (categories or ["Dairy"])
+        if str(item).strip()
+    }
+    samples = _latest_sensehub_samples(db)
+    sensehub_keys = _sensehub_id_keys(samples)
+    assignments = _assignment_map(db)
+    animals: list[dict[str, Any]] = []
+    if wanted:
+        for record in db.scalars(select(HerdInventory)).all():
+            if not _pen_is_unassigned_pen(record.pen):
+                continue
+            category = (record.category or "").strip()
+            if category.casefold() not in wanted:
+                continue
+            keys = _digit_keys(record.cow_id) | _digit_keys(record.etag)
+            if keys & sensehub_keys:
+                continue
+            etag_value = (record.etag or "").strip() or None
+            row_key = inventory_assignment_key(record.farm, record.cow_id)
+            animals.append(
+                {
+                    "row_key": row_key,
+                    "farm": record.farm,
+                    "cow_id": record.cow_id,
+                    "etag": etag_value,
+                    "etag4": etag4(etag_value) or etag4(record.cow_id),
+                    "category": category or None,
+                    "age_days": dairycomp_age_days(record),
+                    "birth_date": record.bdat.isoformat() if record.bdat else None,
+                    "pen": str(record.pen).strip() if record.pen else None,
+                    "reason": REASON_NO_SCR,
+                    "scr_tag": assignments.get(row_key),
+                }
+            )
+    by_cow, by_tag = _inventory_indexes(db)
+    seen_wrong: set[str] = set()
+    for sample in samples:
+        animal_id = sample.animal_id
+        if not animal_id or animal_id in seen_wrong:
+            continue
+        if match_inventory(animal_id, by_cow, by_tag) is not None:
+            continue
+        seen_wrong.add(animal_id)
+        etag_value = (sample.raw_animal_id or "").strip() or animal_id
+        row_key = sensehub_assignment_key(animal_id)
+        animals.append(
+            {
+                "row_key": row_key,
+                "farm": None,
+                "cow_id": animal_id,
+                "etag": etag_value,
+                "etag4": etag4(etag_value) or etag4(animal_id),
+                "category": None,
+                "age_days": sample.age_days,
+                "birth_date": None,
+                "pen": sample.group_name,
+                "reason": REASON_WRONG_SCR,
+                "scr_tag": assignments.get(row_key) or animal_id,
+            }
+        )
+    animals.sort(
+        key=lambda row: (
+            int(row["etag4"]) if str(row.get("etag4") or "").isdigit() else 10**9,
+            str(row.get("etag4") or ""),
+            str(row.get("cow_id") or ""),
+        )
+    )
+    return {
+        "pen": UNASSIGNED_PEN,
+        "categories": sorted(wanted),
+        "count": len(animals),
+        "animals": animals,
     }

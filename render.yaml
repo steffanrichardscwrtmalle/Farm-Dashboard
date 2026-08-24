@@ -203,13 +203,12 @@ services:
           type: web
           envVarKey: GRAPH_CLIENT_SECRET_CM
 
-  # SenseHub young-stock health index at midnight, 6am, midday, 6pm UK.
-  # Hourly UTC job; the script no-ops unless Europe/London hour is 0, 6, 12 or 18.
+  # SenseHub young-stock health: hourly live reading, locked at 0/6/12/18 UK.
   - type: cron
     name: farm-dashboard-sensehub-youngstock
     runtime: docker
     schedule: "10 * * * *"
-    dockerCommand: python scripts/import_sensehub_youngstock.py --only-at-uk-hours 0,6,12,18
+    dockerCommand: python scripts/import_sensehub_youngstock.py
     envVars:
       - key: DATABASE_URL
         fromDatabase:

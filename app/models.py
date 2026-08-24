@@ -565,6 +565,25 @@ class SenseHubYoungstockHealth(Base):
         }
 
 
+class SenseHubCalfAssignment(Base):
+    """Saved SCR / SenseHub tag for a DairyComp calf, ready for a later send."""
+
+    __tablename__ = "sensehub_calf_assignments"
+    __table_args__ = (
+        UniqueConstraint("row_key", name="uq_sensehub_calf_assignment_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    row_key: Mapped[str] = mapped_column(String(128), index=True)
+    farm: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    cow_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    etag: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    scr_tag: Mapped[str] = mapped_column(String(64))
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class FeedContract(Base):
     """Purchased feed contract / delivery agreement."""
 

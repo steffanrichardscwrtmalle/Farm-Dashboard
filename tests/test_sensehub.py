@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import datetime as dt
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Base, CowEvent, HerdInventory, SenseHubReportSnapshot, SenseHubYoungstockHealth
@@ -246,6 +246,72 @@ def test_past_slots_skips_future_uk_times() -> None:
     assert ("2026-08-23T06:00:00", "6am") in names
     assert ("2026-08-23T12:00:00", "midday") not in names
     assert all(unix > 0 for _sampled, _name, unix in slots)
+
+
+def test_reading_target_uses_live_hour_between_locked_slots() -> None:
+    from zoneinfo import ZoneInfo
+
+    from app.services.sensehub_youngstock import LIVE_SLOT, reading_target
+
+    now = dt.datetime(2026, 8, 23, 10, 15, tzinfo=ZoneInfo("Europe/London"))
+    sampled, slot = reading_target(now)
+    assert slot == LIVE_SLOT
+    assert sampled == dt.datetime(2026, 8, 23, 10, 0, 0)
+
+
+def test_reading_target_locks_six_am_and_midday() -> None:
+    from zoneinfo import ZoneInfo
+
+    from app.services.sensehub_youngstock import reading_target
+
+    six_am = dt.datetime(2026, 8, 23, 6, 10, tzinfo=ZoneInfo("Europe/London"))
+    sampled, slot = reading_target(six_am)
+    assert slot == "6am"
+    assert sampled == dt.datetime(2026, 8, 23, 6, 0, 0)
+    midday = dt.datetime(2026, 8, 23, 12, 5, tzinfo=ZoneInfo("Europe/London"))
+    sampled, slot = reading_target(midday)
+    assert slot == "midday"
+    assert sampled == dt.datetime(2026, 8, 23, 12, 0, 0)
+
+
+def test_save_current_reading_overwrites_live_and_keeps_locked_slot() -> None:
+    from zoneinfo import ZoneInfo
+
+    from app.services.sensehub_youngstock import LIVE_SLOT, save_current_reading, save_rows
+
+    session = _youngstock_db()
+    locked = dt.datetime(2026, 8, 23, 6, 0, 0)
+    save_rows(
+        session,
+        [{"AnimalID": "435259", "YoungStockHealthIndex": 82}],
+        sampled_at=locked,
+        slot="6am",
+    )
+    session.commit()
+    ten = dt.datetime(2026, 8, 23, 10, 0, tzinfo=ZoneInfo("Europe/London"))
+    save_current_reading(
+        session,
+        [{"AnimalID": "435259", "YoungStockHealthIndex": 70}],
+        when=ten,
+    )
+    session.commit()
+    eleven = dt.datetime(2026, 8, 23, 11, 0, tzinfo=ZoneInfo("Europe/London"))
+    save_current_reading(
+        session,
+        [{"AnimalID": "435259", "YoungStockHealthIndex": 65}],
+        when=eleven,
+    )
+    session.commit()
+    rows = list(
+        session.scalars(
+            select(SenseHubYoungstockHealth)
+            .where(SenseHubYoungstockHealth.animal_id == "435259")
+            .order_by(SenseHubYoungstockHealth.sampled_at.asc())
+        ).all()
+    )
+    assert [(row.slot, row.health_index) for row in rows] == [("6am", 82.0), (LIVE_SLOT, 65.0)]
+    assert rows[1].sampled_at == dt.datetime(2026, 8, 23, 11, 0, 0)
+    session.close()
 
 
 def test_slots_to_fetch_catch_up_stops_at_saved_history() -> None:
@@ -512,4 +578,114 @@ def test_list_low_health_filters_threshold_and_joins_events() -> None:
         "2026-08-23",
     ]
     assert detail["health_history"][-1]["health_index"] == 82
+    session.close()
+
+
+def test_list_unassigned_calves_is_pen_110_dairy_without_sensehub() -> None:
+    from app.services.sensehub_youngstock import list_unassigned_calves, save_rows
+
+    session = _youngstock_db()
+    sampled = dt.datetime(2026, 8, 23, 12, 0, 0)
+    save_rows(
+        session,
+        [{"AnimalID": "435259", "YoungStockHealthIndex": 82}],
+        sampled_at=sampled,
+        slot="midday",
+    )
+    session.add_all(
+        [
+            HerdInventory(
+                farm="CM",
+                cow_id="435259",
+                etag="UK123456435259",
+                category="Dairy",
+                pen="110",
+                aged=20,
+            ),
+            HerdInventory(
+                farm="CM",
+                cow_id="111111",
+                etag="UK000000111111",
+                category="Dairy",
+                pen="110",
+                aged=12,
+            ),
+            HerdInventory(
+                farm="CM",
+                cow_id="222222",
+                etag="UK000000222222",
+                category="Beef",
+                pen="110",
+                aged=14,
+            ),
+            HerdInventory(
+                farm="CM",
+                cow_id="333333",
+                etag="UK000000333333",
+                category="Dairy",
+                pen="111",
+                aged=18,
+            ),
+        ]
+    )
+    session.commit()
+
+    dairy = list_unassigned_calves(session)
+    assert [row["cow_id"] for row in dairy["animals"]] == ["111111"]
+    assert dairy["animals"][0]["etag4"] == "1111"
+    assert dairy["animals"][0]["reason"] == "Calf doesn't have SCR tag"
+    both = list_unassigned_calves(session, categories=["Dairy", "Beef"])
+    assert [row["cow_id"] for row in both["animals"]] == ["111111", "222222"]
+
+    save_rows(
+        session,
+        [
+            {"AnimalID": "435259", "YoungStockHealthIndex": 82},
+            {"AnimalID": "999999", "YoungStockHealthIndex": 70},
+        ],
+        sampled_at=sampled,
+        slot="midday",
+    )
+    session.commit()
+    dairy_with_wrong = list_unassigned_calves(session)
+    by_id = {row["cow_id"]: row["reason"] for row in dairy_with_wrong["animals"]}
+    assert by_id["111111"] == "Calf doesn't have SCR tag"
+    assert by_id["999999"] == "Calf ID probably wrong on SCR"
+    assert "435259" not in by_id
+    session.close()
+
+
+def test_save_scr_tag_persists_on_unassigned_calf() -> None:
+    from app.services.sensehub_youngstock import (
+        inventory_assignment_key,
+        list_unassigned_calves,
+        save_rows,
+        save_scr_tag,
+    )
+
+    session = _youngstock_db()
+    session.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="111111",
+            etag="UK000000111111",
+            category="Dairy",
+            pen="110",
+            aged=12,
+        )
+    )
+    session.commit()
+    key = inventory_assignment_key("CM", "111111")
+    saved = save_scr_tag(
+        session,
+        row_key=key,
+        farm="CM",
+        cow_id="111111",
+        etag="UK000000111111",
+        scr_tag=" 654321 ",
+    )
+    assert saved["scr_tag"] == "654321"
+    listing = list_unassigned_calves(session)
+    by_id = {row["cow_id"]: row for row in listing["animals"]}
+    assert by_id["111111"]["scr_tag"] == "654321"
     session.close()

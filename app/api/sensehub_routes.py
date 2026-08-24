@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, require_action, require_page
@@ -24,10 +25,48 @@ from app.services.sensehub_youngstock import (
     import_youngstock_health,
     is_youngstock_job_running,
     list_low_health,
+    list_unassigned_calves,
     run_backfill_in_background,
+    save_scr_tag,
 )
 
 router = APIRouter(prefix="/api/sensehub")
+
+
+class ScrTagBody(BaseModel):
+    row_key: str
+    farm: str | None = None
+    cow_id: str | None = None
+    etag: str | None = None
+    scr_tag: str | None = None
+
+
+@router.get("/unassigned")
+def api_sensehub_unassigned(
+    category: list[str] | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_SENSEHUB)),
+):
+    return list_unassigned_calves(db, categories=category)
+
+
+@router.post("/unassigned/scr-tag")
+def api_sensehub_save_scr_tag(
+    body: ScrTagBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_SENSEHUB)),
+):
+    try:
+        return save_scr_tag(
+            db,
+            row_key=body.row_key,
+            farm=body.farm,
+            cow_id=body.cow_id,
+            etag=body.etag,
+            scr_tag=body.scr_tag,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/youngstock")

@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 """Pull Young Stock Health by Age All into the health-index history table.
 
-Designed for Render cron at midnight, 6am, midday and 6pm UK time. Schedule
-hourly and pass ``--only-at-uk-hours 0,6,12,18`` so BST/GMT stay correct:
+Designed for hourly Render cron. Each hour overwrites the live table icon and
+graph bar. Midnight, 6am, midday and 6pm UK become permanent history:
 
-    python scripts/import_sensehub_youngstock.py --only-at-uk-hours 0,6,12,18
-
-Each run fetches the current slot, then walks backward through any missing
-slots until it meets already-saved history, so a failed cron is filled in
-by the next one.
-
-Manual / forced run:
     python scripts/import_sensehub_youngstock.py
+
+Each run also fills any missing locked 6-hour slots. Manual / forced run uses
+the same command.
 """
 
 from __future__ import annotations
