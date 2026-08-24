@@ -1626,6 +1626,21 @@ def sensehub_page(request: Request):
     )
 
 
+@app.get("/sensehub/tags-to-remove", response_class=HTMLResponse)
+def sensehub_tags_to_remove_page(request: Request):
+    if denied := _page_guard(request, PAGE_SENSEHUB):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "sensehub/tags_to_remove.html",
+        _template_ctx(
+            request,
+            page_heading="Tags To Remove",
+            **_sensehub_context("Tags To Remove", "sensehub-tags-to-remove", "Tags To Remove"),
+        ),
+    )
+
+
 @app.get("/sensehub/unassigned", response_class=HTMLResponse)
 def sensehub_unassigned_page(request: Request):
     if denied := _page_guard(request, PAGE_SENSEHUB):

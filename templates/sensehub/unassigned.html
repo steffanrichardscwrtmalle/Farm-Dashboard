@@ -250,13 +250,23 @@
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        statusEl.textContent = payload.detail || "Failed";
+        const detail = payload.detail;
+        statusEl.textContent = typeof detail === "string" ? detail : "Failed";
         statusEl.classList.add("err");
         return;
       }
       input.value = payload.scr_tag || "";
-      statusEl.textContent = "Saved";
+      if (payload.created_on_sensehub) {
+        statusEl.textContent = "Created on SenseHub";
+      } else if (payload.assigned_on_sensehub) {
+        statusEl.textContent = "Tag assigned on SenseHub";
+      } else {
+        statusEl.textContent = "Saved";
+      }
       statusEl.classList.add("ok");
+      if (payload.created_on_sensehub || payload.assigned_on_sensehub) {
+        loadList();
+      }
     }
 
     tbody.addEventListener("click", (ev) => {

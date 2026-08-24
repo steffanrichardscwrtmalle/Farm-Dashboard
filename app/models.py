@@ -579,6 +579,7 @@ class SenseHubCalfAssignment(Base):
     cow_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     etag: Mapped[str | None] = mapped_column(String(64), nullable=True)
     scr_tag: Mapped[str] = mapped_column(String(64))
+    sent_to_sensehub: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )

@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin: 0 0 0.75rem; }
+    .table-wrap {
+      display: inline-block;
+      max-width: 100%;
+      overflow: auto;
+      max-height: calc(100vh - 14rem);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    #tags-table {
+      width: max-content;
+      border-collapse: collapse;
+    }
+    #tags-table th,
+    #tags-table td {
+      padding: 0.45rem 0.7rem;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      text-align: center;
+      white-space: nowrap;
+    }
+    #tags-table th:last-child,
+    #tags-table td:last-child { border-right: none; }
+    #tags-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      border-right-color: rgba(255,255,255,0.28);
+    }
+    .empty-state { padding: 1.5rem; color: var(--muted); text-align: center; }
+    .status-ok { color: #15803d; }
+    .status-err { color: #b91c1c; }
+    .cull-row { padding: 0.22rem 0.45rem; font-size: 0.72rem; }
+{% endblock %}
+
+{% block content %}
+  <div class="toolbar">
+    <p class="meta-line" id="meta-line" style="margin:0;">Loading…</p>
+    {% if perms.action('sensehub.import') %}
+    <button type="button" id="cull-selected-btn">Cull Selected</button>
+    {% endif %}
+  </div>
+  <p class="meta-line" id="status-line"></p>
+  <div class="table-wrap">
+    <table id="tags-table">
+      <thead>
+        <tr>
+          {% if perms.action('sensehub.import') %}
+          <th><input type="checkbox" id="pick-all" checked aria-label="Select all"></th>
+          {% endif %}
+          <th>ID</th>
+          <th>Age in Days</th>
+          <th>SCR Tag</th>
+          <th>Reason</th>
+          {% if perms.action('sensehub.import') %}
+          <th></th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="empty-state" id="empty-state" hidden>No SenseHub animals to cull.</p>
+
+  <script>
+    const tbody = document.querySelector("#tags-table tbody");
+    const metaEl = document.getElementById("meta-line");
+    const statusEl = document.getElementById("status-line");
+    const emptyEl = document.getElementById("empty-state");
+    const cullSelectedBtn = document.getElementById("cull-selected-btn");
+    const pickAll = document.getElementById("pick-all");
+    const canCull = {{ perms.action('sensehub.import') | tojson }};
+
+    function selectedIds() {
+      return [...tbody.querySelectorAll(".pick:checked")].map((el) => Number(el.value));
+    }
+
+    function syncPickAll() {
+      if (!pickAll) return;
+      const boxes = [...tbody.querySelectorAll(".pick")];
+      pickAll.checked = boxes.length > 0 && boxes.every((el) => el.checked);
+    }
+
+    function renderRows(animals) {
+      tbody.innerHTML = (animals || []).map((row) => `
+        <tr>
+          ${canCull ? `<td><input type="checkbox" class="pick" value="${row.animal_id}" checked></td>` : ""}
+          <td>${row.id || "—"}</td>
+          <td>${row.age_days ?? "—"}</td>
+          <td>${row.scr_tag || "None"}</td>
+          <td>${row.reason || "—"}</td>
+          ${canCull ? `<td><button type="button" class="cull-row" data-id="${row.animal_id}" data-name="${row.id || ""}">Cull</button></td>` : ""}
+        </tr>
+      `).join("");
+      emptyEl.hidden = (animals || []).length > 0;
+      if (pickAll) pickAll.checked = (animals || []).length > 0;
+    }
+
+    async function loadList() {
+      metaEl.textContent = "Loading…";
+      const res = await fetch("/api/sensehub/tags-to-remove");
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = payload.detail;
+        metaEl.textContent = typeof detail === "string" ? detail : "Could not load animals.";
+        return;
+      }
+      const animals = payload.animals || [];
+      metaEl.textContent = `${payload.count ?? animals.length} animal(s) with no tag or No Data.`;
+      renderRows(animals);
+    }
+
+    async function cullSelected() {
+      if (!cullSelectedBtn) return;
+      const ids = selectedIds();
+      if (!ids.length) {
+        statusEl.textContent = "Nothing selected.";
+        statusEl.className = "meta-line";
+        return;
+      }
+      if (!window.confirm(`Cull ${ids.length} selected animal(s) on SenseHub today? This cannot be undone.`)) {
+        return;
+      }
+      cullSelectedBtn.disabled = true;
+      statusEl.textContent = "Culling…";
+      statusEl.className = "meta-line";
+      const res = await fetch("/api/sensehub/tags-to-remove/cull-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ animal_ids: ids }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      cullSelectedBtn.disabled = false;
+      if (!res.ok) {
+        const detail = payload.detail;
+        statusEl.textContent = typeof detail === "string" ? detail : "Cull failed.";
+        statusEl.className = "meta-line status-err";
+        return;
+      }
+      statusEl.textContent = `Culled ${payload.culled ?? 0} animal(s) on SenseHub.`;
+      statusEl.className = "meta-line status-ok";
+      await loadList();
+    }
+
+    async function cullOne(animalId, animalName) {
+      statusEl.textContent = `Culling ${animalName || animalId}…`;
+      statusEl.className = "meta-line";
+      const res = await fetch("/api/sensehub/tags-to-remove/cull", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ animal_id: Number(animalId) }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = payload.detail;
+        statusEl.textContent = typeof detail === "string" ? detail : "Cull failed.";
+        statusEl.className = "meta-line status-err";
+        return;
+      }
+      statusEl.textContent = `Culled ${animalName || animalId} on SenseHub.`;
+      statusEl.className = "meta-line status-ok";
+      await loadList();
+    }
+
+    if (cullSelectedBtn) cullSelectedBtn.addEventListener("click", cullSelected);
+    if (pickAll) {
+      pickAll.addEventListener("change", () => {
+        tbody.querySelectorAll(".pick").forEach((el) => { el.checked = pickAll.checked; });
+      });
+    }
+    tbody.addEventListener("change", (ev) => {
+      if (ev.target.classList.contains("pick")) syncPickAll();
+    });
+    tbody.addEventListener("click", (ev) => {
+      const btn = ev.target.closest(".cull-row");
+      if (!btn) return;
+      const name = btn.dataset.name || btn.dataset.id;
+      if (!window.confirm(`Cull ${name} on SenseHub today? This cannot be undone.`)) return;
+      cullOne(btn.dataset.id, name);
+    });
+    loadList();
+  </script>
+{% endblock %}

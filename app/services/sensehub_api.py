@@ -15,9 +15,12 @@ from typing import Any
 
 import httpx
 
+from zoneinfo import ZoneInfo
+
 from app.config import (
     SENSEHUB_DOMAIN_RESOLVER_URL,
     SENSEHUB_FARM_ID,
+    SENSEHUB_LOGIN_BASE,
     SENSEHUB_PASSWORD,
     SENSEHUB_PROXY_BASE,
     SENSEHUB_REGION,
@@ -432,3 +435,399 @@ def resolve_proxy_domain(farm_id: str | None = None) -> str:
         response.raise_for_status()
         body = response.json()
         return str(body.get("domain") or SENSEHUB_PROXY_BASE)
+
+
+SUCKLING_CALVES_GROUP = "Suckling Calves"
+_UK = ZoneInfo("Europe/London")
+
+
+def birth_date_to_epoch(birth_date: dt.date) -> int:
+    """Midnight Europe/London on the DairyComp birth date, as SenseHub expects."""
+    local = dt.datetime(
+        birth_date.year, birth_date.month, birth_date.day, tzinfo=_UK
+    )
+    return int(local.timestamp())
+
+
+def _walk_named_groups(payload: Any) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+    if isinstance(payload, dict):
+        name = payload.get("name") or payload.get("groupName")
+        group_id = payload.get("id")
+        number = payload.get("number")
+        if name and (group_id is not None or number is not None):
+            found.append(payload)
+        for value in payload.values():
+            found.extend(_walk_named_groups(value))
+    elif isinstance(payload, list):
+        for item in payload:
+            found.extend(_walk_named_groups(item))
+    return found
+
+
+def pick_suckling_calves_group(metadata: Any) -> dict[str, Any]:
+    wanted = SUCKLING_CALVES_GROUP.casefold()
+    for group in _walk_named_groups(metadata):
+        name = str(group.get("name") or group.get("groupName") or "").strip()
+        if name.casefold() != wanted:
+            continue
+        return {
+            "id": group.get("id"),
+            "number": group.get("number"),
+            "name": name,
+        }
+    raise SenseHubError("SenseHub has no Suckling Calves group.")
+
+
+def _sensehub_error_text(response: httpx.Response) -> str:
+    try:
+        body = response.json()
+    except ValueError:
+        text = (response.text or "").strip()
+        return text[:300] if text else f"SenseHub returned {response.status_code}."
+    unwrapped = _unwrap(body) if isinstance(body, dict) else body
+    if isinstance(unwrapped, dict):
+        failures = unwrapped.get("failures") or unwrapped.get("errors")
+        if isinstance(failures, list) and failures:
+            first = failures[0]
+            if isinstance(first, dict):
+                return str(
+                    first.get("message")
+                    or first.get("key")
+                    or first.get("fieldName")
+                    or first
+                )
+            return str(first)
+        for key in ("message", "error", "detail"):
+            value = unwrapped.get(key)
+            if value:
+                return str(value)
+    return f"SenseHub returned {response.status_code}."
+
+
+def _animal_write_headers(token: str, display_version: str | None) -> dict[str, str]:
+    headers = _client_headers(
+        token=token, display_version=display_version or "8.3.3.396"
+    )
+    headers["farmid"] = SENSEHUB_FARM_ID
+    headers["scr-farm-id"] = SENSEHUB_FARM_ID
+    headers["Content-Type"] = "application/json"
+    headers["Origin"] = SENSEHUB_LOGIN_BASE
+    headers["Referer"] = f"{SENSEHUB_LOGIN_BASE}/"
+    return headers
+
+
+def calf_create_payload(
+    *,
+    animal_name: str,
+    scr_tag: str,
+    birth_date: dt.date,
+    group: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "orn": None,
+        "rfidTag": None,
+        "scrTag": {
+            "tagNumber": str(scr_tag).strip(),
+            "id": None,
+            "tagType": "scr",
+        },
+        "animalName": str(animal_name).strip(),
+        "birthDate": birth_date_to_epoch(birth_date),
+        "breedingDate": None,
+        "breedingSire": None,
+        "calvingDate": None,
+        "dryOffDate": None,
+        "group": group,
+        "lactation": 0,
+        "pregnancyCheckDate": None,
+    }
+
+
+def create_sensehub_calf(
+    *,
+    animal_name: str,
+    scr_tag: str,
+    birth_date: dt.date,
+    client: httpx.Client | None = None,
+) -> dict[str, Any]:
+    """Create a female calf on SenseHub in Suckling Calves with this monitoring tag."""
+    cow_id = str(animal_name or "").strip()
+    tag = str(scr_tag or "").strip()
+    if not cow_id:
+        raise SenseHubError("Missing Cow ID.")
+    if not tag:
+        raise SenseHubError("Missing SCR monitoring tag.")
+    if not sensehub_is_configured():
+        raise SenseHubConfigError(
+            "SenseHub is not configured. Set SENSEHUB_USERNAME, "
+            "SENSEHUB_PASSWORD and SENSEHUB_FARM_ID."
+        )
+    own_client = client is None
+    if client is None:
+        client = httpx.Client(timeout=60.0, follow_redirects=True)
+    try:
+        token, display_version = login(client)
+        headers = _animal_write_headers(token, display_version)
+        meta_response = client.get(
+            f"{SENSEHUB_PROXY_BASE}/rest/api/animals",
+            headers=headers,
+            params={"projection": "cowsMetaData"},
+        )
+        if meta_response.status_code >= 400:
+            raise SenseHubError(
+                f"Could not load SenseHub groups ({meta_response.status_code})."
+            )
+        metadata = _unwrap(meta_response.json()) or meta_response.json()
+        group = pick_suckling_calves_group(metadata)
+        payload = calf_create_payload(
+            animal_name=cow_id,
+            scr_tag=tag,
+            birth_date=birth_date,
+            group=group,
+        )
+        response = client.post(
+            f"{SENSEHUB_PROXY_BASE}/rest/api/animals/cows",
+            headers=headers,
+            json=payload,
+        )
+        if response.status_code not in (200, 201):
+            raise SenseHubError(_sensehub_error_text(response))
+        return {
+            "animal_name": cow_id,
+            "scr_tag": tag,
+            "group": group.get("name") or SUCKLING_CALVES_GROUP,
+            "status": response.status_code,
+        }
+    finally:
+        if own_client:
+            client.close()
+
+
+def list_untagged_sensehub_animals(
+    client: httpx.Client | None = None,
+) -> list[dict[str, Any]]:
+    """Animals on SenseHub that can have a monitoring tag assigned."""
+    if not sensehub_is_configured():
+        return []
+    own_client = client is None
+    if client is None:
+        client = httpx.Client(timeout=60.0, follow_redirects=True)
+    try:
+        token, display_version = login(client)
+        headers = _animal_write_headers(token, display_version)
+        response = client.get(
+            f"{SENSEHUB_PROXY_BASE}/rest/api/animals",
+            headers=headers,
+            params={"projection": "canAssignTag"},
+        )
+        if response.status_code >= 400:
+            raise SenseHubError(
+                f"Could not load untagged SenseHub animals ({response.status_code})."
+            )
+        rows = _unwrap(response.json()) or []
+        animals: list[dict[str, Any]] = []
+        if not isinstance(rows, list):
+            return []
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("animalName") or "").strip()
+            animal_id = item.get("animalId")
+            if not name or animal_id is None:
+                continue
+            animals.append({"animal_id": int(animal_id), "animal_name": name})
+        return animals
+    finally:
+        if own_client:
+            client.close()
+
+
+def _unassigned_scr_tag(
+    client: httpx.Client, headers: dict[str, str], tag_number: str
+) -> dict[str, Any]:
+    response = client.get(f"{SENSEHUB_PROXY_BASE}/rest/api/tags", headers=headers)
+    if response.status_code >= 400:
+        return {"tagNumber": tag_number, "id": None, "tagType": "scr"}
+    body = _unwrap(response.json()) or response.json()
+    scr_tags = body.get("scrTags") if isinstance(body, dict) else None
+    unassigned = []
+    if isinstance(scr_tags, dict):
+        unassigned = scr_tags.get("unassignedTags") or []
+    for tag in unassigned:
+        if not isinstance(tag, dict):
+            continue
+        if str(tag.get("tagNumber") or "").strip() == tag_number:
+            return tag
+    return {"tagNumber": tag_number, "id": None, "tagType": "scr"}
+
+
+def assign_sensehub_monitoring_tag(
+    *,
+    animal_id: int,
+    scr_tag: str,
+    client: httpx.Client | None = None,
+) -> dict[str, Any]:
+    """Assign a monitoring tag to an existing SenseHub animal."""
+    tag_number = str(scr_tag or "").strip()
+    if not tag_number:
+        raise SenseHubError("Missing SCR monitoring tag.")
+    if not sensehub_is_configured():
+        raise SenseHubConfigError(
+            "SenseHub is not configured. Set SENSEHUB_USERNAME, "
+            "SENSEHUB_PASSWORD and SENSEHUB_FARM_ID."
+        )
+    own_client = client is None
+    if client is None:
+        client = httpx.Client(timeout=60.0, follow_redirects=True)
+    try:
+        token, display_version = login(client)
+        headers = _animal_write_headers(token, display_version)
+        tag = _unassigned_scr_tag(client, headers, tag_number)
+        payload = {
+            "type": "AssignScrTag",
+            "startDateTime": int(dt.datetime.now(dt.timezone.utc).timestamp()),
+            "tag": tag,
+            "animalIds": [int(animal_id)],
+        }
+        response = client.post(
+            f"{SENSEHUB_PROXY_BASE}/rest/api/v2/events/createevent",
+            headers=headers,
+            json=payload,
+        )
+        if response.status_code not in (200, 201):
+            raise SenseHubError(_sensehub_error_text(response))
+        return {
+            "animal_id": int(animal_id),
+            "scr_tag": tag_number,
+            "status": response.status_code,
+        }
+    finally:
+        if own_client:
+            client.close()
+
+
+def _cull_event_failed(payload: Any) -> str | None:
+    body = _unwrap(payload) if isinstance(payload, dict) else payload
+    if not isinstance(body, dict):
+        return None
+    if body.get("succeeded") is False:
+        return str(body.get("message") or body.get("error") or "SenseHub cull was not applied.")
+    failures = body.get("failures") or body.get("errors")
+    if isinstance(failures, list) and failures:
+        first = failures[0]
+        if isinstance(first, dict):
+            return str(first.get("message") or first.get("key") or first)
+        return str(first)
+    return None
+
+
+def _raw_report_value(row: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        if name in row and row[name] not in (None, ""):
+            return row[name]
+        calc = name if str(name).endswith("Calculation") else f"{name}Calculation"
+        if calc in row and row[calc] not in (None, ""):
+            return row[calc]
+    return None
+
+
+def list_no_data_sensehub_animals(
+    client: httpx.Client | None = None,
+) -> list[dict[str, Any]]:
+    """Animals from the SenseHub custom No Data report."""
+    if not sensehub_is_configured():
+        return []
+    own_client = client is None
+    if client is None:
+        client = httpx.Client(timeout=90.0, follow_redirects=True)
+    try:
+        token, display_version = login(client)
+        catalog = list_reports(client, token)
+        item = next(
+            (
+                entry
+                for entry in catalog
+                if str(entry.get("name") or "").strip().casefold() == "no data"
+            ),
+            None,
+        )
+        if item is None or item.get("key") is None:
+            return []
+        raw = fetch_report(
+            client,
+            token,
+            int(item["key"]),
+            cloud=bool(item.get("is_custom")),
+            display_version=display_version,
+        )
+        body = _unwrap(raw) or raw
+        rows = body.get("rows") if isinstance(body, dict) else []
+        animals: list[dict[str, Any]] = []
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            animal_id = _raw_report_value(row, "CowDatabaseID", "CowDbId")
+            name = str(_raw_report_value(row, "AnimalID") or "").strip()
+            if animal_id is None or not name:
+                continue
+            tag = _raw_report_value(row, "CowScrTagNumber")
+            age = _raw_report_value(row, "AgeInDays")
+            animals.append(
+                {
+                    "animal_id": int(animal_id),
+                    "animal_name": name,
+                    "age_days": int(age) if age is not None else None,
+                    "scr_tag": str(tag).strip() if tag not in (None, "") else None,
+                }
+            )
+        return animals
+    finally:
+        if own_client:
+            client.close()
+
+
+def cull_sensehub_animals(
+    animal_ids: list[int],
+    *,
+    client: httpx.Client | None = None,
+) -> dict[str, Any]:
+    """Create one SenseHub culling event covering these animal IDs."""
+    ids = [int(item) for item in animal_ids if item is not None]
+    if not ids:
+        return {"culled": 0, "animal_ids": [], "failed": []}
+    if not sensehub_is_configured():
+        raise SenseHubConfigError(
+            "SenseHub is not configured. Set SENSEHUB_USERNAME, "
+            "SENSEHUB_PASSWORD and SENSEHUB_FARM_ID."
+        )
+    own_client = client is None
+    if client is None:
+        client = httpx.Client(timeout=60.0, follow_redirects=True)
+    try:
+        token, display_version = login(client)
+        headers = _animal_write_headers(token, display_version)
+        payload = {
+            "clientType": "Web",
+            "startDateTime": int(dt.datetime.now(dt.timezone.utc).timestamp()),
+            "type": "culling",
+            "animalIds": ids,
+        }
+        response = client.post(
+            f"{SENSEHUB_PROXY_BASE}/rest/api/v2/events/createevent",
+            headers=headers,
+            json=payload,
+        )
+        if response.status_code not in (200, 201):
+            raise SenseHubError(_sensehub_error_text(response))
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        reason = _cull_event_failed(body)
+        if reason:
+            raise SenseHubError(reason)
+        return {"culled": len(ids), "animal_ids": ids, "failed": []}
+    finally:
+        if own_client:
+            client.close()

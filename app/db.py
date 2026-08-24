@@ -64,6 +64,7 @@ def init_db() -> None:
     _migrate_rental_agreements_schema()
     _migrate_xero_line_amount_types()
     _migrate_parlour_schema()
+    _migrate_sensehub_calf_assignments_schema()
     _seed_financial_forecasts()
     _seed_hp_schedules()
     _seed_gad_milk_collections()
@@ -75,6 +76,22 @@ def _seed_feed_contracts() -> None:
 
     with SessionLocal() as db:
         seed_feed_contracts_if_empty(db)
+
+
+def _migrate_sensehub_calf_assignments_schema() -> None:
+    inspector = inspect(engine)
+    if "sensehub_calf_assignments" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("sensehub_calf_assignments")}
+    if "sent_to_sensehub" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE sensehub_calf_assignments "
+                "ADD COLUMN sent_to_sensehub BOOLEAN DEFAULT FALSE"
+            )
+        )
 
 
 def _migrate_parlour_schema() -> None:

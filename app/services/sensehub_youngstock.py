@@ -25,10 +25,15 @@ from app.services.events_common import filter_disease_episode_records
 from app.services.sensehub_api import (
     DEFAULT_REPORT,
     SenseHubError,
+    assign_sensehub_monitoring_tag,
+    create_sensehub_calf,
+    cull_sensehub_animals,
     fetch_named_reports,
     fetch_report,
     flatten_report,
     list_reports,
+    list_no_data_sensehub_animals,
+    list_untagged_sensehub_animals,
     login,
 )
 
@@ -930,6 +935,9 @@ def animal_events(db: Session, animal_id: str) -> dict[str, Any]:
 UNASSIGNED_PEN = "110"
 REASON_NO_SCR = "Calf doesn't have SCR tag"
 REASON_WRONG_SCR = "Calf ID probably wrong on SCR"
+REASON_TAG_REMOVED = "SCR Tag has been removed"
+WEANING_EVENT = "WEANING"
+WEANED_REMARK = "WEANED"
 
 
 def inventory_assignment_key(farm: str | None, cow_id: str | None) -> str:
@@ -945,6 +953,77 @@ def _assignment_map(db: Session) -> dict[str, str]:
     return {row.row_key: row.scr_tag for row in rows if row.scr_tag}
 
 
+def _sent_assignment_keys(db: Session) -> set[str]:
+    rows = db.scalars(
+        select(SenseHubCalfAssignment).where(
+            SenseHubCalfAssignment.sent_to_sensehub.is_(True)
+        )
+    ).all()
+    return {row.row_key for row in rows}
+
+
+def _identity_keys(*values: str | None) -> set[str]:
+    keys: set[str] = set()
+    for value in values:
+        keys.update(_scr_id_keys(value))
+    return keys
+
+
+def _weaned_identity_keys(db: Session) -> set[str]:
+    event_name = func.upper(func.trim(CowEvent.event))
+    remark = func.upper(func.trim(func.coalesce(CowEvent.remark, "")))
+    rows = db.execute(
+        select(CowEvent.cow_id, CowEvent.etag).where(
+            event_name == WEANING_EVENT,
+            remark == WEANED_REMARK,
+        )
+    ).all()
+    keys: set[str] = set()
+    for cow_id, etag in rows:
+        keys.update(_identity_keys(cow_id, etag))
+    return keys
+
+
+def _untagged_animals_by_key(
+    animals: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    by_key: dict[str, dict[str, Any]] = {}
+    if animals is None:
+        try:
+            animals = list_untagged_sensehub_animals()
+        except SenseHubError:
+            animals = []
+    for animal in animals:
+        name = str(animal.get("animal_name") or "")
+        for key in _scr_id_keys(name):
+            by_key.setdefault(key, animal)
+    return by_key
+
+
+def _match_untagged_animal(
+    cow_id: str | None, etag: str | None, untagged: dict[str, dict[str, Any]]
+) -> dict[str, Any] | None:
+    for key in _identity_keys(cow_id, etag):
+        match = untagged.get(key)
+        if match:
+            return match
+    return None
+
+
+def _inventory_birth_date(
+    db: Session, farm: str | None, cow_id: str | None
+) -> dt.date | None:
+    cow = (cow_id or "").strip()
+    if not cow:
+        return None
+    query = select(HerdInventory).where(HerdInventory.cow_id == cow)
+    farm_key = (farm or "").strip()
+    if farm_key:
+        query = query.where(HerdInventory.farm == farm_key)
+    record = db.scalar(query)
+    return record.bdat if record and record.bdat else None
+
+
 def save_scr_tag(
     db: Session,
     *,
@@ -953,7 +1032,7 @@ def save_scr_tag(
     cow_id: str | None,
     etag: str | None,
     scr_tag: str | None,
-) -> dict[str, str | None]:
+) -> dict[str, Any]:
     key = str(row_key or "").strip()
     if not key:
         raise ValueError("Missing row key.")
@@ -965,7 +1044,51 @@ def save_scr_tag(
         if existing is not None:
             db.delete(existing)
             db.commit()
-        return {"row_key": key, "scr_tag": None}
+        return {
+            "row_key": key,
+            "scr_tag": None,
+            "created_on_sensehub": False,
+            "assigned_on_sensehub": False,
+        }
+    created = False
+    assigned = False
+    if key.startswith("inventory|"):
+        cow = (cow_id or "").strip()
+        if not cow:
+            raise ValueError("Missing Cow ID.")
+        birth = _inventory_birth_date(db, farm, cow)
+        if birth is None:
+            raise ValueError(
+                "This calf has no DairyComp birth date, so it cannot be created on SenseHub."
+            )
+        untagged = _match_untagged_animal(
+            cow, etag, _untagged_animals_by_key()
+        )
+        if untagged:
+            assign_sensehub_monitoring_tag(
+                animal_id=int(untagged["animal_id"]),
+                scr_tag=tag,
+            )
+            assigned = True
+        else:
+            try:
+                create_sensehub_calf(
+                    animal_name=cow, scr_tag=tag, birth_date=birth
+                )
+                created = True
+            except SenseHubError as exc:
+                if "already exists" not in str(exc).casefold():
+                    raise
+                retry = _match_untagged_animal(
+                    cow, etag, _untagged_animals_by_key()
+                )
+                if retry is None:
+                    raise
+                assign_sensehub_monitoring_tag(
+                    animal_id=int(retry["animal_id"]),
+                    scr_tag=tag,
+                )
+                assigned = True
     if existing is None:
         existing = SenseHubCalfAssignment(row_key=key)
         db.add(existing)
@@ -973,8 +1096,15 @@ def save_scr_tag(
     existing.cow_id = (cow_id or "").strip() or None
     existing.etag = (etag or "").strip() or None
     existing.scr_tag = tag
+    if created or assigned:
+        existing.sent_to_sensehub = True
     db.commit()
-    return {"row_key": key, "scr_tag": tag}
+    return {
+        "row_key": key,
+        "scr_tag": tag,
+        "created_on_sensehub": created,
+        "assigned_on_sensehub": assigned,
+    }
 
 
 def _pen_is_unassigned_pen(pen: str | None) -> bool:
@@ -1038,6 +1168,9 @@ def list_unassigned_calves(
     samples = _latest_sensehub_samples(db)
     sensehub_keys = _sensehub_id_keys(samples)
     assignments = _assignment_map(db)
+    sent_keys = _sent_assignment_keys(db)
+    weaned_keys = _weaned_identity_keys(db)
+    untagged = _untagged_animals_by_key()
     animals: list[dict[str, Any]] = []
     if wanted:
         for record in db.scalars(select(HerdInventory)).all():
@@ -1046,10 +1179,18 @@ def list_unassigned_calves(
             category = (record.category or "").strip()
             if not _category_wanted(category, wanted):
                 continue
+            if _identity_keys(record.cow_id, record.etag) & weaned_keys:
+                continue
             if _inventory_on_sensehub(record, sensehub_keys):
                 continue
             etag_value = (record.etag or "").strip() or None
             row_key = inventory_assignment_key(record.farm, record.cow_id)
+            if row_key in sent_keys:
+                continue
+            tag_removed = (
+                _match_untagged_animal(record.cow_id, etag_value, untagged)
+                is not None
+            )
             animals.append(
                 {
                     "row_key": row_key,
@@ -1061,7 +1202,7 @@ def list_unassigned_calves(
                     "age_days": dairycomp_age_days(record),
                     "birth_date": record.bdat.isoformat() if record.bdat else None,
                     "pen": str(record.pen).strip() if record.pen else None,
-                    "reason": REASON_NO_SCR,
+                    "reason": REASON_TAG_REMOVED if tag_removed else REASON_NO_SCR,
                     "scr_tag": assignments.get(row_key),
                 }
             )
@@ -1102,5 +1243,146 @@ def list_unassigned_calves(
         "pen": UNASSIGNED_PEN,
         "categories": sorted(wanted),
         "count": len(animals),
+        "animals": animals,
+    }
+
+
+_CALF_CATEGORIES = {"dairy", "youngstock", "heifer", "calf", ""}
+_MAX_TAG_REMOVAL_AGE_DAYS = 400
+REASON_NO_TAG = "No SCR tag"
+REASON_NO_DATA = "No Data"
+
+
+def _inventory_by_scr_keys(db: Session) -> dict[str, HerdInventory]:
+    by_key: dict[str, HerdInventory] = {}
+    for record in db.scalars(select(HerdInventory)).all():
+        for key in _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag):
+            by_key.setdefault(key, record)
+    return by_key
+
+
+def _historic_youngstock_keys(db: Session) -> set[str]:
+    keys: set[str] = set()
+    animal_ids = db.scalars(
+        select(SenseHubYoungstockHealth.animal_id).distinct()
+    ).all()
+    for animal_id in animal_ids:
+        keys.update(_scr_id_keys(animal_id))
+        normalized = normalize_animal_id(animal_id)
+        if normalized:
+            keys.add(normalized)
+    return keys
+
+
+def _is_tag_removal_candidate(
+    record: HerdInventory | None, identity_keys: set[str], historic_keys: set[str]
+) -> bool:
+    if record is not None:
+        if _pen_is_unassigned_pen(record.pen):
+            return True
+        category = (record.category or "").strip().casefold()
+        if category == "beef" and not _pen_is_unassigned_pen(record.pen):
+            return False
+        age = dairycomp_age_days(record)
+        if age is not None and age < _MAX_TAG_REMOVAL_AGE_DAYS:
+            return True
+        if category in {"youngstock", "heifer", "calf"}:
+            return True
+        return False
+    return bool(identity_keys & historic_keys)
+
+
+def list_tags_to_remove(db: Session) -> dict[str, Any]:
+    """Untagged calves plus SenseHub No Data animals, ready to cull."""
+    untagged = list_untagged_sensehub_animals()
+    no_data = list_no_data_sensehub_animals()
+    inventory = _inventory_by_scr_keys(db)
+    historic_keys = _historic_youngstock_keys(db)
+    animals: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for item in untagged:
+        animal_id = int(item["animal_id"])
+        if animal_id in seen:
+            continue
+        name = str(item.get("animal_name") or "").strip()
+        identity = _scr_id_keys(name)
+        record = None
+        for key in identity:
+            record = inventory.get(key)
+            if record is not None:
+                break
+        if not _is_tag_removal_candidate(record, identity, historic_keys):
+            continue
+        seen.add(animal_id)
+        animals.append(
+            {
+                "animal_id": animal_id,
+                "id": name,
+                "age_days": dairycomp_age_days(record),
+                "scr_tag": None,
+                "reason": REASON_NO_TAG,
+            }
+        )
+    for item in no_data:
+        animal_id = int(item["animal_id"])
+        if animal_id in seen:
+            continue
+        name = str(item.get("animal_name") or "").strip()
+        identity = _scr_id_keys(name)
+        record = None
+        for key in identity:
+            record = inventory.get(key)
+            if record is not None:
+                break
+        seen.add(animal_id)
+        age = item.get("age_days")
+        if age is None:
+            age = dairycomp_age_days(record)
+        animals.append(
+            {
+                "animal_id": animal_id,
+                "id": name,
+                "age_days": age,
+                "scr_tag": item.get("scr_tag"),
+                "reason": REASON_NO_DATA,
+            }
+        )
+    animals.sort(
+        key=lambda row: (
+            int(row["id"]) if str(row.get("id") or "").isdigit() else 10**9,
+            str(row.get("id") or ""),
+        )
+    )
+    return {"count": len(animals), "animals": animals}
+
+
+def cull_tags_to_remove(
+    db: Session,
+    *,
+    animal_id: int | None = None,
+    animal_ids: list[int] | None = None,
+) -> dict[str, Any]:
+    listing = list_tags_to_remove(db)
+    allowed = {int(row["animal_id"]): row for row in listing["animals"]}
+    if animal_id is not None:
+        wanted_ids = [int(animal_id)]
+    elif animal_ids is not None:
+        wanted_ids = [int(item) for item in animal_ids]
+    else:
+        wanted_ids = list(allowed)
+    animals: list[dict[str, Any]] = []
+    for item_id in wanted_ids:
+        row = allowed.get(item_id)
+        if row is None:
+            raise SenseHubError("That animal is not on the Tags To Remove list.")
+        animals.append(row)
+    ids = [int(row["animal_id"]) for row in animals]
+    if not ids:
+        return {"culled": 0, "count": 0, "failed": [], "animals": []}
+    result = cull_sensehub_animals(ids)
+    return {
+        "culled": result.get("culled") or 0,
+        "count": len(ids),
+        "failed": result.get("failed") or [],
         "animals": animals,
     }

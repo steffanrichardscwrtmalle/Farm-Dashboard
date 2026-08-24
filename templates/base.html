@@ -537,7 +537,7 @@
         <div class="nav-group{% if active_nav_group == 'sensehub' %} expanded{% endif %}" data-nav-group="sensehub">
           <button
             type="button"
-            class="nav-group-toggle{% if active_nav == 'sensehub' or active_nav == 'sensehub-reports' or active_nav == 'sensehub-unassigned' %} active{% endif %}"
+            class="nav-group-toggle{% if active_nav == 'sensehub' or active_nav == 'sensehub-reports' or active_nav == 'sensehub-unassigned' or active_nav == 'sensehub-tags-to-remove' %} active{% endif %}"
             aria-expanded="{% if active_nav_group == 'sensehub' %}true{% else %}false{% endif %}"
             aria-controls="sensehub-nav-items"
           >
@@ -547,6 +547,7 @@
           <div class="nav-group-items" id="sensehub-nav-items">
             <a href="/sensehub" class="{% if active_nav == 'sensehub' %}active{% endif %}">Youngstock Health Report</a>
             <a href="/sensehub/unassigned" class="{% if active_nav == 'sensehub-unassigned' %}active{% endif %}">Calves Not Assigned</a>
+            <a href="/sensehub/tags-to-remove" class="{% if active_nav == 'sensehub-tags-to-remove' %}active{% endif %}">Tags To Remove</a>
             <a href="/sensehub/reports" class="{% if active_nav == 'sensehub-reports' %}active{% endif %}">All reports</a>
           </div>
         </div>

@@ -21,10 +21,12 @@ from app.services.sensehub_import import (
 from app.services.sensehub_youngstock import (
     DEFAULT_THRESHOLD,
     animal_events,
+    cull_tags_to_remove,
     get_youngstock_job_status,
     import_youngstock_health,
     is_youngstock_job_running,
     list_low_health,
+    list_tags_to_remove,
     list_unassigned_calves,
     run_backfill_in_background,
     save_scr_tag,
@@ -39,6 +41,49 @@ class ScrTagBody(BaseModel):
     cow_id: str | None = None
     etag: str | None = None
     scr_tag: str | None = None
+
+
+class CullAnimalBody(BaseModel):
+    animal_id: int
+
+
+class CullSelectedBody(BaseModel):
+    animal_ids: list[int]
+
+
+@router.get("/tags-to-remove")
+def api_sensehub_tags_to_remove(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_SENSEHUB)),
+):
+    try:
+        return list_tags_to_remove(db)
+    except SenseHubError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/tags-to-remove/cull-all")
+def api_sensehub_cull_tags_to_remove(
+    body: CullSelectedBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_SENSEHUB_IMPORT)),
+):
+    try:
+        return cull_tags_to_remove(db, animal_ids=body.animal_ids)
+    except SenseHubError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/tags-to-remove/cull")
+def api_sensehub_cull_one_tag_to_remove(
+    body: CullAnimalBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_SENSEHUB_IMPORT)),
+):
+    try:
+        return cull_tags_to_remove(db, animal_id=body.animal_id)
+    except SenseHubError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/unassigned")
@@ -65,7 +110,7 @@ def api_sensehub_save_scr_tag(
             etag=body.etag,
             scr_tag=body.scr_tag,
         )
-    except ValueError as exc:
+    except (ValueError, SenseHubError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
