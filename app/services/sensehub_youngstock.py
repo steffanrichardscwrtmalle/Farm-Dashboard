@@ -608,12 +608,15 @@ def backfill_youngstock_health(
     *,
     days: int | None = None,
     catch_up: bool = False,
+    force: bool = False,
 ) -> dict[str, Any]:
     """Re-run Young Stock Health by Age All at past UK sample slots.
 
     When `days` is None, walk back to the oldest current calf's birth (or SenseHub
-    age). Slots already stored are skipped. Catch-up mode fetches the current
-    slot, then only the missing older ones until saved history is reached.
+    age). Slots already stored are skipped unless `force` is set. Force re-downloads
+    every slot so animals whose SenseHub ID changed still get history under the new
+    ID. Catch-up mode fetches the current slot, then only missing older ones until
+    saved history is reached.
     """
     if db.scalar(select(func.count()).select_from(SenseHubYoungstockHealth)) == 0:
         try:
@@ -622,7 +625,11 @@ def backfill_youngstock_health(
             db.rollback()
     span = days if days is not None else backfill_span_days(db)
     all_slots = past_slots(span)
-    existing = set(db.scalars(select(SenseHubYoungstockHealth.sampled_at).distinct()).all())
+    existing: set[dt.datetime] = set()
+    if not force:
+        existing = set(
+            db.scalars(select(SenseHubYoungstockHealth.sampled_at).distinct()).all()
+        )
     current, _slot_name = sample_slot()
     slots = slots_to_fetch(
         all_slots,
@@ -634,7 +641,9 @@ def backfill_youngstock_health(
     _set_job(
         status="running",
         message=(
-            f"Logging in to SenseHub to fill {len(slots)} missing slots "
+            f"Logging in to SenseHub to "
+            f"{'re-download' if force else 'fill'} {len(slots)} "
+            f"{'time slots' if force else 'missing slots'} "
             f"(up to {span} days)…"
         ),
         slots_done=0,
@@ -719,10 +728,15 @@ def backfill_youngstock_health(
         raise
 
 
-def run_backfill_in_background(db_factory, days: int | None = None) -> None:
+def run_backfill_in_background(
+    db_factory,
+    days: int | None = None,
+    *,
+    force: bool = True,
+) -> None:
     db = db_factory()
     try:
-        backfill_youngstock_health(db, days=days)
+        backfill_youngstock_health(db, days=days, force=force)
     except Exception:
         pass
     finally:

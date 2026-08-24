@@ -89,6 +89,7 @@ def main() -> int:
             result = backfill_youngstock_health(
                 db,
                 days=None if args.backfill_all else args.backfill_days,
+                force=True,
             )
             print(
                 f"Backfilled {result['slots']} slots, saved {result['saved']} rows "

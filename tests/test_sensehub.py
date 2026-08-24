@@ -334,6 +334,8 @@ def test_slots_to_fetch_catch_up_stops_at_saved_history() -> None:
     assert [item[1] for item in catch_up] == ["6pm", "midday"]
     full = slots_to_fetch(all_slots, existing, catch_up=False)
     assert [item[1] for item in full] == ["6pm", "midday"]
+    forced = slots_to_fetch(all_slots, set(), catch_up=False)
+    assert [item[1] for item in forced] == ["6pm", "midday", "6am", "midnight"]
     caught_up = slots_to_fetch(
         all_slots, {midnight, six_am, midday, six_pm}, catch_up=True, current=six_pm
     )

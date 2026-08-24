@@ -138,11 +138,13 @@ def api_sensehub_youngstock_backfill(
 ):
     if is_youngstock_job_running():
         return {"status": "running", "message": "A SenseHub backfill is already running."}
-    background_tasks.add_task(run_backfill_in_background, SessionLocal, days)
+    background_tasks.add_task(
+        run_backfill_in_background, SessionLocal, days, force=True
+    )
     if days is None:
-        message = "Backfilling all SenseHub youngstock history…"
+        message = "Re-downloading all SenseHub youngstock history…"
     else:
-        message = f"Backfilling the last {days} days from SenseHub…"
+        message = f"Re-downloading the last {days} days from SenseHub…"
     return {
         "status": "started",
         "message": message,

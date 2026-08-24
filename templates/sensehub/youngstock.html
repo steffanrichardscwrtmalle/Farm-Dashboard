@@ -333,7 +333,7 @@
     <button type="button" id="apply-btn">Show list</button>
     {% if perms.action('sensehub.import') %}
     <button type="button" class="btn-compact" id="refresh-btn" title="Refresh from SenseHub">Refresh</button>
-    <button type="button" class="btn-compact" id="backfill-btn" title="Fill all missing SenseHub history">Fill history</button>
+    <button type="button" class="btn-compact" id="backfill-btn" title="Re-download SenseHub history for every time slot. Use this after changing animal IDs in SenseHub.">Fill history</button>
     {% endif %}
     <button type="button" class="btn-icon" id="print-btn" title="Print table" aria-label="Print table">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -763,7 +763,7 @@
       backfillBtn.addEventListener("click", async () => {
         backfillBtn.disabled = true;
         if (refreshBtn) refreshBtn.disabled = true;
-        metaEl.textContent = "Starting full SenseHub history backfill…";
+        metaEl.textContent = "Re-downloading SenseHub history for every time slot…";
         const res = await fetch("/api/sensehub/youngstock/backfill", { method: "POST" });
         const body = await res.json();
         metaEl.textContent = body.message || "";
