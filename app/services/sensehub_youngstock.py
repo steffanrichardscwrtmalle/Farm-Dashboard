@@ -450,6 +450,20 @@ def _digit_keys(value: str | None) -> set[str]:
     return keys
 
 
+def _scr_id_keys(value: str | None) -> set[str]:
+    """IDs used to join DairyComp to SenseHub: full digits, and last 6 of a UK tag.
+
+    Do not use the first six digits of a 12-digit official tag: that is the herd
+    number and would falsely mark calves as already on SenseHub.
+    """
+    digits = "".join(ch for ch in (value or "") if ch.isdigit())
+    if not digits:
+        return set()
+    if len(digits) <= 6:
+        return {digits}
+    return {digits, digits[-6:]}
+
+
 def save_rows(
     db: Session,
     rows: list[dict[str, Any]],
@@ -989,11 +1003,25 @@ def _latest_sensehub_samples(db: Session) -> list[SenseHubYoungstockHealth]:
 def _sensehub_id_keys(samples: list[SenseHubYoungstockHealth]) -> set[str]:
     keys: set[str] = set()
     for sample in samples:
-        keys.update(_digit_keys(sample.animal_id))
+        keys.update(_scr_id_keys(sample.animal_id))
         normalized = normalize_animal_id(sample.animal_id)
         if normalized:
             keys.add(normalized)
     return keys
+
+
+def _inventory_on_sensehub(record: HerdInventory, sensehub_keys: set[str]) -> bool:
+    keys = _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag)
+    return bool(keys & sensehub_keys)
+
+
+def _category_wanted(category: str | None, wanted: set[str]) -> bool:
+    cat = (category or "").strip().casefold()
+    if "dairy" in wanted and cat in {"dairy", "youngstock", "heifer", "calf", ""}:
+        return True
+    if "beef" in wanted and cat == "beef":
+        return True
+    return False
 
 
 def list_unassigned_calves(
@@ -1016,10 +1044,9 @@ def list_unassigned_calves(
             if not _pen_is_unassigned_pen(record.pen):
                 continue
             category = (record.category or "").strip()
-            if category.casefold() not in wanted:
+            if not _category_wanted(category, wanted):
                 continue
-            keys = _digit_keys(record.cow_id) | _digit_keys(record.etag)
-            if keys & sensehub_keys:
+            if _inventory_on_sensehub(record, sensehub_keys):
                 continue
             etag_value = (record.etag or "").strip() or None
             row_key = inventory_assignment_key(record.farm, record.cow_id)
@@ -1061,7 +1088,7 @@ def list_unassigned_calves(
                 "birth_date": None,
                 "pen": sample.group_name,
                 "reason": REASON_WRONG_SCR,
-                "scr_tag": assignments.get(row_key) or animal_id,
+                "scr_tag": assignments.get(row_key),
             }
         )
     animals.sort(

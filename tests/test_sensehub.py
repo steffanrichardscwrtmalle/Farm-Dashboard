@@ -626,16 +626,24 @@ def test_list_unassigned_calves_is_pen_110_dairy_without_sensehub() -> None:
                 pen="111",
                 aged=18,
             ),
+            HerdInventory(
+                farm="CM",
+                cow_id="888888",
+                etag="UK435259888888",
+                category="Youngstock",
+                pen="110",
+                aged=9,
+            ),
         ]
     )
     session.commit()
 
     dairy = list_unassigned_calves(session)
-    assert [row["cow_id"] for row in dairy["animals"]] == ["111111"]
+    assert [row["cow_id"] for row in dairy["animals"]] == ["111111", "888888"]
     assert dairy["animals"][0]["etag4"] == "1111"
     assert dairy["animals"][0]["reason"] == "Calf doesn't have SCR tag"
     both = list_unassigned_calves(session, categories=["Dairy", "Beef"])
-    assert [row["cow_id"] for row in both["animals"]] == ["111111", "222222"]
+    assert [row["cow_id"] for row in both["animals"]] == ["111111", "222222", "888888"]
 
     save_rows(
         session,
@@ -650,8 +658,10 @@ def test_list_unassigned_calves_is_pen_110_dairy_without_sensehub() -> None:
     dairy_with_wrong = list_unassigned_calves(session)
     by_id = {row["cow_id"]: row["reason"] for row in dairy_with_wrong["animals"]}
     assert by_id["111111"] == "Calf doesn't have SCR tag"
+    assert by_id["888888"] == "Calf doesn't have SCR tag"
     assert by_id["999999"] == "Calf ID probably wrong on SCR"
     assert "435259" not in by_id
+    assert next(row["scr_tag"] for row in dairy_with_wrong["animals"] if row["cow_id"] == "999999") is None
     session.close()
 
 

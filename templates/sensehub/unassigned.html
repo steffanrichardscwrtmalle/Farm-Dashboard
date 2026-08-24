@@ -207,7 +207,7 @@
           <td>${row.cow_id || "—"}</td>
           <td>
             <span class="scr-edit">
-              <input class="scr-input" value="${escAttr(row.scr_tag || "")}" data-key="${escAttr(row.row_key)}" data-farm="${escAttr(row.farm)}" data-cow="${escAttr(row.cow_id)}" data-etag="${escAttr(row.etag)}" aria-label="SCR tag">
+              <input class="scr-input" value="${escAttr(row.scr_tag || "")}" placeholder="Monitoring tag" data-key="${escAttr(row.row_key)}" data-farm="${escAttr(row.farm)}" data-cow="${escAttr(row.cow_id)}" data-etag="${escAttr(row.etag)}" aria-label="SCR monitoring tag">
               <button type="button" class="scr-save">Save</button>
               <span class="scr-status"></span>
             </span>
