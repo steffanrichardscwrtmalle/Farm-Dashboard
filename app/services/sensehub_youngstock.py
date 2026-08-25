@@ -1124,6 +1124,7 @@ UNASSIGNED_PEN = "110"
 REASON_NO_SCR = "Calf doesn't have SCR tag"
 REASON_WRONG_SCR = "Calf ID probably wrong on SCR"
 REASON_TAG_REMOVED = "SCR Tag has been removed"
+WRONG_SCR_MIN_AGE_DAYS = 3
 WEANING_EVENT = "WEANING"
 WEANED_REMARK = "WEANED"
 
@@ -1581,6 +1582,8 @@ def list_unassigned_calves(
             match_inventory(animal_id, by_cow, by_tag) is not None
             or match_inventory(sample.raw_animal_id or "", by_cow, by_tag) is not None
         ):
+            continue
+        if sample.age_days is not None and sample.age_days < WRONG_SCR_MIN_AGE_DAYS:
             continue
         seen_wrong.add(animal_id)
         etag_value = (sample.raw_animal_id or "").strip() or animal_id

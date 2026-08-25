@@ -809,6 +809,33 @@ def test_list_unassigned_calves_is_pen_110_dairy_without_sensehub(monkeypatch) -
     session.close()
 
 
+def test_list_unassigned_hides_newborn_sensehub_calves_missing_from_inventory(
+    monkeypatch,
+) -> None:
+    from app.services.sensehub_youngstock import list_unassigned_calves, save_rows
+
+    _stub_untagged_animals(monkeypatch)
+    session = _youngstock_db()
+    sampled = dt.datetime(2026, 8, 25, 12, 0, 0)
+    save_rows(
+        session,
+        [
+            {"AnimalID": "111000", "YoungStockHealthIndex": 90, "AgeInDays": 1},
+            {"AnimalID": "222000", "YoungStockHealthIndex": 88, "AgeInDays": 2},
+            {"AnimalID": "333000", "YoungStockHealthIndex": 86, "AgeInDays": 3},
+        ],
+        sampled_at=sampled,
+        slot="midday",
+    )
+    session.commit()
+    listing = list_unassigned_calves(session)
+    by_id = {row["cow_id"]: row["reason"] for row in listing["animals"]}
+    assert "111000" not in by_id
+    assert "222000" not in by_id
+    assert by_id["333000"] == "Calf ID probably wrong on SCR"
+    session.close()
+
+
 def test_birth_date_to_epoch_is_uk_midnight() -> None:
     from app.services.sensehub_api import birth_date_to_epoch
 
