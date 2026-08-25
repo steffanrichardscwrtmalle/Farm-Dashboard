@@ -86,9 +86,23 @@ def trend_dots(indexes: list[float | None]) -> list[dict[str, Any]]:
     return [{"health_index": value, "band": health_band(value)} for value in padded]
 
 
+def strip_sensehub_remark(raw: Any) -> str:
+    """Keep the cow ID and drop SenseHub name remarks.
+
+    SenseHub stores many animals as ``535666 - PT`` or ``535666 - Pen 12``.
+    Digits in the remark must not be mixed into the ID.
+    """
+    text = str(raw or "").strip()
+    if " - " in text:
+        text = text.split(" - ", 1)[0].strip()
+    return text
+
+
 def normalize_animal_id(raw: Any) -> str | None:
     """Keep the first six digits of a SenseHub animal ID; drop letters and the rest."""
-    digits = "".join(ch for ch in str(raw or "").replace(" ", "") if ch.isdigit())
+    digits = "".join(
+        ch for ch in strip_sensehub_remark(raw).replace(" ", "") if ch.isdigit()
+    )
     if not digits:
         return None
     return digits[:6]
@@ -459,10 +473,12 @@ def _digit_keys(value: str | None) -> set[str]:
 def _scr_id_keys(value: str | None) -> set[str]:
     """IDs used to join DairyComp to SenseHub: full digits, and last 6 of a UK tag.
 
-    Do not use the first six digits of a 12-digit official tag: that is the herd
-    number and would falsely mark calves as already on SenseHub.
+    SenseHub names like ``535666 - PT`` are reduced to the leading cow ID first,
+    so digits in the remark are ignored. Do not use the first six digits of a
+    12-digit official tag: that is the herd number and would falsely mark calves
+    as already on SenseHub.
     """
-    digits = "".join(ch for ch in (value or "") if ch.isdigit())
+    digits = "".join(ch for ch in strip_sensehub_remark(value) if ch.isdigit())
     if not digits:
         return set()
     if len(digits) <= 6:
@@ -762,7 +778,7 @@ def match_inventory(
     by_cow: dict[str, HerdInventory],
     by_tag: dict[str, HerdInventory],
 ) -> HerdInventory | None:
-    """Join a SenseHub animal name/ID to DairyComp, ignoring suffixes like ' - PT'."""
+    """Join a SenseHub animal name/ID to DairyComp, ignoring ' - remark' suffixes."""
     for key in _scr_id_keys(animal_id):
         found = by_cow.get(key) or by_tag.get(key)
         if found:
@@ -1182,6 +1198,26 @@ def _sensehub_id_keys(samples: list[SenseHubYoungstockHealth]) -> set[str]:
     return keys
 
 
+def _report_snapshot_id_keys(db: Session) -> set[str]:
+    """Animal IDs from the last full SenseHub report import (all report types)."""
+    keys: set[str] = set()
+    snapshots = db.scalars(select(SenseHubReportSnapshot)).all()
+    for snapshot in snapshots:
+        rows = (snapshot.payload or {}).get("rows") or []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for field in ("AnimalID", "animal_id", "animalName"):
+                value = row.get(field)
+                if value in (None, ""):
+                    continue
+                keys.update(_scr_id_keys(str(value)))
+                normalized = normalize_animal_id(value)
+                if normalized:
+                    keys.add(normalized)
+    return keys
+
+
 def _inventory_on_sensehub(record: HerdInventory, sensehub_keys: set[str]) -> bool:
     keys = _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag)
     return bool(keys & sensehub_keys)
@@ -1209,6 +1245,7 @@ def list_unassigned_calves(
     }
     samples = _latest_sensehub_samples(db)
     sensehub_keys = _sensehub_id_keys(samples)
+    sensehub_keys.update(_report_snapshot_id_keys(db))
     assignments = _assignment_map(db)
     sent_keys = _sent_assignment_keys(db)
     weaned_keys = _weaned_identity_keys(db)

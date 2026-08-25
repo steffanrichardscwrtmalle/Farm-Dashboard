@@ -77,6 +77,14 @@
       color: #5c2e0a;
     }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin: 0 0 0.75rem; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
     .table-wrap {
       display: inline-block;
       max-width: 100%;
@@ -144,6 +152,11 @@
     }
     .scr-status.ok { color: #15803d; }
     .scr-status.err { color: #b91c1c; }
+    .btn-compact {
+      padding: 0.28rem 0.5rem;
+      font-size: 0.75rem;
+      line-height: 1.2;
+    }
 {% endblock %}
 
 {% block content %}
@@ -163,9 +176,19 @@
           </button>
         </div>
       </div>
+      <p class="help-text" style="margin-top:1rem">
+        Pen 110 calves not found on SenseHub. Names like <strong>535666 - PT</strong>
+        are matched on the leading cow ID. Young-stock health refreshes hourly;
+        all reports refresh daily at 6am UK. Use Refresh to fetch from SCR now.
+      </p>
     </aside>
     <div>
-      <p class="meta-line" id="meta-line">Loading…</p>
+      <div class="toolbar">
+        <p class="meta-line" id="meta-line" style="margin:0;flex:1">Loading…</p>
+        {% if perms.action('sensehub.import') %}
+        <button type="button" class="btn-compact" id="refresh-btn" title="Refresh from SenseHub">Refresh</button>
+        {% endif %}
+      </div>
       <div class="table-wrap">
         <table id="unassigned-table">
           <thead>
@@ -354,6 +377,45 @@
         loadList();
       });
     });
+
+    const refreshBtn = document.getElementById("refresh-btn");
+    async function pollReportImport() {
+      const res = await fetch("/api/sensehub/import/status");
+      const status = await res.json();
+      if (status.status === "running") {
+        metaEl.textContent = status.message || "Importing SenseHub reports…";
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        return pollReportImport();
+      }
+    }
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", async () => {
+        refreshBtn.disabled = true;
+        metaEl.textContent = "Refreshing young-stock health from SenseHub…";
+        try {
+          const healthRes = await fetch("/api/sensehub/youngstock/import", { method: "POST" });
+          const healthBody = await healthRes.json().catch(() => ({}));
+          if (!healthRes.ok) {
+            metaEl.textContent = healthBody.detail || "Young-stock refresh failed.";
+            return;
+          }
+          metaEl.textContent = "Refreshing SenseHub reports…";
+          const reportRes = await fetch("/api/sensehub/import", { method: "POST" });
+          const reportBody = await reportRes.json().catch(() => ({}));
+          if (!reportRes.ok) {
+            metaEl.textContent = reportBody.detail || "Report refresh failed.";
+            await loadList();
+            return;
+          }
+          await pollReportImport();
+          await loadList();
+        } catch (err) {
+          metaEl.textContent = err.message || "Refresh failed.";
+        } finally {
+          refreshBtn.disabled = false;
+        }
+      });
+    }
 
     loadList();
   </script>

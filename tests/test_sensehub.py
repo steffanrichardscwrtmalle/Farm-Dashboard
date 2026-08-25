@@ -233,6 +233,16 @@ def test_normalize_animal_id_keeps_first_six_digits() -> None:
     assert normalize_animal_id("435259ABC") == "435259"
     assert normalize_animal_id("UK435259") == "435259"
     assert normalize_animal_id(" 435259 ABC ") == "435259"
+    assert normalize_animal_id("535666 - PT") == "535666"
+    assert normalize_animal_id("535666 - Pen 12") == "535666"
+
+
+def test_scr_id_keys_ignore_sensehub_remark_digits() -> None:
+    from app.services.sensehub_youngstock import _scr_id_keys
+
+    assert _scr_id_keys("535666 - PT") == {"535666"}
+    assert _scr_id_keys("535666 - Pen 12") == {"535666"}
+    assert _scr_id_keys("535666 - Heifer") == {"535666"}
 
 
 def test_past_slots_skips_future_uk_times() -> None:
@@ -873,6 +883,7 @@ def test_match_inventory_ignores_sensehub_name_suffix() -> None:
     by_cow, by_tag = _inventory_indexes(session)
     assert match_inventory("535666 - PT", by_cow, by_tag) is not None
     assert match_inventory("535666 - PT", by_cow, by_tag).cow_id == "535666"
+    assert match_inventory("535666 - Pen 12", by_cow, by_tag).cow_id == "535666"
     session.close()
 
 
@@ -935,6 +946,38 @@ def test_list_unassigned_calves_hides_calves_already_on_sensehub_with_suffix(
     session.commit()
     listing = list_unassigned_calves(session)
     assert [row["cow_id"] for row in listing["animals"]] == ["111111"]
+    session.close()
+
+
+def test_list_unassigned_uses_report_snapshot_animal_ids(monkeypatch) -> None:
+    from app.models import SenseHubReportSnapshot
+    from app.services.sensehub_youngstock import list_unassigned_calves
+
+    _stub_untagged_animals(monkeypatch)
+    session = _youngstock_db()
+    session.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="535666",
+            etag="UK000000535666",
+            category="Dairy",
+            pen="110",
+            aged=20,
+        )
+    )
+    session.add(
+        SenseHubReportSnapshot(
+            report_key=1,
+            report_name="Young Stock Health by Age All",
+            title="Young Stock Health by Age All",
+            row_count=1,
+            payload={"rows": [{"AnimalID": "535666 - Heifer 2"}]},
+            fetched_at=dt.datetime(2026, 8, 23, 6, 0, 0),
+        )
+    )
+    session.commit()
+    listing = list_unassigned_calves(session)
+    assert listing["animals"] == []
     session.close()
 
 
