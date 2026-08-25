@@ -57,7 +57,7 @@
 {% block content %}
   <div class="toolbar">
     <p class="meta-line" id="meta-line" style="margin:0;">Loading…</p>
-    {% if perms.action('sensehub.import') %}
+    {% if perms.action('sensehub.cull') %}
     <button type="button" id="cull-selected-btn">Cull Selected</button>
     {% endif %}
   </div>
@@ -66,7 +66,7 @@
     <table id="tags-table">
       <thead>
         <tr>
-          {% if perms.action('sensehub.import') %}
+          {% if perms.action('sensehub.cull') %}
           <th><input type="checkbox" id="pick-all" checked aria-label="Select all"></th>
           {% endif %}
           <th data-sort="id">ID</th>
@@ -74,7 +74,7 @@
           <th data-sort="scr_tag">SCR Tag</th>
           <th data-sort="days_with_assigned_tag">Days with tag</th>
           <th data-sort="reason">Reason</th>
-          {% if perms.action('sensehub.import') %}
+          {% if perms.action('sensehub.cull') %}
           <th></th>
           {% endif %}
         </tr>
@@ -91,7 +91,7 @@
     const emptyEl = document.getElementById("empty-state");
     const cullSelectedBtn = document.getElementById("cull-selected-btn");
     const pickAll = document.getElementById("pick-all");
-    const canCull = {{ perms.action('sensehub.import') | tojson }};
+    const canCull = {{ perms.action('sensehub.cull') | tojson }};
     const NUM_COLS = new Set(["id", "age_days", "scr_tag", "days_with_assigned_tag"]);
     let animals = [];
     let sortKey = "id";

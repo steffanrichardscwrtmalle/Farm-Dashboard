@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, require_action, require_page
-from app.auth.permissions import ACTION_SENSEHUB_IMPORT, PAGE_SENSEHUB
+from app.auth.permissions import ACTION_SENSEHUB_CULL, ACTION_SENSEHUB_IMPORT, PAGE_SENSEHUB
 from app.db import SessionLocal, get_db
 from app.models import User
 from app.services.sensehub_api import SenseHubError
@@ -66,7 +66,7 @@ def api_sensehub_tags_to_remove(
 def api_sensehub_cull_tags_to_remove(
     body: CullSelectedBody,
     db: Session = Depends(get_db),
-    _: User = Depends(require_action(ACTION_SENSEHUB_IMPORT)),
+    _: User = Depends(require_action(ACTION_SENSEHUB_CULL)),
 ):
     try:
         return cull_tags_to_remove(db, animal_ids=body.animal_ids)
@@ -78,7 +78,7 @@ def api_sensehub_cull_tags_to_remove(
 def api_sensehub_cull_one_tag_to_remove(
     body: CullAnimalBody,
     db: Session = Depends(get_db),
-    _: User = Depends(require_action(ACTION_SENSEHUB_IMPORT)),
+    _: User = Depends(require_action(ACTION_SENSEHUB_CULL)),
 ):
     try:
         return cull_tags_to_remove(db, animal_id=body.animal_id)

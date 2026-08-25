@@ -84,6 +84,7 @@ ACTION_HR_ENROLL = "hr.enroll"
 ACTION_HR_VIEW_SENSITIVE = "hr.view_sensitive"
 ACTION_PARLOUR_IMPORT = "parlour.import"
 ACTION_SENSEHUB_IMPORT = "sensehub.import"
+ACTION_SENSEHUB_CULL = "sensehub.cull"
 ACTION_CTS_SYNC = "cts.sync"
 
 ACTION_KEYS: tuple[str, ...] = (
@@ -105,6 +106,7 @@ ACTION_KEYS: tuple[str, ...] = (
     ACTION_HR_VIEW_SENSITIVE,
     ACTION_PARLOUR_IMPORT,
     ACTION_SENSEHUB_IMPORT,
+    ACTION_SENSEHUB_CULL,
     ACTION_CTS_SYNC,
 )
 
@@ -127,6 +129,7 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_HR_VIEW_SENSITIVE: "HR — view sensitive (NI, pay, contracts, documents)",
     ACTION_PARLOUR_IMPORT: "Parlour — import milk flow shift reports",
     ACTION_SENSEHUB_IMPORT: "SenseHub — refresh heat / health reports",
+    ACTION_SENSEHUB_CULL: "SenseHub — cull Tags To Remove",
     ACTION_CTS_SYNC: "CTS — sync cattle on holding",
 }
 
@@ -150,6 +153,7 @@ ACTION_PAGES: dict[str, str] = {
     ACTION_HR_VIEW_SENSITIVE: PAGE_HR,
     ACTION_PARLOUR_IMPORT: PAGE_PARLOUR,
     ACTION_SENSEHUB_IMPORT: PAGE_SENSEHUB,
+    ACTION_SENSEHUB_CULL: PAGE_SENSEHUB,
     ACTION_CTS_SYNC: PAGE_BCMS,
 }
 

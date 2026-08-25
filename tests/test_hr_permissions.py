@@ -64,6 +64,30 @@ def test_staff_hr_preset_excludes_office_admin() -> None:
     assert ACTION_HR_VIEW_SENSITIVE in perms["actions"]
 
 
+def test_sensehub_refresh_and_cull_are_separate_actions() -> None:
+    from app.auth.permissions import (
+        ACTION_SENSEHUB_CULL,
+        ACTION_SENSEHUB_IMPORT,
+        PAGE_SENSEHUB,
+    )
+
+    refresh_only = normalize_permissions(
+        {"pages": [PAGE_SENSEHUB], "actions": [ACTION_SENSEHUB_IMPORT]}
+    )
+    assert ACTION_SENSEHUB_IMPORT in refresh_only["actions"]
+    assert ACTION_SENSEHUB_CULL not in refresh_only["actions"]
+
+    cull_only = _user('{"pages":["sensehub"],"actions":["sensehub.cull"]}')
+    assert has_action(cull_only, ACTION_SENSEHUB_CULL)
+    assert not has_action(cull_only, ACTION_SENSEHUB_IMPORT)
+
+    catalog = permissions_for_admin_ui()
+    sensehub = next(item for item in catalog["pages"] if item["id"] == PAGE_SENSEHUB)
+    action_ids = {item["id"] for item in sensehub["actions"]}
+    assert ACTION_SENSEHUB_IMPORT in action_ids
+    assert ACTION_SENSEHUB_CULL in action_ids
+
+
 def test_admin_catalog_nests_hr_actions_under_hr_page() -> None:
     catalog = permissions_for_admin_ui()
     hr = next(item for item in catalog["pages"] if item["id"] == PAGE_HR)
