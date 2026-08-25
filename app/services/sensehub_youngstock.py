@@ -1456,6 +1456,43 @@ def _no_data_from_snapshot(db: Session) -> list[dict[str, Any]]:
     return parse_no_data_rows((snapshot.payload or {}).get("rows") or [])
 
 
+def _youngstock_health_all_keys(db: Session) -> set[str]:
+    """IDs from the latest Young Stock Health by Age All sample and snapshot."""
+    keys = _sensehub_id_keys(_latest_sensehub_samples(db))
+    snapshot = next(
+        (
+            item
+            for item in db.scalars(select(SenseHubReportSnapshot)).all()
+            if compact_report_name(item.report_name) == compact_report_name(DEFAULT_REPORT)
+            or compact_report_name(item.title) == compact_report_name(DEFAULT_REPORT)
+        ),
+        None,
+    )
+    if snapshot is not None:
+        keys.update(_id_keys_from_report_rows((snapshot.payload or {}).get("rows") or []))
+    return keys
+
+
+def _recently_tagged_ids(no_data: list[dict[str, Any]]) -> tuple[set[int], set[str]]:
+    animal_ids: set[int] = set()
+    keys: set[str] = set()
+    for item in no_data:
+        days = item.get("days_with_assigned_tag")
+        if days is None:
+            continue
+        try:
+            if int(days) >= NO_DATA_MIN_TAG_DAYS:
+                continue
+        except (TypeError, ValueError):
+            continue
+        try:
+            animal_ids.add(int(item["animal_id"]))
+        except (TypeError, ValueError, KeyError):
+            pass
+        keys.update(_scr_id_keys(str(item.get("animal_name") or "")))
+    return animal_ids, keys
+
+
 def _inventory_on_sensehub(record: HerdInventory, sensehub_keys: set[str]) -> bool:
     keys = _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag)
     return bool(keys & sensehub_keys)
@@ -1584,6 +1621,7 @@ _CALF_CATEGORIES = {"dairy", "youngstock", "heifer", "calf", ""}
 _MAX_TAG_REMOVAL_AGE_DAYS = 400
 REASON_NO_TAG = "No SCR tag"
 REASON_NO_DATA = "No Data"
+REASON_FAULTY_TAG = "Tag most likely removed or faulty"
 REASON_SOLD = "Sold"
 REASON_DIED = "Died"
 _EXIT_EVENTS = ("SOLD", "DIED")
@@ -1692,9 +1730,11 @@ def auto_cull_exited_sensehub_animals(db: Session) -> dict[str, Any]:
 
 
 def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any]:
-    """Animals in Herd with no monitoring tag, plus No Data animals tagged 3+ days."""
+    """Herd animals with no tag, No Data for 3+ days, or tagged but missing from YSH All."""
     untagged = _untagged_from_herd_snapshot(db)
     no_data = _no_data_from_snapshot(db)
+    health_keys = _youngstock_health_all_keys(db)
+    recent_ids, recent_keys = _recently_tagged_ids(no_data)
     inventory = _inventory_by_scr_keys(db)
     exits = _latest_exit_by_identity(db)
     animals: list[dict[str, Any]] = []
@@ -1757,6 +1797,43 @@ def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any
         ):
             continue
         animals.append(row)
+    if health_keys:
+        no_data_days = {
+            int(item["animal_id"]): item.get("days_with_assigned_tag")
+            for item in no_data
+            if item.get("animal_id") is not None
+        }
+        for item in _animals_from_herd_snapshot(db):
+            animal_id = item.get("animal_id")
+            if animal_id is None or not item.get("scr_tag"):
+                continue
+            animal_id = int(animal_id)
+            if animal_id in seen:
+                continue
+            name = str(item.get("animal_name") or "").strip()
+            identity = _scr_id_keys(name)
+            if identity & health_keys:
+                continue
+            if animal_id in recent_ids or identity & recent_keys:
+                continue
+            record = None
+            for key in identity:
+                record = inventory.get(key)
+                if record is not None:
+                    break
+            if record is not None:
+                identity |= _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag)
+            seen.add(animal_id)
+            row = {
+                "animal_id": animal_id,
+                "id": name,
+                "age_days": dairycomp_age_days(record),
+                "scr_tag": item.get("scr_tag"),
+                "days_with_assigned_tag": no_data_days.get(animal_id),
+                "reason": REASON_FAULTY_TAG,
+            }
+            _apply_exit_reason(row, identity, exits)
+            animals.append(row)
     animals.sort(
         key=lambda row: (
             int(row["id"]) if str(row.get("id") or "").isdigit() else 10**9,

@@ -328,6 +328,19 @@ def _add_no_data_snapshot(session: Session, animals: list[dict]) -> None:
     )
 
 
+def _add_youngstock_health_snapshot(session: Session, animal_ids: list[str]) -> None:
+    session.add(
+        SenseHubReportSnapshot(
+            report_key=1,
+            report_name="Young Stock Health by Age All",
+            title="Young Stock Health by Age All",
+            row_count=len(animal_ids),
+            payload={"rows": [{"AnimalID": animal_id} for animal_id in animal_ids]},
+            fetched_at=dt.datetime(2026, 8, 25, 16, 0, 0),
+        )
+    )
+
+
 def test_normalize_animal_id_keeps_first_six_digits() -> None:
     from app.services.sensehub_youngstock import normalize_animal_id
 
@@ -1406,6 +1419,41 @@ def test_list_tags_to_remove_includes_no_data_animals(monkeypatch) -> None:
     assert listing["animals"][0]["scr_tag"] == "12345678"
     assert listing["animals"][0]["reason"] == "No Data"
     assert listing["animals"][0]["age_days"] == 17
+    session.close()
+
+
+def test_list_tags_to_remove_includes_tagged_animals_missing_from_youngstock_health() -> None:
+    from app.services.sensehub_youngstock import list_tags_to_remove
+
+    session = _youngstock_db()
+    _add_herd_snapshot(
+        session,
+        [
+            {"animal_id": 21, "animal_name": "222222", "scr_tag": "18117154"},
+            {"animal_id": 22, "animal_name": "333333", "scr_tag": "18117155"},
+            {"animal_id": 23, "animal_name": "444444", "scr_tag": "18117156"},
+        ],
+    )
+    _add_youngstock_health_snapshot(session, ["222222"])
+    _add_no_data_snapshot(
+        session,
+        [
+            {
+                "animal_id": 23,
+                "animal_name": "444444",
+                "age_days": 10,
+                "scr_tag": "18117156",
+                "days_with_assigned_tag": 2,
+            }
+        ],
+    )
+    session.commit()
+    listing = list_tags_to_remove(session)
+    by_id = {row["id"]: row for row in listing["animals"]}
+    assert "222222" not in by_id
+    assert "444444" not in by_id
+    assert by_id["333333"]["reason"] == "Tag most likely removed or faulty"
+    assert by_id["333333"]["scr_tag"] == "18117155"
     session.close()
 
 
