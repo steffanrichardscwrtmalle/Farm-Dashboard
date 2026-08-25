@@ -34,6 +34,12 @@ from app.services.pedigree_registrations import (
 from app.services.sire_conflicts import build_sire_conflicts_csv, list_sire_conflicts
 from app.services.ahdb_bulls import AhdbBullsError, ensure_imported, list_bulls, refresh_bulls
 from app.services.custom_indexes import reset_index_settings, save_index_settings
+from app.services.animals_to_test import (
+    DEFAULT_MAX_AGED,
+    DEFAULT_MIN_AGED,
+    build_animals_to_test_csv,
+    list_animals_to_test,
+)
 from app.services.pending_results import (
     EMAIL_BODY as PENDING_EMAIL_BODY,
     XLSX_CONTENT_TYPE,
@@ -205,6 +211,38 @@ def api_genomic_scatter(
         return build_genomic_scatter(db, x_trait=x_trait, y_trait=y_trait, farms=farm)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/animals-to-test")
+def api_animals_to_test(
+    farm: list[str] | None = Query(None),
+    min_aged: int = Query(DEFAULT_MIN_AGED, ge=0),
+    max_aged: int = Query(DEFAULT_MAX_AGED, ge=0),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_GENETICS)),
+):
+    return list_animals_to_test(
+        db, farms=farm, min_aged=min_aged, max_aged=max_aged
+    )
+
+
+@router.get("/animals-to-test/export.csv")
+def api_animals_to_test_export_csv(
+    farm: list[str] | None = Query(None),
+    min_aged: int = Query(DEFAULT_MIN_AGED, ge=0),
+    max_aged: int = Query(DEFAULT_MAX_AGED, ge=0),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_GENETICS)),
+):
+    result = list_animals_to_test(
+        db, farms=farm, min_aged=min_aged, max_aged=max_aged
+    )
+    content = build_animals_to_test_csv(result["rows"])
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="animals_to_test.csv"'},
+    )
 
 
 @router.get("/sire-conflicts")

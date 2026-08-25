@@ -1,0 +1,453 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .page-layout { grid-template-columns: 1fr; } }
+    .sidebar-column { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-of-type { margin-bottom: 0; }
+    .filter-section .section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .slicer-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .slicer-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      min-height: 3rem;
+      padding: 0.5rem 0.4rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .slicer-btn[data-value="CM"].selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
+    .age-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .age-inputs label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .age-inputs input { width: 100%; margin: 0; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
+    .action-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    .action-bar .btn-icon {
+      width: 2.1rem;
+      height: 2.1rem;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .action-bar .btn-icon svg {
+      width: 1.1rem;
+      height: 1.1rem;
+      display: block;
+    }
+    .table-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 16rem);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    #to-test-table { width: 100%; border-collapse: collapse; }
+    #to-test-table th, #to-test-table td {
+      padding: 0.45rem 0.55rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    #to-test-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    #to-test-table thead th[data-sort] { cursor: pointer; user-select: none; }
+    #to-test-table thead th[data-sort]:hover { background: #274b73; }
+    #to-test-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
+    #to-test-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
+    .gid-write { display: none; }
+    .empty-state { padding: 1.5rem; color: var(--muted); }
+    .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
+    .message { margin-bottom: 0.75rem; }
+    .message.err { color: #b91c1c; }
+    .print-only { display: none; }
+    /* A4 297mm − 16mm margins − ~9mm title/meta − ~5mm header ≈ 6.2mm × 40 rows. */
+    @page { size: A4 portrait; margin: 8mm; }
+    @media print {
+      .sidebar, .topbar, .sidebar-backdrop, .no-print { display: none !important; }
+      .app-shell { display: block; }
+      .main-panel, main {
+        max-width: none;
+        padding: 0 !important;
+        margin: 0;
+        width: auto;
+      }
+      .page-layout { display: block; gap: 0; }
+      .content-panel { padding: 0; margin: 0; }
+      .print-only { display: block !important; }
+      .print-title {
+        margin: 0 0 0.4mm;
+        font-size: 10pt;
+        font-weight: 700;
+        line-height: 1.1;
+      }
+      .print-meta {
+        margin: 0 0 1.2mm;
+        font-size: 7.5pt;
+        color: #333;
+        line-height: 1.1;
+      }
+      .table-wrap {
+        display: block;
+        max-height: none;
+        overflow: visible;
+        border: none;
+        border-radius: 0;
+      }
+      #to-test-table {
+        width: 100%;
+        table-layout: fixed;
+        font-size: 8pt;
+        line-height: 1;
+        border-collapse: collapse;
+      }
+      #to-test-table th,
+      #to-test-table td {
+        padding: 0 2.5pt;
+        border-bottom: 0.3pt solid #c5cdd6;
+        border-right: 0.3pt solid #e5e9ee;
+        vertical-align: middle;
+      }
+      #to-test-table thead { display: table-header-group; }
+      #to-test-table thead th {
+        position: static;
+        height: 5mm;
+        font-size: 8pt;
+        line-height: 5mm;
+        background: #1e3a5f !important;
+        color: #fff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      #to-test-table thead th[data-sort]::after { display: none; }
+      #to-test-table tbody tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        height: 6.2mm;
+      }
+      #to-test-table tbody td {
+        height: 6.2mm;
+        max-height: 6.2mm;
+        line-height: 6.2mm;
+        overflow: hidden;
+      }
+      .gid-write {
+        display: table-cell !important;
+        width: 28%;
+      }
+      .gid-write .write-box {
+        display: block;
+        height: 4.6mm;
+        min-height: 0;
+        margin-top: 0.6mm;
+        border-bottom: 0.5pt solid #222;
+      }
+      .empty-state { display: none; }
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="page-layout">
+    <div class="sidebar-column no-print">
+      <aside class="filter-panel">
+        <h2>Filters</h2>
+        <div class="filter-section">
+          <span class="section-label">Farm</span>
+          <div class="slicer-group farm-slicer" id="farm-slicer">
+            {% for farm in farm_options %}
+            <button type="button" class="slicer-btn selected" data-value="{{ farm }}" aria-pressed="true">{{ farm }}</button>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">AGED (days)</span>
+          <div class="age-inputs">
+            <label>
+              Min
+              <input type="number" id="min-aged-input" min="0" step="1" value="60" inputmode="numeric">
+            </label>
+            <label>
+              Max
+              <input type="number" id="max-aged-input" min="0" step="1" value="999" inputmode="numeric">
+            </label>
+          </div>
+        </div>
+      </aside>
+      <aside class="filter-panel">
+        <h2>About</h2>
+        <p class="help-text">
+          Dairy heifers (lact = 0, CBRD &lt; 102) with no genomic result and a blank
+          or zero <strong>GID</strong>, <strong>GTEST</strong>, and <strong>SUBD</strong>
+          in inventory. GAD animals are included only if born on or after
+          16 September 2025. Print the list to get a blank Genomic ID column for
+          recording TSU numbers.
+        </p>
+      </aside>
+    </div>
+
+    <section class="content-panel">
+      <div id="status-message" class="message no-print"></div>
+      <p class="meta-line no-print" id="meta-line">Loading…</p>
+
+      <div class="action-bar no-print">
+        <button type="button" class="secondary small" id="download-csv-btn">Download CSV</button>
+        <button type="button" class="btn-icon secondary" id="print-btn" title="Print list" aria-label="Print list">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 8V3h10v5M6 18H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-1M7 14h10v7H7z"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="print-only">
+        <h2 class="print-title">Animals To Test</h2>
+        <p class="print-meta" id="print-meta"></p>
+      </div>
+
+      <div class="table-wrap">
+        <table id="to-test-table">
+          <thead>
+            <tr>
+              <th data-sort="id">ID</th>
+              <th class="gid-write">Genomic ID</th>
+              <th data-sort="etag4">ETAG4</th>
+              <th data-sort="aged">AGED</th>
+              <th data-sort="pen">PEN</th>
+              <th data-sort="farm">Farm</th>
+            </tr>
+          </thead>
+          <tbody id="table-body">
+            <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const NUM_COLS = new Set(["id", "etag4", "aged"]);
+    let rows = [];
+    let sortKey = "etag4";
+    let sortDir = "asc";
+    let ageTimer = null;
+
+    function showMessage(text, isError) {
+      const el = document.getElementById("status-message");
+      el.textContent = text || "";
+      el.className = "message no-print" + (isError ? " err" : "");
+    }
+
+    function selectedFarms() {
+      return [...document.querySelectorAll(".farm-slicer .slicer-btn.selected")]
+        .map(btn => btn.dataset.value);
+    }
+
+    function bindFarmSlicers() {
+      document.querySelectorAll(".farm-slicer .slicer-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const selected = btn.classList.contains("selected");
+          const count = document.querySelectorAll(".farm-slicer .slicer-btn.selected").length;
+          if (selected && count <= 1) return;
+          btn.classList.toggle("selected", !selected);
+          btn.setAttribute("aria-pressed", btn.classList.contains("selected"));
+          loadRows();
+        });
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function ageParam(id, fallback) {
+      const raw = document.getElementById(id).value.trim();
+      if (raw === "") return fallback;
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) && n >= 0 ? n : fallback;
+    }
+
+    function buildQuery() {
+      const params = new URLSearchParams();
+      selectedFarms().forEach(f => params.append("farm", f));
+      params.set("min_aged", String(ageParam("min-aged-input", 60)));
+      params.set("max_aged", String(ageParam("max-aged-input", 999)));
+      return params.toString();
+    }
+
+    function sortValue(row, key) {
+      const value = row[key];
+      if (value === null || value === undefined || value === "") return null;
+      if (NUM_COLS.has(key)) {
+        const num = Number(value);
+        return Number.isNaN(num) ? value : num;
+      }
+      return value;
+    }
+
+    function compareRows(a, b) {
+      const av = sortValue(a, sortKey);
+      const bv = sortValue(b, sortKey);
+      const aEmpty = av === null;
+      const bEmpty = bv === null;
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      let result;
+      if (typeof av === "number" && typeof bv === "number") {
+        result = av - bv;
+      } else {
+        result = String(av).localeCompare(String(bv), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }
+      return sortDir === "asc" ? result : -result;
+    }
+
+    function sortedRows() {
+      return [...rows].sort(compareRows);
+    }
+
+    function markSortHeaders() {
+      document.querySelectorAll("#to-test-table thead th[data-sort]").forEach((th) => {
+        th.classList.remove("sorted-asc", "sorted-desc");
+        if (th.dataset.sort === sortKey) {
+          th.classList.add(sortDir === "asc" ? "sorted-asc" : "sorted-desc");
+        }
+      });
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById("table-body");
+      const sorted = sortedRows();
+      markSortHeaders();
+      if (!sorted.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No animals to test for the current filters.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = sorted.map(function (row) {
+        const aged = (row.aged === null || row.aged === undefined) ? "" : row.aged;
+        return "<tr>" +
+          "<td>" + escapeHtml(row.id) + "</td>" +
+          '<td class="gid-write"><span class="write-box"></span></td>' +
+          "<td>" + escapeHtml(row.etag4) + "</td>" +
+          "<td>" + escapeHtml(aged) + "</td>" +
+          "<td>" + escapeHtml(row.pen) + "</td>" +
+          "<td>" + escapeHtml(row.farm) + "</td>" +
+          "</tr>";
+      }).join("");
+    }
+
+    function printSummary() {
+      const farms = selectedFarms().join(", ") || "All";
+      const minAged = ageParam("min-aged-input", 60);
+      const maxAged = ageParam("max-aged-input", 999);
+      return rows.length + " animal" + (rows.length === 1 ? "" : "s") +
+        " · Farm " + farms +
+        " · AGED " + minAged + "–" + maxAged + " days";
+    }
+
+    async function loadRows() {
+      showMessage("");
+      document.getElementById("meta-line").textContent = "Loading…";
+      try {
+        const res = await fetch("/api/genetics/animals-to-test?" + buildQuery());
+        if (!res.ok) throw new Error("Failed to load animals to test");
+        const data = await res.json();
+        rows = data.rows || [];
+        document.getElementById("meta-line").textContent =
+          rows.length + " animal" + (rows.length === 1 ? "" : "s") + " to test";
+        document.getElementById("print-meta").textContent = printSummary();
+        renderTable();
+      } catch (err) {
+        document.getElementById("meta-line").textContent = "";
+        showMessage(err.message, true);
+      }
+    }
+
+    document.getElementById("download-csv-btn").addEventListener("click", function () {
+      window.location.href = "/api/genetics/animals-to-test/export.csv?" + buildQuery();
+    });
+
+    document.getElementById("print-btn").addEventListener("click", function () {
+      document.getElementById("print-meta").textContent = printSummary();
+      window.print();
+    });
+
+    document.querySelector("#to-test-table thead").addEventListener("click", function (event) {
+      const th = event.target.closest("th[data-sort]");
+      if (!th) return;
+      const key = th.dataset.sort;
+      if (sortKey === key) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortKey = key;
+        sortDir = "asc";
+      }
+      renderTable();
+    });
+
+    ["min-aged-input", "max-aged-input"].forEach(function (id) {
+      document.getElementById(id).addEventListener("input", function () {
+        clearTimeout(ageTimer);
+        ageTimer = setTimeout(loadRows, 300);
+      });
+    });
+
+    bindFarmSlicers();
+    loadRows();
+  </script>
+{% endblock %}

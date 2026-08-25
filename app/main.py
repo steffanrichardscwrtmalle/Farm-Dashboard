@@ -1373,6 +1373,28 @@ def genetics_genomic_progress_page(request: Request):
     )
 
 
+@app.get("/genetics/animals-to-test", response_class=HTMLResponse)
+def genetics_animals_to_test_page(request: Request):
+    if denied := _page_guard(request, PAGE_GENETICS):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "genetics/animals_to_test.html",
+        _template_ctx(
+            request,
+            page_heading="Animals To Test",
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_genetics_context(
+                "Animals To Test",
+                "animals-to-test",
+                "Animals To Test",
+            ),
+        ),
+    )
+
+
 @app.get("/genetics/pending-results", response_class=HTMLResponse)
 def genetics_pending_results_page(request: Request):
     if denied := _page_guard(request, PAGE_GENETICS):
