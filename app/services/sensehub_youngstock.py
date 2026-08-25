@@ -25,7 +25,10 @@ from app.services.events_common import filter_disease_episode_records
 from app.services.sensehub_api import (
     DEFAULT_REPORT,
     HERD_REPORT,
+    NO_DATA_REPORT,
     SenseHubError,
+    animal_list_as_report,
+    compact_report_name,
     assign_sensehub_monitoring_tag,
     create_sensehub_calf,
     cull_sensehub_animals,
@@ -34,10 +37,10 @@ from app.services.sensehub_api import (
     flatten_report,
     is_herd_report,
     list_reports,
-    list_no_data_sensehub_animals,
     list_sensehub_animals,
     list_untagged_sensehub_animals,
     login,
+    parse_no_data_rows,
 )
 
 _UK = ZoneInfo("Europe/London")
@@ -645,8 +648,71 @@ def _upsert_report_snapshot(
     )
 
 
+def refresh_sensehub_list_snapshots(
+    db: Session,
+    *,
+    fetched_at: dt.datetime | None = None,
+    farm_id: str | None = None,
+    farm_name: str | None = None,
+    software_version: str | None = None,
+) -> dict[str, int]:
+    """Refresh stored Animals in Herd and No Data lists from SenseHub."""
+    fetched_at = fetched_at or dt.datetime.now()
+    result = {"herd_saved": 0, "no_data_saved": 0}
+    try:
+        animals = list_sensehub_animals()
+        if animals:
+            _upsert_report_snapshot(
+                db,
+                animal_list_as_report(animals),
+                fetched_at=fetched_at,
+                farm_id=farm_id,
+                farm_name=farm_name,
+                software_version=software_version,
+            )
+            result["herd_saved"] = len(animals)
+    except SenseHubError:
+        pass
+    try:
+        payload = fetch_named_reports([NO_DATA_REPORT])
+        for report in payload.get("reports") or []:
+            if compact_report_name(report.get("report_name")) != compact_report_name(
+                NO_DATA_REPORT
+            ):
+                continue
+            _upsert_report_snapshot(
+                db,
+                report,
+                fetched_at=fetched_at,
+                farm_id=payload.get("farm_id") or farm_id,
+                farm_name=payload.get("farm_name") or farm_name,
+                software_version=payload.get("software_version") or software_version,
+            )
+            result["no_data_saved"] = len(report.get("rows") or [])
+    except SenseHubError:
+        pass
+    return result
+
+
+def refresh_tags_to_remove_data(db: Session) -> dict[str, Any]:
+    """Refresh Animals in Herd and No Data, then auto-cull sold/died animals."""
+    lists = refresh_sensehub_list_snapshots(db)
+    auto_culled = 0
+    try:
+        auto = auto_cull_exited_sensehub_animals(db)
+        auto_culled = int(auto.get("culled") or 0)
+    except Exception:
+        auto_culled = 0
+    db.commit()
+    return {
+        "herd_saved": int(lists.get("herd_saved") or 0),
+        "no_data_saved": int(lists.get("no_data_saved") or 0),
+        "auto_culled": auto_culled,
+    }
+
+
 def _import_current_slot(db: Session) -> dict[str, Any]:
-    payload = fetch_named_reports([DEFAULT_REPORT, HERD_REPORT])
+    payload = fetch_named_reports([DEFAULT_REPORT])
     reports = payload.get("reports") or []
     rows: list[dict[str, Any]] = []
     fetched_at = dt.datetime.now()
@@ -663,6 +729,13 @@ def _import_current_slot(db: Session) -> dict[str, Any]:
                 farm_name=payload.get("farm_name"),
                 software_version=payload.get("software_version"),
             )
+    lists = refresh_sensehub_list_snapshots(
+        db,
+        fetched_at=fetched_at,
+        farm_id=payload.get("farm_id"),
+        farm_name=payload.get("farm_name"),
+        software_version=payload.get("software_version"),
+    )
     sampled, slot, saved = save_current_reading(db, rows)
     db.commit()
     return {
@@ -670,6 +743,8 @@ def _import_current_slot(db: Session) -> dict[str, Any]:
         "sampled_at": sampled.isoformat(),
         "slot": slot,
         "farm_name": payload.get("farm_name"),
+        "herd_saved": lists["herd_saved"],
+        "no_data_saved": lists["no_data_saved"],
     }
 
 
@@ -1301,6 +1376,86 @@ def _report_snapshot_id_keys(db: Session) -> set[str]:
     return keys
 
 
+def _herd_snapshot(db: Session) -> SenseHubReportSnapshot | None:
+    snapshots = list(db.scalars(select(SenseHubReportSnapshot)).all())
+    return next(
+        (
+            item
+            for item in snapshots
+            if is_herd_report(item.report_name) or is_herd_report(item.title)
+        ),
+        None,
+    )
+
+
+def _no_data_snapshot(db: Session) -> SenseHubReportSnapshot | None:
+    return next(
+        (
+            item
+            for item in db.scalars(select(SenseHubReportSnapshot)).all()
+            if compact_report_name(item.report_name) == compact_report_name(NO_DATA_REPORT)
+            or compact_report_name(item.title) == compact_report_name(NO_DATA_REPORT)
+        ),
+        None,
+    )
+
+
+def _animals_from_herd_snapshot(db: Session) -> list[dict[str, Any]]:
+    snapshot = _herd_snapshot(db)
+    if snapshot is None:
+        return []
+    animals: list[dict[str, Any]] = []
+    for row in (snapshot.payload or {}).get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(
+            row.get("AnimalID")
+            or row.get("animal_name")
+            or row.get("animalName")
+            or ""
+        ).strip()
+        if not name:
+            continue
+        animal_id = row.get("CowDatabaseID") or row.get("animal_id")
+        try:
+            parsed_id = int(animal_id) if animal_id not in (None, "") else None
+        except (TypeError, ValueError):
+            parsed_id = None
+        tag_known = any(
+            key in row for key in ("CowRfidOrScrTagNumber", "scr_tag", "CowScrTagNumber")
+        )
+        tag = row.get("CowRfidOrScrTagNumber") or row.get("scr_tag")
+        tag_text = str(tag).strip() if tag not in (None, "") else None
+        if tag_text and tag_text.casefold() in {"none", "null", "-"}:
+            tag_text = None
+        animals.append(
+            {
+                "animal_id": parsed_id,
+                "animal_name": name,
+                "scr_tag": tag_text,
+                "tag_known": tag_known,
+            }
+        )
+    return animals
+
+
+def _untagged_from_herd_snapshot(db: Session) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in _animals_from_herd_snapshot(db)
+        if item.get("tag_known")
+        and not item.get("scr_tag")
+        and item.get("animal_id") is not None
+    ]
+
+
+def _no_data_from_snapshot(db: Session) -> list[dict[str, Any]]:
+    snapshot = _no_data_snapshot(db)
+    if snapshot is None:
+        return []
+    return parse_no_data_rows((snapshot.payload or {}).get("rows") or [])
+
+
 def _inventory_on_sensehub(record: HerdInventory, sensehub_keys: set[str]) -> bool:
     keys = _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag)
     return bool(keys & sensehub_keys)
@@ -1332,9 +1487,18 @@ def list_unassigned_calves(
     assignments = _assignment_map(db)
     sent_keys = _sent_assignment_keys(db)
     weaned_keys = _weaned_identity_keys(db)
-    untagged = _untagged_animals_by_key()
-    register = _animals_by_scr_key(loader=list_sensehub_animals)
+    herd_animals = _animals_from_herd_snapshot(db)
+    untagged = _animals_by_scr_key(
+        [
+            item
+            for item in herd_animals
+            if item.get("tag_known") and not item.get("scr_tag")
+        ],
+        loader=lambda: [],
+    )
+    register = _animals_by_scr_key(herd_animals, loader=lambda: [])
     sensehub_keys.update(set(register) - set(untagged))
+    sensehub_keys -= set(untagged)
     animals: list[dict[str, Any]] = []
     if wanted:
         for record in db.scalars(select(HerdInventory)).all():
@@ -1529,8 +1693,8 @@ def auto_cull_exited_sensehub_animals(db: Session) -> dict[str, Any]:
 
 def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any]:
     """Animals in Herd with no monitoring tag, plus No Data animals tagged 3+ days."""
-    untagged = list_untagged_sensehub_animals()
-    no_data = list_no_data_sensehub_animals()
+    untagged = _untagged_from_herd_snapshot(db)
+    no_data = _no_data_from_snapshot(db)
     inventory = _inventory_by_scr_keys(db)
     exits = _latest_exit_by_identity(db)
     animals: list[dict[str, Any]] = []
@@ -1605,7 +1769,19 @@ def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any
         culled = {int(item) for item in result.get("animal_ids") or []}
         auto_culled = int(result.get("culled") or 0)
         animals = [row for row in animals if int(row["animal_id"]) not in culled]
-    return {"count": len(animals), "animals": animals, "auto_culled": auto_culled}
+    herd_snap = _herd_snapshot(db)
+    no_data_snap = _no_data_snapshot(db)
+    stamps = [
+        item.fetched_at
+        for item in (herd_snap, no_data_snap)
+        if item is not None and item.fetched_at is not None
+    ]
+    return {
+        "count": len(animals),
+        "animals": animals,
+        "auto_culled": auto_culled,
+        "updated_at": max(stamps).isoformat() if stamps else None,
+    }
 
 
 def cull_tags_to_remove(

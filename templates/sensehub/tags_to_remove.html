@@ -56,7 +56,10 @@
 
 {% block content %}
   <div class="toolbar">
-    <p class="meta-line" id="meta-line" style="margin:0;">Loading…</p>
+    <p class="meta-line" id="meta-line" style="margin:0;flex:1">Loading…</p>
+    {% if perms.action('sensehub.import') %}
+    <button type="button" class="btn-compact" id="refresh-btn" title="Refresh from SenseHub">Refresh</button>
+    {% endif %}
     {% if perms.action('sensehub.cull') %}
     <button type="button" id="cull-selected-btn">Cull Selected</button>
     {% endif %}
@@ -177,7 +180,8 @@
       }
       animals = payload.animals || [];
       const autoCulled = payload.auto_culled || 0;
-      metaEl.textContent = `${payload.count ?? animals.length} animal(s) from Animals in Herd with no monitoring tag, plus No Data animals tagged for 3 or more days.`;
+      const when = payload.updated_at ? ` Last SenseHub refresh ${new Date(payload.updated_at).toLocaleString()}.` : "";
+      metaEl.textContent = `${payload.count ?? animals.length} animal(s) from Animals in Herd with no monitoring tag, plus No Data animals tagged for 3 or more days.${when}`;
       if (autoCulled) {
         statusEl.textContent = `Automatically culled ${autoCulled} sold/died animal(s) on SenseHub.`;
         statusEl.className = "meta-line status-ok";
@@ -253,6 +257,27 @@
       });
     });
 
+    const refreshBtn = document.getElementById("refresh-btn");
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", async () => {
+        refreshBtn.disabled = true;
+        metaEl.textContent = "Refreshing Animals in Herd and No Data from SenseHub…";
+        try {
+          const res = await fetch("/api/sensehub/tags-to-remove/refresh", { method: "POST" });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const detail = payload.detail;
+            metaEl.textContent = typeof detail === "string" ? detail : "Refresh failed.";
+            return;
+          }
+          await loadList();
+        } catch (err) {
+          metaEl.textContent = err.message || "Refresh failed.";
+        } finally {
+          refreshBtn.disabled = false;
+        }
+      });
+    }
     if (cullSelectedBtn) cullSelectedBtn.addEventListener("click", cullSelected);
     if (pickAll) {
       pickAll.addEventListener("change", () => {

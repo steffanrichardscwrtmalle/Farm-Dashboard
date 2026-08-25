@@ -19,7 +19,7 @@ from app.services.sensehub_api import (
     SenseHubError,
     fetch_all_reports,
 )
-from app.services.sensehub_youngstock import save_from_reports
+from app.services.sensehub_youngstock import refresh_sensehub_list_snapshots, save_from_reports
 
 _lock = threading.Lock()
 _import_status: dict[str, Any] = {
@@ -101,6 +101,16 @@ def import_sensehub(db: Session) -> dict[str, Any]:
             rows_imported += len(rows)
 
         save_from_reports(db, reports)
+        try:
+            refresh_sensehub_list_snapshots(
+                db,
+                fetched_at=fetched_at,
+                farm_id=payload.get("farm_id"),
+                farm_name=payload.get("farm_name"),
+                software_version=payload.get("software_version"),
+            )
+        except SenseHubError:
+            pass
         db.commit()
         latest = fetched_at.isoformat()
         result = {

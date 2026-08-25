@@ -55,6 +55,8 @@ REPORT_TITLES: dict[str, str] = {
 
 DEFAULT_REPORT = "Young Stock Health by Age All"
 HERD_REPORT = "Animals in Herd"
+NO_DATA_REPORT = "No Data"
+ANIMAL_LIST_SNAPSHOT_KEY = 900001
 
 FIELD_LABELS: dict[str, str] = {
     "AnimalID": "Animal ID",
@@ -118,7 +120,8 @@ def compact_report_name(name: str | None) -> str:
 
 
 def is_herd_report(name: str | None) -> bool:
-    return compact_report_name(name) == "animalsinherd"
+    compact = compact_report_name(name)
+    return compact in {"animalsinherd", "animallist"}
 
 
 class SenseHubError(Exception):
@@ -724,6 +727,55 @@ def _parse_animal_list_rows(payload: Any) -> tuple[list[dict[str, Any]], int | N
     return animals, _animal_list_total(body)
 
 
+def animal_list_as_report(animals: list[dict[str, Any]]) -> dict[str, Any]:
+    """Turn the live Animals in Herd grid into a stored report snapshot."""
+    rows: list[dict[str, Any]] = []
+    for animal in animals:
+        rows.append(
+            {
+                "AnimalID": animal.get("animal_name"),
+                "CowDatabaseID": animal.get("animal_id"),
+                "CowRfidOrScrTagNumber": animal.get("scr_tag"),
+            }
+        )
+    return {
+        "report_key": ANIMAL_LIST_SNAPSHOT_KEY,
+        "report_name": HERD_REPORT,
+        "title": HERD_REPORT,
+        "category": None,
+        "row_count": len(rows),
+        "columns": [
+            {"key": "AnimalID", "label": "Animal ID"},
+            {"key": "CowDatabaseID", "label": "SenseHub ID"},
+            {"key": "CowRfidOrScrTagNumber", "label": "Monitoring tag"},
+        ],
+        "rows": rows,
+    }
+
+
+def parse_no_data_rows(rows: list[Any] | None) -> list[dict[str, Any]]:
+    animals: list[dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        animal_id = _raw_report_value(row, "CowDatabaseID", "CowDbId", "CowDatabaseID")
+        name = str(_raw_report_value(row, "AnimalID") or "").strip()
+        if animal_id is None or not name:
+            continue
+        tag = _raw_report_value(row, "CowScrTagNumber", "CowRfidOrScrTagNumber")
+        age = _raw_report_value(row, "AgeInDays")
+        animals.append(
+            {
+                "animal_id": int(animal_id),
+                "animal_name": name,
+                "age_days": _as_int(age),
+                "scr_tag": str(tag).strip() if tag not in (None, "") else None,
+                "days_with_assigned_tag": days_with_assigned_tag(row),
+            }
+        )
+    return animals
+
+
 def _fetch_sensehub_animals(
     client: httpx.Client,
     headers: dict[str, str],
@@ -1005,26 +1057,7 @@ def list_no_data_sensehub_animals(
         )
         body = _unwrap(raw) or raw
         rows = body.get("rows") if isinstance(body, dict) else []
-        animals: list[dict[str, Any]] = []
-        for row in rows or []:
-            if not isinstance(row, dict):
-                continue
-            animal_id = _raw_report_value(row, "CowDatabaseID", "CowDbId")
-            name = str(_raw_report_value(row, "AnimalID") or "").strip()
-            if animal_id is None or not name:
-                continue
-            tag = _raw_report_value(row, "CowScrTagNumber")
-            age = _raw_report_value(row, "AgeInDays")
-            animals.append(
-                {
-                    "animal_id": int(animal_id),
-                    "animal_name": name,
-                    "age_days": _as_int(age),
-                    "scr_tag": str(tag).strip() if tag not in (None, "") else None,
-                    "days_with_assigned_tag": days_with_assigned_tag(row),
-                }
-            )
-        return animals
+        return parse_no_data_rows(rows)
     finally:
         if own_client:
             client.close()

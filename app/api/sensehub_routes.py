@@ -28,6 +28,7 @@ from app.services.sensehub_youngstock import (
     list_low_health,
     list_tags_to_remove,
     list_unassigned_calves,
+    refresh_tags_to_remove_data,
     run_backfill_in_background,
     save_scr_tag,
 )
@@ -57,7 +58,18 @@ def api_sensehub_tags_to_remove(
     _: User = Depends(require_page(PAGE_SENSEHUB)),
 ):
     try:
-        return list_tags_to_remove(db)
+        return list_tags_to_remove(db, auto_cull=False)
+    except SenseHubError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/tags-to-remove/refresh")
+def api_sensehub_refresh_tags_to_remove(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_SENSEHUB_IMPORT)),
+):
+    try:
+        return refresh_tags_to_remove_data(db)
     except SenseHubError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

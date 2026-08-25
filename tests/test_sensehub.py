@@ -241,6 +241,10 @@ def test_import_replaces_snapshots(monkeypatch) -> None:
     session: Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
 
     monkeypatch.setattr(
+        "app.services.sensehub_import.refresh_sensehub_list_snapshots",
+        lambda *args, **kwargs: {"herd_saved": 0, "no_data_saved": 0},
+    )
+    monkeypatch.setattr(
         "app.services.sensehub_import.fetch_all_reports",
         lambda: {
             "farm_id": "EU4005774",
@@ -276,6 +280,52 @@ def _youngstock_db() -> Session:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+
+
+def _add_herd_snapshot(session: Session, animals: list[dict]) -> None:
+    session.add(
+        SenseHubReportSnapshot(
+            report_key=900001,
+            report_name="Animals in Herd",
+            title="Animals in Herd",
+            row_count=len(animals),
+            payload={
+                "rows": [
+                    {
+                        "AnimalID": item["animal_name"],
+                        "CowDatabaseID": item.get("animal_id"),
+                        "CowRfidOrScrTagNumber": item.get("scr_tag"),
+                    }
+                    for item in animals
+                ]
+            },
+            fetched_at=dt.datetime(2026, 8, 25, 16, 0, 0),
+        )
+    )
+
+
+def _add_no_data_snapshot(session: Session, animals: list[dict]) -> None:
+    session.add(
+        SenseHubReportSnapshot(
+            report_key=900002,
+            report_name="No Data",
+            title="No Data",
+            row_count=len(animals),
+            payload={
+                "rows": [
+                    {
+                        "AnimalID": item["animal_name"],
+                        "CowDatabaseID": item["animal_id"],
+                        "CowScrTagNumber": item.get("scr_tag"),
+                        "AgeInDays": item.get("age_days"),
+                        "DaysWithAssignedTag": item.get("days_with_assigned_tag"),
+                    }
+                    for item in animals
+                ]
+            },
+            fetched_at=dt.datetime(2026, 8, 25, 16, 0, 0),
+        )
+    )
 
 
 def test_normalize_animal_id_keeps_first_six_digits() -> None:
@@ -658,10 +708,6 @@ def _stub_untagged_animals(
         "app.services.sensehub_youngstock.list_sensehub_animals",
         lambda: list(registered if registered is not None else animals or []),
     )
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
-        lambda: [],
-    )
 
 
 def test_list_unassigned_calves_is_pen_110_dairy_without_sensehub(monkeypatch) -> None:
@@ -897,11 +943,12 @@ def test_list_unassigned_calves_hides_weaned_calves(monkeypatch) -> None:
 def test_list_unassigned_calves_marks_removed_scr_tag(monkeypatch) -> None:
     from app.services.sensehub_youngstock import list_unassigned_calves
 
-    _stub_untagged_animals(
-        monkeypatch,
-        [{"animal_id": 77, "animal_name": "111111"}],
-    )
+    _stub_untagged_animals(monkeypatch)
     session = _youngstock_db()
+    _add_herd_snapshot(
+        session,
+        [{"animal_id": 77, "animal_name": "111111", "scr_tag": None}],
+    )
     session.add(
         HerdInventory(
             farm="CM",
@@ -947,11 +994,12 @@ def test_list_unassigned_calves_hides_calves_already_on_sensehub_with_suffix(
     from app.models import SenseHubYoungstockHealth
     from app.services.sensehub_youngstock import list_unassigned_calves, save_rows
 
-    _stub_untagged_animals(
-        monkeypatch,
-        registered=[{"animal_id": 88, "animal_name": "535666 - PT"}],
-    )
+    _stub_untagged_animals(monkeypatch)
     session = _youngstock_db()
+    _add_herd_snapshot(
+        session,
+        [{"animal_id": 88, "animal_name": "535666 - PT", "scr_tag": "18117154"}],
+    )
     session.add(
         HerdInventory(
             farm="CM",
@@ -1070,11 +1118,12 @@ def test_list_unassigned_uses_animals_in_herd_without_health_data(monkeypatch) -
 def test_list_unassigned_uses_live_animals_in_herd(monkeypatch) -> None:
     from app.services.sensehub_youngstock import list_unassigned_calves
 
-    _stub_untagged_animals(
-        monkeypatch,
-        registered=[{"animal_id": 91, "animal_name": "444444 - PT"}],
-    )
+    _stub_untagged_animals(monkeypatch)
     session = _youngstock_db()
+    _add_herd_snapshot(
+        session,
+        [{"animal_id": 91, "animal_name": "444444 - PT", "scr_tag": "18117154"}],
+    )
     session.add(
         HerdInventory(
             farm="CM",
@@ -1096,40 +1145,79 @@ def test_hourly_import_stores_animals_in_herd_snapshot(monkeypatch) -> None:
     from app.services.sensehub_youngstock import _import_current_slot
 
     monkeypatch.setattr(
+        "app.services.sensehub_youngstock.list_sensehub_animals",
+        lambda: [{"animal_id": 9, "animal_name": "444444 - PT", "scr_tag": None}],
+    )
+    monkeypatch.setattr(
         "app.services.sensehub_youngstock.fetch_named_reports",
         lambda names: {
             "farm_id": "EU1",
             "farm_name": "Test Farm",
             "software_version": "1",
-            "reports": [
-                {
-                    "report_key": 1,
-                    "report_name": "Young Stock Health by Age All",
-                    "title": "Young Stock Health by Age All",
-                    "row_count": 1,
-                    "columns": [],
-                    "rows": [{"AnimalID": "111111", "YoungStockHealthIndex": 90}],
-                },
-                {
-                    "report_key": 99,
-                    "report_name": "Animals in Herd",
-                    "title": "Animals in Herd",
-                    "category": "Custom",
-                    "row_count": 1,
-                    "columns": [],
-                    "rows": [{"AnimalID": "444444 - PT"}],
-                },
-            ],
+            "reports": (
+                [
+                    {
+                        "report_key": 2,
+                        "report_name": "No Data",
+                        "title": "No Data",
+                        "row_count": 0,
+                        "columns": [],
+                        "rows": [],
+                    }
+                ]
+                if names == ["No Data"]
+                else [
+                    {
+                        "report_key": 1,
+                        "report_name": "Young Stock Health by Age All",
+                        "title": "Young Stock Health by Age All",
+                        "row_count": 1,
+                        "columns": [],
+                        "rows": [{"AnimalID": "111111", "YoungStockHealthIndex": 90}],
+                    }
+                ]
+            ),
         },
     )
     session = _youngstock_db()
     result = _import_current_slot(session)
     assert result["saved"] == 1
-    snap = session.scalar(select(SenseHubReportSnapshot))
-    assert snap is not None
-    assert snap.report_name == "Animals in Herd"
+    snaps = {item.report_name: item for item in session.scalars(select(SenseHubReportSnapshot)).all()}
+    snap = snaps["Animals in Herd"]
     assert snap.payload["rows"][0]["AnimalID"] == "444444 - PT"
     session.close()
+
+
+def test_refresh_tags_to_remove_data_stores_herd_snapshot(monkeypatch) -> None:
+    from app.models import SenseHubReportSnapshot
+    from app.services.sensehub_youngstock import refresh_tags_to_remove_data
+
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.list_sensehub_animals",
+        lambda: [{"animal_id": 9, "animal_name": "111111", "scr_tag": None}],
+    )
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.fetch_named_reports",
+        lambda names: {"reports": []},
+    )
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.auto_cull_exited_sensehub_animals",
+        lambda db: {"culled": 0},
+    )
+    session = _youngstock_db()
+    result = refresh_tags_to_remove_data(session)
+    assert result["herd_saved"] == 1
+    snap = session.scalar(
+        select(SenseHubReportSnapshot).where(
+            SenseHubReportSnapshot.report_name == "Animals in Herd"
+        )
+    )
+    assert snap is not None
+    assert snap.payload["rows"][0]["AnimalID"] == "111111"
+    session.close()
+
+
+def test_save_scr_tag_assigns_when_calf_already_on_sensehub(monkeypatch) -> None:
     from app.services.sensehub_youngstock import (
         inventory_assignment_key,
         list_unassigned_calves,
@@ -1187,18 +1275,14 @@ def test_hourly_import_stores_animals_in_herd_snapshot(monkeypatch) -> None:
 def test_list_tags_to_remove_is_untagged_youngstock(monkeypatch) -> None:
     from app.services.sensehub_youngstock import list_tags_to_remove
 
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
-        lambda: [
-            {"animal_id": 2101, "animal_name": "111111"},
-            {"animal_id": 9, "animal_name": "1143"},
+    session = _youngstock_db()
+    _add_herd_snapshot(
+        session,
+        [
+            {"animal_id": 2101, "animal_name": "111111", "scr_tag": None},
+            {"animal_id": 9, "animal_name": "1143", "scr_tag": None},
         ],
     )
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
-        lambda: [],
-    )
-    session = _youngstock_db()
     session.add_all(
         [
             HerdInventory(
@@ -1236,18 +1320,14 @@ def test_cull_tags_to_remove_sends_today_cull_ids(monkeypatch) -> None:
     sent: dict[str, object] = {}
 
     monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
-        lambda: [{"animal_id": 2101, "animal_name": "111111"}],
-    )
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
-        lambda: [],
-    )
-    monkeypatch.setattr(
         "app.services.sensehub_youngstock.cull_sensehub_animals",
         lambda ids, occurred_on=None, **kwargs: sent.update({"ids": list(ids), "occurred_on": occurred_on}) or {"culled": len(ids), "animal_ids": list(ids)},
     )
     session = _youngstock_db()
+    _add_herd_snapshot(
+        session,
+        [{"animal_id": 2101, "animal_name": "111111", "scr_tag": None}],
+    )
     session.add(
         HerdInventory(
             farm="CM",
@@ -1269,21 +1349,17 @@ def test_cull_tags_to_remove_one_animal(monkeypatch) -> None:
 
     sent: dict[str, object] = {}
     monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
-        lambda: [
-            {"animal_id": 2101, "animal_name": "111111"},
-            {"animal_id": 2102, "animal_name": "222222"},
-        ],
-    )
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
-        lambda: [],
-    )
-    monkeypatch.setattr(
         "app.services.sensehub_youngstock.cull_sensehub_animals",
         lambda ids, occurred_on=None, **kwargs: sent.update({"ids": list(ids), "occurred_on": occurred_on}) or {"culled": len(ids), "animal_ids": list(ids)},
     )
     session = _youngstock_db()
+    _add_herd_snapshot(
+        session,
+        [
+            {"animal_id": 2101, "animal_name": "111111", "scr_tag": None},
+            {"animal_id": 2102, "animal_name": "222222", "scr_tag": None},
+        ],
+    )
     session.add_all(
         [
             HerdInventory(
@@ -1312,13 +1388,10 @@ def test_cull_tags_to_remove_one_animal(monkeypatch) -> None:
 def test_list_tags_to_remove_includes_no_data_animals(monkeypatch) -> None:
     from app.services.sensehub_youngstock import list_tags_to_remove
 
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
-        lambda: [],
-    )
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
-        lambda: [
+    session = _youngstock_db()
+    _add_no_data_snapshot(
+        session,
+        [
             {
                 "animal_id": 2100,
                 "animal_name": "235565",
@@ -1327,7 +1400,7 @@ def test_list_tags_to_remove_includes_no_data_animals(monkeypatch) -> None:
             }
         ],
     )
-    session = _youngstock_db()
+    session.commit()
     listing = list_tags_to_remove(session)
     assert listing["animals"][0]["id"] == "235565"
     assert listing["animals"][0]["scr_tag"] == "12345678"
@@ -1341,21 +1414,17 @@ def test_cull_tags_to_remove_selected_ids(monkeypatch) -> None:
 
     sent: dict[str, object] = {}
     monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
-        lambda: [
-            {"animal_id": 2101, "animal_name": "111111"},
-            {"animal_id": 2102, "animal_name": "222222"},
-        ],
-    )
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
-        lambda: [],
-    )
-    monkeypatch.setattr(
         "app.services.sensehub_youngstock.cull_sensehub_animals",
         lambda ids, occurred_on=None, **kwargs: sent.update({"ids": list(ids), "occurred_on": occurred_on}) or {"culled": len(ids), "animal_ids": list(ids)},
     )
     session = _youngstock_db()
+    _add_herd_snapshot(
+        session,
+        [
+            {"animal_id": 2101, "animal_name": "111111", "scr_tag": None},
+            {"animal_id": 2102, "animal_name": "222222", "scr_tag": None},
+        ],
+    )
     session.add_all(
         [
             HerdInventory(
@@ -1386,14 +1455,6 @@ def test_list_tags_to_remove_auto_culls_sold_animals(monkeypatch) -> None:
 
     sent: dict[str, object] = {}
     monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
-        lambda: [{"animal_id": 2101, "animal_name": "111111"}],
-    )
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
-        lambda: [],
-    )
-    monkeypatch.setattr(
         "app.services.sensehub_youngstock.cull_sensehub_animals",
         lambda ids, occurred_on=None, **kwargs: sent.update(
             {"ids": list(ids), "occurred_on": occurred_on}
@@ -1401,6 +1462,10 @@ def test_list_tags_to_remove_auto_culls_sold_animals(monkeypatch) -> None:
         or {"culled": len(ids), "animal_ids": list(ids)},
     )
     session = _youngstock_db()
+    _add_herd_snapshot(
+        session,
+        [{"animal_id": 2101, "animal_name": "111111", "scr_tag": None}],
+    )
     session.add(
         HerdInventory(
             farm="CM",
@@ -1432,14 +1497,6 @@ def test_list_tags_to_remove_auto_culls_died_animals(monkeypatch) -> None:
 
     sent: dict[str, object] = {}
     monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
-        lambda: [{"animal_id": 2101, "animal_name": "111111"}],
-    )
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
-        lambda: [],
-    )
-    monkeypatch.setattr(
         "app.services.sensehub_youngstock.cull_sensehub_animals",
         lambda ids, occurred_on=None, **kwargs: sent.update(
             {"ids": list(ids), "occurred_on": occurred_on}
@@ -1447,6 +1504,10 @@ def test_list_tags_to_remove_auto_culls_died_animals(monkeypatch) -> None:
         or {"culled": len(ids), "animal_ids": list(ids)},
     )
     session = _youngstock_db()
+    _add_herd_snapshot(
+        session,
+        [{"animal_id": 2101, "animal_name": "111111", "scr_tag": None}],
+    )
     session.add(
         HerdInventory(
             farm="CM",
@@ -1484,13 +1545,10 @@ def test_days_with_assigned_tag_reads_custom_report_field() -> None:
 def test_list_tags_to_remove_hides_recently_assigned_no_data(monkeypatch) -> None:
     from app.services.sensehub_youngstock import list_tags_to_remove
 
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
-        lambda: [],
-    )
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
-        lambda: [
+    session = _youngstock_db()
+    _add_no_data_snapshot(
+        session,
+        [
             {
                 "animal_id": 2100,
                 "animal_name": "235565",
@@ -1514,7 +1572,7 @@ def test_list_tags_to_remove_hides_recently_assigned_no_data(monkeypatch) -> Non
             },
         ],
     )
-    session = _youngstock_db()
+    session.commit()
     listing = list_tags_to_remove(session)
     assert [row["id"] for row in listing["animals"]] == ["111111", "235566"]
     by_id = {row["id"]: row for row in listing["animals"]}
@@ -1528,12 +1586,16 @@ def test_list_tags_to_remove_still_auto_culls_recent_sold_no_data(monkeypatch) -
 
     sent: dict[str, object] = {}
     monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
-        lambda: [],
+        "app.services.sensehub_youngstock.cull_sensehub_animals",
+        lambda ids, occurred_on=None, **kwargs: sent.update(
+            {"ids": list(ids), "occurred_on": occurred_on}
+        )
+        or {"culled": len(ids), "animal_ids": list(ids)},
     )
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
-        lambda: [
+    session = _youngstock_db()
+    _add_no_data_snapshot(
+        session,
+        [
             {
                 "animal_id": 2101,
                 "animal_name": "111111",
@@ -1543,14 +1605,6 @@ def test_list_tags_to_remove_still_auto_culls_recent_sold_no_data(monkeypatch) -
             }
         ],
     )
-    monkeypatch.setattr(
-        "app.services.sensehub_youngstock.cull_sensehub_animals",
-        lambda ids, occurred_on=None, **kwargs: sent.update(
-            {"ids": list(ids), "occurred_on": occurred_on}
-        )
-        or {"culled": len(ids), "animal_ids": list(ids)},
-    )
-    session = _youngstock_db()
     session.add(
         HerdInventory(
             farm="CM",
