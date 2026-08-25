@@ -583,10 +583,16 @@ def test_list_low_health_filters_threshold_and_joins_events() -> None:
     session.close()
 
 
-def _stub_untagged_animals(monkeypatch, animals: list[dict] | None = None) -> None:
+def _stub_untagged_animals(
+    monkeypatch, animals: list[dict] | None = None, registered: list[dict] | None = None
+) -> None:
     monkeypatch.setattr(
         "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
         lambda: list(animals or []),
+    )
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.list_sensehub_animals",
+        lambda: list(registered if registered is not None else animals or []),
     )
     monkeypatch.setattr(
         "app.services.sensehub_youngstock.list_no_data_sensehub_animals",
@@ -846,6 +852,89 @@ def test_list_unassigned_calves_marks_removed_scr_tag(monkeypatch) -> None:
     dairy = list_unassigned_calves(session)
     assert dairy["animals"][0]["cow_id"] == "111111"
     assert dairy["animals"][0]["reason"] == "SCR Tag has been removed"
+    session.close()
+
+
+def test_match_inventory_ignores_sensehub_name_suffix() -> None:
+    from app.services.sensehub_youngstock import _inventory_indexes, match_inventory
+
+    session = _youngstock_db()
+    session.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="535666",
+            etag="UK000000535666",
+            category="Dairy",
+            pen="110",
+            aged=20,
+        )
+    )
+    session.commit()
+    by_cow, by_tag = _inventory_indexes(session)
+    assert match_inventory("535666 - PT", by_cow, by_tag) is not None
+    assert match_inventory("535666 - PT", by_cow, by_tag).cow_id == "535666"
+    session.close()
+
+
+def test_list_unassigned_calves_hides_calves_already_on_sensehub_with_suffix(
+    monkeypatch,
+) -> None:
+    from app.models import SenseHubYoungstockHealth
+    from app.services.sensehub_youngstock import list_unassigned_calves, save_rows
+
+    _stub_untagged_animals(
+        monkeypatch,
+        registered=[{"animal_id": 88, "animal_name": "535666 - PT"}],
+    )
+    session = _youngstock_db()
+    session.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="535666",
+            etag="UK000000535666",
+            category="Dairy",
+            pen="110",
+            aged=20,
+        )
+    )
+    session.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="111111",
+            etag="UK000000111111",
+            category="Dairy",
+            pen="110",
+            aged=12,
+        )
+    )
+    session.commit()
+
+    listing = list_unassigned_calves(session)
+    assert [row["cow_id"] for row in listing["animals"]] == ["111111"]
+
+    save_rows(
+        session,
+        [{"AnimalID": "535666 - PT", "YoungStockHealthIndex": 90}],
+        sampled_at=dt.datetime(2026, 8, 23, 12, 0, 0),
+        slot="midday",
+    )
+    session.commit()
+    listing = list_unassigned_calves(session)
+    assert [row["cow_id"] for row in listing["animals"]] == ["111111"]
+    assert not any(row["reason"] == "Calf ID probably wrong on SCR" for row in listing["animals"])
+
+    session.add(
+        SenseHubYoungstockHealth(
+            animal_id="535666 - PT",
+            raw_animal_id="535666 - PT",
+            sampled_at=dt.datetime(2026, 8, 23, 18, 0, 0),
+            slot="6pm",
+            health_index=88,
+        )
+    )
+    session.commit()
+    listing = list_unassigned_calves(session)
+    assert [row["cow_id"] for row in listing["animals"]] == ["111111"]
     session.close()
 
 

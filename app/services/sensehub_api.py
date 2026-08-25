@@ -604,6 +604,78 @@ def create_sensehub_calf(
             client.close()
 
 
+def _parse_sensehub_animals(payload: Any) -> list[dict[str, Any]]:
+    body = _unwrap(payload)
+    rows = body
+    if isinstance(body, dict):
+        rows = None
+        for key in ("animals", "cows", "items", "animalList"):
+            value = body.get(key)
+            if isinstance(value, list):
+                rows = value
+                break
+        if rows is None:
+            return []
+    if not isinstance(rows, list):
+        return []
+    animals: list[dict[str, Any]] = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        name = str(
+            item.get("animalName") or item.get("name") or item.get("AnimalID") or ""
+        ).strip()
+        animal_id = item.get("animalId")
+        if animal_id is None:
+            animal_id = item.get("id")
+        if not name or animal_id is None:
+            continue
+        try:
+            animals.append({"animal_id": int(animal_id), "animal_name": name})
+        except (TypeError, ValueError):
+            continue
+    return animals
+
+
+def _fetch_sensehub_animals(
+    client: httpx.Client,
+    headers: dict[str, str],
+    *,
+    params: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    response = client.get(
+        f"{SENSEHUB_PROXY_BASE}/rest/api/animals",
+        headers=headers,
+        params=params,
+    )
+    if response.status_code >= 400:
+        return []
+    return _parse_sensehub_animals(response.json())
+
+
+def list_sensehub_animals(
+    client: httpx.Client | None = None,
+) -> list[dict[str, Any]]:
+    """Animals currently on SenseHub, including names like ``535666 - PT``."""
+    if not sensehub_is_configured():
+        return []
+    own_client = client is None
+    if client is None:
+        client = httpx.Client(timeout=60.0, follow_redirects=True)
+    try:
+        token, display_version = login(client)
+        headers = _animal_write_headers(token, display_version)
+        animals = _fetch_sensehub_animals(client, headers)
+        if animals:
+            return animals
+        return _fetch_sensehub_animals(
+            client, headers, params={"projection": "canAssignTag"}
+        )
+    finally:
+        if own_client:
+            client.close()
+
+
 def list_untagged_sensehub_animals(
     client: httpx.Client | None = None,
 ) -> list[dict[str, Any]]:
@@ -625,19 +697,7 @@ def list_untagged_sensehub_animals(
             raise SenseHubError(
                 f"Could not load untagged SenseHub animals ({response.status_code})."
             )
-        rows = _unwrap(response.json()) or []
-        animals: list[dict[str, Any]] = []
-        if not isinstance(rows, list):
-            return []
-        for item in rows:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("animalName") or "").strip()
-            animal_id = item.get("animalId")
-            if not name or animal_id is None:
-                continue
-            animals.append({"animal_id": int(animal_id), "animal_name": name})
-        return animals
+        return _parse_sensehub_animals(response.json())
     finally:
         if own_client:
             client.close()

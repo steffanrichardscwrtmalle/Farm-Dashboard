@@ -33,6 +33,7 @@ from app.services.sensehub_api import (
     flatten_report,
     list_reports,
     list_no_data_sensehub_animals,
+    list_sensehub_animals,
     list_untagged_sensehub_animals,
     login,
 )
@@ -761,6 +762,11 @@ def match_inventory(
     by_cow: dict[str, HerdInventory],
     by_tag: dict[str, HerdInventory],
 ) -> HerdInventory | None:
+    """Join a SenseHub animal name/ID to DairyComp, ignoring suffixes like ' - PT'."""
+    for key in _scr_id_keys(animal_id):
+        found = by_cow.get(key) or by_tag.get(key)
+        if found:
+            return found
     return by_cow.get(animal_id) or by_tag.get(animal_id)
 
 
@@ -1003,13 +1009,15 @@ def _weaned_identity_keys(db: Session) -> set[str]:
     return keys
 
 
-def _untagged_animals_by_key(
+def _animals_by_scr_key(
     animals: list[dict[str, Any]] | None = None,
+    *,
+    loader,
 ) -> dict[str, dict[str, Any]]:
     by_key: dict[str, dict[str, Any]] = {}
     if animals is None:
         try:
-            animals = list_untagged_sensehub_animals()
+            animals = loader()
         except SenseHubError:
             animals = []
     for animal in animals:
@@ -1017,6 +1025,12 @@ def _untagged_animals_by_key(
         for key in _scr_id_keys(name):
             by_key.setdefault(key, animal)
     return by_key
+
+
+def _untagged_animals_by_key(
+    animals: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    return _animals_by_scr_key(animals, loader=list_untagged_sensehub_animals)
 
 
 def _match_untagged_animal(
@@ -1083,12 +1097,17 @@ def save_scr_tag(
         untagged = _match_untagged_animal(
             cow, etag, _untagged_animals_by_key()
         )
+        already_named = _match_untagged_animal(
+            cow, etag, _animals_by_scr_key(loader=list_sensehub_animals)
+        )
         if untagged:
             assign_sensehub_monitoring_tag(
                 animal_id=int(untagged["animal_id"]),
                 scr_tag=tag,
             )
             assigned = True
+        elif already_named:
+            pass
         else:
             try:
                 create_sensehub_calf(
@@ -1101,13 +1120,16 @@ def save_scr_tag(
                 retry = _match_untagged_animal(
                     cow, etag, _untagged_animals_by_key()
                 )
-                if retry is None:
+                if retry is not None:
+                    assign_sensehub_monitoring_tag(
+                        animal_id=int(retry["animal_id"]),
+                        scr_tag=tag,
+                    )
+                    assigned = True
+                elif _match_untagged_animal(
+                    cow, etag, _animals_by_scr_key(loader=list_sensehub_animals)
+                ) is None:
                     raise
-                assign_sensehub_monitoring_tag(
-                    animal_id=int(retry["animal_id"]),
-                    scr_tag=tag,
-                )
-                assigned = True
     if existing is None:
         existing = SenseHubCalfAssignment(row_key=key)
         db.add(existing)
@@ -1152,10 +1174,11 @@ def _latest_sensehub_samples(db: Session) -> list[SenseHubYoungstockHealth]:
 def _sensehub_id_keys(samples: list[SenseHubYoungstockHealth]) -> set[str]:
     keys: set[str] = set()
     for sample in samples:
-        keys.update(_scr_id_keys(sample.animal_id))
-        normalized = normalize_animal_id(sample.animal_id)
-        if normalized:
-            keys.add(normalized)
+        for value in (sample.animal_id, sample.raw_animal_id):
+            keys.update(_scr_id_keys(value))
+            normalized = normalize_animal_id(value)
+            if normalized:
+                keys.add(normalized)
     return keys
 
 
@@ -1190,6 +1213,8 @@ def list_unassigned_calves(
     sent_keys = _sent_assignment_keys(db)
     weaned_keys = _weaned_identity_keys(db)
     untagged = _untagged_animals_by_key()
+    register = _animals_by_scr_key(loader=list_sensehub_animals)
+    sensehub_keys.update(set(register) - set(untagged))
     animals: list[dict[str, Any]] = []
     if wanted:
         for record in db.scalars(select(HerdInventory)).all():
@@ -1231,7 +1256,10 @@ def list_unassigned_calves(
         animal_id = sample.animal_id
         if not animal_id or animal_id in seen_wrong:
             continue
-        if match_inventory(animal_id, by_cow, by_tag) is not None:
+        if (
+            match_inventory(animal_id, by_cow, by_tag) is not None
+            or match_inventory(sample.raw_animal_id or "", by_cow, by_tag) is not None
+        ):
             continue
         seen_wrong.add(animal_id)
         etag_value = (sample.raw_animal_id or "").strip() or animal_id
