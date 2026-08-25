@@ -24,6 +24,7 @@ from app.models import (
 from app.services.events_common import filter_disease_episode_records
 from app.services.sensehub_api import (
     DEFAULT_REPORT,
+    HERD_REPORT,
     SenseHubError,
     assign_sensehub_monitoring_tag,
     create_sensehub_calf,
@@ -31,6 +32,7 @@ from app.services.sensehub_api import (
     fetch_named_reports,
     fetch_report,
     flatten_report,
+    is_herd_report,
     list_reports,
     list_no_data_sensehub_animals,
     list_sensehub_animals,
@@ -584,15 +586,83 @@ def seed_from_latest_snapshot(db: Session) -> int:
     return saved
 
 
+def _upsert_report_snapshot(
+    db: Session,
+    report: dict[str, Any],
+    *,
+    fetched_at: dt.datetime,
+    farm_id: str | None = None,
+    farm_name: str | None = None,
+    software_version: str | None = None,
+) -> None:
+    rows = report.get("rows") or []
+    payload = {
+        "columns": report.get("columns") or [],
+        "rows": rows,
+        "report_time": report.get("report_time"),
+        "farm_id": farm_id,
+        "farm_name": farm_name,
+        "software_version": software_version,
+    }
+    report_key = int(report["report_key"])
+    report_name = str(report["report_name"])
+    existing = db.scalar(
+        select(SenseHubReportSnapshot).where(
+            SenseHubReportSnapshot.report_key == report_key
+        )
+    )
+    if existing is None:
+        existing = next(
+            (
+                item
+                for item in db.scalars(select(SenseHubReportSnapshot)).all()
+                if is_herd_report(item.report_name) and is_herd_report(report_name)
+            ),
+            None,
+        )
+    title = str(report.get("title") or report_name)
+    row_count = int(report.get("row_count") or len(rows))
+    category = report.get("category")
+    if existing:
+        existing.report_key = report_key
+        existing.report_name = report_name
+        existing.category = category
+        existing.title = title
+        existing.row_count = row_count
+        existing.payload = payload
+        existing.fetched_at = fetched_at
+        return
+    db.add(
+        SenseHubReportSnapshot(
+            report_key=report_key,
+            report_name=report_name,
+            category=category,
+            title=title,
+            row_count=row_count,
+            payload=payload,
+            fetched_at=fetched_at,
+        )
+    )
+
+
 def _import_current_slot(db: Session) -> dict[str, Any]:
-    payload = fetch_named_reports([DEFAULT_REPORT])
+    payload = fetch_named_reports([DEFAULT_REPORT, HERD_REPORT])
     reports = payload.get("reports") or []
     rows: list[dict[str, Any]] = []
+    fetched_at = dt.datetime.now()
     for report in reports:
         name = str(report.get("report_name") or "")
-        if name.casefold() != DEFAULT_REPORT.casefold():
-            continue
-        rows.extend(list(report.get("rows") or []))
+        if name.casefold() == DEFAULT_REPORT.casefold():
+            rows.extend(list(report.get("rows") or []))
+        if is_herd_report(name):
+            _upsert_report_snapshot(
+                db,
+                report,
+                fetched_at=fetched_at,
+                farm_id=payload.get("farm_id"),
+                farm_name=payload.get("farm_name"),
+                software_version=payload.get("software_version"),
+            )
     sampled, slot, saved = save_current_reading(db, rows)
     db.commit()
     return {
@@ -604,10 +674,12 @@ def _import_current_slot(db: Session) -> dict[str, Any]:
 
 
 def import_youngstock_health(db: Session) -> dict[str, Any]:
-    """Fetch the current hour, overwrite the live icon/bar, then fill missing locked slots.
+    """Fetch Young Stock Health, refresh Animals in Herd, then fill missing slots.
 
     Hours 0, 6, 12 and 18 are stored permanently. Other hours overwrite the live
-    reading so the latest table icon and graph bar stay current.
+    reading so the latest table icon and graph bar stay current. Animals in Herd
+    is stored as a report snapshot so newly tagged calves match before they have
+    health data.
     """
     result = _import_current_slot(db)
     filled = backfill_youngstock_health(db, days=None, catch_up=False)
@@ -1198,23 +1270,34 @@ def _sensehub_id_keys(samples: list[SenseHubYoungstockHealth]) -> set[str]:
     return keys
 
 
-def _report_snapshot_id_keys(db: Session) -> set[str]:
-    """Animal IDs from the last full SenseHub report import (all report types)."""
+def _id_keys_from_report_rows(rows: list[Any]) -> set[str]:
     keys: set[str] = set()
-    snapshots = db.scalars(select(SenseHubReportSnapshot)).all()
-    for snapshot in snapshots:
-        rows = (snapshot.payload or {}).get("rows") or []
-        for row in rows:
-            if not isinstance(row, dict):
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for field in (
+            "AnimalID",
+            "animal_id",
+            "animalName",
+            "AnimalName",
+            "Name",
+            "CowID",
+        ):
+            value = row.get(field)
+            if value in (None, ""):
                 continue
-            for field in ("AnimalID", "animal_id", "animalName"):
-                value = row.get(field)
-                if value in (None, ""):
-                    continue
-                keys.update(_scr_id_keys(str(value)))
-                normalized = normalize_animal_id(value)
-                if normalized:
-                    keys.add(normalized)
+            keys.update(_scr_id_keys(str(value)))
+            normalized = normalize_animal_id(value)
+            if normalized:
+                keys.add(normalized)
+    return keys
+
+
+def _report_snapshot_id_keys(db: Session) -> set[str]:
+    """Animal IDs from stored SenseHub reports."""
+    keys: set[str] = set()
+    for snapshot in db.scalars(select(SenseHubReportSnapshot)).all():
+        keys.update(_id_keys_from_report_rows((snapshot.payload or {}).get("rows") or []))
     return keys
 
 
@@ -1340,7 +1423,7 @@ REASON_NO_DATA = "No Data"
 REASON_SOLD = "Sold"
 REASON_DIED = "Died"
 _EXIT_EVENTS = ("SOLD", "DIED")
-NO_DATA_TAG_GRACE_DAYS = 3
+NO_DATA_MIN_TAG_DAYS = 3
 
 
 def _inventory_by_scr_keys(db: Session) -> dict[str, HerdInventory]:
@@ -1445,11 +1528,10 @@ def auto_cull_exited_sensehub_animals(db: Session) -> dict[str, Any]:
 
 
 def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any]:
-    """Untagged calves plus SenseHub No Data animals, ready to cull."""
+    """Animals in Herd with no monitoring tag, plus No Data animals tagged 3+ days."""
     untagged = list_untagged_sensehub_animals()
     no_data = list_no_data_sensehub_animals()
     inventory = _inventory_by_scr_keys(db)
-    historic_keys = _historic_youngstock_keys(db)
     exits = _latest_exit_by_identity(db)
     animals: list[dict[str, Any]] = []
     seen: set[int] = set()
@@ -1466,14 +1548,12 @@ def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any
                 break
         if record is not None:
             identity |= _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag)
-        if not _is_tag_removal_candidate(record, identity, historic_keys):
-            continue
         seen.add(animal_id)
         row = {
             "animal_id": animal_id,
             "id": name,
             "age_days": dairycomp_age_days(record),
-            "scr_tag": None,
+            "scr_tag": item.get("scr_tag"),
             "days_with_assigned_tag": None,
             "reason": REASON_NO_TAG,
         }
@@ -1509,7 +1589,7 @@ def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any
         if (
             row["reason"] == REASON_NO_DATA
             and days_with_tag is not None
-            and int(days_with_tag) <= NO_DATA_TAG_GRACE_DAYS
+            and int(days_with_tag) < NO_DATA_MIN_TAG_DAYS
         ):
             continue
         animals.append(row)

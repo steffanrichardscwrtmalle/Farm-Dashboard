@@ -49,9 +49,12 @@ REPORT_TITLES: dict[str, str] = {
     "TagMaintenanceCalls": "Tag maintenance",
     "Tags": "Tags",
     "ConnectivityProblems": "Connectivity issues",
+    "Animals in Herd": "Animals in Herd",
+    "AnimalsInHerd": "Animals in Herd",
 }
 
 DEFAULT_REPORT = "Young Stock Health by Age All"
+HERD_REPORT = "Animals in Herd"
 
 FIELD_LABELS: dict[str, str] = {
     "AnimalID": "Animal ID",
@@ -83,6 +86,8 @@ PRIORITY_REPORTS: tuple[str, ...] = (
     "Young Stock Health by Age All",
     "Young Stock Health by Age",
     "YoungStockHealth",
+    HERD_REPORT,
+    "AnimalsInHerd",
     "AnimalsInHeat",
     "AnimalsToInspect",
     "AnimalDistress",
@@ -105,6 +110,15 @@ _HIDDEN_FIELDS = {
 }
 
 _CAMEL_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+_REPORT_NAME_COMPACT_RE = re.compile(r"[^a-z0-9]+")
+
+
+def compact_report_name(name: str | None) -> str:
+    return _REPORT_NAME_COMPACT_RE.sub("", (name or "").casefold())
+
+
+def is_herd_report(name: str | None) -> bool:
+    return compact_report_name(name) == "animalsinherd"
 
 
 class SenseHubError(Exception):
@@ -377,11 +391,11 @@ def fetch_all_reports(
         about = fetch_farm_about(client, token)
         catalog = list_reports(client, token)
         if names:
-            wanted = {name.casefold() for name in names}
+            wanted = {compact_report_name(name) for name in names}
             catalog = [
                 item
                 for item in catalog
-                if str(item.get("name") or "").casefold() in wanted
+                if compact_report_name(item.get("name")) in wanted
             ]
             if not catalog:
                 raise SenseHubError(
@@ -406,7 +420,8 @@ def fetch_all_reports(
                 errors.append(f"{item.get('name') or key}: {exc}")
         required = names[0] if names else DEFAULT_REPORT
         if not any(
-            str(item.get("report_name") or "").casefold() == required.casefold()
+            compact_report_name(item.get("report_name"))
+            == compact_report_name(required)
             for item in reports
         ):
             detail = "; ".join(errors[:3]) if errors else "report missing from catalog"
@@ -637,6 +652,78 @@ def _parse_sensehub_animals(payload: Any) -> list[dict[str, Any]]:
     return animals
 
 
+_ANIMAL_LIST_PAGE_SIZE = 200
+
+
+def _animal_list_total(body: dict[str, Any]) -> int | None:
+    meta = body.get("meta") or {}
+    if not isinstance(meta, dict):
+        return None
+    for key in ("rowTotalAfterFilter", "rowTotal"):
+        value = meta.get(key)
+        if isinstance(value, int) and value >= 0:
+            return value
+    return None
+
+
+def _monitoring_tag_value(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    if not text or text.casefold() in {"none", "null", "-"}:
+        return None
+    return text
+
+
+def _parse_animal_list_rows(payload: Any) -> tuple[list[dict[str, Any]], int | None]:
+    """Parse the Animals in Herd grid (SenseHub AnimalList / type=full)."""
+    body = _unwrap(payload)
+    if not isinstance(body, dict):
+        return [], None
+    rows = body.get("rows")
+    if not isinstance(rows, list):
+        return [], _animal_list_total(body)
+    animals: list[dict[str, Any]] = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        name = str(
+            item.get("AnimalIDCalculation")
+            or item.get("AnimalID")
+            or item.get("animalName")
+            or item.get("name")
+            or ""
+        ).strip()
+        animal_id = item.get("CowDatabaseIDCalculation")
+        if animal_id is None:
+            animal_id = item.get("CowDatabaseID")
+        if animal_id is None:
+            animal_id = item.get("animalId")
+        if animal_id is None:
+            animal_id = item.get("id")
+        if not name or animal_id in (None, ""):
+            continue
+        tag = _monitoring_tag_value(
+            item.get("CowRfidOrScrTagNumberCalculation")
+            or item.get("CowRfidOrScrTagNumber")
+            or item.get("CowRfidOrScrTagNumberCalculation")
+            or item.get("CowRfidOrScrTagNumber")
+            or item.get("CowScrTagNumberCalculation")
+            or item.get("CowScrTagNumber")
+        )
+        try:
+            animals.append(
+                {
+                    "animal_id": int(animal_id),
+                    "animal_name": name,
+                    "scr_tag": tag,
+                }
+            )
+        except (TypeError, ValueError):
+            continue
+    return animals, _animal_list_total(body)
+
+
 def _fetch_sensehub_animals(
     client: httpx.Client,
     headers: dict[str, str],
@@ -650,22 +737,65 @@ def _fetch_sensehub_animals(
     )
     if response.status_code >= 400:
         return []
-    return _parse_sensehub_animals(response.json())
+    parsed = _parse_sensehub_animals(response.json())
+    if parsed:
+        return parsed
+    rows, _total = _parse_animal_list_rows(response.json())
+    return rows
+
+
+def _fetch_sensehub_animal_list(
+    client: httpx.Client,
+    headers: dict[str, str],
+) -> list[dict[str, Any]]:
+    animals: list[dict[str, Any]] = []
+    offset = 0
+    total: int | None = None
+    while True:
+        response = client.get(
+            f"{SENSEHUB_PROXY_BASE}/rest/api/animals",
+            headers=headers,
+            params={
+                "offset": offset,
+                "limit": _ANIMAL_LIST_PAGE_SIZE,
+                "type": "full",
+                "includeFilterMetaData": "true" if offset == 0 else "false",
+                "isRefresh": "true" if offset == 0 else "false",
+            },
+        )
+        if response.status_code >= 400:
+            return animals
+        page, page_total = _parse_animal_list_rows(response.json())
+        if page_total is not None:
+            total = page_total
+        if not page:
+            break
+        animals.extend(page)
+        offset += _ANIMAL_LIST_PAGE_SIZE
+        if total is not None and offset >= total:
+            break
+        if offset > 20_000:
+            break
+    return animals
 
 
 def list_sensehub_animals(
     client: httpx.Client | None = None,
 ) -> list[dict[str, Any]]:
-    """Animals currently on SenseHub, including names like ``535666 - PT``."""
+    """Animals currently on SenseHub, including names like ``535666 - PT``.
+
+    Uses the Animals in Herd grid (``AnimalList``, ``type=full``). A plain
+    ``GET /rest/api/animals`` returns 500 on this farm.
+    """
     if not sensehub_is_configured():
         return []
     own_client = client is None
     if client is None:
-        client = httpx.Client(timeout=60.0, follow_redirects=True)
+        client = httpx.Client(timeout=90.0, follow_redirects=True)
     try:
         token, display_version = login(client)
         headers = _animal_write_headers(token, display_version)
-        animals = _fetch_sensehub_animals(client, headers)
+        animals = _fetch_sensehub_animal_list(client, headers)
         if animals:
             return animals
         return _fetch_sensehub_animals(
@@ -679,15 +809,18 @@ def list_sensehub_animals(
 def list_untagged_sensehub_animals(
     client: httpx.Client | None = None,
 ) -> list[dict[str, Any]]:
-    """Animals on SenseHub that can have a monitoring tag assigned."""
+    """Animals in Herd with no monitoring tag (blank RFID/SCR tag number)."""
     if not sensehub_is_configured():
         return []
     own_client = client is None
     if client is None:
-        client = httpx.Client(timeout=60.0, follow_redirects=True)
+        client = httpx.Client(timeout=90.0, follow_redirects=True)
     try:
         token, display_version = login(client)
         headers = _animal_write_headers(token, display_version)
+        herd = _fetch_sensehub_animal_list(client, headers)
+        if herd:
+            return [item for item in herd if not item.get("scr_tag")]
         response = client.get(
             f"{SENSEHUB_PROXY_BASE}/rest/api/animals",
             headers=headers,

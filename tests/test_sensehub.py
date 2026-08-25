@@ -103,6 +103,58 @@ def test_young_stock_health_uses_dashboard_columns() -> None:
     assert flat["rows"][0]["DailyRumination"] == 116
 
 
+def test_parse_animal_list_rows_uses_cow_database_id() -> None:
+    from app.services.sensehub_api import _parse_animal_list_rows
+
+    animals, total = _parse_animal_list_rows(
+        {
+            "meta": {"reportName": "AnimalList", "rowTotal": 1, "rowTotalAfterFilter": 1},
+            "rows": [
+                {
+                    "AnimalIDCalculation": "444444 - PT",
+                    "CowDatabaseIDCalculation": 1910,
+                    "CowGroupNameCalculation": "Suckling Calves",
+                    "CowRfidOrScrTagNumberCalculation": "654321",
+                }
+            ],
+        }
+    )
+    assert total == 1
+    assert animals == [
+        {
+            "animal_id": 1910,
+            "animal_name": "444444 - PT",
+            "scr_tag": "654321",
+        }
+    ]
+
+    empty, _total = _parse_animal_list_rows(
+        {
+            "meta": {"rowTotal": 1, "rowTotalAfterFilter": 1},
+            "rows": [
+                {
+                    "AnimalIDCalculation": "111111",
+                    "CowDatabaseIDCalculation": 77,
+                    "CowRfidOrScrTagNumberCalculation": "",
+                }
+            ],
+        }
+    )
+    assert empty == [
+        {"animal_id": 77, "animal_name": "111111", "scr_tag": None}
+    ]
+
+
+def test_is_herd_report_matches_name_variants() -> None:
+    from app.services.sensehub_api import compact_report_name, is_herd_report
+
+    assert is_herd_report("Animals in Herd")
+    assert is_herd_report("AnimalsInHerd")
+    assert is_herd_report("animals in herd")
+    assert compact_report_name("Animals in Herd") == compact_report_name("AnimalsInHerd")
+    assert not is_herd_report("Young Stock Health by Age All")
+
+
 def test_catalog_includes_custom_reports() -> None:
     items = catalog_from_v5_body(
         {
@@ -594,7 +646,9 @@ def test_list_low_health_filters_threshold_and_joins_events() -> None:
 
 
 def _stub_untagged_animals(
-    monkeypatch, animals: list[dict] | None = None, registered: list[dict] | None = None
+    monkeypatch,
+    animals: list[dict] | None = None,
+    registered: list[dict] | None = None,
 ) -> None:
     monkeypatch.setattr(
         "app.services.sensehub_youngstock.list_untagged_sensehub_animals",
@@ -981,7 +1035,101 @@ def test_list_unassigned_uses_report_snapshot_animal_ids(monkeypatch) -> None:
     session.close()
 
 
-def test_save_scr_tag_assigns_when_calf_already_on_sensehub(monkeypatch) -> None:
+def test_list_unassigned_uses_animals_in_herd_without_health_data(monkeypatch) -> None:
+    from app.models import SenseHubReportSnapshot
+    from app.services.sensehub_youngstock import list_unassigned_calves
+
+    _stub_untagged_animals(monkeypatch)
+    session = _youngstock_db()
+    session.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="444444",
+            etag="UK000000444444",
+            category="Dairy",
+            pen="110",
+            aged=8,
+        )
+    )
+    session.add(
+        SenseHubReportSnapshot(
+            report_key=99,
+            report_name="Animals in Herd",
+            title="Animals in Herd",
+            row_count=1,
+            payload={"rows": [{"AnimalID": "444444 - PT"}]},
+            fetched_at=dt.datetime(2026, 8, 25, 10, 0, 0),
+        )
+    )
+    session.commit()
+    listing = list_unassigned_calves(session)
+    assert listing["animals"] == []
+    session.close()
+
+
+def test_list_unassigned_uses_live_animals_in_herd(monkeypatch) -> None:
+    from app.services.sensehub_youngstock import list_unassigned_calves
+
+    _stub_untagged_animals(
+        monkeypatch,
+        registered=[{"animal_id": 91, "animal_name": "444444 - PT"}],
+    )
+    session = _youngstock_db()
+    session.add(
+        HerdInventory(
+            farm="CM",
+            cow_id="444444",
+            etag="UK000000444444",
+            category="Dairy",
+            pen="110",
+            aged=8,
+        )
+    )
+    session.commit()
+    listing = list_unassigned_calves(session)
+    assert listing["animals"] == []
+    session.close()
+
+
+def test_hourly_import_stores_animals_in_herd_snapshot(monkeypatch) -> None:
+    from app.models import SenseHubReportSnapshot
+    from app.services.sensehub_youngstock import _import_current_slot
+
+    monkeypatch.setattr(
+        "app.services.sensehub_youngstock.fetch_named_reports",
+        lambda names: {
+            "farm_id": "EU1",
+            "farm_name": "Test Farm",
+            "software_version": "1",
+            "reports": [
+                {
+                    "report_key": 1,
+                    "report_name": "Young Stock Health by Age All",
+                    "title": "Young Stock Health by Age All",
+                    "row_count": 1,
+                    "columns": [],
+                    "rows": [{"AnimalID": "111111", "YoungStockHealthIndex": 90}],
+                },
+                {
+                    "report_key": 99,
+                    "report_name": "Animals in Herd",
+                    "title": "Animals in Herd",
+                    "category": "Custom",
+                    "row_count": 1,
+                    "columns": [],
+                    "rows": [{"AnimalID": "444444 - PT"}],
+                },
+            ],
+        },
+    )
+    session = _youngstock_db()
+    result = _import_current_slot(session)
+    assert result["saved"] == 1
+    snap = session.scalar(select(SenseHubReportSnapshot))
+    assert snap is not None
+    assert snap.report_name == "Animals in Herd"
+    assert snap.payload["rows"][0]["AnimalID"] == "444444 - PT"
+    session.close()
     from app.services.sensehub_youngstock import (
         inventory_assignment_key,
         list_unassigned_calves,
@@ -1072,11 +1220,13 @@ def test_list_tags_to_remove_is_untagged_youngstock(monkeypatch) -> None:
     )
     session.commit()
     listing = list_tags_to_remove(session)
-    assert [row["id"] for row in listing["animals"]] == ["111111"]
-    assert listing["animals"][0]["age_days"] == 12
-    assert listing["animals"][0]["animal_id"] == 2101
-    assert listing["animals"][0]["scr_tag"] is None
-    assert listing["animals"][0]["reason"] == "No SCR tag"
+    assert [row["id"] for row in listing["animals"]] == ["1143", "111111"]
+    by_id = {row["id"]: row for row in listing["animals"]}
+    assert by_id["111111"]["age_days"] == 12
+    assert by_id["111111"]["animal_id"] == 2101
+    assert by_id["111111"]["scr_tag"] is None
+    assert by_id["111111"]["reason"] == "No SCR tag"
+    assert by_id["1143"]["reason"] == "No SCR tag"
     session.close()
 
 
@@ -1349,6 +1499,13 @@ def test_list_tags_to_remove_hides_recently_assigned_no_data(monkeypatch) -> Non
                 "days_with_assigned_tag": 2,
             },
             {
+                "animal_id": 2102,
+                "animal_name": "235566",
+                "age_days": 19,
+                "scr_tag": "11223344",
+                "days_with_assigned_tag": 3,
+            },
+            {
                 "animal_id": 2101,
                 "animal_name": "111111",
                 "age_days": 40,
@@ -1359,8 +1516,10 @@ def test_list_tags_to_remove_hides_recently_assigned_no_data(monkeypatch) -> Non
     )
     session = _youngstock_db()
     listing = list_tags_to_remove(session)
-    assert [row["id"] for row in listing["animals"]] == ["111111"]
-    assert listing["animals"][0]["days_with_assigned_tag"] == 8
+    assert [row["id"] for row in listing["animals"]] == ["111111", "235566"]
+    by_id = {row["id"]: row for row in listing["animals"]}
+    assert by_id["111111"]["days_with_assigned_tag"] == 8
+    assert by_id["235566"]["days_with_assigned_tag"] == 3
     session.close()
 
 
