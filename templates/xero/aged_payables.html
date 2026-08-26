@@ -33,6 +33,16 @@
     border-color: #14532d;
     color: #fff;
   }
+  .contact-search {
+    margin: 0;
+    min-width: 14rem;
+    padding: 0.45rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--card);
+    color: var(--text);
+    font-size: 0.875rem;
+  }
   .view-tabs {
     display: flex;
     flex-wrap: wrap;
@@ -281,6 +291,7 @@
         {% endfor %}
       </div>
       <button type="button" class="auto-sort-btn" id="auto-sort-btn" title="Sort red, then blank, then blue; then To Pay, then Total" aria-pressed="false">Auto Sort</button>
+      <input type="search" id="contact-search" class="contact-search" placeholder="Search contact…" autocomplete="off" aria-label="Search contact">
     </div>
     <div class="to-pay-widget" id="to-pay-widget" aria-live="polite">
       <div class="label">To Pay</div>
@@ -549,6 +560,17 @@
       return rows;
     }
 
+    function contactQuery() {
+      return (document.getElementById("contact-search")?.value || "").trim().toLowerCase();
+    }
+
+    function matchingContacts(data) {
+      const q = contactQuery();
+      const rows = sortedContacts(data);
+      if (!q) return rows;
+      return rows.filter((row) => String(row.contact || "").toLowerCase().includes(q));
+    }
+
     function markedAmountCount(data) {
       const dates = data.months || [];
       let count = 0;
@@ -607,6 +629,8 @@
         ? new Date(data.last_synced_at).toLocaleString("en-GB")
         : null;
       const meta = document.getElementById("meta-line");
+      const query = contactQuery();
+      const allToPay = contacts.reduce((sum, row) => sum + rowToPay(row, dates), 0);
       meta.textContent = last
         ? `${data.business_label}: ${Number(data.contact_count || 0).toLocaleString("en-GB")} contacts · ${Number(data.invoice_count || 0).toLocaleString("en-GB")} outstanding bills. Last sync ${last}. Click amounts for To Pay; click a contact for critical (red) then standing order (blue).`
         : `${data.business_label}: no synced bills yet. Sync invoices from Connection first.`;
@@ -618,6 +642,18 @@
           ? "No outstanding supplier bills for this view."
           : "Sync invoices from Connection, then return here.";
         updateToPayWidget(0, 0);
+        return;
+      }
+
+      const rows = matchingContacts(data);
+      if (query) {
+        meta.textContent += ` Showing ${rows.length.toLocaleString("en-GB")} matching contact${rows.length === 1 ? "" : "s"}.`;
+      }
+      if (!rows.length) {
+        table.hidden = true;
+        empty.hidden = false;
+        empty.textContent = `No contacts match “${query}”.`;
+        updateToPayWidget(allToPay, markedAmountCount(data));
         return;
       }
 
@@ -635,7 +671,6 @@
           <th class="num col-topay${sortClass("to_pay")}" data-sort="to_pay">To Pay</th>
         </tr>
       `;
-      const rows = sortedContacts(data);
       const bodyRows = rows.map((row) => {
         const amounts = row.amounts || {};
         const status = getContactStatus(row.contact);
@@ -673,28 +708,36 @@
           </tr>
         `;
       }).join("");
-      const totals = data.column_totals || {};
+      const totals = query
+        ? dates.reduce((acc, key) => {
+            acc[key] = rows.reduce((sum, row) => sum + Number((row.amounts || {})[key] || 0), 0);
+            return acc;
+          }, {})
+        : (data.column_totals || {});
       const totalCells = dates.map((key) => {
         const n = Number(totals[key] || 0);
         const neg = n < 0 ? " neg" : "";
         return `<td class="num${colClass(key)}${neg}">${formatAmount(n)}</td>`;
       }).join("");
-      const grandNeg = Number(data.grand_total) < 0 ? " neg" : "";
-      const grandToPay = rows.reduce((sum, row) => sum + rowToPay(row, dates), 0);
-      const grandToPayNeg = grandToPay < 0 ? " neg" : "";
+      const visibleGrand = query
+        ? rows.reduce((sum, row) => sum + Number(row.total || 0), 0)
+        : Number(data.grand_total);
+      const grandNeg = visibleGrand < 0 ? " neg" : "";
+      const visibleToPay = rows.reduce((sum, row) => sum + rowToPay(row, dates), 0);
+      const grandToPayNeg = visibleToPay < 0 ? " neg" : "";
       document.getElementById("aged-body").innerHTML = `
         ${bodyRows}
         <tr class="total-row">
           <td class="col-colour"></td>
           <td class="sticky-col">Total</td>
           ${totalCells}
-          <td class="num col-total${grandNeg}">${formatAmount(data.grand_total)}</td>
-          <td class="num col-topay${grandToPayNeg}">${formatAmount(grandToPay)}</td>
+          <td class="num col-total${grandNeg}">${formatAmount(visibleGrand)}</td>
+          <td class="num col-topay${grandToPayNeg}">${formatAmount(visibleToPay)}</td>
         </tr>
       `;
       wrap.scrollTop = scrollTop;
       wrap.scrollLeft = scrollLeft;
-      updateToPayWidget(grandToPay, markedAmountCount(data));
+      updateToPayWidget(allToPay, markedAmountCount(data));
       const autoBtn = document.getElementById("auto-sort-btn");
       if (autoBtn) {
         const on = sortState.key === "auto";
@@ -796,6 +839,10 @@
 
     document.getElementById("auto-sort-btn").addEventListener("click", () => {
       setSort("auto");
+    });
+
+    document.getElementById("contact-search").addEventListener("input", () => {
+      if (tableData) renderTable(tableData);
     });
 
     document.querySelectorAll(".view-tab").forEach((btn) => {
