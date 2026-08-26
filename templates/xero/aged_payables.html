@@ -227,7 +227,8 @@
     const USER_ID = {{ (current_user.id if current_user else 0) | tojson }};
     const STORAGE_KEY = `xero-aged-payables-to-pay:${USER_ID}`;
     const LEGACY_STORAGE_KEY = "xero-aged-payables-to-pay";
-    const CRITICAL_KEY = "xero-aged-payables-critical";
+    const CRITICAL_KEY = `xero-aged-payables-critical:${USER_ID}`;
+    const LEGACY_CRITICAL_KEY = "xero-aged-payables-critical";
     const money = new Intl.NumberFormat("en-GB", {
       style: "currency",
       currency: "GBP",
@@ -238,7 +239,7 @@
     let tableData = null;
     let sortState = { key: "contact", dir: 1 };
     const selections = loadSelections();
-    const critical = loadNamedSets(CRITICAL_KEY, sessionStorage);
+    const critical = loadCritical();
 
     function selectedView() {
       return document.querySelector(".view-tab.active")?.dataset.view || DEFAULT_VIEW;
@@ -273,26 +274,34 @@
       return Object.values(store).some((keys) => keys && keys.size);
     }
 
-    function loadSelections() {
-      let loaded = loadNamedSets(STORAGE_KEY, localStorage);
+    function loadPersistentSets(userKey, legacyKey) {
+      let loaded = loadNamedSets(userKey, localStorage);
       if (!storeHasMarks(loaded)) {
-        loaded = loadNamedSets(LEGACY_STORAGE_KEY, sessionStorage);
+        loaded = loadNamedSets(legacyKey, sessionStorage);
         if (!storeHasMarks(loaded)) {
-          loaded = loadNamedSets(LEGACY_STORAGE_KEY, localStorage);
+          loaded = loadNamedSets(legacyKey, localStorage);
         }
         if (storeHasMarks(loaded)) {
-          saveNamedSets(STORAGE_KEY, loaded, localStorage);
+          saveNamedSets(userKey, loaded, localStorage);
         }
       }
       return loaded;
+    }
+
+    function loadSelections() {
+      return loadPersistentSets(STORAGE_KEY, LEGACY_STORAGE_KEY);
     }
 
     function saveSelections() {
       saveNamedSets(STORAGE_KEY, selections, localStorage);
     }
 
+    function loadCritical() {
+      return loadPersistentSets(CRITICAL_KEY, LEGACY_CRITICAL_KEY);
+    }
+
     function saveCritical() {
-      saveNamedSets(CRITICAL_KEY, critical, sessionStorage);
+      saveNamedSets(CRITICAL_KEY, critical, localStorage);
     }
 
     function namedSet(store, view) {
