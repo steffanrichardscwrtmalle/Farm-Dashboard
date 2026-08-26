@@ -276,6 +276,62 @@ def test_import_replaces_snapshots(monkeypatch) -> None:
     session.close()
 
 
+def test_import_sensehub_updates_existing_no_data_snapshot(monkeypatch) -> None:
+    from app.services.sensehub_youngstock import _upsert_report_snapshot
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session: Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+
+    def fake_refresh(db, **kwargs):
+        _upsert_report_snapshot(
+            db,
+            {
+                "report_key": 765469,
+                "report_name": "No Data",
+                "title": "No Data",
+                "category": "Custom",
+                "row_count": 1,
+                "columns": [],
+                "rows": [{"AnimalID": "111111"}],
+            },
+            fetched_at=kwargs.get("fetched_at") or dt.datetime.now(),
+        )
+        return {"herd_saved": 0, "no_data_saved": 1}
+
+    monkeypatch.setattr(
+        "app.services.sensehub_import.refresh_sensehub_list_snapshots",
+        fake_refresh,
+    )
+    monkeypatch.setattr(
+        "app.services.sensehub_import.fetch_all_reports",
+        lambda: {
+            "farm_id": "EU4005774",
+            "farm_name": "Test Farm",
+            "software_version": "8.3.2.357",
+            "reports": [
+                {
+                    "report_key": 765469,
+                    "report_name": "No Data",
+                    "title": "No Data",
+                    "category": "Custom",
+                    "row_count": 0,
+                    "report_time": None,
+                    "columns": [],
+                    "rows": [],
+                }
+            ],
+        },
+    )
+    result = import_sensehub(session)
+    assert result["reports_imported"] == 1
+    stored = session.query(SenseHubReportSnapshot).all()
+    assert len(stored) == 1
+    assert stored[0].report_key == 765469
+    assert stored[0].payload["rows"] == [{"AnimalID": "111111"}]
+    session.close()
+
+
 def _youngstock_db() -> Session:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)

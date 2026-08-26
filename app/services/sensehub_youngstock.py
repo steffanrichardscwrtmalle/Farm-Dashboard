@@ -589,6 +589,25 @@ def seed_from_latest_snapshot(db: Session) -> int:
     return saved
 
 
+def _pending_report_snapshots(db: Session) -> list[SenseHubReportSnapshot]:
+    return [
+        item
+        for item in db.new
+        if isinstance(item, SenseHubReportSnapshot)
+    ]
+
+
+def _snapshot_by_report_key(db: Session, report_key: int) -> SenseHubReportSnapshot | None:
+    for item in _pending_report_snapshots(db):
+        if item.report_key == report_key:
+            return item
+    return db.scalar(
+        select(SenseHubReportSnapshot).where(
+            SenseHubReportSnapshot.report_key == report_key
+        )
+    )
+
+
 def _upsert_report_snapshot(
     db: Session,
     report: dict[str, Any],
@@ -609,16 +628,12 @@ def _upsert_report_snapshot(
     }
     report_key = int(report["report_key"])
     report_name = str(report["report_name"])
-    existing = db.scalar(
-        select(SenseHubReportSnapshot).where(
-            SenseHubReportSnapshot.report_key == report_key
-        )
-    )
+    existing = _snapshot_by_report_key(db, report_key)
     if existing is None:
         existing = next(
             (
                 item
-                for item in db.scalars(select(SenseHubReportSnapshot)).all()
+                for item in (*_pending_report_snapshots(db), *db.scalars(select(SenseHubReportSnapshot)).all())
                 if is_herd_report(item.report_name) and is_herd_report(report_name)
             ),
             None,

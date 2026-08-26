@@ -78,6 +78,11 @@ def import_sensehub(db: Session) -> dict[str, Any]:
         db.execute(delete(SenseHubReportSnapshot))
         db.flush()
 
+        reports_by_key: dict[int, dict[str, Any]] = {}
+        for report in reports:
+            reports_by_key[int(report["report_key"])] = report
+        reports = list(reports_by_key.values())
+
         rows_imported = 0
         for report in reports:
             rows = report.get("rows") or []
@@ -100,6 +105,7 @@ def import_sensehub(db: Session) -> dict[str, Any]:
             db.add(snapshot)
             rows_imported += len(rows)
 
+        db.flush()
         save_from_reports(db, reports)
         try:
             refresh_sensehub_list_snapshots(
