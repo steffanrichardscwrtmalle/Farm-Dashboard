@@ -126,6 +126,25 @@
   .aged-table tr.critical-row td:not(.selected):not(.col-topay):not(.col-total):not(.col-older):not(.sticky-col) {
     background: #fff1f2;
   }
+  .aged-table tr.standing-order-row td,
+  .aged-table tr.standing-order-row td.col-older,
+  .aged-table tr.standing-order-row td.col-total,
+  .aged-table tr.standing-order-row td.col-topay,
+  .aged-table tr.standing-order-row td.col-topay.has-pay,
+  .aged-table tr.standing-order-row td.selected,
+  .aged-table tr.standing-order-row td.selected.col-older {
+    background: #bfdbfe;
+    color: #1e3a8a;
+  }
+  .aged-table tr.standing-order-row td.sticky-col,
+  .aged-table tr.standing-order-row td.contact-cell:hover {
+    background: #93c5fd;
+    color: #1e3a8a;
+    font-weight: 600;
+  }
+  .aged-table tr.standing-order-row td.pay-cell:hover {
+    background: #93c5fd;
+  }
   .aged-table td.pay-cell {
     cursor: pointer;
   }
@@ -229,6 +248,7 @@
     const LEGACY_STORAGE_KEY = "xero-aged-payables-to-pay";
     const CRITICAL_KEY = `xero-aged-payables-critical:${USER_ID}`;
     const LEGACY_CRITICAL_KEY = "xero-aged-payables-critical";
+    const CONTACT_STATUS_KEY = `xero-aged-payables-contact-status:${USER_ID}`;
     const money = new Intl.NumberFormat("en-GB", {
       style: "currency",
       currency: "GBP",
@@ -239,7 +259,7 @@
     let tableData = null;
     let sortState = { key: "contact", dir: 1 };
     const selections = loadSelections();
-    const critical = loadCritical();
+    const contactStatus = loadContactStatus();
 
     function selectedView() {
       return document.querySelector(".view-tab.active")?.dataset.view || DEFAULT_VIEW;
@@ -296,12 +316,51 @@
       saveNamedSets(STORAGE_KEY, selections, localStorage);
     }
 
-    function loadCritical() {
-      return loadPersistentSets(CRITICAL_KEY, LEGACY_CRITICAL_KEY);
+    function loadContactStatus() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(CONTACT_STATUS_KEY) || "{}");
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const out = {};
+          Object.entries(parsed).forEach(([view, value]) => {
+            if (!value || typeof value !== "object" || Array.isArray(value)) return;
+            const map = {};
+            Object.entries(value).forEach(([contact, status]) => {
+              if (status === "critical" || status === "standing_order") {
+                map[contact] = status;
+              }
+            });
+            if (Object.keys(map).length) out[view] = map;
+          });
+          if (Object.keys(out).length) return out;
+        }
+      } catch (_) {
+        /* fall through to legacy critical flags */
+      }
+      const legacy = loadPersistentSets(CRITICAL_KEY, LEGACY_CRITICAL_KEY);
+      const migrated = {};
+      Object.entries(legacy).forEach(([view, set]) => {
+        const map = {};
+        set.forEach((name) => {
+          map[name] = "critical";
+        });
+        if (Object.keys(map).length) migrated[view] = map;
+      });
+      if (Object.keys(migrated).length) {
+        try {
+          localStorage.setItem(CONTACT_STATUS_KEY, JSON.stringify(migrated));
+        } catch (_) {
+          /* private mode / blocked storage */
+        }
+      }
+      return migrated;
     }
 
-    function saveCritical() {
-      saveNamedSets(CRITICAL_KEY, critical, localStorage);
+    function saveContactStatus() {
+      try {
+        localStorage.setItem(CONTACT_STATUS_KEY, JSON.stringify(contactStatus));
+      } catch (_) {
+        /* private mode / blocked storage */
+      }
     }
 
     function namedSet(store, view) {
@@ -313,12 +372,25 @@
       return namedSet(selections, view);
     }
 
-    function criticalSet(view) {
-      return namedSet(critical, view);
+    function viewStatusMap(view) {
+      if (!contactStatus[view] || typeof contactStatus[view] !== "object") {
+        contactStatus[view] = {};
+      }
+      return contactStatus[view];
     }
 
-    function isCritical(contact) {
-      return criticalSet(selectedView()).has(contact);
+    function getContactStatus(contact) {
+      return viewStatusMap(selectedView())[contact] || "";
+    }
+
+    function cycleContactStatus(contact) {
+      const map = viewStatusMap(selectedView());
+      const current = map[contact] || "";
+      if (current === "critical") map[contact] = "standing_order";
+      else if (current === "standing_order") delete map[contact];
+      else map[contact] = "critical";
+      saveContactStatus();
+      if (tableData) renderTable(tableData);
     }
 
     function cellId(contact, monthKey) {
@@ -358,6 +430,7 @@
     }
 
     function rowToPay(row, dates) {
+      if (getContactStatus(row.contact) === "standing_order") return 0;
       const amounts = row.amounts || {};
       let sum = 0;
       dates.forEach((key) => {
@@ -398,6 +471,7 @@
       const dates = data.months || [];
       let count = 0;
       (data.contacts || []).forEach((row) => {
+        if (getContactStatus(row.contact) === "standing_order") return;
         dates.forEach((key) => {
           if (isSelected(row.contact, key)) count += 1;
         });
@@ -452,7 +526,7 @@
         : null;
       const meta = document.getElementById("meta-line");
       meta.textContent = last
-        ? `${data.business_label}: ${Number(data.contact_count || 0).toLocaleString("en-GB")} contacts · ${Number(data.invoice_count || 0).toLocaleString("en-GB")} outstanding bills. Last sync ${last}. Click amounts for To Pay, contacts to flag critical, headers to sort.`
+        ? `${data.business_label}: ${Number(data.contact_count || 0).toLocaleString("en-GB")} contacts · ${Number(data.invoice_count || 0).toLocaleString("en-GB")} outstanding bills. Last sync ${last}. Click amounts for To Pay; click a contact for critical (red) then standing order (blue).`
         : `${data.business_label}: no synced bills yet. Sync invoices from Connection first.`;
 
       if (!contacts.length) {
@@ -481,11 +555,13 @@
       const rows = sortedContacts(data);
       const bodyRows = rows.map((row) => {
         const amounts = row.amounts || {};
+        const status = getContactStatus(row.contact);
+        const standingOrder = status === "standing_order";
         const cells = dates.map((key) => {
           const n = Number(amounts[key] || 0);
           const neg = n < 0 ? " neg" : "";
-          const selected = isSelected(row.contact, key) ? " selected" : "";
-          const clickable = Math.abs(n) >= 0.005 ? " pay-cell" : "";
+          const selected = !standingOrder && isSelected(row.contact, key) ? " selected" : "";
+          const clickable = !standingOrder && Math.abs(n) >= 0.005 ? " pay-cell" : "";
           const title = clickable ? ` title="Click to ${selected ? "remove from" : "add to"} To Pay"` : "";
           return `<td class="num${colClass(key)}${neg}${selected}${clickable}" data-month="${esc(key)}"${title}>${formatAmount(n)}</td>`;
         }).join("");
@@ -493,16 +569,23 @@
         const toPay = rowToPay(row, dates);
         const toPayNeg = toPay < 0 ? " neg" : "";
         const hasPay = Math.abs(toPay) >= 0.005 ? " has-pay" : "";
-        const totalClickable = Math.abs(Number(row.total) || 0) >= 0.005 ? " pay-cell" : "";
-        const flagged = isCritical(row.contact);
-        const criticalClass = flagged ? " critical" : "";
-        const rowClass = flagged ? " critical-row" : "";
+        const totalClickable = !standingOrder && Math.abs(Number(row.total) || 0) >= 0.005 ? " pay-cell" : "";
+        const statusClass = status === "critical" ? " critical" : standingOrder ? " standing-order" : "";
+        const rowClass = status === "critical" ? " critical-row" : standingOrder ? " standing-order-row" : "";
+        const statusTitle = status === "critical"
+          ? "Click to mark as direct debit / standing order"
+          : standingOrder
+            ? "Click to clear flag"
+            : "Click to flag as critical";
+        const toPayCell = standingOrder
+          ? `<td class="num col-topay" title="Covered by direct debit / standing order">—</td>`
+          : `<td class="num col-topay${toPayNeg}${hasPay}">${formatAmount(toPay)}</td>`;
         return `
           <tr class="${rowClass.trim()}" data-contact="${esc(row.contact)}">
-            <td class="sticky-col contact-cell${criticalClass}" title="Click to ${flagged ? "clear" : "flag as"} critical">${esc(row.contact)}</td>
+            <td class="sticky-col contact-cell${statusClass}" title="${statusTitle}">${esc(row.contact)}</td>
             ${cells}
-            <td class="num col-total${totalNeg}${totalClickable}" data-month="__all__" title="Click to mark all months for this contact">${formatAmount(row.total)}</td>
-            <td class="num col-topay${toPayNeg}${hasPay}">${formatAmount(toPay)}</td>
+            <td class="num col-total${totalNeg}${totalClickable}" data-month="__all__" title="${standingOrder ? "Covered by direct debit / standing order" : "Click to mark all months for this contact"}">${formatAmount(row.total)}</td>
+            ${toPayCell}
           </tr>
         `;
       }).join("");
@@ -539,15 +622,8 @@
       if (tableData) renderTable(tableData);
     }
 
-    function toggleCritical(contact) {
-      const set = criticalSet(selectedView());
-      if (set.has(contact)) set.delete(contact);
-      else set.add(contact);
-      saveCritical();
-      if (tableData) renderTable(tableData);
-    }
-
     function togglePay(contact, monthKey) {
+      if (getContactStatus(contact) === "standing_order") return;
       const set = selectionSet(selectedView());
       if (monthKey === "__all__") {
         const dates = tableData?.months || [];
@@ -602,7 +678,7 @@
       const contactCell = ev.target.closest("td.contact-cell");
       if (contactCell && !contactCell.closest(".total-row")) {
         const contact = contactCell.closest("tr")?.dataset.contact;
-        if (contact) toggleCritical(contact);
+        if (contact) cycleContactStatus(contact);
         return;
       }
       const td = ev.target.closest("td.pay-cell");
