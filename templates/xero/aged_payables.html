@@ -12,11 +12,31 @@
     gap: 0.75rem 1rem;
     margin-bottom: 0.65rem;
   }
+  .aged-toolbar-left {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+  }
+  .auto-sort-btn {
+    padding: 0.45rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--card);
+    color: var(--text);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .auto-sort-btn.active {
+    background: #14532d;
+    border-color: #14532d;
+    color: #fff;
+  }
   .view-tabs {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    margin-bottom: 0;
   }
   .view-tab {
     padding: 0.45rem 0.9rem;
@@ -73,9 +93,39 @@
     background: #f8fafc;
     border-bottom: 1px solid #94a3b8;
   }
-  .aged-table .sticky-col {
+  .aged-table .col-colour {
     position: sticky;
     left: 0;
+    z-index: 3;
+    width: 1.2rem;
+    min-width: 1.2rem;
+    max-width: 1.2rem;
+    padding: 0;
+    background: #e5e7eb;
+  }
+  .aged-table th.col-colour {
+    z-index: 5;
+    background: #f8fafc;
+    color: var(--muted);
+    font-size: 0.5rem;
+    padding: 0.12rem 0;
+    text-align: center;
+    line-height: 1;
+  }
+  .aged-table th.col-colour svg {
+    display: block;
+    width: 0.72rem;
+    height: 0.72rem;
+    margin: 0 auto;
+  }
+  .aged-table th.col-colour.sorted-asc::after,
+  .aged-table th.col-colour.sorted-desc::after {
+    color: var(--muted);
+    font-size: 0.5rem;
+  }
+  .aged-table .sticky-col {
+    position: sticky;
+    left: 1.2rem;
     z-index: 2;
     min-width: 14rem;
     max-width: 22rem;
@@ -110,7 +160,7 @@
   .aged-table .col-topay {
     border-left: 1px solid #94a3b8;
   }
-  .aged-table td.contact-cell {
+  .aged-table td.col-colour {
     cursor: pointer;
   }
   .aged-table td.contact-cell:hover {
@@ -123,7 +173,7 @@
     color: #7f1d1d;
     font-weight: 600;
   }
-  .aged-table tr.critical-row td:not(.selected):not(.col-topay):not(.col-total):not(.col-older):not(.sticky-col) {
+  .aged-table tr.critical-row td:not(.selected):not(.col-topay):not(.col-total):not(.col-older):not(.sticky-col):not(.col-colour) {
     background: #fff1f2;
   }
   .aged-table tr.standing-order-row td,
@@ -142,8 +192,13 @@
     color: #1e3a8a;
     font-weight: 600;
   }
-  .aged-table tr.standing-order-row td.pay-cell:hover {
-    background: #93c5fd;
+  .aged-table td.col-colour.critical,
+  .aged-table tr.critical-row td.col-colour {
+    background: #dc2626;
+  }
+  .aged-table td.col-colour.standing-order,
+  .aged-table tr.standing-order-row td.col-colour {
+    background: #2563eb;
   }
   .aged-table td.pay-cell {
     cursor: pointer;
@@ -172,8 +227,8 @@
   .aged-table tr.total-row td.col-older {
     background: #e2e8f0;
   }
-  .aged-table tr.total-row td.col-topay {
-    background: #bbf7d0;
+  .aged-table tr.total-row td.col-colour {
+    background: #e2e8f0;
   }
   .empty-note {
     color: var(--muted);
@@ -213,16 +268,19 @@
 
 {% block content %}
   <div class="aged-toolbar">
-    <div class="view-tabs" role="tablist" aria-label="Aged payables business">
-      {% for view in view_options %}
-      <button
-        type="button"
-        class="view-tab{% if view.id == default_view %} active{% endif %}"
-        role="tab"
-        data-view="{{ view.id }}"
-        aria-selected="{% if view.id == default_view %}true{% else %}false{% endif %}"
-      >{{ view.label }}</button>
-      {% endfor %}
+    <div class="aged-toolbar-left">
+      <div class="view-tabs" role="tablist" aria-label="Aged payables business">
+        {% for view in view_options %}
+        <button
+          type="button"
+          class="view-tab{% if view.id == default_view %} active{% endif %}"
+          role="tab"
+          data-view="{{ view.id }}"
+          aria-selected="{% if view.id == default_view %}true{% else %}false{% endif %}"
+        >{{ view.label }}</button>
+        {% endfor %}
+      </div>
+      <button type="button" class="auto-sort-btn" id="auto-sort-btn" title="Sort by colour, then To Pay, then Total" aria-pressed="false">Auto Sort</button>
     </div>
     <div class="to-pay-widget" id="to-pay-widget" aria-live="polite">
       <div class="label">To Pay</div>
@@ -441,6 +499,12 @@
 
     function columnValue(row, key, dates) {
       if (key === "contact") return String(row.contact || "");
+      if (key === "colour") {
+        const status = getContactStatus(row.contact);
+        if (status === "critical") return 2;
+        if (status === "standing_order") return 1;
+        return 0;
+      }
       if (key === "total") return Number(row.total || 0);
       if (key === "to_pay") return rowToPay(row, dates);
       return Number((row.amounts || {})[key] || 0);
@@ -451,6 +515,26 @@
       const rows = [...(data.contacts || [])];
       const key = sortState.key;
       const dir = sortState.dir;
+      const byName = (a, b) => String(a.contact || "").localeCompare(String(b.contact || ""), "en-GB", {
+        sensitivity: "base",
+      });
+      if (key === "auto") {
+        rows.sort((a, b) => {
+          const colourDiff = columnValue(b, "colour", dates) - columnValue(a, "colour", dates);
+          if (colourDiff) return colourDiff;
+          const aPay = rowToPay(a, dates);
+          const bPay = rowToPay(b, dates);
+          const aHasPay = Math.abs(aPay) >= 0.005;
+          const bHasPay = Math.abs(bPay) >= 0.005;
+          if (aHasPay && bHasPay && aPay !== bPay) return bPay - aPay;
+          if (aHasPay !== bHasPay) return aHasPay ? -1 : 1;
+          const aTotal = Number(a.total || 0);
+          const bTotal = Number(b.total || 0);
+          if (aTotal !== bTotal) return bTotal - aTotal;
+          return byName(a, b);
+        });
+        return rows;
+      }
       rows.sort((a, b) => {
         const av = columnValue(a, key, dates);
         const bv = columnValue(b, key, dates);
@@ -460,9 +544,7 @@
         } else if (av !== bv) {
           return (av - bv) * dir;
         }
-        return String(a.contact || "").localeCompare(String(b.contact || ""), "en-GB", {
-          sensitivity: "base",
-        });
+        return byName(a, b);
       });
       return rows;
     }
@@ -546,6 +628,7 @@
       )).join("");
       document.getElementById("aged-head").innerHTML = `
         <tr>
+          <th class="col-colour${sortClass("colour")}" data-sort="colour" title="Sort by colour"><svg viewBox="0 0 12 12" aria-hidden="true"><rect width="12" height="4" y="0" fill="#dc2626"/><rect width="12" height="4" y="4" fill="#2563eb"/><rect width="12" height="4" y="8" fill="#9ca3af"/></svg></th>
           <th class="sticky-col${sortClass("contact")}" data-sort="contact">Contact</th>
           ${monthHeaders}
           <th class="num col-total${sortClass("total")}" data-sort="total">Total</th>
@@ -582,6 +665,7 @@
           : `<td class="num col-topay${toPayNeg}${hasPay}">${formatAmount(toPay)}</td>`;
         return `
           <tr class="${rowClass.trim()}" data-contact="${esc(row.contact)}">
+            <td class="col-colour${statusClass}" title="${statusTitle}"></td>
             <td class="sticky-col contact-cell${statusClass}" title="${statusTitle}">${esc(row.contact)}</td>
             ${cells}
             <td class="num col-total${totalNeg}${totalClickable}" data-month="__all__" title="${standingOrder ? "Covered by direct debit / standing order" : "Click to mark all months for this contact"}">${formatAmount(row.total)}</td>
@@ -601,6 +685,7 @@
       document.getElementById("aged-body").innerHTML = `
         ${bodyRows}
         <tr class="total-row">
+          <td class="col-colour"></td>
           <td class="sticky-col">Total</td>
           ${totalCells}
           <td class="num col-total${grandNeg}">${formatAmount(data.grand_total)}</td>
@@ -610,10 +695,18 @@
       wrap.scrollTop = scrollTop;
       wrap.scrollLeft = scrollLeft;
       updateToPayWidget(grandToPay, markedAmountCount(data));
+      const autoBtn = document.getElementById("auto-sort-btn");
+      if (autoBtn) {
+        const on = sortState.key === "auto";
+        autoBtn.classList.toggle("active", on);
+        autoBtn.setAttribute("aria-pressed", on ? "true" : "false");
+      }
     }
 
     function setSort(key) {
-      if (sortState.key === key) {
+      if (key === "auto") {
+        sortState = { key: "auto", dir: -1 };
+      } else if (sortState.key === key) {
         sortState.dir *= -1;
       } else {
         sortState.key = key;
@@ -661,7 +754,13 @@
         updateToPayWidget(0, 0);
         return;
       }
-      if (sortState.key !== "contact" && sortState.key !== "total" && sortState.key !== "to_pay") {
+      if (
+        sortState.key !== "contact"
+        && sortState.key !== "total"
+        && sortState.key !== "to_pay"
+        && sortState.key !== "colour"
+        && sortState.key !== "auto"
+      ) {
         if (!(data.months || []).includes(sortState.key)) {
           sortState = { key: "contact", dir: 1 };
         }
@@ -673,6 +772,12 @@
       const th = ev.target.closest("th[data-sort]");
       if (th) {
         setSort(th.dataset.sort);
+        return;
+      }
+      const colourCell = ev.target.closest("td.col-colour");
+      if (colourCell && !colourCell.closest(".total-row")) {
+        const contact = colourCell.closest("tr")?.dataset.contact;
+        if (contact) cycleContactStatus(contact);
         return;
       }
       const contactCell = ev.target.closest("td.contact-cell");
@@ -687,6 +792,10 @@
       const monthKey = td.dataset.month;
       if (!contact || !monthKey) return;
       togglePay(contact, monthKey);
+    });
+
+    document.getElementById("auto-sort-btn").addEventListener("click", () => {
+      setSort("auto");
     });
 
     document.querySelectorAll(".view-tab").forEach((btn) => {
