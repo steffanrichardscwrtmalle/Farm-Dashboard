@@ -224,7 +224,9 @@
 {% block scripts %}
   <script>
     const DEFAULT_VIEW = {{ default_view | tojson }};
-    const STORAGE_KEY = "xero-aged-payables-to-pay";
+    const USER_ID = {{ (current_user.id if current_user else 0) | tojson }};
+    const STORAGE_KEY = `xero-aged-payables-to-pay:${USER_ID}`;
+    const LEGACY_STORAGE_KEY = "xero-aged-payables-to-pay";
     const CRITICAL_KEY = "xero-aged-payables-critical";
     const money = new Intl.NumberFormat("en-GB", {
       style: "currency",
@@ -236,15 +238,15 @@
     let tableData = null;
     let sortState = { key: "contact", dir: 1 };
     const selections = loadSelections();
-    const critical = loadNamedSets(CRITICAL_KEY);
+    const critical = loadNamedSets(CRITICAL_KEY, sessionStorage);
 
     function selectedView() {
       return document.querySelector(".view-tab.active")?.dataset.view || DEFAULT_VIEW;
     }
 
-    function loadNamedSets(storageKey) {
+    function loadNamedSets(storageKey, storage) {
       try {
-        const parsed = JSON.parse(sessionStorage.getItem(storageKey) || "{}");
+        const parsed = JSON.parse(storage.getItem(storageKey) || "{}");
         const out = {};
         Object.entries(parsed).forEach(([view, keys]) => {
           out[view] = new Set(Array.isArray(keys) ? keys : []);
@@ -255,24 +257,42 @@
       }
     }
 
-    function saveNamedSets(storageKey, store) {
-      const payload = {};
-      Object.entries(store).forEach(([view, keys]) => {
-        payload[view] = [...keys];
-      });
-      sessionStorage.setItem(storageKey, JSON.stringify(payload));
+    function saveNamedSets(storageKey, store, storage) {
+      try {
+        const payload = {};
+        Object.entries(store).forEach(([view, keys]) => {
+          payload[view] = [...keys];
+        });
+        storage.setItem(storageKey, JSON.stringify(payload));
+      } catch (_) {
+        /* private mode / blocked storage */
+      }
+    }
+
+    function storeHasMarks(store) {
+      return Object.values(store).some((keys) => keys && keys.size);
     }
 
     function loadSelections() {
-      return loadNamedSets(STORAGE_KEY);
+      let loaded = loadNamedSets(STORAGE_KEY, localStorage);
+      if (!storeHasMarks(loaded)) {
+        loaded = loadNamedSets(LEGACY_STORAGE_KEY, sessionStorage);
+        if (!storeHasMarks(loaded)) {
+          loaded = loadNamedSets(LEGACY_STORAGE_KEY, localStorage);
+        }
+        if (storeHasMarks(loaded)) {
+          saveNamedSets(STORAGE_KEY, loaded, localStorage);
+        }
+      }
+      return loaded;
     }
 
     function saveSelections() {
-      saveNamedSets(STORAGE_KEY, selections);
+      saveNamedSets(STORAGE_KEY, selections, localStorage);
     }
 
     function saveCritical() {
-      saveNamedSets(CRITICAL_KEY, critical);
+      saveNamedSets(CRITICAL_KEY, critical, sessionStorage);
     }
 
     function namedSet(store, view) {
@@ -390,8 +410,26 @@
       }
     }
 
+    function migrateRolledSelections(data) {
+      const visible = new Set(data.months || []);
+      const set = selectionSet(selectedView());
+      let changed = false;
+      [...set].forEach((id) => {
+        const sep = id.indexOf("\t");
+        if (sep < 0) return;
+        const contact = id.slice(0, sep);
+        const key = id.slice(sep + 1);
+        if (key === "older" || visible.has(key)) return;
+        set.delete(id);
+        set.add(cellId(contact, "older"));
+        changed = true;
+      });
+      if (changed) saveSelections();
+    }
+
     function renderTable(data) {
       tableData = data;
+      migrateRolledSelections(data);
       const table = document.getElementById("aged-table");
       const empty = document.getElementById("empty-note");
       const wrap = document.getElementById("table-wrap");
