@@ -31,6 +31,7 @@ from app.services.xero_budget_mappings import (
     mapping_summary,
     set_account_budget_mapping,
 )
+from app.services.xero_aged_payables import list_aged_payables
 from app.services.xero_pnl import list_xero_pnl
 from app.services.xero_bank_transactions import clear_bank_transactions
 from app.services.xero_invoices import clear_invoices, invoice_summary, sync_all_invoices
@@ -289,6 +290,18 @@ def api_xero_pnl(
         raise HTTPException(status_code=400, detail="No invoice dates available yet.")
     try:
         return list_xero_pnl(db, fiscal_year=year, business=business)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/aged-payables")
+def api_xero_aged_payables(
+    business: str | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_XERO)),
+):
+    try:
+        return list_aged_payables(db, business=business)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

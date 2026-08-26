@@ -32,6 +32,15 @@ def _utcnow() -> dt.datetime:
     return dt.datetime.now(dt.UTC).replace(tzinfo=None)
 
 
+def _outstanding_amount(payload: dict[str, Any]) -> float | None:
+    """Remaining to pay (bills) or remaining credit (credit notes)."""
+    if payload.get("AmountDue") is not None:
+        return float(payload["AmountDue"])
+    if payload.get("RemainingCredit") is not None:
+        return float(payload["RemainingCredit"])
+    return None
+
+
 def _mapped_organisations(db: Session) -> list[XeroOrganisation]:
     return list(
         db.scalars(
@@ -110,7 +119,7 @@ def upsert_invoice(
         "sub_total": float(payload["SubTotal"]) if payload.get("SubTotal") is not None else None,
         "total_tax": float(payload["TotalTax"]) if payload.get("TotalTax") is not None else None,
         "total": float(payload["Total"]) if payload.get("Total") is not None else None,
-        "amount_due": float(payload["AmountDue"]) if payload.get("AmountDue") is not None else None,
+        "amount_due": _outstanding_amount(payload),
         "amount_paid": (
             float(payload["AmountPaid"]) if payload.get("AmountPaid") is not None else None
         ),

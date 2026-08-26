@@ -1304,6 +1304,28 @@ def xero_pnl_page(request: Request):
     )
 
 
+@app.get("/xero/aged-payables", response_class=HTMLResponse)
+def xero_aged_payables_page(request: Request):
+    if denied := _page_guard(request, PAGE_XERO):
+        return denied
+    from app.services.xero_aged_payables import (
+        AGED_PAYABLE_VIEWS,
+        DEFAULT_AGED_PAYABLE_VIEW,
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "xero/aged_payables.html",
+        _template_ctx(
+            request,
+            page_heading="Aged Payables",
+            view_options=list(AGED_PAYABLE_VIEWS),
+            default_view=DEFAULT_AGED_PAYABLE_VIEW,
+            **_xero_context("Aged Payables", "aged-payables", "Aged Payables"),
+        ),
+    )
+
+
 @app.get("/office-admin/xero", response_class=HTMLResponse)
 def office_admin_xero_redirect(request: Request):
     query = request.url.query
