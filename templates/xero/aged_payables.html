@@ -280,7 +280,7 @@
         >{{ view.label }}</button>
         {% endfor %}
       </div>
-      <button type="button" class="auto-sort-btn" id="auto-sort-btn" title="Sort by colour, then To Pay, then Total" aria-pressed="false">Auto Sort</button>
+      <button type="button" class="auto-sort-btn" id="auto-sort-btn" title="Sort red, then blank, then blue; then To Pay, then Total" aria-pressed="false">Auto Sort</button>
     </div>
     <div class="to-pay-widget" id="to-pay-widget" aria-live="polite">
       <div class="label">To Pay</div>
@@ -502,8 +502,8 @@
       if (key === "colour") {
         const status = getContactStatus(row.contact);
         if (status === "critical") return 2;
-        if (status === "standing_order") return 1;
-        return 0;
+        if (status === "standing_order") return 0;
+        return 1;
       }
       if (key === "total") return Number(row.total || 0);
       if (key === "to_pay") return rowToPay(row, dates);
@@ -628,7 +628,7 @@
       )).join("");
       document.getElementById("aged-head").innerHTML = `
         <tr>
-          <th class="col-colour${sortClass("colour")}" data-sort="colour" title="Sort by colour"><svg viewBox="0 0 12 12" aria-hidden="true"><rect width="12" height="4" y="0" fill="#dc2626"/><rect width="12" height="4" y="4" fill="#2563eb"/><rect width="12" height="4" y="8" fill="#9ca3af"/></svg></th>
+          <th class="col-colour${sortClass("colour")}" data-sort="colour" title="Sort by colour"><svg viewBox="0 0 12 12" aria-hidden="true"><rect width="12" height="4" y="0" fill="#dc2626"/><rect width="12" height="4" y="4" fill="#9ca3af"/><rect width="12" height="4" y="8" fill="#2563eb"/></svg></th>
           <th class="sticky-col${sortClass("contact")}" data-sort="contact">Contact</th>
           ${monthHeaders}
           <th class="num col-total${sortClass("total")}" data-sort="total">Total</th>
