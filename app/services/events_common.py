@@ -1398,6 +1398,199 @@ def _resolve_hoof_protocol_selection(
     return selected
 
 
+def _iso_week_start(value: dt.date) -> dt.date:
+    return value - dt.timedelta(days=value.isoweekday() - 1)
+
+
+def _format_day_label(value: dt.date) -> str:
+    return value.strftime("%d %b %Y")
+
+
+def _format_week_label(week_start: dt.date) -> str:
+    week_end = week_start + dt.timedelta(days=6)
+    if week_start.year == week_end.year and week_start.month == week_end.month:
+        return f"{week_start.strftime('%d')}–{week_end.strftime('%d %b %Y')}"
+    if week_start.year == week_end.year:
+        return f"{week_start.strftime('%d %b')}–{week_end.strftime('%d %b %Y')}"
+    return f"{week_start.strftime('%d %b %Y')}–{week_end.strftime('%d %b %Y')}"
+
+
+FOOTRIM_THROUGHPUT_DEFAULT_DAYS = 30
+FOOTRIM_THROUGHPUT_BUSY_DAY_MIN = 10
+
+
+def _resolve_throughput_dates(
+    throughput_from: dt.date | None,
+    throughput_to: dt.date | None,
+    *,
+    today: dt.date | None = None,
+) -> tuple[dt.date, dt.date]:
+    """Independent throughput window; defaults to the last 30 calendar days."""
+    end = throughput_to if throughput_to is not None else (today or dt.date.today())
+    start = (
+        throughput_from
+        if throughput_from is not None
+        else end - dt.timedelta(days=FOOTRIM_THROUGHPUT_DEFAULT_DAYS - 1)
+    )
+    if start > end:
+        start, end = end, start
+    return start, end
+
+
+def _empty_footrim_throughput(
+    date_from: dt.date | None = None,
+    date_to: dt.date | None = None,
+) -> dict[str, Any]:
+    empty_farm = {
+        "unique_cows": 0,
+        "trimming_days": 0,
+        "average_per_trimming_day": 0.0,
+    }
+    return {
+        "summary": {
+            "unique_cows": 0,
+            "trimming_days": 0,
+            "average_per_trimming_day": 0.0,
+            "average_busy_day": 0.0,
+            "busy_days": 0,
+            "CM": dict(empty_farm),
+            "GAD": dict(empty_farm),
+        },
+        "day_rows": [],
+        "week_rows": [],
+        "month_rows": [],
+        "date_from": date_from.isoformat() if date_from else None,
+        "date_to": date_to.isoformat() if date_to else None,
+    }
+
+
+def _throughput_farm_row(counts: dict[str, int]) -> dict[str, int]:
+    cm = int(counts.get("CM", 0))
+    gad = int(counts.get("GAD", 0))
+    return {"CM": cm, "GAD": gad, "total": cm + gad}
+
+
+def _build_footrim_throughput(
+    db: Session,
+    *,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+) -> dict[str, Any]:
+    """Unique cows with a FOOTRIM or LAME event, rolled up by day / week / month.
+
+    A cow with both events on the same day counts once.
+    Uses its own date window, not the page fiscal-year slider.
+    """
+    empty = _empty_footrim_throughput(effective_from, effective_to)
+    if not selected_farms:
+        return empty
+
+    query = (
+        select(CowEvent.farm, CowEvent.cow_id, CowEvent.etag, CowEvent.event_date)
+        .where(CowEvent.event.in_(("FOOTRIM", "LAME")))
+        .where(CowEvent.event_date.isnot(None))
+        .where(CowEvent.farm.in_(selected_farms))
+        .where(CowEvent.event_date >= effective_from)
+        .where(CowEvent.event_date <= effective_to)
+    )
+    cow_days: set[tuple[str, str, dt.date]] = set()
+    for farm, cow_id, etag, event_date in db.execute(query).all():
+        if farm not in selected_farms:
+            continue
+        animal = _animal_identifier(cow_id, etag)
+        day = _coerce_date(event_date)
+        if animal is None or day is None:
+            continue
+        cow_days.add((farm, animal, day))
+
+    if not cow_days:
+        return empty
+
+    day_animals: dict[dt.date, dict[str, set[str]]] = {}
+    week_animals: dict[dt.date, dict[str, set[str]]] = {}
+    month_animals: dict[dt.date, dict[str, set[str]]] = {}
+    range_animals: dict[str, set[str]] = {farm: set() for farm in selected_farms}
+    farm_days: dict[str, set[dt.date]] = {farm: set() for farm in selected_farms}
+
+    for farm, animal, day in cow_days:
+        day_animals.setdefault(day, {}).setdefault(farm, set()).add(animal)
+        week_animals.setdefault(_iso_week_start(day), {}).setdefault(farm, set()).add(animal)
+        month_animals.setdefault(_month_start(day), {}).setdefault(farm, set()).add(animal)
+        range_animals.setdefault(farm, set()).add(animal)
+        farm_days.setdefault(farm, set()).add(day)
+
+    def _period_rows(
+        grouped: dict[dt.date, dict[str, set[str]]],
+        label_fn,
+        extra_fn,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for period_start in sorted(grouped):
+            counts = {farm: len(grouped[period_start].get(farm, set())) for farm in ("CM", "GAD")}
+            row = {
+                "label": label_fn(period_start),
+                "sort_key": int(period_start.strftime("%Y%m%d")),
+                **_throughput_farm_row(counts),
+            }
+            row.update(extra_fn(period_start))
+            rows.append(row)
+        return rows
+
+    day_rows = _period_rows(
+        day_animals,
+        _format_day_label,
+        lambda day: {"date": day.isoformat()},
+    )
+    week_rows = _period_rows(
+        week_animals,
+        _format_week_label,
+        lambda start: {
+            "week_start": start.isoformat(),
+            "week_end": (start + dt.timedelta(days=6)).isoformat(),
+        },
+    )
+    month_rows = _period_rows(
+        month_animals,
+        lambda start: start.strftime("%b-%y"),
+        lambda start: {"month": start.isoformat()},
+    )
+
+    trimming_days = sorted(day_animals)
+    unique_cows = sum(len(animals) for animals in range_animals.values())
+    daily_totals = [row["total"] for row in day_rows]
+    average = round(sum(daily_totals) / len(daily_totals), 1) if daily_totals else 0.0
+    busy_totals = [total for total in daily_totals if total > FOOTRIM_THROUGHPUT_BUSY_DAY_MIN]
+    average_busy = round(sum(busy_totals) / len(busy_totals), 1) if busy_totals else 0.0
+
+    def _farm_summary(farm: str) -> dict[str, Any]:
+        cows = len(range_animals.get(farm, set()))
+        days = len(farm_days.get(farm, set()))
+        day_sum = sum(len(day_animals[day].get(farm, set())) for day in trimming_days)
+        return {
+            "unique_cows": cows,
+            "trimming_days": days,
+            "average_per_trimming_day": round(day_sum / days, 1) if days else 0.0,
+        }
+
+    return {
+        "summary": {
+            "unique_cows": unique_cows,
+            "trimming_days": len(trimming_days),
+            "average_per_trimming_day": average,
+            "average_busy_day": average_busy,
+            "busy_days": len(busy_totals),
+            "CM": _farm_summary("CM"),
+            "GAD": _farm_summary("GAD"),
+        },
+        "day_rows": day_rows,
+        "week_rows": week_rows,
+        "month_rows": month_rows,
+        "date_from": effective_from.isoformat(),
+        "date_to": effective_to.isoformat(),
+    }
+
+
 def _build_hooftrimming_bundle(
     db: Session,
     *,
@@ -1406,12 +1599,15 @@ def _build_hooftrimming_bundle(
     effective_to: dt.date,
     fiscal_year: int | None,
     requested_protocols: list[str] | None,
+    throughput_from: dt.date,
+    throughput_to: dt.date,
 ) -> tuple[
     dict[str, dict[str, int]],
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[str],
+    dict[str, Any],
 ]:
     available_protocols = _list_available_lame_protocols(
         db,
@@ -1460,7 +1656,13 @@ def _build_hooftrimming_bundle(
         fiscal_year=fiscal_year,
         selected_protocols=selected_protocols,
     )
-    return main_pivot, lame_rows, protocol_rows, dim_rows, available_protocols
+    throughput = _build_footrim_throughput(
+        db,
+        selected_farms=selected_farms,
+        effective_from=throughput_from,
+        effective_to=throughput_to,
+    )
+    return main_pivot, lame_rows, protocol_rows, dim_rows, available_protocols, throughput
 
 
 
@@ -1598,6 +1800,8 @@ def build_events_report(
     include_hooftrimming_breakdown: bool = False,
     semen_types: list[str] | None = None,
     lame_protocols: list[str] | None = None,
+    throughput_from: dt.date | None = None,
+    throughput_to: dt.date | None = None,
     use_disease_episode_counting: bool = False,
     apply_death_exclusions: bool = False,
     y_min: int | None = None,
@@ -1610,6 +1814,11 @@ def build_events_report(
     selected_semen_types = normalize_semen_types(semen_types) if include_breedings_semen_breakdown else None
     requested_lame_protocols = (
         normalize_lame_protocols(lame_protocols) if include_hooftrimming_breakdown else None
+    )
+    throughput_range = (
+        _resolve_throughput_dates(throughput_from, throughput_to)
+        if include_hooftrimming_breakdown
+        else None
     )
     latest_import = db.scalar(select(func.max(CowEvent.import_timestamp)))
     # Date slider / axis use the page's full event set (not a single disease
@@ -1641,6 +1850,9 @@ def build_events_report(
         empty_result["lame_protocol_rows"] = []
         empty_result["lame_dim_rows"] = []
         empty_result["available_protocols"] = []
+        empty_result["footrim_throughput"] = _empty_footrim_throughput(
+            *(throughput_range or (None, None))
+        )
     if use_disease_episode_counting:
         empty_result["disease_scatter"] = {
             "points": [],
@@ -1725,6 +1937,7 @@ def build_events_report(
             lame_protocol_rows,
             lame_dim_rows,
             available_protocols,
+            footrim_throughput,
         ) = _build_hooftrimming_bundle(
             db,
             selected_farms=selected_farms,
@@ -1732,6 +1945,8 @@ def build_events_report(
             effective_to=effective_to,
             fiscal_year=fiscal_year,
             requested_protocols=requested_lame_protocols,
+            throughput_from=throughput_range[0],
+            throughput_to=throughput_range[1],
         )
     elif apply_death_exclusions:
         pivot = _build_deaths_pivot(
@@ -1822,6 +2037,7 @@ def build_events_report(
         result["lame_protocol_rows"] = lame_protocol_rows or []
         result["lame_dim_rows"] = lame_dim_rows or []
         result["available_protocols"] = available_protocols or []
+        result["footrim_throughput"] = footrim_throughput or _empty_footrim_throughput()
     return result
 
 
@@ -1838,6 +2054,8 @@ def build_events_page_report(
     disease: str | None = None,
     semen_types: list[str] | None = None,
     lame_protocols: list[str] | None = None,
+    throughput_from: dt.date | None = None,
+    throughput_to: dt.date | None = None,
     y_min: int | None = None,
     y_max: int | None = None,
 ) -> dict[str, Any]:
@@ -1860,6 +2078,8 @@ def build_events_page_report(
         include_hooftrimming_breakdown=page_slug == "hooftrimming",
         semen_types=semen_types if page_slug == "breedings" else None,
         lame_protocols=lame_protocols if page_slug == "hooftrimming" else None,
+        throughput_from=throughput_from if page_slug == "hooftrimming" else None,
+        throughput_to=throughput_to if page_slug == "hooftrimming" else None,
         use_disease_episode_counting=page_slug == "disease",
         apply_death_exclusions=page_slug == "deaths",
         y_min=y_min if page_slug == "disease" else None,

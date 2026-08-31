@@ -80,6 +80,10 @@ def _events_report(
 
     protocol: list[str] | None = None,
 
+    throughput_from: dt.date | None = None,
+
+    throughput_to: dt.date | None = None,
+
     y_min: int | None = None,
 
     y_max: int | None = None,
@@ -115,6 +119,8 @@ def _events_report(
         semen_types=semen,
 
         lame_protocols=protocol,
+        throughput_from=throughput_from,
+        throughput_to=throughput_to,
 
         y_min=y_min,
 
@@ -277,6 +283,8 @@ def api_hooftrimming(
     fiscal_year: int | None = Query(default=None),
     event_from: dt.date | None = Query(default=None),
     event_to: dt.date | None = Query(default=None),
+    throughput_from: dt.date | None = Query(default=None),
+    throughput_to: dt.date | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_EVENTS)),
 ):
@@ -288,6 +296,8 @@ def api_hooftrimming(
         db,
         fiscal_year=fiscal_year,
         protocol=protocol or None,
+        throughput_from=throughput_from,
+        throughput_to=throughput_to,
     )
 
 
