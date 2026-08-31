@@ -38,6 +38,7 @@ from app.services.stp_report import build_stp_report
 from app.services.births_report import build_births_report
 
 from app.services.dairy_semen_widget import get_dairy_semen_30d
+from app.services.hoof_trimming_widget import get_hoof_trimming_7d
 from app.services.events_common import EVENT_PAGE_TYPES, build_events_page_report
 
 
@@ -354,6 +355,15 @@ def api_dairy_semen_30d(
 ):
     """Home widget: dairy BRED count for CM+GAD over the 30 days before today."""
     return get_dairy_semen_30d(db)
+
+
+@router.get("/hoof-trimming-7d")
+def api_hoof_trimming_7d(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_EVENTS)),
+):
+    """Home widgets: unique FOOTRIM/LAME cows per farm for the 7 days before today."""
+    return get_hoof_trimming_7d(db)
 
 
 @router.get("/births")
