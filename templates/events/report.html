@@ -572,8 +572,8 @@
         {% endif %}
         {% if show_parity_filter %}
         <div class="filter-section">
-          <span class="section-label">{% if show_parity_beef %}Stock group{% else %}Parity{% endif %}</span>
-          <div class="slicer-group parity-slicer{% if show_parity_beef %} with-beef{% endif %}" role="group" aria-label="{% if show_parity_beef %}Stock group{% else %}Parity{% endif %}">
+          <span class="section-label">{{ parity_filter_label }}</span>
+          <div class="slicer-group parity-slicer{% if show_parity_beef %} with-beef{% endif %}" role="group" aria-label="{{ parity_filter_label }}">
             <button
               type="button"
               class="slicer-btn{% if parity_default_both %} selected{% endif %}"

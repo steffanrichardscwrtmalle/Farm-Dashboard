@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models import HERD_FARM_OPTIONS, CowEvent, HerdBirth
 from app.services.breeding_sires import classify_semen_type, load_sire_overrides
-from app.services.herd_import_utils import BEEF_CBREED_MIN
+from app.services.herd_import_utils import BEEF_CBREED_MIN, CATEGORY_BEEF, CATEGORY_DAIRY
 
 EVENT_PAGE_TYPES: dict[str, tuple[str, ...]] = {
     "calvings": ("FRESH",),
@@ -566,7 +566,9 @@ def _fetch_disease_event_records(
         events_query = events_query.where(
             func.upper(func.trim(func.coalesce(CowEvent.remark, ""))) != "LOXICOM"
         )
-    events_query = _apply_parity_groups(events_query, selected_parity_groups)
+    events_query = _apply_parity_groups(
+        events_query, selected_parity_groups, split_beef=True
+    )
     events_query = _apply_fiscal_year(events_query, fiscal_year)
     rows = db.execute(events_query).all()
     records: list[dict[str, Any]] = []
@@ -618,11 +620,17 @@ def _episode_pivot_from_records(
     return pivot
 
 
+def _uses_birth_age_axis(selected_parity_groups: list[str] | None) -> bool:
+    """Youngstock and Beef are aged from birth; Cows use DIM from calving."""
+    groups = selected_parity_groups or []
+    return bool(groups) and all(group in ("primiparous", "beef") for group in groups)
+
+
 def _record_y_value(
     record: dict[str, Any],
     selected_parity_groups: list[str] | None,
 ) -> int | None:
-    youngstock = selected_parity_groups == ["primiparous"]
+    youngstock = _uses_birth_age_axis(selected_parity_groups)
     event_day = _disease_event_date(record)
     if event_day is None:
         return None
@@ -672,7 +680,7 @@ def _build_disease_scatter(
     *,
     y_bounds: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    youngstock = selected_parity_groups == ["primiparous"]
+    youngstock = _uses_birth_age_axis(selected_parity_groups)
     y_axis_label = "Age (days)" if youngstock else "DIM"
     points: list[dict[str, Any]] = []
     for record in records:
@@ -701,7 +709,7 @@ def _cohort_date_for_record(
     record: dict[str, Any],
     selected_parity_groups: list[str] | None,
 ) -> dt.date | None:
-    youngstock = selected_parity_groups == ["primiparous"]
+    youngstock = _uses_birth_age_axis(selected_parity_groups)
     cohort_date = record.get("bdat") if youngstock else record.get("fdat")
     if cohort_date is None:
         return None
@@ -731,24 +739,57 @@ def _fetch_cow_cohort_rows(
     return [(str(r[0]), r[1], r[2], r[3]) for r in fallback]
 
 
+def _apply_birth_category(query, category: str):
+    if category == "beef":
+        return query.where(
+            or_(
+                HerdBirth.category == CATEGORY_BEEF,
+                and_(
+                    HerdBirth.category.is_(None),
+                    or_(
+                        func.upper(func.coalesce(HerdBirth.gndr, "")) != "F",
+                        HerdBirth.cbrd.is_(None),
+                        HerdBirth.cbrd >= BEEF_CBREED_MIN,
+                    ),
+                ),
+            )
+        )
+    return query.where(
+        or_(
+            HerdBirth.category == CATEGORY_DAIRY,
+            and_(HerdBirth.category.is_(None), HerdBirth.cbrd < BEEF_CBREED_MIN),
+        )
+    ).where(func.upper(func.coalesce(HerdBirth.gndr, "")) == "F")
+
+
 def _fetch_youngstock_cohort_rows(
     db: Session,
     selected_farms: list[str],
+    *,
+    category: str = "primiparous",
 ) -> list[tuple[str, str | None, str | None, dt.date]]:
-    birth_rows = db.execute(
+    birth_query = (
         select(HerdBirth.farm, HerdBirth.cow_id, HerdBirth.etag, HerdBirth.bdat)
         .where(HerdBirth.bdat.isnot(None))
         .where(HerdBirth.farm.in_(selected_farms))
-    ).all()
+    )
+    birth_query = _apply_birth_category(birth_query, category)
+    birth_rows = db.execute(birth_query).all()
     if birth_rows:
         return [(str(r[0]), r[1], r[2], r[3]) for r in birth_rows]
-    fallback = db.execute(
+    fallback = (
         select(CowEvent.farm, CowEvent.cow_id, CowEvent.etag, CowEvent.bdat)
         .where(CowEvent.lact == 0)
         .where(CowEvent.bdat.isnot(None))
         .where(CowEvent.farm.in_(selected_farms))
-    ).all()
-    return [(str(r[0]), r[1], r[2], r[3]) for r in fallback]
+    )
+    fallback = _apply_parity_groups(
+        fallback,
+        ["beef"] if category == "beef" else ["primiparous"],
+        split_beef=True,
+    )
+    rows = db.execute(fallback).all()
+    return [(str(r[0]), r[1], r[2], r[3]) for r in rows]
 
 
 def _build_cohort_denominators(
@@ -783,11 +824,17 @@ def _build_disease_incidence(
     effective_from: dt.date,
     effective_to: dt.date,
 ) -> dict[str, Any]:
-    youngstock = selected_parity_groups == ["primiparous"]
+    youngstock = _uses_birth_age_axis(selected_parity_groups)
     x_axis_label = "Birth month" if youngstock else "Calving month"
     cohort_label = "Births" if youngstock else "Calvings"
     if youngstock:
-        cohort_rows = _fetch_youngstock_cohort_rows(db, selected_farms)
+        cohort_rows = _fetch_youngstock_cohort_rows(
+            db,
+            selected_farms,
+            category=(
+                "beef" if selected_parity_groups == ["beef"] else "primiparous"
+            ),
+        )
     else:
         cohort_rows = _fetch_cow_cohort_rows(db, selected_farms)
 
@@ -919,7 +966,9 @@ def _build_deaths_pivot(
         .where(CowEvent.event_date >= effective_from)
         .where(CowEvent.event_date <= effective_to)
     )
-    query = _apply_parity_groups(query, selected_parity_groups)
+    query = _apply_parity_groups(
+        query, selected_parity_groups, split_beef=True
+    )
     query = _apply_fiscal_year(query, fiscal_year)
     rows = db.execute(query).all()
 

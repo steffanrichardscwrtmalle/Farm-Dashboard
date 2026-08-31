@@ -933,6 +933,7 @@ def _events_page_response(
     parity_exclusive: bool = False,
     show_parity_beef: bool = False,
     parity_default_both: bool = False,
+    parity_filter_label: str | None = None,
     show_disease_filter: bool = False,
     show_disease_scatter: bool = False,
     show_reason_table: bool = False,
@@ -968,6 +969,8 @@ def _events_page_response(
             parity_exclusive=parity_exclusive,
             show_parity_beef=show_parity_beef,
             parity_default_both=parity_default_both,
+            parity_filter_label=parity_filter_label
+            or ("Stock group" if show_parity_beef else "Parity"),
             show_disease_filter=show_disease_filter,
             show_disease_scatter=show_disease_scatter,
             disease_options=disease_options,
@@ -1013,6 +1016,7 @@ def events_deaths_page(request: Request):
         title="Deaths",
         chart_title="Deaths by Month — Stacked by Farm",
         show_parity_filter=True,
+        show_parity_beef=True,
     )
 
 
@@ -1025,6 +1029,7 @@ def events_disease_page(request: Request):
         chart_title="Disease Events by Month — Stacked by Farm",
         show_parity_filter=True,
         parity_exclusive=True,
+        show_parity_beef=True,
         show_disease_filter=True,
         show_disease_scatter=True,
     )
