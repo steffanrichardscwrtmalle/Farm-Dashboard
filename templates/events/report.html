@@ -2582,6 +2582,15 @@
       `;
     }
 
+    function throughputDayWeekday(row) {
+      if (!row || !row.date) return row && row.label ? row.label : "";
+      try {
+        return parseIsoDate(row.date).toLocaleDateString("en-GB", { weekday: "long" });
+      } catch (_err) {
+        return row.label || "";
+      }
+    }
+
     function renderFootrimThroughputChart(data) {
       if (!SHOW_HOOFTRIMMING_CHARTS) return;
       const canvas = document.getElementById("footrim-throughput-chart");
@@ -2601,7 +2610,7 @@
       if (wrap) wrap.hidden = false;
       if (emptyEl) emptyEl.hidden = true;
 
-      const labels = rows.map(r => r.label);
+      const labels = rows.map(r => grain === "day" ? throughputDayWeekday(r) : r.label);
       const farms = selectedFarms().length ? selectedFarms() : ["CM", "GAD"];
       const datasets = farms.map(farm => ({
         label: farm,
