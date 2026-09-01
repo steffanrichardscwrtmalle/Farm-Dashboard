@@ -25,6 +25,7 @@ BROKEN_COLLAR_FILL = "FECACA"
 BROKEN_COLLAR_TEXT = "7F1D1D"
 WIDGET_HEIFERS_TO_SCAN = "heifers-to-scan"
 WIDGET_COLLARS_TO_PUT_ON = "collars-to-put-on"
+WIDGET_HEIFERS_TO_SCAN_AND_COLLARS = "heifers-to-scan-and-collars"
 BLANK_PEN = "__blank__"
 NO_MATCH_PEN = "__no_match__"
 PDF_CONTENT_TYPE = "application/pdf"
@@ -51,6 +52,23 @@ COLLARS_TO_PUT_ON_COLUMNS: tuple[tuple[str, str], ...] = (
     ("rpro", "RPRO"),
     ("pen", "PEN"),
 )
+REASON_PREG_CHECK = "Preg Check"
+REASON_FAULTY_COLLAR = "Faulty Collar"
+REASON_PUT_COLLAR_ON = "Put Collar On"
+REASON_PREG_CHECK_AND_FAULTY = "Preg Check & Faulty Collar"
+HEIFERS_TO_SCAN_AND_COLLARS_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("id", "ID"),
+    ("remark", "REMARK"),
+    ("reason", "REASON"),
+    ("etag5", "ETAG5"),
+    ("dslh", "DSLH"),
+    ("tbrd", "TBRD"),
+    ("ewgt", "EWGT"),
+    ("httag", "HTTAG"),
+    ("aged", "AGED"),
+    ("rpro", "RPRO"),
+    ("pen", "PEN"),
+)
 REPORT_SPECS: dict[str, dict[str, Any]] = {
     WIDGET_HEIFERS_TO_SCAN: {
         "title": "Heifers To Scan",
@@ -65,6 +83,13 @@ REPORT_SPECS: dict[str, dict[str, Any]] = {
         "columns": COLLARS_TO_PUT_ON_COLUMNS,
         "xlsx_widths": [10, 20, 10, 8, 8, 8, 10, 8],
         "pdf_raw_mm": (18, 52, 20, 18, 18, 16, 22, 16),
+    },
+    WIDGET_HEIFERS_TO_SCAN_AND_COLLARS: {
+        "title": "Heifers To Scan & Collars",
+        "filename": "heifers_to_scan_and_collars",
+        "columns": HEIFERS_TO_SCAN_AND_COLLARS_COLUMNS,
+        "xlsx_widths": [10, 18, 22, 10, 8, 8, 8, 8, 8, 10, 8],
+        "pdf_raw_mm": (14, 36, 34, 16, 12, 10, 14, 12, 12, 16, 14),
     },
 }
 
@@ -278,7 +303,9 @@ def _animal_list_report(
     rows = db.scalars(query).all()
     animals = [
         _serialize_inventory_animal(
-            row, mark_broken_collar=widget_id == WIDGET_COLLARS_TO_PUT_ON
+            row,
+            mark_broken_collar=widget_id
+            in {WIDGET_COLLARS_TO_PUT_ON, WIDGET_HEIFERS_TO_SCAN_AND_COLLARS},
         )
         for row in rows
     ]
@@ -323,12 +350,76 @@ def collars_to_put_on(
     )
 
 
+def _combined_reason(
+    *, preg_check: bool, faulty_collar: bool, put_collar_on: bool
+) -> str:
+    if preg_check and faulty_collar:
+        return REASON_PREG_CHECK_AND_FAULTY
+    if preg_check:
+        return REASON_PREG_CHECK
+    if faulty_collar:
+        return REASON_FAULTY_COLLAR
+    if put_collar_on:
+        return REASON_PUT_COLLAR_ON
+    return ""
+
+
+def _merge_scan_and_collar_rows(
+    scan_rows: list[dict[str, Any]], collar_rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    scan_by_id = {row["id"]: dict(row) for row in scan_rows}
+    collar_by_id = {row["id"]: dict(row) for row in collar_rows}
+    merged: list[dict[str, Any]] = []
+    for cow_id in scan_by_id.keys() | collar_by_id.keys():
+        collar_row = collar_by_id.get(cow_id)
+        row = dict(collar_row or scan_by_id[cow_id])
+        row["reason"] = _combined_reason(
+            preg_check=cow_id in scan_by_id,
+            faulty_collar=bool(collar_row and collar_row.get("broken_collar")),
+            put_collar_on=bool(collar_row and not collar_row.get("broken_collar")),
+        )
+        merged.append(row)
+    return merged
+
+
+def _combined_scan_and_collars_report(
+    scan: dict[str, Any],
+    collars: dict[str, Any],
+    pens: list[str] | None = None,
+) -> dict[str, Any]:
+    spec = REPORT_SPECS[WIDGET_HEIFERS_TO_SCAN_AND_COLLARS]
+    animals = _merge_scan_and_collar_rows(scan["rows"], collars["rows"])
+    filtered = sort_heifers_by_etag5(apply_pen_filter(animals, pens))
+    return {
+        "id": WIDGET_HEIFERS_TO_SCAN_AND_COLLARS,
+        "title": spec["title"],
+        "count": len(animals),
+        "filtered_count": len(filtered),
+        "pens": unique_pens(animals),
+        "rows": filtered,
+        "farm": scan["farm"],
+        "farm_label": scan["farm_label"],
+    }
+
+
+def heifers_to_scan_and_collars(
+    db: Session, farm: str, pens: list[str] | None = None
+) -> dict[str, Any]:
+    farm_key = normalize_farm(farm)
+    return _combined_scan_and_collars_report(
+        heifers_to_scan(db, farm_key),
+        collars_to_put_on(db, farm_key),
+        pens=pens,
+    )
+
+
 def load_report(
     db: Session, farm: str, report_id: str, pens: list[str] | None = None
 ) -> dict[str, Any]:
     loaders = {
         WIDGET_HEIFERS_TO_SCAN: heifers_to_scan,
         WIDGET_COLLARS_TO_PUT_ON: collars_to_put_on,
+        WIDGET_HEIFERS_TO_SCAN_AND_COLLARS: heifers_to_scan_and_collars,
     }
     loader = loaders.get(report_id)
     if loader is None:
@@ -340,15 +431,22 @@ def farm_reports(db: Session, farm: str) -> dict[str, Any]:
     farm_key = normalize_farm(farm)
     scan = heifers_to_scan(db, farm_key)
     collars = collars_to_put_on(db, farm_key)
+    combined = _combined_scan_and_collars_report(scan, collars)
     return {
         "farm": farm_key,
         "farm_label": FARM_LABELS[farm_key],
         "widgets": [
             {"id": scan["id"], "title": scan["title"], "count": scan["count"]},
             {"id": collars["id"], "title": collars["title"], "count": collars["count"]},
+            {
+                "id": combined["id"],
+                "title": combined["title"],
+                "count": combined["count"],
+            },
         ],
         "heifers_to_scan": scan,
         "collars_to_put_on": collars,
+        "heifers_to_scan_and_collars": combined,
     }
 
 

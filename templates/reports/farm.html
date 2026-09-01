@@ -18,7 +18,7 @@
       grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
       gap: 0.75rem;
       margin-bottom: 1.1rem;
-      max-width: 28rem;
+      max-width: 42rem;
     }
     .report-widgets[hidden],
     .meta-line[hidden] {
@@ -135,6 +135,12 @@
     .report-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
     .report-table td.num { font-variant-numeric: tabular-nums; }
     .report-table td.remark, .report-table th[data-sort="remark"] { white-space: nowrap; }
+    .report-table td.reason, .report-table th[data-sort="reason"] {
+      width: 13rem;
+      min-width: 13rem;
+      max-width: 13rem;
+      white-space: nowrap;
+    }
     .report-table tr.broken-collar td,
     .etag5-table td.broken-collar {
       background: #fecaca;
@@ -311,6 +317,19 @@
         numCols: ["etag5", "ewgt", "httag", "aged"],
         descDefault: ["ewgt", "aged", "httag"],
         colWidths: ["12%", "22%", "12%", "10%", "10%", "10%", "12%", "12%"]
+      },
+      "heifers-to-scan-and-collars": {
+        dataKey: "heifers_to_scan_and_collars",
+        cols: ["id", "remark", "reason", "etag5", "dslh", "tbrd", "ewgt", "httag", "aged", "rpro", "pen"],
+        labels: {
+          id: "ID", remark: "REMARK", reason: "REASON", etag5: "ETAG5",
+          dslh: "DSLH", tbrd: "TBRD", ewgt: "EWGT", httag: "HTTAG",
+          aged: "AGED", rpro: "RPRO", pen: "PEN"
+        },
+        numCols: ["dslh", "tbrd", "etag5", "ewgt", "httag", "aged"],
+        descDefault: ["dslh", "tbrd", "ewgt", "aged", "httag"],
+        colWidths: ["8%", "16%", "13rem", "8%", "7%", "7%", "7%", "7%", "7%", "10%", "10%"],
+        tableMinWidth: "72rem"
       }
     };
     const BLANK_PEN = "__blank__";
@@ -430,10 +449,12 @@
       const headRow = table.querySelector("thead tr");
       colgroup.innerHTML = "";
       headRow.innerHTML = "";
+      table.style.minWidth = cfg && cfg.tableMinWidth ? cfg.tableMinWidth : "";
       if (!cfg) return;
-      cfg.colWidths.forEach(function (width) {
+      cfg.colWidths.forEach(function (width, index) {
         const col = document.createElement("col");
         col.style.width = width;
+        if (cfg.cols[index] === "reason") col.className = "reason";
         colgroup.appendChild(col);
       });
       cfg.cols.forEach(function (key) {
@@ -484,13 +505,14 @@
       const numCols = new Set(cfg ? cfg.numCols : []);
       rows.forEach(function (row) {
         const tr = document.createElement("tr");
-        if (selected === "collars-to-put-on" && row.broken_collar) {
+        if (row.broken_collar) {
           tr.className = "broken-collar";
         }
         (cfg ? cfg.cols : []).forEach(function (key) {
           const td = document.createElement("td");
           if (numCols.has(key)) td.className = "num";
           if (key === "remark") td.className = (td.className + " remark").trim();
+          if (key === "reason") td.className = (td.className + " reason").trim();
           td.textContent = blank(row[key]);
           td.title = blank(row[key]);
           tr.appendChild(td);
@@ -510,7 +532,7 @@
       const tags = rows.map(function (row) {
         return {
           value: blank(row.etag5),
-          broken: selected === "collars-to-put-on" && !!row.broken_collar
+          broken: !!row.broken_collar
         };
       });
       if (!tags.length) return [];

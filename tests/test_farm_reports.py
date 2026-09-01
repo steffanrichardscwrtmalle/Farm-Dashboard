@@ -25,6 +25,7 @@ from app.services.farm_reports import (
     etag5_pdf_col_widths,
     farm_reports,
     heifers_to_scan,
+    heifers_to_scan_and_collars,
 )
 
 
@@ -140,8 +141,12 @@ def test_farm_reports_widget_count_matches_table() -> None:
     assert payload["widgets"][0]["count"] == 1
     assert payload["widgets"][1]["id"] == "collars-to-put-on"
     assert payload["widgets"][1]["count"] == 0
+    assert payload["widgets"][2]["id"] == "heifers-to-scan-and-collars"
+    assert payload["widgets"][2]["title"] == "Heifers To Scan & Collars"
+    assert payload["widgets"][2]["count"] == 1
     assert payload["heifers_to_scan"]["count"] == 1
     assert payload["collars_to_put_on"]["count"] == 0
+    assert payload["heifers_to_scan_and_collars"]["count"] == 1
 
 
 def test_heifers_to_scan_xlsx_export() -> None:
@@ -310,3 +315,88 @@ def test_collars_to_put_on_pdf_export() -> None:
     pdf = build_report_pdf(collars_to_put_on(db, "CM"))
     assert pdf.startswith(b"%PDF")
     assert len(pdf) > 200
+
+
+def test_heifers_to_scan_and_collars_unions_lists_and_keeps_ewgt_floor() -> None:
+    db = _db()
+    db.add_all(
+        [
+            _heifer(
+                cow_id="100",
+                rc=3,
+                dslh=40,
+                ewgt=200,
+                httag="12",
+                rum=80,
+                etag="UK740651300111",
+            ),
+            _heifer(
+                cow_id="200",
+                rc=0,
+                dslh=10,
+                ewgt=385,
+                httag="0",
+                etag="UK740651300222",
+            ),
+            _heifer(
+                cow_id="201",
+                rc=0,
+                dslh=10,
+                ewgt=384.9,
+                httag="0",
+                etag="UK740651300333",
+            ),
+            _heifer(
+                cow_id="207",
+                rc=3,
+                dslh=50,
+                ewgt=410,
+                httag="12",
+                rum=0,
+                etag="UK740651300444",
+            ),
+            _heifer(
+                cow_id="208",
+                rc=0,
+                dslh=10,
+                ewgt=400,
+                httag="18",
+                rum=0,
+                etag="UK740651300555",
+            ),
+        ]
+    )
+    db.commit()
+
+    result = heifers_to_scan_and_collars(db, "CM")
+    by_id = {row["id"]: row for row in result["rows"]}
+    assert result["id"] == "heifers-to-scan-and-collars"
+    assert result["title"] == "Heifers To Scan & Collars"
+    assert result["count"] == 4
+    assert set(by_id) == {"100", "200", "207", "208"}
+    assert "201" not in by_id
+    assert by_id["100"]["dslh"] == 40
+    assert by_id["100"]["ewgt"] == 200
+    assert by_id["100"]["broken_collar"] is False
+    assert by_id["100"]["reason"] == "Preg Check"
+    assert by_id["200"]["ewgt"] == 385
+    assert by_id["200"]["httag"] == 0
+    assert by_id["200"]["reason"] == "Put Collar On"
+    assert by_id["207"]["broken_collar"] is True
+    assert by_id["207"]["dslh"] == 50
+    assert by_id["207"]["reason"] == "Preg Check & Faulty Collar"
+    assert by_id["208"]["broken_collar"] is True
+    assert by_id["208"]["reason"] == "Faulty Collar"
+    assert [row["id"] for row in result["rows"]] == ["100", "200", "207", "208"]
+
+
+def test_heifers_to_scan_and_collars_xlsx_export() -> None:
+    db = _db()
+    db.add(_heifer(cow_id="1", rc=3, dslh=40, ewgt=200))
+    db.commit()
+    content = build_report_xlsx(heifers_to_scan_and_collars(db, "CM"))
+    wb = load_workbook(BytesIO(content))
+    assert wb.sheetnames == ["Heifers To Scan & Collars", "ETAG5"]
+    assert [cell.value for cell in wb.active[1]] == [
+        "ID", "REMARK", "REASON", "ETAG5", "DSLH", "TBRD", "EWGT", "HTTAG", "AGED", "RPRO", "PEN"
+    ]
