@@ -45,17 +45,17 @@ def api_report_export_pdf(
     farm: str,
     report_id: str,
     pen: list[str] = Query(default=[]),
-    etag5_only: bool = Query(default=False),
+    etag4_only: bool = Query(default=False),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_REPORTS)),
 ) -> Response:
     farm_key = _farm_or_400(farm)
     spec = _report_or_404(report_id)
     report = load_report(db, farm_key, report_id, pens=pen or None)
-    suffix = "_etag5" if etag5_only else ""
+    suffix = "_etag4" if etag4_only else ""
     filename = f"{spec['filename']}{suffix}_{farm_key.lower()}.pdf"
     return Response(
-        content=build_report_pdf(report, etag5_only=etag5_only),
+        content=build_report_pdf(report, etag4_only=etag4_only),
         media_type=PDF_CONTENT_TYPE,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -66,17 +66,17 @@ def api_report_export_xlsx(
     farm: str,
     report_id: str,
     pen: list[str] = Query(default=[]),
-    etag5_only: bool = Query(default=False),
+    etag4_only: bool = Query(default=False),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_REPORTS)),
 ) -> Response:
     farm_key = _farm_or_400(farm)
     spec = _report_or_404(report_id)
     report = load_report(db, farm_key, report_id, pens=pen or None)
-    suffix = "_etag5" if etag5_only else ""
+    suffix = "_etag4" if etag4_only else ""
     filename = f"{spec['filename']}{suffix}_{farm_key.lower()}.xlsx"
     return Response(
-        content=build_report_xlsx(report, etag5_only=etag5_only),
+        content=build_report_xlsx(report, etag4_only=etag4_only),
         media_type=XLSX_CONTENT_TYPE,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

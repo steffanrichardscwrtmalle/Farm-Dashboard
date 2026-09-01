@@ -140,29 +140,33 @@
       min-width: 13rem;
       max-width: 13rem;
       white-space: nowrap;
+      font-size: 0.75rem;
+    }
+    .report-table td.httag, .report-table th[data-sort="httag"] {
+      font-size: 0.75rem;
     }
     .report-table tr.broken-collar td,
-    .etag5-table td.broken-collar {
+    .etag4-table td.broken-collar {
       background: #fecaca;
       color: #7f1d1d;
     }
-    .etag5-heading {
+    .etag4-heading {
       margin: 0;
       font-size: 1rem;
     }
-    .etag5-toolbar {
+    .etag4-toolbar {
       margin: 1.15rem 0 0.55rem;
     }
-    #etag5-wrap {
+    #etag4-wrap {
       width: fit-content;
       max-width: 100%;
     }
-    .etag5-table {
+    .etag4-table {
       width: auto;
       table-layout: auto;
     }
-    .etag5-table th,
-    .etag5-table td {
+    .etag4-table th,
+    .etag4-table td {
       width: 1%;
       text-align: center;
       font-variant-numeric: tabular-nums;
@@ -192,52 +196,63 @@
       }
       .table-wrap {
         overflow: visible;
+        max-height: none;
         border: none;
         border-radius: 0;
       }
       .report-table {
-        font-size: 7.5pt;
+        font-size: 10pt;
         width: 100%;
+        border-collapse: collapse;
       }
       .report-table th,
       .report-table td {
         padding: 1px 3px;
         height: 6.2mm;
         line-height: 1.15;
-        border-bottom: 0.3pt solid #d8dee4;
-        border-right: 0.3pt solid #eef0f3;
+        border: 0.5pt solid #000;
+        background: #fff;
+        color: #000;
+        position: static;
       }
       .report-table thead th {
-        background: #1e3a5f !important;
-        color: #fff !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
+        background: #fff !important;
+        color: #000 !important;
+        font-weight: 700;
+      }
+      .report-table th[data-sort="reason"],
+      .report-table td.reason,
+      .report-table th[data-sort="httag"],
+      .report-table td.httag {
+        font-size: 7pt;
       }
       .report-table thead { display: table-header-group; }
       .report-table tr { page-break-inside: avoid; }
       .report-table tr.broken-collar td,
-      .etag5-table td.broken-collar {
-        background: #fecaca !important;
-        color: #7f1d1d !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
+      .etag4-table td.broken-collar {
+        background: #fff !important;
+        color: #000 !important;
       }
-      #etag5-section { page-break-before: always; }
-      .etag5-heading { margin-top: 0; font-size: 12pt; }
-      #etag5-wrap { width: fit-content; max-width: none; }
-      .etag5-table {
+      #etag4-section { page-break-before: always; }
+      .etag4-heading { margin-top: 0; font-size: 12pt; }
+      #etag4-wrap { width: fit-content; max-width: none; }
+      .etag4-table {
         width: auto !important;
         table-layout: auto;
       }
-      .etag5-table th,
-      .etag5-table td {
+      .etag4-table th,
+      .etag4-table td {
         width: auto;
         padding: 1px 5px;
+        border: 0.5pt solid #000;
+        background: #fff;
+        color: #000;
       }
-      body.print-etag5-only .print-only { display: block !important; }
-      body.print-etag5-only #table-wrap,
-      body.print-etag5-only #empty-state { display: none !important; }
-      body.print-etag5-only #etag5-section { page-break-before: auto; }
+      body.print-etag4-only .print-only { display: block !important; }
+      body.print-etag4-only #table-wrap,
+      body.print-etag4-only #empty-state { display: none !important; }
+      body.print-etag4-only #etag4-section { page-break-before: auto; }
+      body.print-table-only #etag4-section { display: none !important; }
       .empty-state { display: none; }
     }
 {% endblock %}
@@ -274,18 +289,18 @@
         </table>
       </div>
       <p class="empty-state no-print" id="empty-state" hidden>No animals match the selected pens.</p>
-      <div id="etag5-section" hidden>
-        <div class="report-toolbar etag5-toolbar no-print">
-          <h3 class="etag5-heading">ETAG5</h3>
+      <div id="etag4-section" hidden>
+        <div class="report-toolbar etag4-toolbar no-print">
+          <h3 class="etag4-heading">ETAG4</h3>
           <div class="export-bar">
-            <button type="button" class="secondary small" id="etag5-export-pdf-btn">Export PDF</button>
-            <button type="button" class="secondary small" id="etag5-export-xlsx-btn">Export XLSX</button>
-            <button type="button" class="secondary small" id="etag5-print-btn">Print</button>
+            <button type="button" class="secondary small" id="etag4-export-pdf-btn">Export PDF</button>
+            <button type="button" class="secondary small" id="etag4-export-xlsx-btn">Export XLSX</button>
+            <button type="button" class="secondary small" id="etag4-print-btn">Print</button>
           </div>
         </div>
-        <h3 class="etag5-heading print-only">ETAG5</h3>
-        <div class="table-wrap" id="etag5-wrap">
-          <table class="report-table etag5-table" id="etag5-table">
+        <h3 class="etag4-heading print-only">ETAG4</h3>
+        <div class="table-wrap" id="etag4-wrap">
+          <table class="report-table etag4-table" id="etag4-table">
             <thead></thead>
             <tbody></tbody>
           </table>
@@ -298,35 +313,35 @@
     const REPORTS = {
       "heifers-to-scan": {
         dataKey: "heifers_to_scan",
-        cols: ["id", "remark", "etag5", "dslh", "tbrd", "rpro", "pen"],
+        cols: ["id", "remark", "etag4", "dslh", "tbrd", "rpro", "pen"],
         labels: {
-          id: "ID", remark: "REMARK", etag5: "ETAG5", dslh: "DSLH",
+          id: "ID", remark: "REMARK", etag4: "ETAG4", dslh: "DSLH",
           tbrd: "TBRD", rpro: "RPRO", pen: "PEN"
         },
-        numCols: ["dslh", "tbrd", "etag5"],
+        numCols: ["dslh", "tbrd", "etag4"],
         descDefault: ["dslh", "tbrd"],
         colWidths: ["12%", "28%", "12%", "10%", "10%", "14%", "14%"]
       },
       "collars-to-put-on": {
         dataKey: "collars_to_put_on",
-        cols: ["id", "remark", "etag5", "ewgt", "httag", "aged", "rpro", "pen"],
+        cols: ["id", "remark", "etag4", "ewgt", "httag", "aged", "rpro", "pen"],
         labels: {
-          id: "ID", remark: "REMARK", etag5: "ETAG5", ewgt: "EWGT",
+          id: "ID", remark: "REMARK", etag4: "ETAG4", ewgt: "EWGT",
           httag: "HTTAG", aged: "AGED", rpro: "RPRO", pen: "PEN"
         },
-        numCols: ["etag5", "ewgt", "httag", "aged"],
+        numCols: ["etag4", "ewgt", "httag", "aged"],
         descDefault: ["ewgt", "aged", "httag"],
         colWidths: ["12%", "22%", "12%", "10%", "10%", "10%", "12%", "12%"]
       },
       "heifers-to-scan-and-collars": {
         dataKey: "heifers_to_scan_and_collars",
-        cols: ["id", "remark", "reason", "etag5", "dslh", "tbrd", "ewgt", "httag", "aged", "rpro", "pen"],
+        cols: ["id", "remark", "reason", "etag4", "dslh", "tbrd", "ewgt", "httag", "aged", "rpro", "pen"],
         labels: {
-          id: "ID", remark: "REMARK", reason: "REASON", etag5: "ETAG5",
+          id: "ID", remark: "REMARK", reason: "REASON", etag4: "ETAG4",
           dslh: "DSLH", tbrd: "TBRD", ewgt: "EWGT", httag: "HTTAG",
           aged: "AGED", rpro: "RPRO", pen: "PEN"
         },
-        numCols: ["dslh", "tbrd", "etag5", "ewgt", "httag", "aged"],
+        numCols: ["dslh", "tbrd", "etag4", "ewgt", "httag", "aged"],
         descDefault: ["dslh", "tbrd", "ewgt", "aged", "httag"],
         colWidths: ["8%", "16%", "13rem", "8%", "7%", "7%", "7%", "7%", "7%", "10%", "10%"],
         tableMinWidth: "72rem"
@@ -339,7 +354,7 @@
     const defaultHeading = pageHeading ? pageHeading.textContent : "";
     let data = null;
     let selected = null;
-    let sortKey = "etag5";
+    let sortKey = "etag4";
     let sortDir = "asc";
     let selectedPens = new Set();
 
@@ -417,7 +432,7 @@
     function openReport(id, options) {
       const push = !options || options.push !== false;
       selected = id;
-      sortKey = "etag5";
+      sortKey = "etag4";
       sortDir = "asc";
       const report = reportData();
       selectedPens = new Set((report && report.pens ? report.pens : []).map(function (pen) {
@@ -493,7 +508,7 @@
       const tbody = document.querySelector("#report-table tbody");
       if (!selected) {
         panel.hidden = true;
-        document.getElementById("etag5-section").hidden = true;
+        document.getElementById("etag4-section").hidden = true;
         return;
       }
       const rows = currentRows();
@@ -513,6 +528,7 @@
           if (numCols.has(key)) td.className = "num";
           if (key === "remark") td.className = (td.className + " remark").trim();
           if (key === "reason") td.className = (td.className + " reason").trim();
+          if (key === "httag") td.className = (td.className + " httag").trim();
           td.textContent = blank(row[key]);
           td.title = blank(row[key]);
           tr.appendChild(td);
@@ -528,10 +544,10 @@
       renderEtag5Table(rows);
     }
 
-    function etag5Grid(rows) {
+    function etag4Grid(rows) {
       const tags = rows.map(function (row) {
         return {
-          value: blank(row.etag5),
+          value: blank(row.etag4),
           broken: !!row.broken_collar
         };
       });
@@ -549,13 +565,13 @@
     }
 
     function renderEtag5Table(rows) {
-      const section = document.getElementById("etag5-section");
-      const table = document.getElementById("etag5-table");
+      const section = document.getElementById("etag4-section");
+      const table = document.getElementById("etag4-table");
       const thead = table.querySelector("thead");
       const tbody = table.querySelector("tbody");
       thead.innerHTML = "";
       tbody.innerHTML = "";
-      const grid = etag5Grid(rows);
+      const grid = etag4Grid(rows);
       if (!grid.length) {
         section.hidden = true;
         return;
@@ -565,7 +581,7 @@
       const headRow = document.createElement("tr");
       for (let i = 0; i < cols; i++) {
         const th = document.createElement("th");
-        th.textContent = "ETAG5";
+        th.textContent = "ETAG4";
         headRow.appendChild(th);
       }
       thead.appendChild(headRow);
@@ -609,13 +625,13 @@
       renderTable();
     }
 
-    function exportHref(kind, etag5Only) {
+    function exportHref(kind, etag4Only) {
       if (!selected) return "";
       const params = new URLSearchParams();
       const ids = Array.from(selectedPens);
       if (!ids.length) params.append("pen", NO_MATCH_PEN);
       else ids.forEach(function (id) { params.append("pen", id); });
-      if (etag5Only) params.append("etag5_only", "true");
+      if (etag4Only) params.append("etag4_only", "true");
       return "/api/reports/" + encodeURIComponent(FARM)
         + "/" + encodeURIComponent(selected)
         + "/export." + kind + "?" + params.toString();
@@ -644,25 +660,29 @@
       const href = exportHref("xlsx", false);
       if (href) window.location.href = href;
     });
-    document.getElementById("print-btn").addEventListener("click", function () {
-      window.print();
-    });
-    document.getElementById("etag5-export-pdf-btn").addEventListener("click", function () {
-      const href = exportHref("pdf", true);
-      if (href) window.location.href = href;
-    });
-    document.getElementById("etag5-export-xlsx-btn").addEventListener("click", function () {
-      const href = exportHref("xlsx", true);
-      if (href) window.location.href = href;
-    });
-    document.getElementById("etag5-print-btn").addEventListener("click", function () {
-      document.body.classList.add("print-etag5-only");
+    function printWithClass(className) {
+      document.body.classList.add(className);
       const cleanup = function () {
-        document.body.classList.remove("print-etag5-only");
+        document.body.classList.remove(className);
         window.removeEventListener("afterprint", cleanup);
       };
       window.addEventListener("afterprint", cleanup);
       window.print();
+    }
+
+    document.getElementById("print-btn").addEventListener("click", function () {
+      printWithClass("print-table-only");
+    });
+    document.getElementById("etag4-export-pdf-btn").addEventListener("click", function () {
+      const href = exportHref("pdf", true);
+      if (href) window.location.href = href;
+    });
+    document.getElementById("etag4-export-xlsx-btn").addEventListener("click", function () {
+      const href = exportHref("xlsx", true);
+      if (href) window.location.href = href;
+    });
+    document.getElementById("etag4-print-btn").addEventListener("click", function () {
+      printWithClass("print-etag4-only");
     });
 
     async function load() {

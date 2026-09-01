@@ -31,12 +31,15 @@ NO_MATCH_PEN = "__no_match__"
 PDF_CONTENT_TYPE = "application/pdf"
 XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PDF_ROWS_PER_PAGE = 40
-ETAG5_COL_WIDTH_MM = 16.0
-ETAG5_XLSX_COL_WIDTH = 9
+PDF_TABLE_FONT_SIZE = 10
+PDF_COMPACT_FONT_SIZE = 7
+PDF_COMPACT_COL_KEYS = frozenset({"reason", "httag"})
+ETAG4_COL_WIDTH_MM = 16.0
+ETAG4_XLSX_COL_WIDTH = 9
 HEIFERS_TO_SCAN_COLUMNS: tuple[tuple[str, str], ...] = (
     ("id", "ID"),
     ("remark", "REMARK"),
-    ("etag5", "ETAG5"),
+    ("etag4", "ETAG4"),
     ("dslh", "DSLH"),
     ("tbrd", "TBRD"),
     ("rpro", "RPRO"),
@@ -45,7 +48,7 @@ HEIFERS_TO_SCAN_COLUMNS: tuple[tuple[str, str], ...] = (
 COLLARS_TO_PUT_ON_COLUMNS: tuple[tuple[str, str], ...] = (
     ("id", "ID"),
     ("remark", "REMARK"),
-    ("etag5", "ETAG5"),
+    ("etag4", "ETAG4"),
     ("ewgt", "EWGT"),
     ("httag", "HTTAG"),
     ("aged", "AGED"),
@@ -60,7 +63,7 @@ HEIFERS_TO_SCAN_AND_COLLARS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("id", "ID"),
     ("remark", "REMARK"),
     ("reason", "REASON"),
-    ("etag5", "ETAG5"),
+    ("etag4", "ETAG4"),
     ("dslh", "DSLH"),
     ("tbrd", "TBRD"),
     ("ewgt", "EWGT"),
@@ -94,11 +97,11 @@ REPORT_SPECS: dict[str, dict[str, Any]] = {
 }
 
 
-def etag5(etag: str | None) -> str | None:
-    """Last five digits of ETAG after trimming leading/trailing spaces."""
+def etag4(etag: str | None) -> str | None:
+    """Last four digits of ETAG, keeping a leading zero when present."""
     trimmed = (etag or "").strip()
     digits = "".join(ch for ch in trimmed if ch.isdigit())
-    return digits[-5:] if digits else None
+    return digits[-4:] if digits else None
 
 
 def _whole_number(value: object) -> int | float | None:
@@ -119,7 +122,7 @@ def _cell(value: object) -> str:
     return str(value)
 
 
-def _etag5_sort_key(value: object) -> tuple[int, int, str]:
+def _etag4_sort_key(value: object) -> tuple[int, int, str]:
     text = str(value or "").strip()
     if text.isdigit():
         return (0, int(text), "")
@@ -128,15 +131,15 @@ def _etag5_sort_key(value: object) -> tuple[int, int, str]:
     return (1, 0, text.lower())
 
 
-def sort_heifers_by_etag5(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(rows, key=lambda row: _etag5_sort_key(row.get("etag5")))
+def sort_heifers_by_etag4(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(rows, key=lambda row: _etag4_sort_key(row.get("etag4")))
 
 
-def etag5_column_grid(
+def etag4_column_grid(
     rows: list[dict[str, Any]], *, rows_per_page: int = PDF_ROWS_PER_PAGE
 ) -> list[list[str]]:
-    """Lay ETAG5 values out in column-major order, 40 rows per column."""
-    tags = [_cell(row.get("etag5")) for row in rows]
+    """Lay ETAG4 values out in column-major order, 40 rows per column."""
+    tags = [_cell(row.get("etag4")) for row in rows]
     if not tags:
         return []
     columns = max(1, math.ceil(len(tags) / rows_per_page))
@@ -148,7 +151,7 @@ def etag5_column_grid(
     return grid
 
 
-def etag5_flag_grid(
+def etag4_flag_grid(
     rows: list[dict[str, Any]], *, rows_per_page: int = PDF_ROWS_PER_PAGE
 ) -> list[list[bool]]:
     flags = [bool(row.get("broken_collar")) for row in rows]
@@ -158,15 +161,15 @@ def etag5_flag_grid(
     grid = [[False] * columns for _ in range(rows_per_page)]
     for index, flag in enumerate(flags):
         grid[index % rows_per_page][index // rows_per_page] = flag
-    values = etag5_column_grid(rows, rows_per_page=rows_per_page)
+    values = etag4_column_grid(rows, rows_per_page=rows_per_page)
     return grid[: len(values)]
 
 
-def etag5_pdf_col_widths(columns: int, usable_w: float) -> list[float]:
-    """Compact ETAG5 columns; shrink only if they would overflow the page."""
+def etag4_pdf_col_widths(columns: int, usable_w: float) -> list[float]:
+    """Compact ETAG4 columns; shrink only if they would overflow the page."""
     from reportlab.lib.units import mm
 
-    preferred = ETAG5_COL_WIDTH_MM * mm
+    preferred = ETAG4_COL_WIDTH_MM * mm
     total = preferred * max(columns, 1)
     width = preferred if total <= usable_w else usable_w / max(columns, 1)
     return [width] * max(columns, 1)
@@ -276,7 +279,7 @@ def _serialize_inventory_animal(
     return {
         "id": row.cow_id,
         "remark": (row.remark or "").strip() or None,
-        "etag5": etag5(row.etag),
+        "etag4": etag4(row.etag),
         "dslh": _whole_number(row.dslh),
         "tbrd": row.tbrd,
         "rpro": (row.rpro or "").strip() or None,
@@ -309,7 +312,7 @@ def _animal_list_report(
         )
         for row in rows
     ]
-    filtered = sort_heifers_by_etag5(apply_pen_filter(animals, pens))
+    filtered = sort_heifers_by_etag4(apply_pen_filter(animals, pens))
     return {
         "id": widget_id,
         "title": title,
@@ -389,7 +392,7 @@ def _combined_scan_and_collars_report(
 ) -> dict[str, Any]:
     spec = REPORT_SPECS[WIDGET_HEIFERS_TO_SCAN_AND_COLLARS]
     animals = _merge_scan_and_collar_rows(scan["rows"], collars["rows"])
-    filtered = sort_heifers_by_etag5(apply_pen_filter(animals, pens))
+    filtered = sort_heifers_by_etag4(apply_pen_filter(animals, pens))
     return {
         "id": WIDGET_HEIFERS_TO_SCAN_AND_COLLARS,
         "title": spec["title"],
@@ -469,16 +472,16 @@ def _broken_font(*, bold: bool = False) -> Font:
     return Font(bold=bold, color=BROKEN_COLLAR_TEXT)
 
 
-def _write_etag5_xlsx_sheet(
+def _write_etag4_xlsx_sheet(
     sheet, grid: list[list[str]], broken_grid: list[list[bool]] | None = None
 ) -> None:
     if not grid:
-        sheet.append(["ETAG5"])
+        sheet.append(["ETAG4"])
         _style_xlsx_header(sheet)
-        sheet.column_dimensions["A"].width = ETAG5_XLSX_COL_WIDTH
+        sheet.column_dimensions["A"].width = ETAG4_XLSX_COL_WIDTH
         return
     columns = len(grid[0])
-    sheet.append(["ETAG5"] * columns)
+    sheet.append(["ETAG4"] * columns)
     fill = _broken_fill()
     font = _broken_font()
     for row_index, row in enumerate(grid):
@@ -493,7 +496,7 @@ def _write_etag5_xlsx_sheet(
                 cell.fill = fill
                 cell.font = font
     for index in range(1, columns + 1):
-        sheet.column_dimensions[get_column_letter(index)].width = ETAG5_XLSX_COL_WIDTH
+        sheet.column_dimensions[get_column_letter(index)].width = ETAG4_XLSX_COL_WIDTH
     _style_xlsx_header(sheet)
 
 
@@ -505,18 +508,18 @@ def _report_spec(report: dict[str, Any]) -> dict[str, Any]:
     return spec
 
 
-def build_report_xlsx(report: dict[str, Any], *, etag5_only: bool = False) -> bytes:
+def build_report_xlsx(report: dict[str, Any], *, etag4_only: bool = False) -> bytes:
     spec = _report_spec(report)
     columns: tuple[tuple[str, str], ...] = spec["columns"]
     wb = Workbook()
-    rows = sort_heifers_by_etag5(list(report.get("rows") or []))
-    grid = etag5_column_grid(rows)
-    broken_grid = etag5_flag_grid(rows)
+    rows = sort_heifers_by_etag4(list(report.get("rows") or []))
+    grid = etag4_column_grid(rows)
+    broken_grid = etag4_flag_grid(rows)
 
-    if etag5_only:
+    if etag4_only:
         sheet = wb.active
-        sheet.title = "ETAG5"
-        _write_etag5_xlsx_sheet(sheet, grid, broken_grid)
+        sheet.title = "ETAG4"
+        _write_etag4_xlsx_sheet(sheet, grid, broken_grid)
     else:
         ws = wb.active
         ws.title = str(spec["title"])[:31]
@@ -538,19 +541,19 @@ def build_report_xlsx(report: dict[str, Any], *, etag5_only: bool = False) -> by
         ws.page_setup.fitToHeight = 0
         ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.page_setup.horizontalCentered = True
-        etag_sheet = wb.create_sheet("ETAG5")
-        _write_etag5_xlsx_sheet(etag_sheet, grid, broken_grid)
+        etag_sheet = wb.create_sheet("ETAG4")
+        _write_etag4_xlsx_sheet(etag_sheet, grid, broken_grid)
 
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
 
 
-def build_heifers_to_scan_xlsx(report: dict[str, Any], *, etag5_only: bool = False) -> bytes:
-    return build_report_xlsx(report, etag5_only=etag5_only)
+def build_heifers_to_scan_xlsx(report: dict[str, Any], *, etag4_only: bool = False) -> bytes:
+    return build_report_xlsx(report, etag4_only=etag4_only)
 
 
-def build_report_pdf(report: dict[str, Any], *, etag5_only: bool = False) -> bytes:
+def build_report_pdf(report: dict[str, Any], *, etag4_only: bool = False) -> bytes:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.platypus import (
@@ -565,8 +568,8 @@ def build_report_pdf(report: dict[str, Any], *, etag5_only: bool = False) -> byt
     report_title = str(spec["title"])
     farm_label = report.get("farm_label") or ""
     title = (
-        f"{report_title} · ETAG5 · {farm_label}"
-        if etag5_only
+        f"{report_title} · ETAG4 · {farm_label}"
+        if etag4_only
         else f"{report_title} · {farm_label}"
     )
     generated = dt.datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -604,7 +607,7 @@ def build_report_pdf(report: dict[str, Any], *, etag5_only: bool = False) -> byt
     )
 
     header = [label for _, label in columns]
-    rows = sort_heifers_by_etag5(list(report.get("rows") or []))
+    rows = sort_heifers_by_etag4(list(report.get("rows") or []))
     data_rows = [
         [_pdf_cell(key, row.get(key)) for key, _ in columns]
         for row in rows
@@ -612,54 +615,10 @@ def build_report_pdf(report: dict[str, Any], *, etag5_only: bool = False) -> byt
     elements: list[Any] = []
     empty_pad = [""] * (len(header) - 1)
 
-    def _broken_style(source_rows: list[dict[str, Any]], header_offset: int = 1):
-        from reportlab.lib import colors
-        from reportlab.platypus import TableStyle
-
-        commands = []
-        for index, row in enumerate(source_rows):
-            if not row.get("broken_collar"):
-                continue
-            pdf_row = index + header_offset
-            commands.append(
-                ("BACKGROUND", (0, pdf_row), (-1, pdf_row), colors.HexColor("#" + BROKEN_COLLAR_FILL))
-            )
-            commands.append(
-                ("TEXTCOLOR", (0, pdf_row), (-1, pdf_row), colors.HexColor("#" + BROKEN_COLLAR_TEXT))
-            )
-        return TableStyle(commands) if commands else None
-
-    def _etag5_broken_style(flag_grid: list[list[bool]]):
-        from reportlab.lib import colors
-        from reportlab.platypus import TableStyle
-
-        commands = []
-        for row_index, line in enumerate(flag_grid):
-            for col_index, flag in enumerate(line):
-                if not flag:
-                    continue
-                commands.append(
-                    (
-                        "BACKGROUND",
-                        (col_index, row_index + 1),
-                        (col_index, row_index + 1),
-                        colors.HexColor("#" + BROKEN_COLLAR_FILL),
-                    )
-                )
-                commands.append(
-                    (
-                        "TEXTCOLOR",
-                        (col_index, row_index + 1),
-                        (col_index, row_index + 1),
-                        colors.HexColor("#" + BROKEN_COLLAR_TEXT),
-                    )
-                )
-        return TableStyle(commands) if commands else None
-
-    def _etag5_table(grid: list[list[str]], flag_grid: list[list[bool]]):
+    def _etag4_table(grid: list[list[str]]):
         grid_columns = len(grid[0])
-        etag_widths = etag5_pdf_col_widths(grid_columns, usable_w)
-        etag_header = ["ETAG5"] * grid_columns
+        etag_widths = etag4_pdf_col_widths(grid_columns, usable_w)
+        etag_header = ["ETAG4"] * grid_columns
         etag_table = Table(
             [etag_header] + grid,
             colWidths=etag_widths,
@@ -669,20 +628,16 @@ def build_report_pdf(report: dict[str, Any], *, etag5_only: bool = False) -> byt
         )
         etag_table.setStyle(_pdf_table_style())
         etag_table.setStyle(TableStyle([("ALIGN", (0, 1), (-1, -1), "CENTER")]))
-        broken = _etag5_broken_style(flag_grid)
-        if broken:
-            etag_table.setStyle(broken)
         return etag_table
 
-    grid = etag5_column_grid(rows)
-    broken_grid = etag5_flag_grid(rows)
-    if etag5_only:
+    grid = etag4_column_grid(rows)
+    if etag4_only:
         if grid:
-            elements.append(_etag5_table(grid, broken_grid))
+            elements.append(_etag4_table(grid))
         else:
             empty = Table(
-                [["ETAG5"], ["No animals match the selected pens."]],
-                colWidths=[ETAG5_COL_WIDTH_MM * mm],
+                [["ETAG4"], ["No animals match the selected pens."]],
+                colWidths=[ETAG4_COL_WIDTH_MM * mm],
                 hAlign="LEFT",
             )
             empty.setStyle(_pdf_table_style())
@@ -693,7 +648,7 @@ def build_report_pdf(report: dict[str, Any], *, etag5_only: bool = False) -> byt
             colWidths=col_widths,
             repeatRows=1,
         )
-        empty.setStyle(_pdf_table_style())
+        empty.setStyle(_pdf_table_style(columns))
         empty.setStyle(
             TableStyle([("SPAN", (0, 1), (-1, 1)), ("ALIGN", (0, 1), (-1, 1), "LEFT")])
         )
@@ -701,30 +656,26 @@ def build_report_pdf(report: dict[str, Any], *, etag5_only: bool = False) -> byt
     else:
         for start in range(0, len(data_rows), PDF_ROWS_PER_PAGE):
             chunk = data_rows[start : start + PDF_ROWS_PER_PAGE]
-            chunk_rows = rows[start : start + PDF_ROWS_PER_PAGE]
             table = Table(
                 [header] + chunk,
                 colWidths=col_widths,
                 rowHeights=[header_h] + [row_h] * len(chunk),
                 repeatRows=1,
             )
-            table.setStyle(_pdf_table_style())
-            broken = _broken_style(chunk_rows)
-            if broken:
-                table.setStyle(broken)
+            table.setStyle(_pdf_table_style(columns))
             elements.append(table)
             if start + PDF_ROWS_PER_PAGE < len(data_rows):
                 elements.append(PageBreak())
         if grid:
             elements.append(PageBreak())
-            elements.append(_etag5_table(grid, broken_grid))
+            elements.append(_etag4_table(grid))
 
     doc.build(elements, onFirstPage=_header, onLaterPages=_header)
     return buffer.getvalue()
 
 
-def build_heifers_to_scan_pdf(report: dict[str, Any], *, etag5_only: bool = False) -> bytes:
-    return build_report_pdf(report, etag5_only=etag5_only)
+def build_heifers_to_scan_pdf(report: dict[str, Any], *, etag4_only: bool = False) -> bytes:
+    return build_report_pdf(report, etag4_only=etag4_only)
 
 
 def _pdf_cell(key: str, value: object) -> str:
@@ -734,25 +685,29 @@ def _pdf_cell(key: str, value: object) -> str:
     return text
 
 
-def _pdf_table_style():
+def _pdf_table_style(columns: tuple[tuple[str, str], ...] | None = None):
     from reportlab.lib import colors
     from reportlab.platypus import TableStyle
 
-    return TableStyle(
-        [
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a5f")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-            ("FONTSIZE", (0, 0), (-1, -1), 7),
-            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-            ("ALIGN", (2, 1), (-1, -1), "CENTER"),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#d8dee4")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f3f6f9")]),
-            ("LEFTPADDING", (0, 0), (-1, -1), 2),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-            ("TOPPADDING", (0, 0), (-1, -1), 1),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
-        ]
-    )
+    commands: list[tuple] = [
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.black),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), PDF_TABLE_FONT_SIZE),
+        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+        ("ALIGN", (2, 1), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+    ]
+    for index, (key, _) in enumerate(columns or ()):
+        if key not in PDF_COMPACT_COL_KEYS:
+            continue
+        commands.append(("FONTSIZE", (index, 0), (index, -1), PDF_COMPACT_FONT_SIZE))
+        commands.append(("LEFTPADDING", (index, 0), (index, -1), 1))
+        commands.append(("RIGHTPADDING", (index, 0), (index, -1), 1))
+    return TableStyle(commands)

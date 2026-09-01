@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models import Base, HerdInventory
 from app.services.farm_reports import (
     BLANK_PEN,
-    ETAG5_COL_WIDTH_MM,
-    ETAG5_XLSX_COL_WIDTH,
+    ETAG4_COL_WIDTH_MM,
+    ETAG4_XLSX_COL_WIDTH,
     PDF_ROWS_PER_PAGE,
     apply_pen_filter,
     build_heifers_to_scan_pdf,
@@ -20,9 +20,9 @@ from app.services.farm_reports import (
     build_report_pdf,
     build_report_xlsx,
     collars_to_put_on,
-    etag5,
-    etag5_column_grid,
-    etag5_pdf_col_widths,
+    etag4,
+    etag4_column_grid,
+    etag4_pdf_col_widths,
     farm_reports,
     heifers_to_scan,
     heifers_to_scan_and_collars,
@@ -72,11 +72,12 @@ def _heifer(
     )
 
 
-def test_etag5_strips_spaces_and_uses_last_five_digits() -> None:
-    assert etag5("UK740651324400") == "24400"
-    assert etag5("UK740651324400     ") == "24400"
-    assert etag5("UK 7406 5132 4400") == "24400"
-    assert etag5(None) is None
+def test_etag4_strips_spaces_and_keeps_leading_zero() -> None:
+    assert etag4("UK740651324400") == "4400"
+    assert etag4("UK740651324400     ") == "4400"
+    assert etag4("UK 7406 5132 4400") == "4400"
+    assert etag4("UK740651300111") == "0111"
+    assert etag4(None) is None
 
 
 def test_heifers_to_scan_filters_youngstock_rc_and_dslh() -> None:
@@ -97,8 +98,8 @@ def test_heifers_to_scan_filters_youngstock_rc_and_dslh() -> None:
     ids = [row["id"] for row in result["rows"]]
     assert result["count"] == 2
     assert ids == ["101", "100"]
-    assert result["rows"][0]["etag5"] == "00111"
-    assert result["rows"][1]["etag5"] == "24400"
+    assert result["rows"][0]["etag4"] == "0111"
+    assert result["rows"][1]["etag4"] == "4400"
     assert result["rows"][1]["dslh"] == 32
     assert result["rows"][1]["rpro"] == "BRED"
     assert result["rows"][1]["remark"] == "BRED"
@@ -156,19 +157,19 @@ def test_heifers_to_scan_xlsx_export() -> None:
     content = build_heifers_to_scan_xlsx(heifers_to_scan(db, "CM"))
     assert content[:2] == b"PK"
     wb = load_workbook(BytesIO(content))
-    assert wb.sheetnames == ["Heifers To Scan", "ETAG5"]
-    assert wb["ETAG5"].column_dimensions["A"].width == ETAG5_XLSX_COL_WIDTH
+    assert wb.sheetnames == ["Heifers To Scan", "ETAG4"]
+    assert wb["ETAG4"].column_dimensions["A"].width == ETAG4_XLSX_COL_WIDTH
 
 
-def test_heifers_to_scan_xlsx_etag5_only() -> None:
+def test_heifers_to_scan_xlsx_etag4_only() -> None:
     db = _db()
     db.add(_heifer(cow_id="1", remark="SCAN"))
     db.commit()
-    content = build_heifers_to_scan_xlsx(heifers_to_scan(db, "CM"), etag5_only=True)
+    content = build_heifers_to_scan_xlsx(heifers_to_scan(db, "CM"), etag4_only=True)
     wb = load_workbook(BytesIO(content))
-    assert wb.sheetnames == ["ETAG5"]
-    assert wb.active["A1"].value == "ETAG5"
-    assert wb.active.column_dimensions["A"].width == ETAG5_XLSX_COL_WIDTH
+    assert wb.sheetnames == ["ETAG4"]
+    assert wb.active["A1"].value == "ETAG4"
+    assert wb.active.column_dimensions["A"].width == ETAG4_XLSX_COL_WIDTH
 
 
 def test_heifers_to_scan_pdf_export() -> None:
@@ -190,44 +191,44 @@ def test_heifers_to_scan_pdf_export() -> None:
     assert report["count"] == PDF_ROWS_PER_PAGE + 5
 
 
-def test_etag5_grid_uses_forty_row_columns() -> None:
-    rows = [{"etag5": f"{i:05d}"} for i in range(200)]
-    grid = etag5_column_grid(rows)
+def test_etag4_grid_uses_forty_row_columns() -> None:
+    rows = [{"etag4": f"{i:05d}"} for i in range(200)]
+    grid = etag4_column_grid(rows)
     assert len(grid) == 40
     assert len(grid[0]) == 5
     assert grid[0] == ["00000", "00040", "00080", "00120", "00160"]
     assert grid[39][0] == "00039"
     assert grid[0][4] == "00160"
 
-    short = etag5_column_grid([{"etag5": "1"}] * 41)
+    short = etag4_column_grid([{"etag4": "1"}] * 41)
     assert len(short) == 40
     assert len(short[0]) == 2
     assert short[0] == ["1", "1"]
     assert short[1][1] == ""
 
 
-def test_etag5_pdf_columns_stay_compact() -> None:
+def test_etag4_pdf_columns_stay_compact() -> None:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
 
     usable = A4[0] - 16 * mm
-    widths = etag5_pdf_col_widths(5, usable)
+    widths = etag4_pdf_col_widths(5, usable)
     assert len(widths) == 5
-    assert widths[0] == ETAG5_COL_WIDTH_MM * mm
+    assert widths[0] == ETAG4_COL_WIDTH_MM * mm
     assert sum(widths) < usable
 
-    crowded = etag5_pdf_col_widths(20, usable)
+    crowded = etag4_pdf_col_widths(20, usable)
     assert abs(sum(crowded) - usable) < 0.01
 
 
-def test_heifers_to_scan_pdf_etag5_only() -> None:
+def test_heifers_to_scan_pdf_etag4_only() -> None:
     import pytest
 
     pytest.importorskip("reportlab")
     db = _db()
     db.add(_heifer(cow_id="1"))
     db.commit()
-    pdf = build_heifers_to_scan_pdf(heifers_to_scan(db, "CM"), etag5_only=True)
+    pdf = build_heifers_to_scan_pdf(heifers_to_scan(db, "CM"), etag4_only=True)
     assert pdf.startswith(b"%PDF")
     assert len(pdf) > 200
 
@@ -285,7 +286,7 @@ def test_collars_to_put_on_filters_httag_rum_rc_and_lact() -> None:
     assert by_id["200"]["aged"] == 390
     assert by_id["200"]["remark"] == "COLLAR"
     assert by_id["200"]["pen"] == "12"
-    assert by_id["201"]["etag5"] == "00111"
+    assert by_id["201"]["etag4"] == "0111"
     assert by_id["207"]["httag"] == 12
     assert by_id["207"]["broken_collar"] is True
     assert by_id["207"]["rpro"] == "BRED"
@@ -298,9 +299,9 @@ def test_collars_to_put_on_xlsx_export() -> None:
     db.commit()
     content = build_report_xlsx(collars_to_put_on(db, "CM"))
     wb = load_workbook(BytesIO(content))
-    assert wb.sheetnames == ["Collars To Put On", "ETAG5"]
+    assert wb.sheetnames == ["Collars To Put On", "ETAG4"]
     assert [cell.value for cell in wb.active[1]] == [
-        "ID", "REMARK", "ETAG5", "EWGT", "HTTAG", "AGED", "RPRO", "PEN"
+        "ID", "REMARK", "ETAG4", "EWGT", "HTTAG", "AGED", "RPRO", "PEN"
     ]
     assert wb.active["D2"].value == "385"
 
@@ -396,7 +397,7 @@ def test_heifers_to_scan_and_collars_xlsx_export() -> None:
     db.commit()
     content = build_report_xlsx(heifers_to_scan_and_collars(db, "CM"))
     wb = load_workbook(BytesIO(content))
-    assert wb.sheetnames == ["Heifers To Scan & Collars", "ETAG5"]
+    assert wb.sheetnames == ["Heifers To Scan & Collars", "ETAG4"]
     assert [cell.value for cell in wb.active[1]] == [
-        "ID", "REMARK", "REASON", "ETAG5", "DSLH", "TBRD", "EWGT", "HTTAG", "AGED", "RPRO", "PEN"
+        "ID", "REMARK", "REASON", "ETAG4", "DSLH", "TBRD", "EWGT", "HTTAG", "AGED", "RPRO", "PEN"
     ]
