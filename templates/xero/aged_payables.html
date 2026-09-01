@@ -18,6 +18,27 @@
     align-items: center;
     gap: 0.5rem 0.75rem;
   }
+  .aged-toolbar-right {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  .payments-btn {
+    padding: 0.4rem 0.85rem;
+    border: 1px solid #93c5fd;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #1e3a8a;
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .payments-btn:hover {
+    background: #dbeafe;
+    color: #1e3a8a;
+  }
+  .payments-btn[hidden] { display: none; }
   .auto-sort-btn {
     padding: 0.45rem 0.9rem;
     border: 1px solid var(--border);
@@ -274,6 +295,130 @@
     font-size: 0.72rem;
     color: #15803d;
   }
+  .cell-menu {
+    position: fixed;
+    z-index: 80;
+    min-width: 9.5rem;
+    padding: 0.25rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+  }
+  .cell-menu[hidden] { display: none; }
+  .cell-menu-item {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: 0.45rem 0.7rem;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-align: left;
+  }
+  .cell-menu-item:hover {
+    background: #ecfdf5;
+    color: #14532d;
+  }
+  .part-pay-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+  }
+  .part-pay-modal[hidden] { display: none; }
+  .part-pay-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.4);
+  }
+  .part-pay-modal-body {
+    position: relative;
+    width: min(22rem, 100%);
+    padding: 1.1rem 1.15rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
+  }
+  .part-pay-modal-body h3 {
+    margin: 0 0 0.35rem;
+    font-size: 1.05rem;
+  }
+  .part-pay-modal-body .muted {
+    margin: 0 0 0.75rem;
+  }
+  .part-pay-modal-body label { margin-bottom: 0.3rem; }
+  .part-pay-modal-body input {
+    width: 100%;
+    margin-bottom: 0.55rem;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 1rem;
+  }
+  .part-pay-error {
+    margin: 0 0 0.65rem;
+    color: var(--danger);
+    font-size: 0.8125rem;
+  }
+  .part-pay-error[hidden] { display: none; }
+  .part-pay-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+  .payments-modal-body {
+    width: min(40rem, 100%);
+    max-height: min(36rem, 86vh);
+    display: flex;
+    flex-direction: column;
+  }
+  .payments-modal-body h3 { margin-bottom: 0.2rem; }
+  .payments-list-wrap {
+    overflow: auto;
+    margin: 0.35rem 0 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    min-height: 6rem;
+  }
+  .payments-list {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .payments-list th,
+  .payments-list td {
+    padding: 0.45rem 0.65rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .payments-list th {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    background: #f8fafc;
+  }
+  .payments-list td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .payments-list td.actions { text-align: right; white-space: nowrap; }
+  .payments-list tr:last-child td { border-bottom: 0; }
+  .payments-empty {
+    margin: 0;
+    padding: 1rem 0.85rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+  .payments-total {
+    margin: 0 0 0.75rem;
+    font-weight: 700;
+  }
 {% endblock %}
 
 {% block content %}
@@ -293,10 +438,13 @@
       <button type="button" class="auto-sort-btn" id="auto-sort-btn" title="Sort red, then blank, then blue; then To Pay, then Total" aria-pressed="false">Auto Sort</button>
       <input type="search" id="contact-search" class="contact-search" placeholder="Search contact…" autocomplete="off" aria-label="Search contact">
     </div>
-    <div class="to-pay-widget" id="to-pay-widget" aria-live="polite">
-      <div class="label">To Pay</div>
-      <div class="value" id="to-pay-total">£0.00</div>
-      <div class="hint" id="to-pay-hint">No amounts marked</div>
+    <div class="aged-toolbar-right">
+      <button type="button" class="payments-btn" id="payments-btn" hidden>Payments</button>
+      <div class="to-pay-widget" id="to-pay-widget" aria-live="polite">
+        <div class="label">To Pay</div>
+        <div class="value" id="to-pay-total">£0.00</div>
+        <div class="hint" id="to-pay-hint">No amounts marked</div>
+      </div>
     </div>
   </div>
   <p class="meta-line" id="meta-line">Loading aged payables…</p>
@@ -307,17 +455,49 @@
     </table>
     <p class="empty-note" id="empty-note">Loading…</p>
   </div>
+  <div id="cell-menu" class="cell-menu" hidden role="menu" aria-label="Pay">
+    <button type="button" class="cell-menu-item" id="cell-menu-full" role="menuitem">Full</button>
+    <button type="button" class="cell-menu-item" id="cell-menu-part" role="menuitem">Part</button>
+  </div>
+  <div id="part-pay-modal" class="part-pay-modal" hidden>
+    <div class="part-pay-modal-backdrop" data-part-pay-close="1"></div>
+    <div class="part-pay-modal-body" role="dialog" aria-modal="true" aria-labelledby="part-pay-title">
+      <h3 id="part-pay-title">Part pay</h3>
+      <p class="muted" id="part-pay-meta"></p>
+      <label for="part-pay-input">Amount to pay</label>
+      <input id="part-pay-input" type="text" inputmode="decimal" autocomplete="off">
+      <p class="part-pay-error" id="part-pay-error" hidden></p>
+      <div class="part-pay-actions">
+        <button type="button" class="secondary" id="part-pay-cancel">Cancel</button>
+        <button type="button" id="part-pay-apply">Pay</button>
+      </div>
+    </div>
+  </div>
+  <div id="payments-modal" class="part-pay-modal" hidden>
+    <div class="part-pay-modal-backdrop" data-payments-close="1"></div>
+    <div class="part-pay-modal-body payments-modal-body" role="dialog" aria-modal="true" aria-labelledby="payments-title">
+      <h3 id="payments-title">Payments since last Xero sync</h3>
+      <p class="muted" id="payments-meta">Local payments are cleared the next time invoices are synced from Xero.</p>
+      <div class="payments-list-wrap" id="payments-list-wrap"></div>
+      <p class="payments-total" id="payments-total"></p>
+      <div class="part-pay-actions">
+        <button type="button" class="secondary" id="payments-close">Close</button>
+      </div>
+    </div>
+  </div>
 {% endblock %}
 
 {% block scripts %}
   <script>
     const DEFAULT_VIEW = {{ default_view | tojson }};
     const USER_ID = {{ (current_user.id if current_user else 0) | tojson }};
+    const VIEW_OPTIONS = {{ view_options | tojson }};
     const STORAGE_KEY = `xero-aged-payables-to-pay:${USER_ID}`;
     const LEGACY_STORAGE_KEY = "xero-aged-payables-to-pay";
     const CRITICAL_KEY = `xero-aged-payables-critical:${USER_ID}`;
     const LEGACY_CRITICAL_KEY = "xero-aged-payables-critical";
     const CONTACT_STATUS_KEY = `xero-aged-payables-contact-status:${USER_ID}`;
+    const PAID_KEY = `xero-aged-payables-paid:${USER_ID}`;
     const money = new Intl.NumberFormat("en-GB", {
       style: "currency",
       currency: "GBP",
@@ -327,11 +507,47 @@
 
     let tableData = null;
     let sortState = { key: "contact", dir: 1 };
+    let payMenuTarget = null;
     const selections = loadSelections();
     const contactStatus = loadContactStatus();
+    let paidState = loadPaidState();
 
     function selectedView() {
-      return document.querySelector(".view-tab.active")?.dataset.view || DEFAULT_VIEW;
+      return canonicalViewId(document.querySelector(".view-tab.active")?.dataset.view || DEFAULT_VIEW);
+    }
+
+    function canonicalViewId(view) {
+      const raw = String(view || "").trim();
+      if (!raw) return raw;
+      const folded = raw.toLowerCase();
+      for (const opt of VIEW_OPTIONS || []) {
+        const id = String(opt.id || "");
+        if (id.toLowerCase() === folded) return id;
+        if (String(opt.label || "").toLowerCase() === folded) return id;
+        const businesses = opt.businesses || [];
+        if (businesses.some((name) => String(name).toLowerCase() === folded)) return id;
+        if (businesses.join(" + ").toLowerCase() === folded) return id;
+      }
+      return raw;
+    }
+
+    function remapViewSets(store) {
+      const out = {};
+      Object.entries(store || {}).forEach(([view, keys]) => {
+        const id = canonicalViewId(view);
+        if (!out[id]) out[id] = new Set();
+        [...(keys || [])].forEach((key) => out[id].add(key));
+      });
+      return out;
+    }
+
+    function remapViewMaps(store) {
+      const out = {};
+      Object.entries(store || {}).forEach(([view, value]) => {
+        const id = canonicalViewId(view);
+        out[id] = { ...(out[id] || {}), ...(value || {}) };
+      });
+      return out;
     }
 
     function loadNamedSets(storageKey, storage) {
@@ -378,7 +594,9 @@
     }
 
     function loadSelections() {
-      return loadPersistentSets(STORAGE_KEY, LEGACY_STORAGE_KEY);
+      const loaded = remapViewSets(loadPersistentSets(STORAGE_KEY, LEGACY_STORAGE_KEY));
+      saveNamedSets(STORAGE_KEY, loaded, localStorage);
+      return loaded;
     }
 
     function saveSelections() {
@@ -400,7 +618,15 @@
             });
             if (Object.keys(map).length) out[view] = map;
           });
-          if (Object.keys(out).length) return out;
+          if (Object.keys(out).length) {
+            const remapped = remapViewMaps(out);
+            try {
+              localStorage.setItem(CONTACT_STATUS_KEY, JSON.stringify(remapped));
+            } catch (_) {
+              /* private mode / blocked storage */
+            }
+            return remapped;
+          }
         }
       } catch (_) {
         /* fall through to legacy critical flags */
@@ -414,14 +640,15 @@
         });
         if (Object.keys(map).length) migrated[view] = map;
       });
-      if (Object.keys(migrated).length) {
+      const remapped = remapViewMaps(migrated);
+      if (Object.keys(remapped).length) {
         try {
-          localStorage.setItem(CONTACT_STATUS_KEY, JSON.stringify(migrated));
+          localStorage.setItem(CONTACT_STATUS_KEY, JSON.stringify(remapped));
         } catch (_) {
           /* private mode / blocked storage */
         }
       }
-      return migrated;
+      return remapped;
     }
 
     function saveContactStatus() {
@@ -430,6 +657,310 @@
       } catch (_) {
         /* private mode / blocked storage */
       }
+    }
+
+    function roundMoney(value) {
+      return Math.round((Number(value) || 0) * 100) / 100;
+    }
+
+    function remainingAfterPay(raw, paid) {
+      const amount = roundMoney(raw);
+      const paidAmount = Math.max(0, roundMoney(paid));
+      if (paidAmount < 0.005) return amount;
+      if (amount >= 0) return roundMoney(Math.max(0, amount - paidAmount));
+      return roundMoney(Math.min(0, amount + paidAmount));
+    }
+
+    function loadPaidState() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(PAID_KEY) || "{}");
+        const byView = {};
+        Object.entries(parsed.byView || {}).forEach(([view, bucket]) => {
+          if (!bucket || typeof bucket !== "object" || Array.isArray(bucket)) return;
+          const id = canonicalViewId(view);
+          const paid = { ...(byView[id]?.paid || {}) };
+          Object.entries(bucket.paid || {}).forEach(([key, value]) => {
+            const n = Number(value);
+            if (Number.isFinite(n) && n >= 0.005) paid[key] = roundMoney(n);
+          });
+          const entries = [
+            ...(byView[id]?.entries || []),
+            ...normalizePaymentEntries(bucket.entries, paid),
+          ];
+          byView[id] = {
+            lastSyncedAt: String(bucket.lastSyncedAt || byView[id]?.lastSyncedAt || ""),
+            paid,
+            entries,
+          };
+        });
+        Object.values(byView).forEach((bucket) => rebuildPaidFromEntries(bucket));
+        return { byView };
+      } catch (_) {
+        return { byView: {} };
+      }
+    }
+
+    function normalizePaymentEntries(rawEntries, paid) {
+      const fromList = Array.isArray(rawEntries)
+        ? rawEntries.map((entry, index) => {
+            if (!entry || typeof entry !== "object") return null;
+            const amount = roundMoney(entry.amount);
+            if (!(amount >= 0.005)) return null;
+            const contact = String(entry.contact || "");
+            const monthKey = String(entry.monthKey || "");
+            if (!contact || !monthKey) return null;
+            return {
+              id: String(entry.id || `entry-${index}-${contact}-${monthKey}`),
+              contact,
+              monthKey,
+              amount,
+              kind: entry.kind === "full" || entry.kind === "part" ? entry.kind : "",
+              at: Number(entry.at) || 0,
+            };
+          }).filter(Boolean)
+        : [];
+      if (fromList.length) return fromList;
+      return Object.entries(paid || {}).map(([id, amount]) => {
+        const sep = id.indexOf("\t");
+        return {
+          id: `migrated-${id}`,
+          contact: sep < 0 ? id : id.slice(0, sep),
+          monthKey: sep < 0 ? "" : id.slice(sep + 1),
+          amount: roundMoney(amount),
+          kind: "",
+          at: 0,
+        };
+      }).filter((entry) => entry.contact && entry.monthKey && entry.amount >= 0.005);
+    }
+
+    function rebuildPaidFromEntries(bucket) {
+      const paid = {};
+      (bucket.entries || []).forEach((entry) => {
+        const id = cellId(entry.contact, entry.monthKey);
+        paid[id] = roundMoney(Number(paid[id] || 0) + Number(entry.amount || 0));
+      });
+      Object.keys(paid).forEach((id) => {
+        if (Number(paid[id]) < 0.005) delete paid[id];
+      });
+      bucket.paid = paid;
+      return bucket;
+    }
+
+    function savePaidState() {
+      try {
+        localStorage.setItem(PAID_KEY, JSON.stringify(paidState));
+      } catch (_) {
+        /* private mode / blocked storage */
+      }
+    }
+
+    function viewPaidBucket(view) {
+      if (!paidState.byView[view] || typeof paidState.byView[view] !== "object") {
+        paidState.byView[view] = { lastSyncedAt: "", paid: {}, entries: [] };
+      }
+      if (!paidState.byView[view].paid || typeof paidState.byView[view].paid !== "object") {
+        paidState.byView[view].paid = {};
+      }
+      if (!Array.isArray(paidState.byView[view].entries)) {
+        paidState.byView[view].entries = normalizePaymentEntries(
+          paidState.byView[view].entries,
+          paidState.byView[view].paid,
+        );
+      }
+      return paidState.byView[view];
+    }
+
+    function reconcilePaidWithSync(data) {
+      const view = selectedView();
+      const synced = data.last_synced_at || "";
+      const bucket = viewPaidBucket(view);
+      if (bucket.lastSyncedAt !== synced) {
+        paidState.byView[view] = { lastSyncedAt: synced, paid: {}, entries: [] };
+        savePaidState();
+      }
+    }
+
+    function migrateRolledPaid(data) {
+      const visible = new Set(data.months || []);
+      const bucket = viewPaidBucket(selectedView());
+      let changed = false;
+      (bucket.entries || []).forEach((entry) => {
+        if (entry.monthKey === "older" || visible.has(entry.monthKey)) return;
+        entry.monthKey = "older";
+        changed = true;
+      });
+      if (changed) {
+        rebuildPaidFromEntries(bucket);
+        savePaidState();
+      }
+    }
+
+    function paidFor(contact, monthKey) {
+      return Number(viewPaidBucket(selectedView()).paid[cellId(contact, monthKey)] || 0);
+    }
+
+    function rawAmount(contact, monthKey) {
+      const row = (tableData?.contacts || []).find((item) => item.contact === contact);
+      return Number((row?.amounts || {})[monthKey] || 0);
+    }
+
+    function displayAmount(contact, monthKey) {
+      return remainingAfterPay(rawAmount(contact, monthKey), paidFor(contact, monthKey));
+    }
+
+    function applyLocalPayments(data) {
+      const dates = data.months || [];
+      const contacts = [];
+      const columnTotals = Object.fromEntries(dates.map((key) => [key, 0]));
+      let grandTotal = 0;
+      (data.contacts || []).forEach((row) => {
+        const amounts = {};
+        let total = 0;
+        dates.forEach((key) => {
+          const remaining = remainingAfterPay(
+            Number((row.amounts || {})[key] || 0),
+            paidFor(row.contact, key),
+          );
+          if (Math.abs(remaining) < 0.005) return;
+          amounts[key] = remaining;
+          total += remaining;
+          columnTotals[key] += remaining;
+        });
+        total = roundMoney(total);
+        if (Math.abs(total) < 0.005 && !Object.keys(amounts).length) return;
+        contacts.push({ contact: row.contact, amounts, total });
+        grandTotal += total;
+      });
+      return {
+        ...data,
+        contacts,
+        column_totals: Object.fromEntries(
+          dates.map((key) => [key, roundMoney(columnTotals[key])])
+        ),
+        grand_total: roundMoney(grandTotal),
+        contact_count: contacts.length,
+      };
+    }
+
+    function hasLocalPayments() {
+      return localPaymentEntries().length > 0;
+    }
+
+    function localPaymentEntries() {
+      return (viewPaidBucket(selectedView()).entries || []).filter((entry) => Number(entry.amount) >= 0.005);
+    }
+
+    function monthLabelFor(monthKey) {
+      if (monthKey === "older") return "Older";
+      const dates = tableData?.months || [];
+      const labels = tableData?.month_labels || [];
+      const index = dates.indexOf(monthKey);
+      if (index >= 0) return labels[index] || monthKey;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(monthKey)) {
+        const date = new Date(`${monthKey}T00:00:00`);
+        if (!Number.isNaN(date.getTime())) {
+          return date.toLocaleDateString("en-GB", { month: "short", year: "2-digit" }).replace(" ", "-");
+        }
+      }
+      return monthKey;
+    }
+
+    function paymentKindLabel(kind) {
+      if (kind === "full") return "Full";
+      if (kind === "part") return "Part";
+      return "Pay";
+    }
+
+    function newPaymentId() {
+      return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    function recordPay(contact, monthKey, amountToPay, kind) {
+      const add = roundMoney(amountToPay);
+      if (!(add >= 0.005)) return;
+      const remaining = Math.abs(displayAmount(contact, monthKey));
+      const applied = Math.min(add, remaining);
+      if (applied < 0.005) return;
+      const bucket = viewPaidBucket(selectedView());
+      if (!Array.isArray(bucket.entries)) bucket.entries = [];
+      bucket.entries.push({
+        id: newPaymentId(),
+        contact,
+        monthKey,
+        amount: applied,
+        kind: kind === "full" ? "full" : "part",
+        at: Date.now(),
+      });
+      rebuildPaidFromEntries(bucket);
+      savePaidState();
+      if (tableData) renderTable(tableData);
+    }
+
+    function removeLocalPayment(entryId) {
+      const bucket = viewPaidBucket(selectedView());
+      const before = (bucket.entries || []).length;
+      bucket.entries = (bucket.entries || []).filter((entry) => entry.id !== entryId);
+      if (bucket.entries.length === before) return;
+      rebuildPaidFromEntries(bucket);
+      savePaidState();
+      if (tableData) renderTable(tableData);
+      else updatePaymentsUi();
+    }
+
+    function updatePaymentsUi() {
+      const entries = localPaymentEntries();
+      const btn = document.getElementById("payments-btn");
+      btn.hidden = !entries.length;
+      btn.textContent = entries.length === 1 ? "Payments (1)" : `Payments (${entries.length})`;
+      const modal = document.getElementById("payments-modal");
+      if (modal && !modal.hidden) renderPaymentsList();
+    }
+
+    function renderPaymentsList() {
+      const wrap = document.getElementById("payments-list-wrap");
+      const totalEl = document.getElementById("payments-total");
+      const entries = [...localPaymentEntries()].sort((a, b) => (b.at || 0) - (a.at || 0));
+      const total = entries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+      totalEl.textContent = entries.length
+        ? `Total paid locally ${formatMoney(total)}`
+        : "";
+      if (!entries.length) {
+        wrap.innerHTML = `<p class="payments-empty">No local payments since the last Xero sync.</p>`;
+        return;
+      }
+      wrap.innerHTML = `
+        <table class="payments-list">
+          <thead>
+            <tr>
+              <th>Contact</th>
+              <th>Period</th>
+              <th>Type</th>
+              <th class="num">Amount</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${entries.map((entry) => `
+              <tr>
+                <td>${esc(entry.contact)}</td>
+                <td>${esc(monthLabelFor(entry.monthKey))}</td>
+                <td>${esc(paymentKindLabel(entry.kind))}</td>
+                <td class="num">${formatMoney(entry.amount)}</td>
+                <td class="actions"><button type="button" class="small secondary" data-remove-payment="${esc(entry.id)}">Remove</button></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function showPaymentsModal() {
+      document.getElementById("payments-modal").hidden = false;
+      renderPaymentsList();
+    }
+
+    function hidePaymentsModal() {
+      document.getElementById("payments-modal").hidden = true;
     }
 
     function namedSet(store, view) {
@@ -577,7 +1108,7 @@
       (data.contacts || []).forEach((row) => {
         if (getContactStatus(row.contact) === "standing_order") return;
         dates.forEach((key) => {
-          if (isSelected(row.contact, key)) count += 1;
+          if (isSelected(row.contact, key) && Math.abs(Number((row.amounts || {})[key] || 0)) >= 0.005) count += 1;
         });
       });
       return count;
@@ -616,36 +1147,43 @@
 
     function renderTable(data) {
       tableData = data;
+      reconcilePaidWithSync(data);
       migrateRolledSelections(data);
+      migrateRolledPaid(data);
+      updatePaymentsUi();
+      const display = applyLocalPayments(data);
       const table = document.getElementById("aged-table");
       const empty = document.getElementById("empty-note");
       const wrap = document.getElementById("table-wrap");
       const scrollTop = wrap.scrollTop;
       const scrollLeft = wrap.scrollLeft;
-      const dates = data.months || [];
-      const labels = data.month_labels || [];
-      const contacts = data.contacts || [];
-      const last = data.last_synced_at
-        ? new Date(data.last_synced_at).toLocaleString("en-GB")
+      const dates = display.months || [];
+      const labels = display.month_labels || [];
+      const contacts = display.contacts || [];
+      const last = display.last_synced_at
+        ? new Date(display.last_synced_at).toLocaleString("en-GB")
         : null;
       const meta = document.getElementById("meta-line");
       const query = contactQuery();
       const allToPay = contacts.reduce((sum, row) => sum + rowToPay(row, dates), 0);
+      const localNote = hasLocalPayments() ? " Local payments are applied until the next Xero sync." : "";
       meta.textContent = last
-        ? `${data.business_label}: ${Number(data.contact_count || 0).toLocaleString("en-GB")} contacts · ${Number(data.invoice_count || 0).toLocaleString("en-GB")} outstanding bills. Last sync ${last}. Click amounts for To Pay; click a contact for critical (red) then standing order (blue).`
-        : `${data.business_label}: no synced bills yet. Sync invoices from Connection first.`;
+        ? `${display.business_label}: ${Number(display.contact_count || 0).toLocaleString("en-GB")} contacts · ${Number(data.invoice_count || 0).toLocaleString("en-GB")} outstanding bills. Last sync ${last}. Click amounts for To Pay; right-click an amount to pay (full or part); click a contact for critical (red) then standing order (blue).${localNote}`
+        : `${display.business_label}: no synced bills yet. Sync invoices from Connection first.`;
 
       if (!contacts.length) {
         table.hidden = true;
         empty.hidden = false;
         empty.textContent = last
-          ? "No outstanding supplier bills for this view."
+          ? (hasLocalPayments()
+            ? "No remaining supplier bills for this view. Local payments will clear on the next Xero sync."
+            : "No outstanding supplier bills for this view.")
           : "Sync invoices from Connection, then return here.";
         updateToPayWidget(0, 0);
         return;
       }
 
-      const rows = matchingContacts(data);
+      const rows = matchingContacts(display);
       if (query) {
         meta.textContent += ` Showing ${rows.length.toLocaleString("en-GB")} matching contact${rows.length === 1 ? "" : "s"}.`;
       }
@@ -653,7 +1191,7 @@
         table.hidden = true;
         empty.hidden = false;
         empty.textContent = `No contacts match “${query}”.`;
-        updateToPayWidget(allToPay, markedAmountCount(data));
+        updateToPayWidget(allToPay, markedAmountCount(display));
         return;
       }
 
@@ -679,9 +1217,17 @@
           const n = Number(amounts[key] || 0);
           const neg = n < 0 ? " neg" : "";
           const selected = !standingOrder && isSelected(row.contact, key) ? " selected" : "";
-          const clickable = !standingOrder && Math.abs(n) >= 0.005 ? " pay-cell" : "";
-          const title = clickable ? ` title="Click to ${selected ? "remove from" : "add to"} To Pay"` : "";
-          return `<td class="num${colClass(key)}${neg}${selected}${clickable}" data-month="${esc(key)}"${title}>${formatAmount(n)}</td>`;
+          const hasAmount = Math.abs(n) >= 0.005;
+          const clickable = !standingOrder && hasAmount ? " pay-cell" : "";
+          const monthClass = hasAmount ? " month-cell" : "";
+          let title = "";
+          if (hasAmount) {
+            const payHint = "Right-click to pay";
+            title = clickable
+              ? ` title="Click to ${selected ? "remove from" : "add to"} To Pay. ${payHint}"`
+              : ` title="${payHint}"`;
+          }
+          return `<td class="num${colClass(key)}${neg}${selected}${clickable}${monthClass}" data-month="${esc(key)}"${title}>${formatAmount(n)}</td>`;
         }).join("");
         const totalNeg = Number(row.total) < 0 ? " neg" : "";
         const toPay = rowToPay(row, dates);
@@ -713,7 +1259,7 @@
             acc[key] = rows.reduce((sum, row) => sum + Number((row.amounts || {})[key] || 0), 0);
             return acc;
           }, {})
-        : (data.column_totals || {});
+        : (display.column_totals || {});
       const totalCells = dates.map((key) => {
         const n = Number(totals[key] || 0);
         const neg = n < 0 ? " neg" : "";
@@ -721,7 +1267,7 @@
       }).join("");
       const visibleGrand = query
         ? rows.reduce((sum, row) => sum + Number(row.total || 0), 0)
-        : Number(data.grand_total);
+        : Number(display.grand_total);
       const grandNeg = visibleGrand < 0 ? " neg" : "";
       const visibleToPay = rows.reduce((sum, row) => sum + rowToPay(row, dates), 0);
       const grandToPayNeg = visibleToPay < 0 ? " neg" : "";
@@ -737,7 +1283,7 @@
       `;
       wrap.scrollTop = scrollTop;
       wrap.scrollLeft = scrollLeft;
-      updateToPayWidget(allToPay, markedAmountCount(data));
+      updateToPayWidget(allToPay, markedAmountCount(display));
       const autoBtn = document.getElementById("auto-sort-btn");
       if (autoBtn) {
         const on = sortState.key === "auto";
@@ -763,10 +1309,8 @@
       const set = selectionSet(selectedView());
       if (monthKey === "__all__") {
         const dates = tableData?.months || [];
-        const row = (tableData?.contacts || []).find((item) => item.contact === contact);
-        const amounts = row?.amounts || {};
         const ids = dates
-          .filter((key) => Math.abs(Number(amounts[key] || 0)) >= 0.005)
+          .filter((key) => Math.abs(displayAmount(contact, key)) >= 0.005)
           .map((key) => cellId(contact, key));
         const allOn = ids.length > 0 && ids.every((id) => set.has(id));
         ids.forEach((id) => {
@@ -795,6 +1339,7 @@
         empty.textContent = data.detail || "Could not load aged payables.";
         document.getElementById("meta-line").textContent = "";
         updateToPayWidget(0, 0);
+        updatePaymentsUi();
         return;
       }
       if (
@@ -810,6 +1355,169 @@
       }
       renderTable(data);
     }
+
+    function hidePayMenu() {
+      document.getElementById("cell-menu").hidden = true;
+      payMenuTarget = null;
+    }
+
+    function positionMenu(el, x, y) {
+      el.style.left = "0px";
+      el.style.top = "0px";
+      el.hidden = false;
+      const rect = el.getBoundingClientRect();
+      const left = Math.min(x, window.innerWidth - rect.width - 8);
+      const top = Math.min(y, window.innerHeight - rect.height - 8);
+      el.style.left = `${Math.max(8, left)}px`;
+      el.style.top = `${Math.max(8, top)}px`;
+    }
+
+    function showPayMenu(x, y, contact, monthKey, remaining) {
+      payMenuTarget = { contact, monthKey, remaining, x, y };
+      positionMenu(document.getElementById("cell-menu"), x, y);
+    }
+
+    function parsePayAmount(raw) {
+      const cleaned = String(raw || "").trim().replace(/£/g, "").replace(/,/g, "");
+      if (!cleaned) return null;
+      const n = Number(cleaned);
+      if (!Number.isFinite(n) || n <= 0) return null;
+      return roundMoney(n);
+    }
+
+    function hidePartPayModal() {
+      document.getElementById("part-pay-modal").hidden = true;
+      document.getElementById("part-pay-error").hidden = true;
+      document.getElementById("part-pay-error").textContent = "";
+      document.getElementById("part-pay-input").value = "";
+    }
+
+    function showPartPayModal() {
+      if (!payMenuTarget) return;
+      const remaining = Math.abs(Number(payMenuTarget.remaining) || 0);
+      document.getElementById("part-pay-meta").textContent =
+        `${payMenuTarget.contact}: ${formatMoney(remaining)} remaining`;
+      document.getElementById("part-pay-error").hidden = true;
+      document.getElementById("part-pay-error").textContent = "";
+      document.getElementById("part-pay-input").value = "";
+      document.getElementById("part-pay-modal").hidden = false;
+      document.getElementById("part-pay-input").focus();
+    }
+
+    function applyPartPay() {
+      if (!payMenuTarget) return;
+      const remaining = Math.abs(Number(payMenuTarget.remaining) || 0);
+      const amount = parsePayAmount(document.getElementById("part-pay-input").value);
+      const error = document.getElementById("part-pay-error");
+      if (amount == null) {
+        error.textContent = "Enter how much to pay.";
+        error.hidden = false;
+        return;
+      }
+      if (amount - remaining > 0.005) {
+        error.textContent = `Cannot pay more than ${formatMoney(remaining)} remaining.`;
+        error.hidden = false;
+        return;
+      }
+      const contact = payMenuTarget.contact;
+      const monthKey = payMenuTarget.monthKey;
+      hidePartPayModal();
+      hidePayMenu();
+      recordPay(contact, monthKey, amount, "part");
+    }
+
+    function applyFullPay() {
+      if (!payMenuTarget) return;
+      const contact = payMenuTarget.contact;
+      const monthKey = payMenuTarget.monthKey;
+      const remaining = Math.abs(Number(payMenuTarget.remaining) || 0);
+      hidePayMenu();
+      recordPay(contact, monthKey, remaining, "full");
+    }
+
+    document.getElementById("aged-table").addEventListener("contextmenu", (ev) => {
+      const td = ev.target.closest("td.month-cell");
+      if (!td || td.closest(".total-row")) return;
+      const contact = td.closest("tr")?.dataset.contact;
+      const monthKey = td.dataset.month;
+      if (!contact || !monthKey) return;
+      const remaining = displayAmount(contact, monthKey);
+      if (Math.abs(remaining) < 0.005) return;
+      ev.preventDefault();
+      showPayMenu(ev.clientX, ev.clientY, contact, monthKey, remaining);
+    });
+
+    document.getElementById("cell-menu").addEventListener("pointerdown", (ev) => {
+      ev.stopPropagation();
+    });
+    document.getElementById("cell-menu").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+    });
+
+    document.getElementById("cell-menu-full").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      applyFullPay();
+    });
+
+    document.getElementById("cell-menu-part").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      showPartPayModal();
+      document.getElementById("cell-menu").hidden = true;
+    });
+
+    document.getElementById("payments-btn").addEventListener("click", () => {
+      hidePayMenu();
+      showPaymentsModal();
+    });
+    document.getElementById("payments-close").addEventListener("click", hidePaymentsModal);
+    document.querySelectorAll("[data-payments-close]").forEach((el) => {
+      el.addEventListener("click", hidePaymentsModal);
+    });
+    document.getElementById("payments-list-wrap").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-remove-payment]");
+      if (!btn) return;
+      removeLocalPayment(btn.getAttribute("data-remove-payment"));
+    });
+    document.getElementById("part-pay-apply").addEventListener("click", applyPartPay);
+    document.getElementById("part-pay-cancel").addEventListener("click", () => {
+      hidePartPayModal();
+      hidePayMenu();
+    });
+    document.querySelectorAll("[data-part-pay-close]").forEach((el) => {
+      el.addEventListener("click", () => {
+        hidePartPayModal();
+        hidePayMenu();
+      });
+    });
+    document.getElementById("part-pay-input").addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        applyPartPay();
+      }
+    });
+
+    document.addEventListener("pointerdown", (ev) => {
+      const menu = document.getElementById("cell-menu");
+      if (menu.hidden || menu.contains(ev.target)) return;
+      if (!document.getElementById("part-pay-modal").hidden) return;
+      hidePayMenu();
+    });
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Escape") return;
+      if (!document.getElementById("part-pay-modal").hidden) {
+        hidePartPayModal();
+        hidePayMenu();
+        return;
+      }
+      if (!document.getElementById("payments-modal").hidden) {
+        hidePaymentsModal();
+        return;
+      }
+      if (!document.getElementById("cell-menu").hidden) hidePayMenu();
+    });
+    document.getElementById("table-wrap").addEventListener("scroll", () => {
+      if (!document.getElementById("cell-menu").hidden) hidePayMenu();
+    });
 
     document.getElementById("aged-table").addEventListener("click", (ev) => {
       const th = ev.target.closest("th[data-sort]");
@@ -852,6 +1560,9 @@
           other.setAttribute("aria-selected", other === btn ? "true" : "false");
         });
         sortState = { key: "contact", dir: 1 };
+        hidePayMenu();
+        hidePartPayModal();
+        hidePaymentsModal();
         loadAgedPayables();
       });
     });

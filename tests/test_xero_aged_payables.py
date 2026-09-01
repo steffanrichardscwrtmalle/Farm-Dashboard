@@ -9,7 +9,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import Base, XeroInvoice
-from app.services.xero_aged_payables import list_aged_payables, resolve_aged_payable_view
+from app.services.xero_aged_payables import (
+    apply_local_payments,
+    list_aged_payables,
+    remaining_after_pay,
+    resolve_aged_payable_view,
+)
 from app.services.xero_invoices import _outstanding_amount
 
 
@@ -204,3 +209,48 @@ def test_cm_plus_hs_combines_matching_contacts(db: Session) -> None:
     assert result["contacts"][0]["contact"] == "Mole Valley"
     assert result["contacts"][0]["amounts"]["2026-05-01"] == 140.0
     assert result["grand_total"] == 140.0
+
+
+def test_remaining_after_pay_clears_full_and_reduces_part() -> None:
+    assert remaining_after_pay(120.5, 120.5) == 0.0
+    assert remaining_after_pay(120.5, 20.5) == 100.0
+    assert remaining_after_pay(-15.0, 5.0) == -10.0
+    assert remaining_after_pay(-15.0, 15.0) == 0.0
+
+
+def test_apply_local_payments_hides_paid_amounts_and_contacts() -> None:
+    payload = {
+        "months": ["2026-04-01", "2026-03-01", "older"],
+        "contacts": [
+            {
+                "contact": "Wynnstay",
+                "amounts": {"2026-04-01": 80.0, "older": 40.0},
+                "total": 120.0,
+            },
+            {
+                "contact": "Prostock",
+                "amounts": {"2026-03-01": 25.0},
+                "total": 25.0,
+            },
+        ],
+        "column_totals": {"2026-04-01": 80.0, "2026-03-01": 25.0, "older": 40.0},
+        "grand_total": 145.0,
+        "contact_count": 2,
+        "invoice_count": 3,
+    }
+    paid = {
+        "Wynnstay\t2026-04-01": 80.0,
+        "Wynnstay\tolder": 10.0,
+        "Prostock\t2026-03-01": 25.0,
+    }
+    result = apply_local_payments(payload, paid)
+    by_contact = {row["contact"]: row for row in result["contacts"]}
+    assert "Prostock" not in by_contact
+    assert by_contact["Wynnstay"]["amounts"] == {"older": 30.0}
+    assert by_contact["Wynnstay"]["total"] == 30.0
+    assert result["column_totals"]["2026-04-01"] == 0.0
+    assert result["column_totals"]["older"] == 30.0
+    assert result["grand_total"] == 30.0
+    assert result["contact_count"] == 1
+    assert result["invoice_count"] == 3
+

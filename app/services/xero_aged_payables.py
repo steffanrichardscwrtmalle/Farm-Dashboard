@@ -118,6 +118,59 @@ def _column_key(invoice_month: dt.date, *, recent: list[dt.date]) -> str:
     return invoice_month.isoformat()
 
 
+def remaining_after_pay(raw: float | None, paid: float | None) -> float:
+    """Reduce an outstanding cell by a locally recorded payment."""
+    amount = _round_money(raw or 0.0)
+    paid_amount = max(0.0, _round_money(paid or 0.0))
+    if paid_amount <= _AMOUNT_EPS:
+        return amount
+    if amount >= 0:
+        return _round_money(max(0.0, amount - paid_amount))
+    return _round_money(min(0.0, amount + paid_amount))
+
+
+def apply_local_payments(
+    result: dict[str, Any],
+    payments: dict[str, float] | None,
+) -> dict[str, Any]:
+    """Hide locally paid amounts from an aged-payables payload.
+
+    `payments` is keyed by ``contact\\tmonth`` with the paid amount. This overlay
+    is discarded after a Xero refresh; the caller decides when to clear it.
+    """
+    paid = payments or {}
+    dates = list(result.get("months") or [])
+    contacts: list[dict[str, Any]] = []
+    column_totals = {key: 0.0 for key in dates}
+    grand_total = 0.0
+    for row in result.get("contacts") or []:
+        contact = str(row.get("contact") or "")
+        amounts: dict[str, float] = {}
+        total = 0.0
+        raw_amounts = row.get("amounts") or {}
+        for key in dates:
+            remaining = remaining_after_pay(
+                raw_amounts.get(key),
+                paid.get(f"{contact}\t{key}"),
+            )
+            if abs(remaining) <= _AMOUNT_EPS:
+                continue
+            amounts[key] = remaining
+            total += remaining
+            column_totals[key] += remaining
+        total = _round_money(total)
+        if abs(total) <= _AMOUNT_EPS and not amounts:
+            continue
+        contacts.append({"contact": contact, "amounts": amounts, "total": total})
+        grand_total += total
+    updated = dict(result)
+    updated["contacts"] = contacts
+    updated["column_totals"] = {key: _round_money(value) for key, value in column_totals.items()}
+    updated["grand_total"] = _round_money(grand_total)
+    updated["contact_count"] = len(contacts)
+    return updated
+
+
 def list_aged_payables(
     db: Session,
     *,
