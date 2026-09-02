@@ -49,10 +49,8 @@
     font-weight: 600;
     cursor: pointer;
   }
-  .auto-sort-btn.active {
-    background: #14532d;
-    border-color: #14532d;
-    color: #fff;
+  .auto-sort-btn:hover {
+    background: #f8fafc;
   }
   .contact-search {
     margin: 0;
@@ -435,7 +433,7 @@
         >{{ view.label }}</button>
         {% endfor %}
       </div>
-      <button type="button" class="auto-sort-btn" id="auto-sort-btn" title="Sort red, then blank, then blue; then To Pay, then Total" aria-pressed="false">Auto Sort</button>
+      <button type="button" class="auto-sort-btn" id="auto-sort-btn" title="Sort red, then blank, then blue; then To Pay, then Total. Click again to re-sort.">Auto Sort</button>
       <input type="search" id="contact-search" class="contact-search" placeholder="Search contact…" autocomplete="off" aria-label="Search contact">
     </div>
     <div class="aged-toolbar-right">
@@ -507,6 +505,7 @@
 
     let tableData = null;
     let sortState = { key: "contact", dir: 1 };
+    let rowOrder = null;
     let payMenuTarget = null;
     const selections = loadSelections();
     const contactStatus = loadContactStatus();
@@ -1052,31 +1051,46 @@
       return Number((row.amounts || {})[key] || 0);
     }
 
-    function sortedContacts(data) {
-      const dates = data.months || [];
-      const rows = [...(data.contacts || [])];
-      const key = sortState.key;
-      const dir = sortState.dir;
-      const byName = (a, b) => String(a.contact || "").localeCompare(String(b.contact || ""), "en-GB", {
+    function contactNameCmp(a, b) {
+      return String(a.contact || "").localeCompare(String(b.contact || ""), "en-GB", {
         sensitivity: "base",
       });
-      if (key === "auto") {
-        rows.sort((a, b) => {
-          const colourDiff = columnValue(b, "colour", dates) - columnValue(a, "colour", dates);
-          if (colourDiff) return colourDiff;
-          const aPay = rowToPay(a, dates);
-          const bPay = rowToPay(b, dates);
-          const aHasPay = Math.abs(aPay) >= 0.005;
-          const bHasPay = Math.abs(bPay) >= 0.005;
-          if (aHasPay && bHasPay && aPay !== bPay) return bPay - aPay;
-          if (aHasPay !== bHasPay) return aHasPay ? -1 : 1;
-          const aTotal = Number(a.total || 0);
-          const bTotal = Number(b.total || 0);
-          if (aTotal !== bTotal) return bTotal - aTotal;
-          return byName(a, b);
-        });
-        return rows;
-      }
+    }
+
+    function autoSortedRows(data) {
+      const dates = data.months || [];
+      const rows = [...(data.contacts || [])];
+      rows.sort((a, b) => {
+        const colourDiff = columnValue(b, "colour", dates) - columnValue(a, "colour", dates);
+        if (colourDiff) return colourDiff;
+        const aPay = rowToPay(a, dates);
+        const bPay = rowToPay(b, dates);
+        const aHasPay = Math.abs(aPay) >= 0.005;
+        const bHasPay = Math.abs(bPay) >= 0.005;
+        if (aHasPay && bHasPay && aPay !== bPay) return bPay - aPay;
+        if (aHasPay !== bHasPay) return aHasPay ? -1 : 1;
+        const aTotal = Number(a.total || 0);
+        const bTotal = Number(b.total || 0);
+        if (aTotal !== bTotal) return bTotal - aTotal;
+        return contactNameCmp(a, b);
+      });
+      return rows;
+    }
+
+    function sortByRowOrder(rows, order) {
+      const rank = new Map((order || []).map((name, i) => [name, i]));
+      rows.sort((a, b) => {
+        const ar = rank.has(a.contact) ? rank.get(a.contact) : Number.MAX_SAFE_INTEGER;
+        const br = rank.has(b.contact) ? rank.get(b.contact) : Number.MAX_SAFE_INTEGER;
+        if (ar !== br) return ar - br;
+        return contactNameCmp(a, b);
+      });
+      return rows;
+    }
+
+    function sortRowsByColumn(data, key, dir) {
+      const dates = data.months || [];
+      const rows = [...(data.contacts || [])];
       rows.sort((a, b) => {
         const av = columnValue(a, key, dates);
         const bv = columnValue(b, key, dates);
@@ -1086,9 +1100,20 @@
         } else if (av !== bv) {
           return (av - bv) * dir;
         }
-        return byName(a, b);
+        return contactNameCmp(a, b);
       });
       return rows;
+    }
+
+    function sortedContacts(data) {
+      const rows = [...(data.contacts || [])];
+      if (rowOrder && rowOrder.length) return sortByRowOrder(rows, rowOrder);
+      rows.sort(contactNameCmp);
+      return rows;
+    }
+
+    function lockRowOrder(rows) {
+      rowOrder = rows.map((row) => row.contact);
     }
 
     function contactQuery() {
@@ -1152,6 +1177,7 @@
       migrateRolledPaid(data);
       updatePaymentsUi();
       const display = applyLocalPayments(data);
+      if (!rowOrder) lockRowOrder(sortedContacts(display));
       const table = document.getElementById("aged-table");
       const empty = document.getElementById("empty-note");
       const wrap = document.getElementById("table-wrap");
@@ -1284,24 +1310,32 @@
       wrap.scrollTop = scrollTop;
       wrap.scrollLeft = scrollLeft;
       updateToPayWidget(allToPay, markedAmountCount(display));
+    }
+
+    function applyAutoSort() {
+      if (!tableData) return;
+      const display = applyLocalPayments(tableData);
+      lockRowOrder(autoSortedRows(display));
+      sortState = { key: "", dir: 1 };
       const autoBtn = document.getElementById("auto-sort-btn");
       if (autoBtn) {
-        const on = sortState.key === "auto";
-        autoBtn.classList.toggle("active", on);
-        autoBtn.setAttribute("aria-pressed", on ? "true" : "false");
+        autoBtn.classList.remove("active");
+        autoBtn.removeAttribute("aria-pressed");
       }
+      renderTable(tableData);
     }
 
     function setSort(key) {
-      if (key === "auto") {
-        sortState = { key: "auto", dir: -1 };
-      } else if (sortState.key === key) {
+      if (!tableData) return;
+      if (sortState.key === key) {
         sortState.dir *= -1;
       } else {
         sortState.key = key;
         sortState.dir = key === "contact" ? 1 : -1;
       }
-      if (tableData) renderTable(tableData);
+      const display = applyLocalPayments(tableData);
+      lockRowOrder(sortRowsByColumn(display, sortState.key, sortState.dir));
+      renderTable(tableData);
     }
 
     function togglePay(contact, monthKey) {
@@ -1343,11 +1377,11 @@
         return;
       }
       if (
-        sortState.key !== "contact"
+        sortState.key
+        && sortState.key !== "contact"
         && sortState.key !== "total"
         && sortState.key !== "to_pay"
         && sortState.key !== "colour"
-        && sortState.key !== "auto"
       ) {
         if (!(data.months || []).includes(sortState.key)) {
           sortState = { key: "contact", dir: 1 };
@@ -1546,7 +1580,7 @@
     });
 
     document.getElementById("auto-sort-btn").addEventListener("click", () => {
-      setSort("auto");
+      applyAutoSort();
     });
 
     document.getElementById("contact-search").addEventListener("input", () => {
@@ -1560,6 +1594,7 @@
           other.setAttribute("aria-selected", other === btn ? "true" : "false");
         });
         sortState = { key: "contact", dir: 1 };
+        rowOrder = null;
         hidePayMenu();
         hidePartPayModal();
         hidePaymentsModal();
