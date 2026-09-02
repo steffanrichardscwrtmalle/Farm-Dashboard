@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from app.models import Base, MilkCollection, NmlMilkResult
 from app.services.production_summary import (
     _blend_metric_windows,
+    _cap_iqr_points,
     _metric_window,
     get_production_summary,
 )
@@ -205,3 +206,34 @@ def test_production_summary_empty_farm() -> None:
         assert farm_row["window_end"] is None
         assert farm_row["d7"]["milk_per_day"] is None
         assert farm_row["d30"]["milk_per_cow"] is None
+
+
+def test_cap_iqr_clamps_quality_outliers_not_volume() -> None:
+    fats = [4.0, 4.05, 3.95, 4.1, 4.0, 3.9, 4.2, 12.0]
+    volumes = [18000, 19000, 18500, 20000, 19500, 18800, 19200, 999999]
+    points = [
+        {
+            "date": f"2026-08-{day:02d}",
+            "volume_litres": volumes[day - 1],
+            "butterfat_pct": fats[day - 1],
+            "litres_per_cow": 36.0 if day < 8 else 200.0,
+        }
+        for day in range(1, 9)
+    ]
+    capped = _cap_iqr_points(points)
+    assert capped[-1]["volume_litres"] == 999999
+    assert capped[-1]["litres_per_cow"] == 200.0
+    assert capped[-1]["butterfat_pct"] < 12.0
+    assert all(row["butterfat_pct"] == fats[i] for i, row in enumerate(capped[:-1]))
+    window = _metric_window(capped, key="butterfat_pct", days=8, dp=2)
+    raw = _metric_window(points, key="butterfat_pct", days=8, dp=2)
+    assert window["value"] < raw["value"]
+
+
+def test_cap_iqr_leaves_short_series_unchanged() -> None:
+    points = [
+        {"date": "2026-08-01", "butterfat_pct": 4.0, "scc": 120},
+        {"date": "2026-08-02", "butterfat_pct": 9.9, "scc": 800},
+        {"date": "2026-08-03", "butterfat_pct": 4.1, "scc": 130},
+    ]
+    assert _cap_iqr_points(points) == points

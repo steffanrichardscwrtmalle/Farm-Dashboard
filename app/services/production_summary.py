@@ -5,6 +5,9 @@ Windows end on the most recent day that has the relevant metric for that farm
 Within a window, averages use only days that have that metric (same style as
 Collections summary).
 
+Quality metrics (fat, protein, SCC, BactoScan, temp) are Cap IQR / Tukey
+winsorized to match Collections. Volume and milk/cow stay on all data.
+
 The short "rolling" figure is the mean of the 6-day and 7-day calendar means
 (same blend as Collections trend smoothing), which damps CM's alternate
 3-load / 4-load collection pattern better than a plain 7-day mean.
@@ -28,6 +31,10 @@ _UK = ZoneInfo("Europe/London")
 _LOOKBACK_PAD_DAYS = 45
 _SHORT_ROLL_WINDOWS = (6, 7)
 _LONG_WINDOW_DAYS = 30
+_IQR_FACTOR = 1.5
+_IQR_METRICS = frozenset(
+    {"temp_c", "butterfat_pct", "protein_pct", "scc", "bactoscan"}
+)
 
 
 def _uk_today() -> dt.date:
@@ -49,6 +56,58 @@ def _mean(values: list[float], dp: int) -> float | None:
     if not values:
         return None
     return round(sum(values) / len(values), dp)
+
+
+def _quantile(sorted_vals: list[float], q: float) -> float:
+    """Linear interpolation quantile (same as Collections Cap IQR)."""
+    pos = (len(sorted_vals) - 1) * q
+    base = int(pos)
+    rest = pos - base
+    if base + 1 < len(sorted_vals):
+        return sorted_vals[base] + rest * (sorted_vals[base + 1] - sorted_vals[base])
+    return sorted_vals[base]
+
+
+def _iqr_fences(values: list[float]) -> tuple[float, float] | None:
+    if len(values) < 4:
+        return None
+    ordered = sorted(values)
+    q1 = _quantile(ordered, 0.25)
+    q3 = _quantile(ordered, 0.75)
+    iqr = q3 - q1
+    if iqr == 0:
+        return None
+    return (q1 - _IQR_FACTOR * iqr, q3 + _IQR_FACTOR * iqr)
+
+
+def _cap_iqr_points(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Winsorize quality metrics on a farm's trend series (Collections Cap IQR)."""
+    if not points:
+        return points
+    fences: dict[str, tuple[float, float]] = {}
+    for key in _IQR_METRICS:
+        values = [
+            float(point[key])
+            for point in points
+            if point.get(key) is not None
+        ]
+        bounds = _iqr_fences(values)
+        if bounds:
+            fences[key] = bounds
+    if not fences:
+        return points
+    capped: list[dict[str, Any]] = []
+    for point in points:
+        row = dict(point)
+        for key, (lo, hi) in fences.items():
+            value = row.get(key)
+            if value is None:
+                continue
+            number = float(value)
+            if number < lo or number > hi:
+                row[key] = min(hi, max(lo, number))
+        capped.append(row)
+    return capped
 
 
 def _latest_date_for(points: list[dict[str, Any]], key: str) -> dt.date | None:
@@ -264,7 +323,7 @@ def get_production_summary(
 
     farms_out: list[dict[str, Any]] = []
     for farm in HERD_FARM_OPTIONS:
-        points = list(trend.get(farm) or [])
+        points = _cap_iqr_points(list(trend.get(farm) or []))
         d7 = _bundle_for_rolling(points)
         d30 = _bundle_for_days(points, _LONG_WINDOW_DAYS)
         farms_out.append(

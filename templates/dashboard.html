@@ -589,6 +589,18 @@
     });
   }
 
+  const IQR_METRICS = new Set(["butterfat_pct", "protein_pct", "bactoscan", "scc", "milk_temp"]);
+
+  function rollingTitle(metric) {
+    return IQR_METRICS.has(metric)
+      ? "Rolling average (mean of 6-day and 7-day), Cap IQR"
+      : "Rolling average (mean of 6-day and 7-day)";
+  }
+
+  function longTitle(metric) {
+    return IQR_METRICS.has(metric) ? "30-day average, Cap IQR" : "30-day average";
+  }
+
   function formatMetric(metric, value) {
     if (value === null || value === undefined || value === "") return "—";
     if (metric === "milk_per_day" || metric === "bactoscan" || metric === "scc") {
@@ -605,16 +617,16 @@
     widget.classList.add(`status-${status || "unknown"}`);
   }
 
-  function setWidget(widget, main, sub, href) {
+  function setWidget(widget, main, sub, href, metric) {
     const title = widget.querySelector(".widget-title");
     const subEl = widget.querySelector(".widget-sub");
     if (title) {
       title.textContent = main;
-      title.title = "Rolling average (mean of 6-day and 7-day)";
+      title.title = rollingTitle(metric);
     }
     if (subEl) {
       subEl.textContent = sub;
-      subEl.title = "30-day average";
+      subEl.title = longTitle(metric);
     }
     setStatus(widget, "unknown");
     if (href) widget.href = href;
@@ -651,7 +663,8 @@
             widget,
             formatMetric(metric, d7[metric]),
             formatMetric(metric, d30[metric]),
-            href
+            href,
+            metric
           );
         });
       });
