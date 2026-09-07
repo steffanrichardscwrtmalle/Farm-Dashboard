@@ -75,6 +75,10 @@
       color: #7f1d1d;
     }
     #health-table tbody tr.unmatched:hover { background: #fca5a5; }
+    #health-table tbody tr.recent-abx {
+      background: #e7f7ed;
+    }
+    #health-table tbody tr.recent-abx:hover { background: #d5f0df; }
     .trend {
       display: flex;
       align-items: center;
@@ -275,6 +279,11 @@
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
+      #health-table tbody tr.recent-abx {
+        background: #e7f7ed !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
       .trend { gap: 1px; }
       .trend-dot {
         width: 5pt;
@@ -328,7 +337,7 @@
   <div class="toolbar">
     <label>
       Health index at or below
-      <input id="threshold" type="number" min="0" max="100" step="1" value="86">
+      <input id="threshold" type="number" min="0" max="100" step="1" value="{{ default_threshold | default(86) }}">
     </label>
     <button type="button" id="apply-btn">Show list</button>
     {% if perms.action('sensehub.import') %}
@@ -343,7 +352,7 @@
   </div>
   <p class="meta-line" id="meta-line">Loading…</p>
   <div class="print-only">
-    <h2 class="print-title">Youngstock health</h2>
+    <h2 class="print-title">{{ print_title | default("Youngstock health") }}</h2>
     <p class="print-meta" id="print-meta"></p>
   </div>
   <div class="table-wrap">
@@ -362,7 +371,7 @@
       <tbody></tbody>
     </table>
   </div>
-  <p class="empty-state" id="empty-state" hidden>No animals at or below that health index.</p>
+  <p class="empty-state" id="empty-state" hidden>{{ empty_message | default("No animals at or below that health index.") }}</p>
 
   <div class="drawer" id="drawer" hidden>
     <div class="drawer-backdrop" id="drawer-backdrop"></div>
@@ -415,6 +424,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script>
+    const DEFAULT_THRESHOLD = {{ default_threshold | default(86) }};
+    const TREATED_WITHIN_DAYS = {{ treated_within_days | tojson }};
     const thresholdEl = document.getElementById("threshold");
     const applyBtn = document.getElementById("apply-btn");
     const refreshBtn = document.getElementById("refresh-btn");
@@ -510,6 +521,55 @@
       },
     };
 
+    function dayBands(points) {
+      const bands = [];
+      let currentDate = null;
+      let start = 0;
+      let dayIndex = -1;
+      (points || []).forEach((point, index) => {
+        const date = sampleDate(point) || `row-${index}`;
+        if (date !== currentDate) {
+          if (currentDate != null) {
+            bands.push({ start, end: index - 1, odd: dayIndex % 2 === 1 });
+          }
+          currentDate = date;
+          start = index;
+          dayIndex += 1;
+        }
+      });
+      if (currentDate != null) {
+        bands.push({ start, end: (points || []).length - 1, odd: dayIndex % 2 === 1 });
+      }
+      return bands;
+    }
+
+    const dayBandPlugin = {
+      id: "dayBands",
+      beforeDraw(chart, _args, options) {
+        const bands = (options && options.bands) || [];
+        if (!bands.length) return;
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x;
+        if (!xScale) return;
+        const lastIndex = (chart.data.labels || []).length - 1;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+        ctx.clip();
+        bands.forEach((band) => {
+          const leftCenter = xScale.getPixelForValue(band.start);
+          const rightCenter = xScale.getPixelForValue(band.end);
+          const prev = band.start > 0 ? xScale.getPixelForValue(band.start - 1) : null;
+          const next = band.end < lastIndex ? xScale.getPixelForValue(band.end + 1) : null;
+          const left = prev == null ? chartArea.left : (prev + leftCenter) / 2;
+          const right = next == null ? chartArea.right : (rightCenter + next) / 2;
+          ctx.fillStyle = band.odd ? "#e5e7eb" : "#ffffff";
+          ctx.fillRect(left, chartArea.top, Math.max(0, right - left), chartArea.bottom - chartArea.top);
+        });
+        ctx.restore();
+      },
+    };
+
     function trendHtml(trend) {
       const dots = Array.isArray(trend) ? trend.slice(-12) : [];
       while (dots.length < 12) dots.unshift({ band: null });
@@ -541,7 +601,7 @@
       });
       healthChart = new Chart(canvas, {
         type: "bar",
-        plugins: [eventMarkerPlugin],
+        plugins: [dayBandPlugin, eventMarkerPlugin],
         data: {
           labels: points.map((point) => point.label || point.slot || ""),
           datasets: [{
@@ -558,6 +618,7 @@
           layout: { padding: { top: 22 } },
           plugins: {
             legend: { display: false },
+            dayBands: { bands: dayBands(points) },
             eventMarkers: { items: placed },
             tooltip: {
               callbacks: {
@@ -571,9 +632,16 @@
           },
           scales: {
             y: {
-              min: 0,
-              max: 100,
-              ticks: { stepSize: 10 },
+              min: 30,
+              max: 105,
+              grace: 0,
+              ticks: {
+                stepSize: 10,
+                includeBounds: false,
+                callback(value) {
+                  return value > 100 ? undefined : value;
+                },
+              },
               title: { display: true, text: "Health index" },
             },
             x: {
@@ -649,11 +717,20 @@
       const rows = sortedAnimals();
       tbody.innerHTML = rows.map(row => {
         const unmatched = row.has_dairycomp === false;
+        const recentAbx = !unmatched && row.recent_antibiotic;
+        const classes = [
+          unmatched ? "unmatched" : "",
+          recentAbx ? "recent-abx" : "",
+        ].filter(Boolean).join(" ");
         const title = unmatched
           ? "No DairyComp match — check the SenseHub calf ID"
-          : "";
+          : recentAbx === "fenflor"
+            ? "Fenflor in the last 2 days"
+            : recentAbx
+              ? "Draxxin in the last 7 days"
+              : "";
         return `
-        <tr data-id="${row.animal_id}" class="${unmatched ? "unmatched" : ""}" title="${title}">
+        <tr data-id="${row.animal_id}" class="${classes}" title="${title}">
           <td>${row.animal_id}</td>
           <td>${row.etag4 || "—"}</td>
           <td>${row.health_index ?? "—"}</td>
@@ -671,11 +748,18 @@
     }
 
     async function loadList() {
-      const threshold = thresholdEl.value || "86";
-      const res = await fetch(`/api/sensehub/youngstock?threshold=${encodeURIComponent(threshold)}`);
+      const threshold = thresholdEl.value || String(DEFAULT_THRESHOLD);
+      const params = new URLSearchParams({ threshold });
+      if (TREATED_WITHIN_DAYS != null) {
+        params.set("treated_within_days", String(TREATED_WITHIN_DAYS));
+      }
+      const res = await fetch(`/api/sensehub/youngstock?${params}`);
       const payload = await res.json();
+      const treatedBit = TREATED_WITHIN_DAYS != null
+        ? ` treated in the last ${TREATED_WITHIN_DAYS} days`
+        : "";
       metaEl.textContent = payload.sampled_at
-        ? `${payload.count} animal(s) at or below ${payload.threshold} · ${payload.slot || ""} ${fmtWhen(payload.sampled_at)}`
+        ? `${payload.count} animal(s) at or below ${payload.threshold}${treatedBit} · ${payload.slot || ""} ${fmtWhen(payload.sampled_at)}`
         : "No young-stock health samples yet. Click Refresh from SenseHub.";
       if (printMetaEl) printMetaEl.textContent = metaEl.textContent;
       animals = payload.animals || [];

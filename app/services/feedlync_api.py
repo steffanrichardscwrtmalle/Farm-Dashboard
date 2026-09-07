@@ -36,6 +36,33 @@ _RATION_DETAIL_PARAMS = {
 # Loaded Mixes → By Ingredient. Do not use loads/fedmixes (different totals).
 _LOADED_MIX_INGREDIENT_PATH = "loads/ingredientspends"
 
+# Default assignments used only to seed the settings table on first run.
+USAGE_RATIONS_BY_FARM: dict[str, tuple[str, ...]] = {
+    "GAD": (
+        "Coomb Bulling Heifer Premix",
+        "Coomb Close Up Premix",
+        "Coomb Far Off",
+        "Coomb Milker Premix",
+        "Coomb Pregnant Heifers",
+    ),
+    "CM": (
+        "Cwrt Bulling Heifer",
+        "Cwrt Close Up Ration",
+        "Cwrt Far Off Ration",
+        "Cwrt Milkers",
+        "Cwrt Pregnant Heifers",
+    ),
+}
+DEFAULT_USAGE_RATION_FARM_LOOKUP = {
+    name.casefold(): farm
+    for farm, names in USAGE_RATIONS_BY_FARM.items()
+    for name in names
+}
+
+# Feedlync Loaded Mixes "Select Ingredient" types. Forage is id 1 in the live catalog.
+_FORAGE_INGREDIENT_TYPE_ID = 1
+USAGE_EXCLUDED_INGREDIENT_TYPE_NAMES = frozenset({"forage"})
+
 
 def _refresh_access_token(
     client: httpx.Client,
@@ -326,6 +353,10 @@ def _as_float(value: Any) -> float:
         return 0.0
 
 
+def usage_ingredient_key(name: str) -> str:
+    return " ".join((name or "").strip().casefold().split())
+
+
 def _ingredient_name(row: dict[str, Any]) -> str:
     nested = row.get("ingredient")
     if isinstance(nested, dict):
@@ -406,6 +437,129 @@ def _parse_ingredient_spends(payload: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def farm_for_usage_ration(
+    ration_name: str,
+    lookup: dict[str, str] | None = None,
+) -> str | None:
+    table = lookup if lookup is not None else DEFAULT_USAGE_RATION_FARM_LOOKUP
+    farm = table.get((ration_name or "").strip().casefold())
+    if farm in {"CM", "GAD"}:
+        return farm
+    return None
+
+
+def _is_forage_ingredient(
+    item: dict[str, Any],
+    forage_type_ids: set[int] | None = None,
+) -> bool:
+    """True when Feedlync Select Ingredient type is Forage."""
+    ids = forage_type_ids if forage_type_ids is not None else {_FORAGE_INGREDIENT_TYPE_ID}
+    raw_id = item.get("ingredientTypeId")
+    if raw_id is not None:
+        try:
+            if int(raw_id) in ids:
+                return True
+        except (TypeError, ValueError):
+            pass
+    type_name = str(item.get("ingredientTypeName") or "").strip().casefold()
+    return type_name in USAGE_EXCLUDED_INGREDIENT_TYPE_NAMES
+
+
+def _usage_ingredient_included(
+    item: dict[str, Any],
+    *,
+    inclusion: dict[str, bool] | None = None,
+    forage_type_ids: set[int] | None = None,
+) -> bool:
+    name = usage_ingredient_key(_ingredient_name(item))
+    if inclusion and name in inclusion:
+        return bool(inclusion[name])
+    return not _is_forage_ingredient(item, forage_type_ids)
+
+
+def _forage_ingredient_type_ids(
+    client: httpx.Client, headers: dict[str, str]
+) -> set[int]:
+    response = client.get(f"{FEEDLYNC_API_BASE}/ingredienttypes", headers=headers)
+    if response.status_code in (401, 403):
+        raise FeedlyncAuthError(
+            "FeedLync session expired. Use Reconnect FeedLync on the Feed Rate page."
+        )
+    ids: set[int] = set()
+    if response.status_code == 200:
+        payload = response.json()
+        items = payload if isinstance(payload, list) else []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip().casefold()
+            if name not in USAGE_EXCLUDED_INGREDIENT_TYPE_NAMES:
+                continue
+            raw_id = item.get("id")
+            if raw_id is None:
+                continue
+            try:
+                ids.add(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+    return ids or {_FORAGE_INGREDIENT_TYPE_ID}
+
+
+def _parse_ingredient_spends_by_farm(
+    payload: Any,
+    *,
+    forage_type_ids: set[int] | None = None,
+    ration_lookup: dict[str, str] | None = None,
+    ingredient_inclusion: dict[str, bool] | None = None,
+) -> list[dict[str, Any]]:
+    """Split Loaded Mixes ingredient totals using the nested ration breakdown."""
+    merged: dict[tuple[str, str], dict[str, float | str]] = {}
+    for item in _spend_items(payload):
+        ingredient = _ingredient_name(item)
+        if not ingredient:
+            continue
+        if not _usage_ingredient_included(
+            item,
+            inclusion=ingredient_inclusion,
+            forage_type_ids=forage_type_ids,
+        ):
+            continue
+        for ration in item.get("rations") or []:
+            if not isinstance(ration, dict):
+                continue
+            farm = farm_for_usage_ration(
+                str(ration.get("rationName") or ""), lookup=ration_lookup
+            )
+            if not farm:
+                continue
+            current = merged.setdefault(
+                (farm, ingredient),
+                {
+                    "farm": farm,
+                    "ingredient_name": ingredient,
+                    "as_fed_kg": 0.0,
+                    "dm_kg": 0.0,
+                    "cost": 0.0,
+                },
+            )
+            current["as_fed_kg"] = float(current["as_fed_kg"]) + _as_float(
+                ration.get("quantity")
+            )
+            current["dm_kg"] = float(current["dm_kg"]) + _as_float(
+                ration.get("drymatterQuantity")
+            )
+            current["cost"] = float(current["cost"]) + _as_float(ration.get("cost"))
+    rows = list(merged.values())
+    rows.sort(
+        key=lambda row: (
+            str(row["farm"]),
+            -float(row["as_fed_kg"]),
+            str(row["ingredient_name"]),
+        )
+    )
+    return rows
+
+
 def _authenticate_farms(
     db: Session, client: httpx.Client
 ) -> tuple[str, list[str]]:
@@ -422,6 +576,121 @@ def _authenticate_farms(
     return access_token, _extract_farm_ids(summary_response.json())
 
 
+def fetch_ration_summaries(db: Session) -> list[dict[str, str]]:
+    """Return unique Feedlync ration names (no recipe detail)."""
+    merged: dict[str, dict[str, str]] = {}
+    with httpx.Client(timeout=60.0) as client:
+        access_token, farm_ids = _authenticate_farms(db, client)
+        for farm_id in farm_ids:
+            response = client.get(
+                f"{FEEDLYNC_API_BASE}/rations",
+                headers=_api_headers(access_token, farm_id),
+            )
+            if response.status_code in (401, 403):
+                raise FeedlyncAuthError(
+                    "FeedLync session expired. Use Reconnect FeedLync on the Feed Rate page."
+                )
+            response.raise_for_status()
+            rations = response.json()
+            if not isinstance(rations, list):
+                raise ValueError("Unexpected Feedlync /rations response")
+            for ration in rations:
+                if not isinstance(ration, dict):
+                    continue
+                name = str(ration.get("name") or "").strip()
+                if not name:
+                    continue
+                merged[name.casefold()] = {
+                    "name": name,
+                    "id": str(ration.get("id") or ""),
+                }
+    return sorted(merged.values(), key=lambda row: row["name"].casefold())
+
+
+def _ingredient_type_catalog(
+    client: httpx.Client, headers: dict[str, str]
+) -> dict[int, str]:
+    response = client.get(f"{FEEDLYNC_API_BASE}/ingredienttypes", headers=headers)
+    if response.status_code in (401, 403):
+        raise FeedlyncAuthError(
+            "FeedLync session expired. Use Reconnect FeedLync on the Feed Rate page."
+        )
+    names: dict[int, str] = {}
+    if response.status_code != 200:
+        return names
+    payload = response.json()
+    items = payload if isinstance(payload, list) else []
+    for item in items:
+        if not isinstance(item, dict) or item.get("id") is None:
+            continue
+        try:
+            type_id = int(item["id"])
+        except (TypeError, ValueError):
+            continue
+        names[type_id] = str(item.get("name") or "").strip()
+    return names
+
+
+def fetch_ingredient_summaries(db: Session) -> list[dict[str, Any]]:
+    """Return unique Feedlync ingredients with Select Ingredient type."""
+    merged: dict[str, dict[str, Any]] = {}
+    with httpx.Client(timeout=60.0) as client:
+        access_token, farm_ids = _authenticate_farms(db, client)
+        type_names = _ingredient_type_catalog(
+            client, _api_headers(access_token, farm_ids[0])
+        )
+        forage_ids = {
+            type_id
+            for type_id, name in type_names.items()
+            if name.casefold() in USAGE_EXCLUDED_INGREDIENT_TYPE_NAMES
+        } or {_FORAGE_INGREDIENT_TYPE_ID}
+        for farm_id in farm_ids:
+            response = client.get(
+                f"{FEEDLYNC_API_BASE}/ingredients",
+                headers=_api_headers(access_token, farm_id),
+            )
+            if response.status_code in (401, 403):
+                raise FeedlyncAuthError(
+                    "FeedLync session expired. Use Reconnect FeedLync on the Feed Rate page."
+                )
+            response.raise_for_status()
+            ingredients = response.json()
+            if not isinstance(ingredients, list):
+                raise ValueError("Unexpected Feedlync /ingredients response")
+            for item in ingredients:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip()
+                if not name:
+                    continue
+                raw_type = item.get("ingredientTypeId")
+                type_id: int | None
+                try:
+                    type_id = int(raw_type) if raw_type is not None else None
+                except (TypeError, ValueError):
+                    type_id = None
+                type_name = str(item.get("ingredientTypeName") or "").strip()
+                if not type_name and type_id is not None:
+                    type_name = type_names.get(type_id, "")
+                merged[name.casefold()] = {
+                    "name": name,
+                    "id": str(item.get("id") or ""),
+                    "ingredient_type_id": type_id,
+                    "ingredient_type_name": type_name,
+                    "is_forage": (
+                        type_name.casefold() in USAGE_EXCLUDED_INGREDIENT_TYPE_NAMES
+                        or type_id in forage_ids
+                    ),
+                }
+    return sorted(
+        merged.values(),
+        key=lambda row: (
+            str(row.get("ingredient_type_name") or "").casefold(),
+            str(row["name"]).casefold(),
+        ),
+    )
+
+
 def fetch_loaded_mix_ingredient_usage(
     db: Session,
     *,
@@ -432,6 +701,7 @@ def fetch_loaded_mix_ingredient_usage(
     Fetch Loaded Mixes → By Ingredient totals for a calendar date range.
 
     Uses loads/ingredientspends (not loads/fedmixes). Weights are kilograms.
+    Each row includes farm (CM/GAD) from the nested ration breakdown.
     """
     from_utc, to_utc = _utc_month_range(period_start, period_end)
     param_candidates = (
@@ -439,10 +709,20 @@ def fetch_loaded_mix_ingredient_usage(
         {"startDate": from_utc, "endDate": to_utc},
         {"fromDate": from_utc, "toDate": to_utc},
     )
-    merged: dict[str, dict[str, float | str]] = {}
+    merged: dict[tuple[str, str], dict[str, float | str]] = {}
 
     with httpx.Client(timeout=120.0) as client:
         access_token, farm_ids = _authenticate_farms(db, client)
+        from app.services.feed_usage_settings import (
+            ingredient_inclusion_lookup,
+            ration_farm_lookup,
+        )
+
+        ration_lookup = ration_farm_lookup(db)
+        ingredient_inclusion = ingredient_inclusion_lookup(db)
+        forage_type_ids = _forage_ingredient_type_ids(
+            client, _api_headers(access_token, farm_ids[0])
+        )
         for farm_id in farm_ids:
             response = None
             last_error: str | None = None
@@ -464,12 +744,18 @@ def fetch_loaded_mix_ingredient_usage(
                     "Feedlync Loaded Mixes request failed"
                     + (f": {last_error}" if last_error else "")
                 )
-            for row in _parse_ingredient_spends(response.json()):
-                name = str(row["ingredient_name"])
+            for row in _parse_ingredient_spends_by_farm(
+                response.json(),
+                forage_type_ids=forage_type_ids,
+                ration_lookup=ration_lookup,
+                ingredient_inclusion=ingredient_inclusion,
+            ):
+                key = (str(row["farm"]), str(row["ingredient_name"]))
                 current = merged.setdefault(
-                    name,
+                    key,
                     {
-                        "ingredient_name": name,
+                        "farm": row["farm"],
+                        "ingredient_name": row["ingredient_name"],
                         "as_fed_kg": 0.0,
                         "dm_kg": 0.0,
                         "cost": 0.0,
@@ -480,5 +766,7 @@ def fetch_loaded_mix_ingredient_usage(
                 current["cost"] = float(current["cost"]) + float(row["cost"])
 
     rows = list(merged.values())
-    rows.sort(key=lambda row: float(row["as_fed_kg"]), reverse=True)
+    rows.sort(
+        key=lambda row: (str(row["farm"]), -float(row["as_fed_kg"]), str(row["ingredient_name"]))
+    )
     return rows

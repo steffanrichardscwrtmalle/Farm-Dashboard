@@ -69,55 +69,58 @@
       font-size: 0.8125rem;
       font-weight: 600;
     }
-    .connection-line {
-      margin-top: 0.5rem;
-      font-size: 0.75rem;
-      color: var(--muted);
+    .settings-wrap {
+      position: relative;
+      margin-top: 0.75rem;
+      display: inline-block;
     }
-    .source-note {
-      margin: 0.75rem 0 0;
-      font-size: 0.75rem;
-      color: var(--muted);
-      line-height: 1.4;
-    }
-    .content-panel { min-width: 0; }
-    .meta-line {
-      color: var(--muted);
-      font-size: 0.875rem;
-      margin-bottom: 0.75rem;
-    }
-    .totals-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0.75rem;
-      margin-bottom: 1rem;
-    }
-    @media (max-width: 700px) {
-      .totals-grid { grid-template-columns: 1fr; }
-    }
-    .total-card {
-      background: var(--card);
+    .gear-btn {
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 0.85rem 1rem;
+      background: #fff;
+      color: #4ba3e3;
+      width: 2.4rem;
+      height: 2.4rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
     }
-    .total-card h3 {
-      margin: 0 0 0.35rem;
-      font-size: 0.75rem;
-      font-weight: 700;
-      letter-spacing: 0.03em;
-      text-transform: uppercase;
-      color: var(--muted);
+    .gear-btn:hover,
+    .gear-btn[aria-expanded="true"] {
+      color: #2f86c9;
+      background: #eef6fc;
+      border-color: #9ec9ea;
     }
-    .total-card .value {
-      font-size: 1.2rem;
-      font-weight: 700;
+    .gear-btn svg { width: 1.3rem; height: 1.3rem; display: block; }
+    .settings-menu {
+      position: absolute;
+      top: calc(100% + 0.35rem);
+      left: 0;
+      min-width: 10rem;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+      z-index: 5;
+      overflow: hidden;
     }
-    .total-card .avg {
-      margin-top: 0.25rem;
-      font-size: 0.75rem;
-      color: var(--muted);
+    .settings-menu a {
+      display: block;
+      padding: 0.55rem 0.85rem;
+      text-decoration: none;
+      color: inherit;
+      font-size: 0.875rem;
+      font-weight: 600;
     }
+    .settings-menu a:hover { background: #f4f7fa; }
+    .back-link {
+      display: inline-block;
+      margin-bottom: 0.75rem;
+      font-size: 0.8125rem;
+    }
+    .content-panel { min-width: 0; }
     .view-header {
       display: flex;
       justify-content: space-between;
@@ -131,28 +134,39 @@
       font-size: 1.05rem;
     }
     .table-wrap {
-      overflow-x: auto;
+      overflow: visible;
+      max-height: none;
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 8px;
+      width: max-content;
     }
     #usage-table {
-      width: 100%;
+      width: max-content;
+      border-collapse: collapse;
       table-layout: auto;
     }
     #usage-table th,
     #usage-table td {
       text-align: right;
       white-space: nowrap;
+      width: 1%;
       padding: 0.55rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
     }
     #usage-table th:first-child,
     #usage-table td:first-child {
       text-align: left;
     }
+    #usage-table th:last-child,
+    #usage-table td:last-child {
+      border-right: none;
+    }
     #usage-table thead th {
       background: #eef2f6;
       font-weight: 600;
+      border-bottom: 1px solid var(--border);
     }
     #usage-table tr.total-row td {
       font-weight: 700;
@@ -169,6 +183,7 @@
 {% endblock %}
 
 {% block content %}
+  <a class="back-link" href="/feed-rate/usage">All farms</a>
   <div class="page-layout">
     <div class="sidebar-column">
       <aside class="filter-panel">
@@ -180,30 +195,38 @@
         {% if can_import_feed %}
         <div class="filter-actions">
           <button type="button" id="refresh-feed-btn">Refresh from Feedlync</button>
-          <p style="margin:0.5rem 0 0;font-size:0.75rem;">
-            <a href="/feed-rate/connect?return=%2Ffeed-rate%2Fusage">Connect / reconnect FeedLync</a>
-          </p>
         </div>
+        {% endif %}
+        <div class="settings-wrap">
+          <button type="button" class="gear-btn" id="usage-settings-toggle" aria-expanded="false"
+            aria-controls="usage-settings-menu" title="Feed Usage settings">
+            <svg viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">
+              <g transform="translate(32 32)">
+                <path d="M-2.4-19.5h4.8l1.2 5c1.8.4 3.5 1.2 5 2.3l4.6-2.4 3.4 3.4-2.4 4.6c1.1 1.5 1.9 3.2 2.3 5l5 1.2v4.8l-5 1.2c-.4 1.8-1.2 3.5-2.3 5l2.4 4.6-3.4 3.4-4.6-2.4c-1.5 1.1-3.2 1.9-5 2.3l-1.2 5h-4.8l-1.2-5c-1.8-.4-3.5-1.2-5-2.3l-4.6 2.4-3.4-3.4 2.4-4.6c-1.1-1.5-1.9-3.2-2.3-5l-5-1.2v-4.8l5-1.2c.4-1.8 1.2-3.5 2.3-5l-2.4-4.6 3.4-3.4 4.6 2.4c1.5-1.1 3.2-1.9 5-2.3l1.2-5z"/>
+                <circle cx="0" cy="0" r="6.2" fill="#fff"/>
+              </g>
+            </svg>
+          </button>
+          <div class="settings-menu" id="usage-settings-menu" hidden>
+            <a href="/feed-rate/usage/settings/rations?from={{ ('/feed-rate/usage/' ~ farm) | urlencode }}">Rations</a>
+            <a href="/feed-rate/usage/settings/ingredients?from={{ ('/feed-rate/usage/' ~ farm) | urlencode }}">Ingredients</a>
+          </div>
+        </div>
+        {% if can_import_feed %}
         <div class="import-status" id="import-status" style="display:none;"></div>
         <div class="reconnect-panel" id="reconnect-panel">
           <p id="reconnect-message">FeedLync session expired.</p>
-          <a href="/feed-rate/connect?return=%2Ffeed-rate%2Fusage">Reconnect FeedLync</a>
+          <a href="/feed-rate/connect?return={{ ('/feed-rate/usage/' ~ farm) | urlencode }}">Reconnect FeedLync</a>
         </div>
-        <p class="connection-line" id="connection-line" style="display:none;"></p>
-        {% else %}
-        <p style="margin:0;font-size:0.875rem;color:var(--muted);">Use Refresh from Feedlync to load monthly ingredient usage.</p>
         {% endif %}
-        <p class="source-note">Source: Loaded Mixes → By Ingredient. Figures are kilograms as shown in Feedlync (Metric, UK).</p>
       </aside>
     </div>
 
     <section class="content-panel">
-      <p class="meta-line" id="meta-line"></p>
-      <div id="totals-grid" class="totals-grid" style="display:none;"></div>
       <div id="table-view" style="display:none;">
         <div class="view-header">
           <h2 id="table-title">Ingredient usage</h2>
-          <button type="button" id="download-csv-btn">Download CSV</button>
+          <button type="button" id="download-xlsx-btn">Download Excel</button>
         </div>
         <div class="table-wrap">
           <table id="usage-table">
@@ -211,8 +234,7 @@
               <tr>
                 <th>Ingredient</th>
                 <th>As Fed (kg)</th>
-                <th>DM (kg)</th>
-                <th>Cost (£)</th>
+                <th>As Fed (MT)</th>
               </tr>
             </thead>
             <tbody id="usage-body"></tbody>
@@ -227,6 +249,8 @@
 {% block scripts %}
   <script>
     const CAN_IMPORT_FEED = {{ can_import_feed | default(false) | tojson }};
+    const FARM = {{ farm | tojson }};
+    const FARM_LABEL = {{ farm_label | tojson }};
     let importPollTimer = null;
     let reportData = null;
 
@@ -254,14 +278,10 @@
       });
     }
 
-    function formatMoney(value, decimals = 2) {
-      if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
-      return Number(value).toLocaleString("en-GB", {
-        style: "currency",
-        currency: "GBP",
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals,
-      });
+    function asFedMt(kg) {
+      const value = Number(kg);
+      if (Number.isNaN(value)) return null;
+      return Math.round((value / 1000) * 10000) / 10000;
     }
 
     function formatDateUk(iso) {
@@ -305,60 +325,31 @@
       reportData = data;
       const empty = document.getElementById("empty-state");
       const tableView = document.getElementById("table-view");
-      const totalsGrid = document.getElementById("totals-grid");
-      const meta = document.getElementById("meta-line");
       const rows = data.ingredients || [];
       const period = `${formatDateUk(data.period_start)} – ${formatDateUk(data.period_end)}`;
-      const imported = data.latest_import
-        ? ` · imported ${new Date(data.latest_import).toLocaleString("en-GB")}`
-        : "";
-      meta.textContent = rows.length
-        ? `${data.source} · ${period}${imported}`
-        : "";
+      const totalMt = asFedMt(data.totals?.as_fed_kg);
 
       if (!rows.length) {
         tableView.style.display = "none";
-        totalsGrid.style.display = "none";
         empty.style.display = "";
-        empty.textContent = `No Loaded Mixes data for ${period}. Use Refresh from Feedlync to fetch this month.`;
+        empty.textContent = `No Loaded Mixes data for ${FARM_LABEL} in ${period}. Use Refresh from Feedlync to fetch this month.`;
         return;
       }
 
       empty.style.display = "none";
-      totalsGrid.style.display = "";
-      totalsGrid.innerHTML = `
-        <article class="total-card">
-          <h3>As Fed</h3>
-          <div class="value">${formatInt(data.totals.as_fed_kg)} kg</div>
-          <div class="avg">${formatInt(data.averages.as_fed_kg)} kg / day</div>
-        </article>
-        <article class="total-card">
-          <h3>Dry matter</h3>
-          <div class="value">${formatInt(data.totals.dm_kg)} kg</div>
-          <div class="avg">${formatInt(data.averages.dm_kg)} kg / day</div>
-        </article>
-        <article class="total-card">
-          <h3>Cost</h3>
-          <div class="value">${formatMoney(data.totals.cost)}</div>
-          <div class="avg">${formatMoney(data.averages.cost)} / day</div>
-        </article>
-      `;
-
-      document.getElementById("table-title").textContent = `Ingredient usage · ${period}`;
+      document.getElementById("table-title").textContent = `${FARM_LABEL} ingredient usage · ${period}`;
       const body = document.getElementById("usage-body");
       body.innerHTML = rows.map(row => `
         <tr>
           <td>${escapeHtml(row.ingredient_name)}</td>
           <td>${formatInt(row.as_fed_kg)}</td>
-          <td>${formatInt(row.dm_kg)}</td>
-          <td>${formatMoney(row.cost)}</td>
+          <td>${formatDecimal(asFedMt(row.as_fed_kg), 4)}</td>
         </tr>
       `).join("") + `
         <tr class="total-row">
           <td>Total</td>
           <td>${formatInt(data.totals.as_fed_kg)}</td>
-          <td>${formatInt(data.totals.dm_kg)}</td>
-          <td>${formatMoney(data.totals.cost)}</td>
+          <td>${formatDecimal(totalMt, 4)}</td>
         </tr>
       `;
       tableView.style.display = "";
@@ -366,12 +357,11 @@
 
     async function loadReport() {
       const month = selectedMonth();
-      const res = await fetch(`/api/feed-rate/usage?month=${encodeURIComponent(month)}`);
+      const res = await fetch(`/api/feed-rate/usage?month=${encodeURIComponent(month)}&farm=${encodeURIComponent(FARM)}`);
       if (!res.ok) {
         document.getElementById("empty-state").style.display = "";
         document.getElementById("empty-state").textContent = "Failed to load feed usage data.";
         document.getElementById("table-view").style.display = "none";
-        document.getElementById("totals-grid").style.display = "none";
         return;
       }
       const data = await res.json();
@@ -392,7 +382,6 @@
       if (btn) btn.disabled = false;
       if (data.status === "complete") {
         setImportStatus(data.message || "Import complete.");
-        await loadConnectionStatus();
         await loadReport();
         return;
       }
@@ -422,47 +411,11 @@
       pollImportStatus();
     }
 
-    function downloadCsv() {
+    function downloadExcel() {
       if (!reportData || !reportData.ingredients || !reportData.ingredients.length) return;
-      const headers = ["Ingredient", "As Fed (kg)", "DM (kg)", "Cost (£)"];
-      const escape = value => {
-        const text = value === null || value === undefined ? "" : String(value);
-        return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-      };
-      const lines = [
-        headers.join(","),
-        ...reportData.ingredients.map(row => [
-          escape(row.ingredient_name),
-          row.as_fed_kg,
-          row.dm_kg,
-          row.cost,
-        ].join(",")),
-        ["Total", reportData.totals.as_fed_kg, reportData.totals.dm_kg, reportData.totals.cost].join(","),
-      ];
-      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = `feed_usage_${reportData.month || selectedMonth()}.csv`;
-      link.click();
-      URL.revokeObjectURL(link.href);
-    }
-
-    async function loadConnectionStatus() {
-      if (!CAN_IMPORT_FEED) return;
-      const res = await fetch("/api/feedlync/status");
-      if (!res.ok) return;
-      const data = await res.json();
-      const line = document.getElementById("connection-line");
-      if (!line) return;
-      line.style.display = "";
-      if (data.connected) {
-        const when = data.updated_at || data.connected_at;
-        line.textContent = when
-          ? `FeedLync connected (${data.source || "saved"}) · updated ${new Date(when).toLocaleString("en-GB")}`
-          : "FeedLync connected.";
-      } else {
-        line.textContent = "FeedLync not connected.";
-      }
+      const month = reportData.month || selectedMonth();
+      const params = new URLSearchParams({ month, farm: FARM });
+      window.location.href = `/api/feed-rate/usage/export.xlsx?${params}`;
     }
 
     function maybeRetryAfterConnect() {
@@ -479,11 +432,22 @@
     const urlMonth = new URLSearchParams(window.location.search).get("month");
     monthInput.value = urlMonth || previousMonthValue();
     monthInput.addEventListener("change", loadReport);
-    document.getElementById("download-csv-btn").addEventListener("click", downloadCsv);
+    document.getElementById("download-xlsx-btn").addEventListener("click", downloadExcel);
     if (CAN_IMPORT_FEED) {
       document.getElementById("refresh-feed-btn").addEventListener("click", startImport);
     }
-    loadConnectionStatus();
+    const settingsBtn = document.getElementById("usage-settings-toggle");
+    const settingsMenu = document.getElementById("usage-settings-menu");
+    settingsBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const open = settingsMenu.hidden;
+      settingsMenu.hidden = !open;
+      settingsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    document.addEventListener("click", () => {
+      settingsMenu.hidden = true;
+      settingsBtn.setAttribute("aria-expanded", "false");
+    });
     maybeRetryAfterConnect();
     loadReport();
   </script>

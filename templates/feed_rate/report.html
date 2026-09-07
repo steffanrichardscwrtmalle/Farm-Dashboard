@@ -101,11 +101,6 @@
       font-size: 0.8125rem;
       font-weight: 600;
     }
-    .connection-line {
-      margin-top: 0.5rem;
-      font-size: 0.75rem;
-      color: var(--muted);
-    }
 
     .content-panel { min-width: 0; }
 
@@ -397,10 +392,6 @@
 
           <button type="button" id="refresh-feed-btn">Refresh from Feedlync</button>
 
-          <p style="margin:0.5rem 0 0;font-size:0.75rem;">
-            <a href="/feed-rate/connect?return=%2Ffeed-rate">Connect / reconnect FeedLync</a>
-          </p>
-
         </div>
 
         <div class="import-status" id="import-status" style="display:none;"></div>
@@ -409,13 +400,6 @@
           <p id="reconnect-message">FeedLync session expired.</p>
           <a href="/feed-rate/connect?return=%2Ffeed-rate">Reconnect FeedLync</a>
         </div>
-
-        <p class="connection-line" id="connection-line" style="display:none;"></p>
-
-        {% else %}
-
-        <p style="margin:0;font-size:0.875rem;color:var(--muted);">Use Refresh from Feedlync to load the latest ration data.</p>
-
         {% endif %}
 
       </aside>
@@ -1297,8 +1281,6 @@
 
         setImportStatus(data.message || "Import complete.");
 
-        await loadConnectionStatus();
-
         await loadReport();
 
         return;
@@ -1373,25 +1355,6 @@
 
     }
 
-    async function loadConnectionStatus() {
-      if (!CAN_IMPORT_FEED) return;
-      const res = await fetch("/api/feedlync/status");
-      if (!res.ok) return;
-      const data = await res.json();
-      const line = document.getElementById("connection-line");
-      if (!line) return;
-      if (data.connected) {
-        line.style.display = "";
-        const when = data.updated_at || data.connected_at;
-        line.textContent = when
-          ? `FeedLync connected (${data.source || "saved"}) · updated ${new Date(when).toLocaleString("en-GB")}`
-          : "FeedLync connected.";
-      } else {
-        line.style.display = "";
-        line.textContent = "FeedLync not connected.";
-      }
-    }
-
     function maybeRetryAfterConnect() {
       const params = new URLSearchParams(window.location.search);
       if (params.get("feedlync") !== "connected") return;
@@ -1405,8 +1368,6 @@
     }
 
 
-
-    loadConnectionStatus();
 
     maybeRetryAfterConnect();
 

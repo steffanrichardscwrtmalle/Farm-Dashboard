@@ -58,6 +58,11 @@ def _throughput(session: Session, **kwargs):
     return _build_footrim_throughput(session, **defaults)
 
 
+def _day_row(result: dict, day: dt.date) -> dict:
+    by_date = {row["date"]: row for row in result["day_rows"]}
+    return by_date[day.isoformat()]
+
+
 def test_same_cow_two_footrim_rows_same_day_counts_once(db: Session) -> None:
     monday = dt.date(2026, 4, 6)
     db.add_all(
@@ -68,10 +73,11 @@ def test_same_cow_two_footrim_rows_same_day_counts_once(db: Session) -> None:
     )
     db.commit()
     result = _throughput(db)
+    row = _day_row(result, monday)
     assert result["summary"]["unique_cows"] == 1
     assert result["summary"]["trimming_days"] == 1
-    assert result["day_rows"][0]["total"] == 1
-    assert result["day_rows"][0]["CM"] == 1
+    assert row["total"] == 1
+    assert row["CM"] == 1
 
 
 def test_same_cow_two_days_in_one_week_is_unique_for_the_week(db: Session) -> None:
@@ -91,9 +97,10 @@ def test_same_cow_two_days_in_one_week_is_unique_for_the_week(db: Session) -> No
     assert result["summary"]["unique_cows"] == 1
     assert result["summary"]["trimming_days"] == 2
     assert result["summary"]["average_per_trimming_day"] == 1.0
-    assert len(result["week_rows"]) == 1
-    assert result["week_rows"][0]["total"] == 1
-    assert result["week_rows"][0]["CM"] == 1
+    week_totals = {row["week_start"]: row for row in result["week_rows"]}
+    active_week = week_totals[monday.isoformat()]
+    assert active_week["total"] == 1
+    assert active_week["CM"] == 1
     assert len(result["month_rows"]) == 1
     assert result["month_rows"][0]["total"] == 1
 
@@ -109,9 +116,10 @@ def test_cm_and_gad_are_kept_separate(db: Session) -> None:
     )
     db.commit()
     result = _throughput(db)
-    assert result["day_rows"][0]["CM"] == 1
-    assert result["day_rows"][0]["GAD"] == 2
-    assert result["day_rows"][0]["total"] == 3
+    row = _day_row(result, day)
+    assert row["CM"] == 1
+    assert row["GAD"] == 2
+    assert row["total"] == 3
     assert result["summary"]["unique_cows"] == 3
     assert result["summary"]["CM"]["unique_cows"] == 1
     assert result["summary"]["GAD"]["unique_cows"] == 2
@@ -146,9 +154,10 @@ def test_lame_or_footrim_counts_and_same_day_is_once(db: Session) -> None:
     )
     db.commit()
     result = _throughput(db)
+    row = _day_row(result, day)
     assert result["summary"]["unique_cows"] == 2
-    assert result["day_rows"][0]["CM"] == 2
-    assert result["day_rows"][0]["total"] == 2
+    assert row["CM"] == 2
+    assert row["total"] == 2
 
 
 def test_resolve_throughput_dates_defaults_to_last_30_days() -> None:
@@ -179,7 +188,7 @@ def test_throughput_range_is_independent_of_page_dates(db: Session) -> None:
         throughput_to=dt.date(2026, 8, 31),
     )
     assert result["footrim_throughput"]["summary"]["unique_cows"] == 1
-    assert result["footrim_throughput"]["day_rows"][0]["date"] == recent.isoformat()
+    assert _day_row(result["footrim_throughput"], recent)["total"] == 1
     assert result["footrim_throughput"]["date_from"] == "2026-08-01"
     assert result["footrim_throughput"]["date_to"] == "2026-08-31"
     assert result["grand_total"]["CM"] == 1
@@ -206,3 +215,42 @@ def test_omitted_throughput_dates_use_last_30_days(db: Session) -> None:
         today - dt.timedelta(days=29)
     ).isoformat()
     assert result["footrim_throughput"]["date_to"] == today.isoformat()
+
+
+def test_day_rows_include_zero_days_in_range(db: Session) -> None:
+    trimmed = dt.date(2026, 4, 6)
+    empty = dt.date(2026, 4, 7)
+    db.add(_footrim(farm="CM", cow_id="101", event_date=trimmed))
+    db.commit()
+    result = _throughput(
+        db,
+        effective_from=dt.date(2026, 4, 6),
+        effective_to=dt.date(2026, 4, 8),
+    )
+    assert [row["date"] for row in result["day_rows"]] == [
+        "2026-04-06",
+        "2026-04-07",
+        "2026-04-08",
+    ]
+    assert _day_row(result, trimmed)["total"] == 1
+    assert _day_row(result, empty)["total"] == 0
+    assert _day_row(result, dt.date(2026, 4, 8))["CM"] == 0
+    assert _day_row(result, dt.date(2026, 4, 8))["GAD"] == 0
+    assert result["summary"]["trimming_days"] == 1
+    assert result["summary"]["average_per_trimming_day"] == 1.0
+
+
+def test_empty_range_still_returns_zero_day_bars(db: Session) -> None:
+    result = _throughput(
+        db,
+        effective_from=dt.date(2026, 4, 1),
+        effective_to=dt.date(2026, 4, 3),
+    )
+    assert [row["date"] for row in result["day_rows"]] == [
+        "2026-04-01",
+        "2026-04-02",
+        "2026-04-03",
+    ]
+    assert all(row["total"] == 0 for row in result["day_rows"])
+    assert result["summary"]["unique_cows"] == 0
+    assert result["summary"]["trimming_days"] == 0

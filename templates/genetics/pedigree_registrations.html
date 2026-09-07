@@ -109,6 +109,10 @@
       top: 0;
       z-index: 1;
     }
+    #pedigree-table thead th[data-sort] { cursor: pointer; user-select: none; }
+    #pedigree-table thead th[data-sort]:hover { background: #274b73; }
+    #pedigree-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
+    #pedigree-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
     .empty-state { padding: 1.5rem; color: var(--muted); }
     .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
     .message { margin-bottom: 0.75rem; }
@@ -185,14 +189,14 @@
                 {% if can_register %}
                 <th><input type="checkbox" id="select-all" title="Select all"></th>
                 {% endif %}
-                <th>Farm</th>
-                <th>ID</th>
-                <th>ETAG</th>
-                <th>BDAT</th>
-                <th>DREG</th>
-                <th>SREG</th>
-                <th>SID</th>
-                <th class="sent-col" hidden>Sent</th>
+                <th data-sort="farm">Farm</th>
+                <th data-sort="cow_id">ID</th>
+                <th data-sort="etag">ETAG</th>
+                <th data-sort="bdat">BDAT</th>
+                <th data-sort="dreg">DREG</th>
+                <th data-sort="sreg">SREG</th>
+                <th data-sort="sid">SID</th>
+                <th class="sent-col" data-sort="sent_at" hidden>Sent</th>
               </tr>
             </thead>
             <tbody id="table-body">
@@ -212,6 +216,8 @@
     let currentStatus = 'active';
     let rows = [];
     let selectedKeys = new Set();
+    let sortKey = 'bdat';
+    let sortDir = 'asc';
 
     function rowKey(row) {
       return row.farm + '|' + row.etag;
@@ -259,6 +265,45 @@
       });
     }
 
+    function defaultSortForStatus(status) {
+      if (status === 'registered') return { key: 'sent_at', dir: 'desc' };
+      return { key: 'bdat', dir: 'asc' };
+    }
+
+    function sortValue(row, key) {
+      const value = row[key];
+      if (value === null || value === undefined || value === '') return null;
+      return value;
+    }
+
+    function compareRows(a, b) {
+      const av = sortValue(a, sortKey);
+      const bv = sortValue(b, sortKey);
+      const aEmpty = av === null;
+      const bEmpty = bv === null;
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      const result = String(av).localeCompare(String(bv), undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+      return sortDir === 'asc' ? result : -result;
+    }
+
+    function sortedRows() {
+      return [...rows].sort(compareRows);
+    }
+
+    function markSortHeaders() {
+      document.querySelectorAll('#pedigree-table thead th[data-sort]').forEach(function (th) {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        if (th.dataset.sort === sortKey) {
+          th.classList.add(sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        }
+      });
+    }
+
     function updateActionBar() {
       const count = selectedKeys.size;
       document.getElementById('selection-count').textContent = count + ' selected';
@@ -280,12 +325,14 @@
       const sentHeader = document.querySelector('.sent-col');
       if (sentHeader) sentHeader.hidden = !showSent;
       const colSpan = (CAN_EDIT ? 1 : 0) + 7 + (showSent ? 1 : 0);
-      if (!rows.length) {
+      const sorted = sortedRows();
+      markSortHeaders();
+      if (!sorted.length) {
         tbody.innerHTML = '<tr><td colspan="' + colSpan + '" class="empty-state">No animals match the current filters.</td></tr>';
         updateActionBar();
         return;
       }
-      tbody.innerHTML = rows.map(function (row) {
+      tbody.innerHTML = sorted.map(function (row) {
         const key = rowKey(row);
         const checked = selectedKeys.has(key) ? ' checked' : '';
         const selectCell = CAN_EDIT
@@ -416,6 +463,19 @@
       html2pdf().set(opt).from(area).save();
     });
 
+    document.querySelector('#pedigree-table thead').addEventListener('click', function (event) {
+      const th = event.target.closest('th[data-sort]');
+      if (!th) return;
+      const key = th.dataset.sort;
+      if (sortKey === key) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortKey = key;
+        sortDir = key === 'sent_at' ? 'desc' : 'asc';
+      }
+      renderTable();
+    });
+
     document.querySelectorAll('.view-tab').forEach(function (tab) {
       tab.addEventListener('click', function () {
         document.querySelectorAll('.view-tab').forEach(function (t) {
@@ -423,6 +483,9 @@
         });
         currentStatus = tab.dataset.status;
         selectedKeys.clear();
+        const defaults = defaultSortForStatus(currentStatus);
+        sortKey = defaults.key;
+        sortDir = defaults.dir;
         loadRows();
       });
     });

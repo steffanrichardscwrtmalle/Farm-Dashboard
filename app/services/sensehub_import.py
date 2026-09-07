@@ -19,7 +19,11 @@ from app.services.sensehub_api import (
     SenseHubError,
     fetch_all_reports,
 )
-from app.services.sensehub_youngstock import refresh_sensehub_list_snapshots, save_from_reports
+from app.services.sensehub_youngstock import (
+    auto_cull_exited_sensehub_animals,
+    refresh_sensehub_list_snapshots,
+    save_from_reports,
+)
 
 _lock = threading.Lock()
 _import_status: dict[str, Any] = {
@@ -116,6 +120,10 @@ def import_sensehub(db: Session) -> dict[str, Any]:
                 software_version=payload.get("software_version"),
             )
         except SenseHubError:
+            pass
+        try:
+            auto_cull_exited_sensehub_animals(db)
+        except Exception:
             pass
         db.commit()
         latest = fetched_at.isoformat()

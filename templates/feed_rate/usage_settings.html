@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Feed Usage settings{% endblock %}
+
+{% block extra_styles %}
+    .schedule-hub {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+      margin-top: 0.75rem;
+      max-width: 720px;
+    }
+    .schedule-card {
+      display: block;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.35rem 1.25rem;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .schedule-card:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
+    .schedule-card h2 { margin: 0 0 0.4rem; font-size: 1.1rem; }
+    .schedule-card p { margin: 0; font-size: 0.875rem; color: var(--muted); line-height: 1.45; }
+    .back-link { display: inline-block; margin-bottom: 0.75rem; font-size: 0.8125rem; }
+{% endblock %}
+
+{% block content %}
+  <a class="back-link" href="{{ return_to }}">Back to Feed Usage</a>
+  <div class="schedule-hub">
+    <a href="/feed-rate/usage/settings/rations?from={{ return_to | urlencode }}" class="schedule-card">
+      <h2>Rations</h2>
+      <p>Assign each Feedlync ration to Cwrt Malle, Green Acre Dairy, or leave it unassigned.</p>
+    </a>
+    <a href="/feed-rate/usage/settings/ingredients?from={{ return_to | urlencode }}" class="schedule-card">
+      <h2>Ingredients</h2>
+      <p>Choose which ingredients appear on Feed Usage reports.</p>
+    </a>
+  </div>
+{% endblock %}

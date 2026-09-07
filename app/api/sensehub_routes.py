@@ -129,10 +129,13 @@ def api_sensehub_save_scr_tag(
 @router.get("/youngstock")
 def api_sensehub_youngstock(
     threshold: float = Query(DEFAULT_THRESHOLD),
+    treated_within_days: int | None = Query(None, ge=0, le=365),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_SENSEHUB)),
 ):
-    return list_low_health(db, threshold=threshold)
+    return list_low_health(
+        db, threshold=threshold, treated_within_days=treated_within_days
+    )
 
 
 @router.get("/youngstock/job")

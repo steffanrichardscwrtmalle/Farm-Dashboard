@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .back-link { display: inline-block; margin-bottom: 0.75rem; font-size: 0.8125rem; }
+    .toolbar {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 0.85rem;
+    }
+    .status-line { font-size: 0.8125rem; color: var(--muted); }
+    .status-line.error { color: var(--danger); }
+    .reconnect-panel {
+      margin: 0 0 0.75rem;
+      padding: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      display: none;
+    }
+    .reconnect-panel p { margin: 0 0 0.5rem; font-size: 0.8125rem; color: #991b1b; }
+    .table-wrap {
+      overflow-x: auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      width: max-content;
+      max-width: 100%;
+    }
+    #rations-table {
+      width: max-content;
+      border-collapse: collapse;
+      table-layout: auto;
+    }
+    #rations-table th,
+    #rations-table td {
+      white-space: nowrap;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      text-align: center;
+    }
+    #rations-table th:first-child,
+    #rations-table td:first-child {
+      text-align: left;
+      width: 1%;
+    }
+    #rations-table th:last-child,
+    #rations-table td:last-child { border-right: none; }
+    #rations-table thead th {
+      background: #eef2f6;
+      font-weight: 600;
+    }
+    #rations-table thead th.cm { border-top: 4px solid #5a9fd4; }
+    #rations-table thead th.gad { border-top: 4px solid #ffb366; }
+    #rations-table tbody tr:hover td { background: #f8fafc; }
+    .empty-state {
+      padding: 2rem;
+      color: var(--muted);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+{% endblock %}
+
+{% block content %}
+  <a class="back-link" href="/feed-rate/usage/settings?from={{ return_to | urlencode }}">All settings</a>
+  <div class="toolbar">
+    <button type="button" id="sync-rations-btn">Refresh ration list from Feedlync</button>
+    <span class="status-line" id="status-line"></span>
+  </div>
+  <div class="reconnect-panel" id="reconnect-panel">
+    <p id="reconnect-message">FeedLync session expired.</p>
+    <a href="/feed-rate/connect?return={{ ('/feed-rate/usage/settings/rations?from=' ~ return_to) | urlencode }}">Reconnect FeedLync</a>
+  </div>
+  <div class="table-wrap" id="table-wrap" style="display:none;">
+    <table id="rations-table">
+      <thead>
+        <tr>
+          <th>Ration</th>
+          <th>Unassigned</th>
+          <th class="cm">Cwrt Malle</th>
+          <th class="gad">Green Acre Dairy</th>
+        </tr>
+      </thead>
+      <tbody id="rations-body"></tbody>
+    </table>
+  </div>
+  <div id="empty-state" class="empty-state">Loading rations…</div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    function escapeHtml(text) {
+      return String(text ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function setStatus(text, isError = false) {
+      const el = document.getElementById("status-line");
+      el.textContent = text || "";
+      el.className = `status-line${isError ? " error" : ""}`;
+    }
+
+    function farmValue(row) {
+      const farm = (row.farm || "").toUpperCase();
+      return farm === "CM" || farm === "GAD" ? farm : "";
+    }
+
+    function radioCell(name, value, checked) {
+      const id = `${name}-${value || "none"}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+      return `<td><input type="radio" name="${escapeHtml(name)}" id="${id}" value="${escapeHtml(value)}" ${checked ? "checked" : ""}></td>`;
+    }
+
+    function renderRows(rows) {
+      const empty = document.getElementById("empty-state");
+      const wrap = document.getElementById("table-wrap");
+      const body = document.getElementById("rations-body");
+      if (!rows.length) {
+        wrap.style.display = "none";
+        empty.style.display = "";
+        empty.textContent = "No rations saved yet. Refresh the list from Feedlync.";
+        return;
+      }
+      empty.style.display = "none";
+      wrap.style.display = "";
+      body.innerHTML = rows.map((row, index) => {
+        const group = `ration-${index}`;
+        const farm = farmValue(row);
+        return `<tr data-name="${escapeHtml(row.ration_name)}" data-id="${escapeHtml(row.feedlync_ration_id || "")}">
+          <td>${escapeHtml(row.ration_name)}</td>
+          ${radioCell(group, "", farm === "")}
+          ${radioCell(group, "CM", farm === "CM")}
+          ${radioCell(group, "GAD", farm === "GAD")}
+        </tr>`;
+      }).join("");
+      body.querySelectorAll("input[type=radio]").forEach((input) => {
+        input.addEventListener("change", () => saveRow(input.closest("tr"), input.value));
+      });
+    }
+
+    async function saveRow(tr, farm) {
+      setStatus("Saving…");
+      const res = await fetch("/api/feed-rate/usage/settings/rations", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ration_name: tr.dataset.name,
+          farm,
+          feedlync_ration_id: tr.dataset.id || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setStatus(err.detail || "Could not save assignment.", true);
+        return;
+      }
+      setStatus("Saved.");
+    }
+
+    async function loadRows(sync) {
+      const btn = document.getElementById("sync-rations-btn");
+      if (sync) btn.disabled = true;
+      setStatus(sync ? "Fetching rations from Feedlync…" : "Loading…");
+      const reconnect = document.getElementById("reconnect-panel");
+      reconnect.style.display = "none";
+      const res = await fetch(`/api/feed-rate/usage/settings/rations?sync=${sync ? "true" : "false"}`);
+      if (sync) btn.disabled = false;
+      if (!res.ok) {
+        setStatus("Failed to load rations.", true);
+        return;
+      }
+      const data = await res.json();
+      renderRows(data.rations || []);
+      if (data.needs_auth) {
+        reconnect.style.display = "";
+        document.getElementById("reconnect-message").textContent = data.sync_error || "FeedLync session expired.";
+        setStatus(data.sync_error || "Reconnect FeedLync to refresh the list.", true);
+        return;
+      }
+      if (data.sync_error) {
+        setStatus(data.sync_error, true);
+        return;
+      }
+      setStatus(sync ? `Loaded ${ (data.rations || []).length } rations.` : "");
+    }
+
+    document.getElementById("sync-rations-btn").addEventListener("click", () => loadRows(true));
+    loadRows(true);
+  </script>
+{% endblock %}

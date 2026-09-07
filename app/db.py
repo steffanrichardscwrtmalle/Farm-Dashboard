@@ -55,6 +55,7 @@ def init_db() -> None:
     _migrate_stock_purchases_schema()
     _migrate_user_permissions()
     _migrate_feedlync_auth()
+    _migrate_feed_usage_schema()
     _migrate_hr_schema()
     _migrate_benchmarking_schema()
     _migrate_financial_forecasts_schema()
@@ -69,6 +70,14 @@ def init_db() -> None:
     _seed_hp_schedules()
     _seed_gad_milk_collections()
     _seed_feed_contracts()
+    _seed_feed_usage_ration_assignments()
+
+
+def _seed_feed_usage_ration_assignments() -> None:
+    from app.services.feed_usage_settings import seed_ration_assignments_if_empty
+
+    with SessionLocal() as db:
+        seed_ration_assignments_if_empty(db)
 
 
 def _seed_feed_contracts() -> None:
@@ -1206,6 +1215,19 @@ def _drop_legacy_tables() -> None:
     with engine.begin() as conn:
         for table in to_drop:
             conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
+
+
+def _migrate_feed_usage_schema() -> None:
+    inspector = inspect(engine)
+    if "feed_usage_records" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("feed_usage_records")}
+    if "farm" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text("ALTER TABLE feed_usage_records ADD COLUMN farm VARCHAR(8) DEFAULT ''")
+        )
 
 
 def _migrate_feedlync_auth() -> None:

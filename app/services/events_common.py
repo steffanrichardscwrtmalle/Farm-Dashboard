@@ -156,11 +156,16 @@ def disease_db_event_types(event_types: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(mapped))
 
 
-def is_loxicom_only_mastitis_remark(remark: str | None) -> bool:
-    """True when the DairyComp remark marks a Loxicom-only mastitis treatment."""
+def is_loxicom_only_remark(remark: str | None) -> bool:
+    """True when the DairyComp remark is Loxicom-only, not an antibiotic treatment."""
     if remark is None:
         return False
     return remark.strip().upper() == "LOXICOM"
+
+
+def is_loxicom_only_mastitis_remark(remark: str | None) -> bool:
+    """True when the DairyComp remark marks a Loxicom-only mastitis treatment."""
+    return is_loxicom_only_remark(remark)
 
 
 def normalize_semen_types(semen_types: list[str] | None) -> list[str] | None:
@@ -565,6 +570,14 @@ def _fetch_disease_event_records(
         # Exclude Loxicom-only mastitis (Remark = LOXICOM); keep antibiotic / other cases.
         events_query = events_query.where(
             func.upper(func.trim(func.coalesce(CowEvent.remark, ""))) != "LOXICOM"
+        )
+    if "RESP" in db_event_types:
+        # Loxicom-only RESP is pain relief, not a counted pneumonia episode.
+        events_query = events_query.where(
+            or_(
+                CowEvent.event != "RESP",
+                func.upper(func.trim(func.coalesce(CowEvent.remark, ""))) != "LOXICOM",
+            )
         )
     events_query = _apply_parity_groups(
         events_query, selected_parity_groups, split_beef=True
@@ -1402,6 +1415,24 @@ def _iso_week_start(value: dt.date) -> dt.date:
     return value - dt.timedelta(days=value.isoweekday() - 1)
 
 
+def _iter_days(start: dt.date, end: dt.date) -> list[dt.date]:
+    days: list[dt.date] = []
+    current = start
+    while current <= end:
+        days.append(current)
+        current += dt.timedelta(days=1)
+    return days
+
+
+def _iter_iso_week_starts(start: dt.date, end: dt.date) -> list[dt.date]:
+    current = _iso_week_start(start)
+    weeks: list[dt.date] = []
+    while current <= end:
+        weeks.append(current)
+        current += dt.timedelta(days=7)
+    return weeks
+
+
 def _format_day_label(value: dt.date) -> str:
     return value.strftime("%d %b %Y")
 
@@ -1481,6 +1512,8 @@ def _build_footrim_throughput(
 
     A cow with both events on the same day counts once.
     Uses its own date window, not the page fiscal-year slider.
+    Day / week / month series include every period in the window, with 0 cows
+    on days (or weeks/months) that had no trim or lame events.
     """
     empty = _empty_footrim_throughput(effective_from, effective_to)
     if not selected_farms:
@@ -1504,9 +1537,6 @@ def _build_footrim_throughput(
             continue
         cow_days.add((farm, animal, day))
 
-    if not cow_days:
-        return empty
-
     day_animals: dict[dt.date, dict[str, set[str]]] = {}
     week_animals: dict[dt.date, dict[str, set[str]]] = {}
     month_animals: dict[dt.date, dict[str, set[str]]] = {}
@@ -1521,13 +1551,15 @@ def _build_footrim_throughput(
         farm_days.setdefault(farm, set()).add(day)
 
     def _period_rows(
+        period_starts: list[dt.date],
         grouped: dict[dt.date, dict[str, set[str]]],
         label_fn,
         extra_fn,
     ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for period_start in sorted(grouped):
-            counts = {farm: len(grouped[period_start].get(farm, set())) for farm in ("CM", "GAD")}
+        for period_start in period_starts:
+            farm_sets = grouped.get(period_start, {})
+            counts = {farm: len(farm_sets.get(farm, set())) for farm in ("CM", "GAD")}
             row = {
                 "label": label_fn(period_start),
                 "sort_key": int(period_start.strftime("%Y%m%d")),
@@ -1538,11 +1570,13 @@ def _build_footrim_throughput(
         return rows
 
     day_rows = _period_rows(
+        _iter_days(effective_from, effective_to),
         day_animals,
         _format_day_label,
         lambda day: {"date": day.isoformat()},
     )
     week_rows = _period_rows(
+        _iter_iso_week_starts(effective_from, effective_to),
         week_animals,
         _format_week_label,
         lambda start: {
@@ -1551,6 +1585,7 @@ def _build_footrim_throughput(
         },
     )
     month_rows = _period_rows(
+        _iter_month_starts(effective_from, effective_to),
         month_animals,
         lambda start: start.strftime("%b-%y"),
         lambda start: {"month": start.isoformat()},
@@ -1558,7 +1593,10 @@ def _build_footrim_throughput(
 
     trimming_days = sorted(day_animals)
     unique_cows = sum(len(animals) for animals in range_animals.values())
-    daily_totals = [row["total"] for row in day_rows]
+    daily_totals = [
+        sum(len(day_animals[day].get(farm, set())) for farm in ("CM", "GAD"))
+        for day in trimming_days
+    ]
     average = round(sum(daily_totals) / len(daily_totals), 1) if daily_totals else 0.0
     busy_totals = [total for total in daily_totals if total > FOOTRIM_THROUGHPUT_BUSY_DAY_MIN]
     average_busy = round(sum(busy_totals) / len(busy_totals), 1) if busy_totals else 0.0

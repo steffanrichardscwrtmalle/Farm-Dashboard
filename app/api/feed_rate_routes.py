@@ -6,6 +6,7 @@ import calendar
 import datetime as dt
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -32,7 +33,16 @@ from app.services.feed_rate_import import (
     mark_import_started,
     run_import_in_background,
 )
+from app.services.farm_schedule import normalize_farm
+from app.services.feed_usage_settings import (
+    list_ingredient_assignments,
+    list_ration_assignments,
+    save_ingredient_assignment,
+    save_ration_assignment,
+)
 from app.services.feed_usage import (
+    XLSX_CONTENT_TYPE as USAGE_XLSX_CONTENT_TYPE,
+    build_usage_xlsx,
     get_import_status as get_usage_import_status,
     get_usage_report,
     is_import_running as is_usage_import_running,
@@ -57,6 +67,20 @@ class FeedContractBody(BaseModel):
 
 class FeedOptionBody(BaseModel):
     value: str = Field(min_length=1, max_length=128)
+
+
+class UsageRationAssignmentBody(BaseModel):
+    ration_name: str = Field(min_length=1, max_length=255)
+    farm: str = ""
+    feedlync_ration_id: str | None = Field(default=None, max_length=64)
+
+
+class UsageIngredientAssignmentBody(BaseModel):
+    ingredient_name: str = Field(min_length=1, max_length=255)
+    included: bool = True
+    feedlync_ingredient_id: str | None = Field(default=None, max_length=64)
+    ingredient_type_id: int | None = None
+    ingredient_type_name: str | None = Field(default=None, max_length=64)
 
 
 def _parse_month_start(value: str | None) -> dt.date | None:
@@ -129,14 +153,41 @@ def _usage_month_or_400(value: str | None) -> dt.date:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _usage_farm_or_400(farm: str | None) -> str:
+    try:
+        return normalize_farm(farm)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/usage")
 def api_feed_usage_report(
     month: str | None = None,
+    farm: str | None = None,
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_FEED_RATE)),
 ):
     period = _usage_month_or_400(month)
-    return get_usage_report(db, month=period)
+    farm_key = _usage_farm_or_400(farm)
+    return get_usage_report(db, month=period, farm=farm_key)
+
+
+@router.get("/usage/export.xlsx")
+def api_feed_usage_export_xlsx(
+    month: str | None = None,
+    farm: str | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_FEED_RATE)),
+):
+    period = _usage_month_or_400(month)
+    farm_key = _usage_farm_or_400(farm)
+    report = get_usage_report(db, month=period, farm=farm_key)
+    filename = f"feed_usage_{farm_key}_{report['month']}.xlsx"
+    return Response(
+        content=build_usage_xlsx(report),
+        media_type=USAGE_XLSX_CONTENT_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/usage/import/status")
@@ -163,6 +214,62 @@ def api_feed_usage_import(
         "message": f"Feedlync usage import started for {period.strftime('%Y-%m')}.",
         "month": period.strftime("%Y-%m"),
     }
+
+
+@router.get("/usage/settings/rations")
+def api_list_usage_ration_assignments(
+    sync: bool = Query(False),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_FEED_RATE)),
+):
+    return list_ration_assignments(db, sync=sync)
+
+
+@router.put("/usage/settings/rations")
+def api_save_usage_ration_assignment(
+    body: UsageRationAssignmentBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_FEED_RATE)),
+):
+    try:
+        row = save_ration_assignment(
+            db,
+            ration_name=body.ration_name,
+            farm=body.farm,
+            feedlync_ration_id=body.feedlync_ration_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return row
+
+
+@router.get("/usage/settings/ingredients")
+def api_list_usage_ingredient_assignments(
+    sync: bool = Query(False),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_FEED_RATE)),
+):
+    return list_ingredient_assignments(db, sync=sync)
+
+
+@router.put("/usage/settings/ingredients")
+def api_save_usage_ingredient_assignment(
+    body: UsageIngredientAssignmentBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_FEED_RATE)),
+):
+    try:
+        row = save_ingredient_assignment(
+            db,
+            ingredient_name=body.ingredient_name,
+            included=body.included,
+            feedlync_ingredient_id=body.feedlync_ingredient_id,
+            ingredient_type_id=body.ingredient_type_id,
+            ingredient_type_name=body.ingredient_type_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return row
 
 
 @router.get("/contracts")

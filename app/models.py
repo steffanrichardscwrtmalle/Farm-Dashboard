@@ -507,6 +507,7 @@ class FeedUsageRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     period_start: Mapped[datetime.date] = mapped_column(Date, index=True)
     period_end: Mapped[datetime.date] = mapped_column(Date, index=True)
+    farm: Mapped[str] = mapped_column(String(8), default="", index=True)
     ingredient_name: Mapped[str] = mapped_column(String(255), index=True)
     as_fed_kg: Mapped[float] = mapped_column(Float, default=0)
     dm_kg: Mapped[float] = mapped_column(Float, default=0)
@@ -520,6 +521,7 @@ class FeedUsageRecord(Base):
             "id": self.id,
             "period_start": self.period_start.isoformat() if self.period_start else None,
             "period_end": self.period_end.isoformat() if self.period_end else None,
+            "farm": self.farm,
             "ingredient_name": self.ingredient_name,
             "as_fed_kg": self.as_fed_kg,
             "dm_kg": self.dm_kg,
@@ -527,6 +529,60 @@ class FeedUsageRecord(Base):
             "import_timestamp": (
                 self.import_timestamp.isoformat() if self.import_timestamp else None
             ),
+        }
+
+
+class FeedUsageRationAssignment(Base):
+    """Which Feedlync ration belongs on the CM or GAD Feed Usage report."""
+
+    __tablename__ = "feed_usage_ration_assignments"
+    __table_args__ = (
+        UniqueConstraint("ration_name", name="uq_feed_usage_ration_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ration_name: Mapped[str] = mapped_column(String(255), index=True)
+    feedlync_ration_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    farm: Mapped[str] = mapped_column(String(8), default="", index=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "ration_name": self.ration_name,
+            "feedlync_ration_id": self.feedlync_ration_id,
+            "farm": self.farm or "",
+        }
+
+
+class FeedUsageIngredientAssignment(Base):
+    """Whether a Feedlync ingredient is included on Feed Usage reports."""
+
+    __tablename__ = "feed_usage_ingredient_assignments"
+    __table_args__ = (
+        UniqueConstraint("ingredient_name", name="uq_feed_usage_ingredient_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ingredient_name: Mapped[str] = mapped_column(String(255), index=True)
+    feedlync_ingredient_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ingredient_type_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ingredient_type_name: Mapped[str] = mapped_column(String(64), default="")
+    included: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "ingredient_name": self.ingredient_name,
+            "feedlync_ingredient_id": self.feedlync_ingredient_id,
+            "ingredient_type_id": self.ingredient_type_id,
+            "ingredient_type_name": self.ingredient_type_name or "",
+            "included": bool(self.included),
         }
 
 

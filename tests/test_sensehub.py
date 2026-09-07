@@ -663,6 +663,91 @@ def test_treatment_counts_use_disease_episode_gap() -> None:
     ]
 
 
+def test_treatment_counts_ignore_loxicom_resp() -> None:
+    from app.services.sensehub_youngstock import (
+        chart_event_markers,
+        days_since_last_treatment,
+        treatment_counts,
+    )
+
+    events = [
+        CowEvent(
+            farm="CM",
+            cow_id="435259",
+            event="RESP",
+            event_date=dt.date(2026, 8, 1),
+            remark="LOXICOM",
+        ),
+        CowEvent(
+            farm="CM",
+            cow_id="435259",
+            event="RESP",
+            event_date=dt.date(2026, 8, 20),
+            remark=" loxicom ",
+        ),
+        CowEvent(
+            farm="CM",
+            cow_id="435259",
+            event="RESP",
+            event_date=dt.date(2026, 8, 10),
+            remark="DRAXXIN",
+        ),
+        CowEvent(
+            farm="CM",
+            cow_id="435259",
+            event="ILL",
+            event_date=dt.date(2026, 8, 12),
+            remark="LOXICOM",
+        ),
+    ]
+    assert treatment_counts(events) == {
+        "resp_count": 1,
+        "scours_count": 0,
+        "ill_count": 1,
+    }
+    assert days_since_last_treatment(events, today=dt.date(2026, 8, 22)) == 10
+    assert [marker["letter"] for marker in chart_event_markers(events)] == ["R", "R", "I", "R"]
+
+
+def test_recent_antibiotic_highlight_windows() -> None:
+    from app.services.sensehub_youngstock import recent_antibiotic_highlight
+
+    today = dt.date(2026, 9, 7)
+    draxxin_ok = CowEvent(
+        farm="CM",
+        cow_id="1",
+        event="RESP",
+        event_date=today - dt.timedelta(days=6),
+        remark="DRAXXIN",
+    )
+    draxxin_old = CowEvent(
+        farm="CM",
+        cow_id="1",
+        event="RESP",
+        event_date=today - dt.timedelta(days=7),
+        remark="Draxin",
+    )
+    fenflor_ok = CowEvent(
+        farm="CM",
+        cow_id="1",
+        event="RESP",
+        event_date=today - dt.timedelta(days=1),
+        remark="Fenflor",
+    )
+    fenflor_old = CowEvent(
+        farm="CM",
+        cow_id="1",
+        event="RESP",
+        event_date=today - dt.timedelta(days=2),
+        protocols="FENFLOR",
+    )
+    assert recent_antibiotic_highlight([draxxin_ok], today=today) == "draxxin"
+    assert recent_antibiotic_highlight([draxxin_old], today=today) is None
+    assert recent_antibiotic_highlight([fenflor_ok], today=today) == "fenflor"
+    assert recent_antibiotic_highlight([fenflor_old], today=today) is None
+    assert recent_antibiotic_highlight([draxxin_ok, fenflor_ok], today=today) == "draxxin"
+
+
 def test_list_low_health_filters_threshold_and_joins_events() -> None:
     from app.services.sensehub_youngstock import animal_events, list_low_health, save_rows
 
@@ -811,6 +896,100 @@ def test_list_low_health_filters_threshold_and_joins_events() -> None:
         "2026-08-23",
     ]
     assert detail["health_history"][-1]["health_index"] == 82
+    session.close()
+
+
+def test_list_low_health_filters_recent_treatments_and_keeps_highlights() -> None:
+    from app.services.sensehub_youngstock import ALL_CALVES_THRESHOLD, list_low_health, save_rows
+
+    session = _youngstock_db()
+    sampled = dt.datetime(2026, 9, 7, 12, 0, 0)
+    today = dt.date.today()
+    save_rows(
+        session,
+        [
+            {"AnimalID": "111111", "YoungStockHealthIndex": 95, "AgeInDays": 40},
+            {"AnimalID": "222222", "YoungStockHealthIndex": 88, "AgeInDays": 41},
+            {"AnimalID": "333333", "YoungStockHealthIndex": 80, "AgeInDays": 42},
+            {"AnimalID": "444444", "YoungStockHealthIndex": 70, "AgeInDays": 43},
+            {"AnimalID": "555555", "YoungStockHealthIndex": 75, "AgeInDays": 44},
+            {"AnimalID": "666666", "YoungStockHealthIndex": 99, "AgeInDays": 45},
+        ],
+        sampled_at=sampled,
+        slot="midday",
+    )
+    for cow_id in ("111111", "222222", "333333", "444444", "555555", "666666"):
+        session.add(
+            HerdInventory(
+                farm="CM",
+                cow_id=cow_id,
+                etag=cow_id,
+                bdat=today - dt.timedelta(days=50),
+                aged=50,
+                pen="Calves",
+            )
+        )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="111111",
+            event="RESP",
+            event_date=today - dt.timedelta(days=3),
+            remark="DRAXXIN",
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="222222",
+            event="RESP",
+            event_date=today - dt.timedelta(days=1),
+            remark="Fenflor",
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="333333",
+            event="ILL",
+            event_date=today - dt.timedelta(days=7),
+            remark="Off colour",
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="444444",
+            event="RESP",
+            event_date=today - dt.timedelta(days=8),
+            remark="DRAXXIN",
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="666666",
+            event="RESP",
+            event_date=today - dt.timedelta(days=2),
+            remark="Pneumonia",
+        )
+    )
+    session.commit()
+
+    listing = list_low_health(
+        session,
+        threshold=ALL_CALVES_THRESHOLD,
+        treated_within_days=7,
+    )
+    by_id = {row["animal_id"]: row for row in listing["animals"]}
+    assert listing["treated_within_days"] == 7
+    assert set(by_id) == {"111111", "222222", "333333", "666666"}
+    assert by_id["111111"]["recent_antibiotic"] == "draxxin"
+    assert by_id["222222"]["recent_antibiotic"] == "fenflor"
+    assert by_id["333333"]["recent_antibiotic"] is None
+    assert by_id["666666"]["recent_antibiotic"] is None
+    assert by_id["111111"]["days_since_last_treatment"] == 3
+    assert by_id["333333"]["days_since_last_treatment"] == 7
     session.close()
 
 

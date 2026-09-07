@@ -1130,16 +1130,119 @@ def feed_contracts_page(request: Request):
 
 
 @app.get("/feed-rate/usage", response_class=HTMLResponse)
-def feed_usage_page(request: Request):
+def feed_usage_hub_page(request: Request):
     if denied := _page_guard(request, PAGE_FEED_RATE):
         return denied
+    return templates.TemplateResponse(
+        request,
+        "feed_rate/usage_index.html",
+        _template_ctx(
+            request,
+            page_heading="Feed Usage",
+            **_feed_rate_context("Feed Usage", "feed-usage", "Feed Usage"),
+        ),
+    )
+
+
+def _usage_settings_return(request: Request) -> str:
+    raw = request.query_params.get("from") or "/feed-rate/usage"
+    if not raw.startswith("/feed-rate/usage") or raw.startswith("//"):
+        return "/feed-rate/usage"
+    return raw
+
+
+@app.get("/feed-rate/usage/settings", response_class=HTMLResponse)
+def feed_usage_settings_hub_page(request: Request):
+    if denied := _page_guard(request, PAGE_FEED_RATE):
+        return denied
+    return_to = _usage_settings_return(request)
+    return templates.TemplateResponse(
+        request,
+        "feed_rate/usage_settings.html",
+        _template_ctx(
+            request,
+            page_heading="Feed Usage settings",
+            return_to=return_to,
+            **_feed_rate_context(
+                "Feed Usage settings",
+                "feed-usage",
+                "Feed Usage &rsaquo; Settings",
+            ),
+        ),
+    )
+
+
+@app.get("/feed-rate/usage/settings/rations", response_class=HTMLResponse)
+def feed_usage_settings_rations_page(request: Request):
+    if denied := _page_guard(request, PAGE_FEED_RATE):
+        return denied
+    return_to = _usage_settings_return(request)
+    return templates.TemplateResponse(
+        request,
+        "feed_rate/usage_settings_rations.html",
+        _template_ctx(
+            request,
+            page_heading="Feed Usage · Rations",
+            return_to=return_to,
+            **_feed_rate_context(
+                "Feed Usage · Rations",
+                "feed-usage",
+                "Feed Usage &rsaquo; Settings &rsaquo; Rations",
+            ),
+        ),
+    )
+
+
+@app.get("/feed-rate/usage/settings/ingredients", response_class=HTMLResponse)
+def feed_usage_settings_ingredients_page(request: Request):
+    if denied := _page_guard(request, PAGE_FEED_RATE):
+        return denied
+    return_to = _usage_settings_return(request)
+    return templates.TemplateResponse(
+        request,
+        "feed_rate/usage_settings_ingredients.html",
+        _template_ctx(
+            request,
+            page_heading="Feed Usage · Ingredients",
+            return_to=return_to,
+            **_feed_rate_context(
+                "Feed Usage · Ingredients",
+                "feed-usage",
+                "Feed Usage &rsaquo; Settings &rsaquo; Ingredients",
+            ),
+        ),
+    )
+
+
+@app.get("/feed-rate/usage/{farm}", response_class=HTMLResponse)
+def feed_usage_farm_page(request: Request, farm: str):
+    if denied := _page_guard(request, PAGE_FEED_RATE):
+        return denied
+    from app.services.farm_schedule import FARM_LABELS, normalize_farm
+    from app.services.feed_usage_settings import assigned_ration_names, seed_ration_assignments_if_empty
+
+    try:
+        farm_key = normalize_farm(farm)
+    except ValueError:
+        return RedirectResponse(url="/feed-rate/usage", status_code=302)
+    farm_label = FARM_LABELS[farm_key]
+    with SessionLocal() as db:
+        seed_ration_assignments_if_empty(db)
+        usage_rations = assigned_ration_names(db, farm_key)
     return templates.TemplateResponse(
         request,
         "feed_rate/usage.html",
         _template_ctx(
             request,
-            page_heading="Feed Usage",
-            **_feed_rate_context("Feed Usage", "feed-usage", "Feed Usage"),
+            page_heading=f"Feed Usage · {farm_label}",
+            farm=farm_key,
+            farm_label=farm_label,
+            usage_rations=usage_rations,
+            **_feed_rate_context(
+                f"Feed Usage · {farm_label}",
+                "feed-usage",
+                f"Feed Usage &rsaquo; {farm_label}",
+            ),
         ),
     )
 
@@ -1685,7 +1788,34 @@ def sensehub_page(request: Request):
         _template_ctx(
             request,
             page_heading="Youngstock Health Report",
+            default_threshold=86,
+            treated_within_days=None,
+            print_title="Youngstock health",
+            empty_message="No animals at or below that health index.",
             **_sensehub_context("Youngstock Health Report", "sensehub", "Youngstock Health Report"),
+        ),
+    )
+
+
+@app.get("/sensehub/recently-treated", response_class=HTMLResponse)
+def sensehub_recently_treated_page(request: Request):
+    if denied := _page_guard(request, PAGE_SENSEHUB):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "sensehub/youngstock.html",
+        _template_ctx(
+            request,
+            page_heading="Recently Treated Calves",
+            default_threshold=100,
+            treated_within_days=7,
+            print_title="Recently treated calves",
+            empty_message="No animals at or below that health index treated in the last 7 days.",
+            **_sensehub_context(
+                "Recently Treated Calves",
+                "sensehub-recently-treated",
+                "Recently Treated Calves",
+            ),
         ),
     )
 

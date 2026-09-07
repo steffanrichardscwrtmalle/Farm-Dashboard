@@ -258,18 +258,35 @@
     });
 
     const refreshBtn = document.getElementById("refresh-btn");
+    async function pollReportImport() {
+      const res = await fetch("/api/sensehub/import/status");
+      const status = await res.json();
+      if (status.status === "running") {
+        metaEl.textContent = status.message || "Importing SenseHub reports…";
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        return pollReportImport();
+      }
+    }
     if (refreshBtn) {
       refreshBtn.addEventListener("click", async () => {
         refreshBtn.disabled = true;
-        metaEl.textContent = "Refreshing Animals in Herd, No Data and Young Stock Health from SenseHub…";
+        metaEl.textContent = "Refreshing young-stock health from SenseHub…";
         try {
-          const res = await fetch("/api/sensehub/tags-to-remove/refresh", { method: "POST" });
-          const payload = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            const detail = payload.detail;
-            metaEl.textContent = typeof detail === "string" ? detail : "Refresh failed.";
+          const healthRes = await fetch("/api/sensehub/youngstock/import", { method: "POST" });
+          const healthBody = await healthRes.json().catch(() => ({}));
+          if (!healthRes.ok) {
+            metaEl.textContent = healthBody.detail || "Young-stock refresh failed.";
             return;
           }
+          metaEl.textContent = "Refreshing SenseHub reports…";
+          const reportRes = await fetch("/api/sensehub/import", { method: "POST" });
+          const reportBody = await reportRes.json().catch(() => ({}));
+          if (!reportRes.ok) {
+            metaEl.textContent = reportBody.detail || "Report refresh failed.";
+            await loadList();
+            return;
+          }
+          await pollReportImport();
           await loadList();
         } catch (err) {
           metaEl.textContent = err.message || "Refresh failed.";

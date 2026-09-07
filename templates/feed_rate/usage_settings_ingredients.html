@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .back-link { display: inline-block; margin-bottom: 0.75rem; font-size: 0.8125rem; }
+    .toolbar {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 0.85rem;
+    }
+    .status-line { font-size: 0.8125rem; color: var(--muted); }
+    .status-line.error { color: var(--danger); }
+    .reconnect-panel {
+      margin: 0 0 0.75rem;
+      padding: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      display: none;
+    }
+    .reconnect-panel p { margin: 0 0 0.5rem; font-size: 0.8125rem; color: #991b1b; }
+    .table-wrap {
+      overflow-x: auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      width: max-content;
+      max-width: 100%;
+    }
+    #ingredients-table {
+      width: max-content;
+      border-collapse: collapse;
+      table-layout: auto;
+    }
+    #ingredients-table th,
+    #ingredients-table td {
+      white-space: nowrap;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      text-align: center;
+    }
+    #ingredients-table th:first-child,
+    #ingredients-table td:first-child,
+    #ingredients-table th:nth-child(2),
+    #ingredients-table td:nth-child(2) {
+      text-align: left;
+      width: 1%;
+    }
+    #ingredients-table th:last-child,
+    #ingredients-table td:last-child { border-right: none; }
+    #ingredients-table thead th {
+      background: #eef2f6;
+      font-weight: 600;
+    }
+    #ingredients-table tbody tr:hover td { background: #f8fafc; }
+    #ingredients-table tbody tr.excluded td { color: var(--muted); }
+    .empty-state {
+      padding: 2rem;
+      color: var(--muted);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+{% endblock %}
+
+{% block content %}
+  <a class="back-link" href="/feed-rate/usage/settings?from={{ return_to | urlencode }}">All settings</a>
+  <div class="toolbar">
+    <button type="button" id="sync-ingredients-btn">Refresh ingredient list from Feedlync</button>
+    <span class="status-line" id="status-line"></span>
+  </div>
+  <div class="reconnect-panel" id="reconnect-panel">
+    <p id="reconnect-message">FeedLync session expired.</p>
+    <a href="/feed-rate/connect?return={{ ('/feed-rate/usage/settings/ingredients?from=' ~ return_to) | urlencode }}">Reconnect FeedLync</a>
+  </div>
+  <div class="table-wrap" id="table-wrap" style="display:none;">
+    <table id="ingredients-table">
+      <thead>
+        <tr>
+          <th>Ingredient</th>
+          <th>Type</th>
+          <th>Include</th>
+          <th>Exclude</th>
+        </tr>
+      </thead>
+      <tbody id="ingredients-body"></tbody>
+    </table>
+  </div>
+  <div id="empty-state" class="empty-state">Loading ingredients…</div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    function escapeHtml(text) {
+      return String(text ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function setStatus(text, isError = false) {
+      const el = document.getElementById("status-line");
+      el.textContent = text || "";
+      el.className = `status-line${isError ? " error" : ""}`;
+    }
+
+    function radioCell(name, value, checked) {
+      const id = `${name}-${value}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+      return `<td><input type="radio" name="${escapeHtml(name)}" id="${id}" value="${escapeHtml(value)}" ${checked ? "checked" : ""}></td>`;
+    }
+
+    function renderRows(rows) {
+      const empty = document.getElementById("empty-state");
+      const wrap = document.getElementById("table-wrap");
+      const body = document.getElementById("ingredients-body");
+      if (!rows.length) {
+        wrap.style.display = "none";
+        empty.style.display = "";
+        empty.textContent = "No ingredients saved yet. Refresh the list from Feedlync.";
+        return;
+      }
+      empty.style.display = "none";
+      wrap.style.display = "";
+      body.innerHTML = rows.map((row, index) => {
+        const group = `ingredient-${index}`;
+        const included = !!row.included;
+        return `<tr class="${included ? "" : "excluded"}" data-name="${escapeHtml(row.ingredient_name)}" data-id="${escapeHtml(row.feedlync_ingredient_id || "")}" data-type-id="${escapeHtml(row.ingredient_type_id ?? "")}" data-type-name="${escapeHtml(row.ingredient_type_name || "")}">
+          <td>${escapeHtml(row.ingredient_name)}</td>
+          <td>${escapeHtml(row.ingredient_type_name || "—")}</td>
+          ${radioCell(group, "1", included)}
+          ${radioCell(group, "0", !included)}
+        </tr>`;
+      }).join("");
+      body.querySelectorAll("input[type=radio]").forEach((input) => {
+        input.addEventListener("change", () => saveRow(input.closest("tr"), input.value === "1"));
+      });
+    }
+
+    async function saveRow(tr, included) {
+      setStatus("Saving…");
+      tr.classList.toggle("excluded", !included);
+      const typeId = tr.dataset.typeId;
+      const res = await fetch("/api/feed-rate/usage/settings/ingredients", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ingredient_name: tr.dataset.name,
+          included,
+          feedlync_ingredient_id: tr.dataset.id || null,
+          ingredient_type_id: typeId ? Number(typeId) : null,
+          ingredient_type_name: tr.dataset.typeName || "",
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setStatus(err.detail || "Could not save ingredient.", true);
+        return;
+      }
+      setStatus("Saved.");
+    }
+
+    async function loadRows(sync) {
+      const btn = document.getElementById("sync-ingredients-btn");
+      if (sync) btn.disabled = true;
+      setStatus(sync ? "Fetching ingredients from Feedlync…" : "Loading…");
+      const reconnect = document.getElementById("reconnect-panel");
+      reconnect.style.display = "none";
+      const res = await fetch(`/api/feed-rate/usage/settings/ingredients?sync=${sync ? "true" : "false"}`);
+      if (sync) btn.disabled = false;
+      if (!res.ok) {
+        setStatus("Failed to load ingredients.", true);
+        return;
+      }
+      const data = await res.json();
+      renderRows(data.ingredients || []);
+      if (data.needs_auth) {
+        reconnect.style.display = "";
+        document.getElementById("reconnect-message").textContent = data.sync_error || "FeedLync session expired.";
+        setStatus(data.sync_error || "Reconnect FeedLync to refresh the list.", true);
+        return;
+      }
+      if (data.sync_error) {
+        setStatus(data.sync_error, true);
+        return;
+      }
+      setStatus(sync ? `Loaded ${(data.ingredients || []).length} ingredients.` : "");
+    }
+
+    document.getElementById("sync-ingredients-btn").addEventListener("click", () => loadRows(true));
+    loadRows(true);
+  </script>
+{% endblock %}

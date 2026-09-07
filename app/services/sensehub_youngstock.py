@@ -21,7 +21,10 @@ from app.models import (
     SenseHubReportSnapshot,
     SenseHubYoungstockHealth,
 )
-from app.services.events_common import filter_disease_episode_records
+from app.services.events_common import (
+    filter_disease_episode_records,
+    is_loxicom_only_remark,
+)
 from app.services.sensehub_api import (
     DEFAULT_REPORT,
     HERD_REPORT,
@@ -61,6 +64,8 @@ SLOT_LABELS = {
     "6pm": "6pm",
 }
 DEFAULT_THRESHOLD = 86.0
+ALL_CALVES_THRESHOLD = 100.0
+RECENTLY_TREATED_DAYS = 7
 MAX_BACKFILL_DAYS = 730
 EMPTY_SLOT_STOP = 28
 TREND_DOTS = 12
@@ -135,6 +140,15 @@ def _event_date_iso(value: Any) -> str | None:
     return text[:10] if text else None
 
 
+def _is_counted_treatment_event(event: CowEvent) -> bool:
+    code = _event_code(event.event)
+    if code not in TREATMENT_EVENTS:
+        return False
+    if code == "RESP" and is_loxicom_only_remark(event.remark):
+        return False
+    return True
+
+
 def treatment_episodes(events: list[CowEvent]) -> list[dict[str, Any]]:
     """RESP, SCOURS, and ILL events after the shared disease episode gap."""
     records = [
@@ -146,7 +160,7 @@ def treatment_episodes(events: list[CowEvent]) -> list[dict[str, Any]]:
             "farm": event.farm,
         }
         for event in events
-        if _event_code(event.event) in TREATMENT_EVENTS
+        if _is_counted_treatment_event(event)
     ]
     return filter_disease_episode_records(records)
 
@@ -161,6 +175,8 @@ def days_since_last_treatment(
     latest: dt.date | None = None
     for event in events:
         if _event_code(event.event) not in LAST_TREATMENT_EVENTS:
+            continue
+        if _event_code(event.event) == "RESP" and is_loxicom_only_remark(event.remark):
             continue
         if event.event_date is None:
             continue
@@ -240,6 +256,42 @@ def treatment_counts(events: list[CowEvent]) -> dict[str, int]:
         elif code == "ILL":
             counts["ill_count"] += 1
     return counts
+
+
+_DRAXXIN_RE = re.compile(r"\bDRAXX?IN\b", re.IGNORECASE)
+_FENFLOR_RE = re.compile(r"\bFENFLOR\b", re.IGNORECASE)
+DRAXXIN_HIGHLIGHT_DAYS = 7
+FENFLOR_HIGHLIGHT_DAYS = 2
+
+
+def _event_drug_text(event: CowEvent) -> str:
+    return f"{event.remark or ''} {event.protocols or ''}"
+
+
+def recent_antibiotic_highlight(
+    events: list[CowEvent],
+    *,
+    today: dt.date | None = None,
+) -> str | None:
+    """Return 'draxxin' or 'fenflor' when a recent dose should tint the row green."""
+    today = today or dt.date.today()
+    found: set[str] = set()
+    for event in events:
+        if event.event_date is None:
+            continue
+        days = (today - event.event_date).days
+        if days < 0:
+            continue
+        text = _event_drug_text(event)
+        if days < DRAXXIN_HIGHLIGHT_DAYS and _DRAXXIN_RE.search(text):
+            found.add("draxxin")
+        if days < FENFLOR_HIGHLIGHT_DAYS and _FENFLOR_RE.search(text):
+            found.add("fenflor")
+    if "draxxin" in found:
+        return "draxxin"
+    if "fenflor" in found:
+        return "fenflor"
+    return None
 
 
 def chart_event_markers(events: list[CowEvent]) -> list[dict[str, str]]:
@@ -972,17 +1024,20 @@ def list_low_health(
     db: Session,
     *,
     threshold: float = DEFAULT_THRESHOLD,
+    treated_within_days: int | None = None,
 ) -> dict[str, Any]:
     seed_from_latest_snapshot(db)
     latest = db.scalar(select(func.max(SenseHubYoungstockHealth.sampled_at)))
+    empty = {
+        "threshold": threshold,
+        "treated_within_days": treated_within_days,
+        "sampled_at": None,
+        "slot": None,
+        "count": 0,
+        "animals": [],
+    }
     if latest is None:
-        return {
-            "threshold": threshold,
-            "sampled_at": None,
-            "slot": None,
-            "count": 0,
-            "animals": [],
-        }
+        return empty
     rows = list(
         db.scalars(
             select(SenseHubYoungstockHealth)
@@ -995,7 +1050,22 @@ def list_low_health(
             )
         ).all()
     )
-    animal_ids = [row.animal_id for row in rows]
+    by_cow, by_tag = _inventory_indexes(db)
+    matched = [
+        (row.animal_id, match_inventory(row.animal_id, by_cow, by_tag))
+        for row in rows
+    ]
+    events_by_animal = _events_for_animals(db, matched)
+    selected: list[tuple[SenseHubYoungstockHealth, HerdInventory | None, list[CowEvent], int | None]] = []
+    for row, (_animal_id, inventory) in zip(rows, matched, strict=True):
+        events = events_by_animal.get(row.animal_id, [])
+        dslt = days_since_last_treatment(events)
+        if treated_within_days is not None and (
+            dslt is None or dslt > treated_within_days
+        ):
+            continue
+        selected.append((row, inventory, events, dslt))
+    animal_ids = [row.animal_id for row, _inventory, _events, _dslt in selected]
     history_by_animal: dict[str, list[float | None]] = defaultdict(list)
     if animal_ids:
         history_rows = db.scalars(
@@ -1008,24 +1078,19 @@ def list_low_health(
         ).all()
         for sample in history_rows:
             history_by_animal[sample.animal_id].append(sample.health_index)
-    by_cow, by_tag = _inventory_indexes(db)
-    matched = [
-        (row.animal_id, match_inventory(row.animal_id, by_cow, by_tag))
-        for row in rows
-    ]
-    events_by_animal = _events_for_animals(db, matched)
     animals = []
-    for row, (_animal_id, inventory) in zip(rows, matched, strict=True):
+    for row, inventory, events, dslt in selected:
         etag_value = (inventory.etag if inventory else None) or row.animal_id
-        events = events_by_animal.get(row.animal_id, [])
+        highlight = recent_antibiotic_highlight(events)
         animals.append(
             {
                 "animal_id": row.animal_id,
                 "etag4": etag4(etag_value) or etag4(row.animal_id),
                 "health_index": row.health_index,
                 "age_days": dairycomp_age_days(inventory),
-                "days_since_last_treatment": days_since_last_treatment(events),
+                "days_since_last_treatment": dslt,
                 "resp_count": treatment_counts(events)["resp_count"],
+                "recent_antibiotic": highlight,
                 "trend": trend_dots(history_by_animal.get(row.animal_id, [])),
                 "group_name": row.group_name,
                 "farm": inventory.farm if inventory else None,
@@ -1041,13 +1106,16 @@ def list_low_health(
             item["animal_id"],
         )
     )
-    slot_row = rows[0] if rows else db.scalar(
-        select(SenseHubYoungstockHealth).where(
-            SenseHubYoungstockHealth.sampled_at == latest
+    slot_row = selected[0][0] if selected else (
+        rows[0] if rows else db.scalar(
+            select(SenseHubYoungstockHealth).where(
+                SenseHubYoungstockHealth.sampled_at == latest
+            )
         )
     )
     return {
         "threshold": threshold,
+        "treated_within_days": treated_within_days,
         "sampled_at": latest.isoformat(),
         "slot": slot_row.slot if slot_row else None,
         "count": len(animals),
