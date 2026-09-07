@@ -28,10 +28,11 @@ from app.services.sensehub_api import (
     NO_DATA_REPORT,
     SenseHubError,
     animal_list_as_report,
-    compact_report_name,
     assign_sensehub_monitoring_tag,
+    compact_report_name,
     create_sensehub_calf,
     cull_sensehub_animals,
+    days_with_assigned_tag,
     fetch_named_reports,
     fetch_report,
     flatten_report,
@@ -671,9 +672,9 @@ def refresh_sensehub_list_snapshots(
     farm_name: str | None = None,
     software_version: str | None = None,
 ) -> dict[str, int]:
-    """Refresh stored Animals in Herd and No Data lists from SenseHub."""
+    """Refresh stored Animals in Herd, No Data, and Young Stock Health lists."""
     fetched_at = fetched_at or dt.datetime.now()
-    result = {"herd_saved": 0, "no_data_saved": 0}
+    result = {"herd_saved": 0, "no_data_saved": 0, "youngstock_saved": 0}
     try:
         animals = list_sensehub_animals()
         if animals:
@@ -706,11 +707,30 @@ def refresh_sensehub_list_snapshots(
             result["no_data_saved"] = len(report.get("rows") or [])
     except SenseHubError:
         pass
+    try:
+        payload = fetch_named_reports([DEFAULT_REPORT])
+        for report in payload.get("reports") or []:
+            name = compact_report_name(report.get("report_name"))
+            title = compact_report_name(report.get("title"))
+            expected = compact_report_name(DEFAULT_REPORT)
+            if name != expected and title != expected:
+                continue
+            _upsert_report_snapshot(
+                db,
+                report,
+                fetched_at=fetched_at,
+                farm_id=payload.get("farm_id") or farm_id,
+                farm_name=payload.get("farm_name") or farm_name,
+                software_version=payload.get("software_version") or software_version,
+            )
+            result["youngstock_saved"] = len(report.get("rows") or [])
+    except SenseHubError:
+        pass
     return result
 
 
 def refresh_tags_to_remove_data(db: Session) -> dict[str, Any]:
-    """Refresh Animals in Herd and No Data, then auto-cull sold/died animals."""
+    """Refresh Animals in Herd, No Data and Young Stock Health, then auto-cull sold/died."""
     lists = refresh_sensehub_list_snapshots(db)
     auto_culled = 0
     try:
@@ -1472,10 +1492,8 @@ def _no_data_from_snapshot(db: Session) -> list[dict[str, Any]]:
     return parse_no_data_rows((snapshot.payload or {}).get("rows") or [])
 
 
-def _youngstock_health_all_keys(db: Session) -> set[str]:
-    """IDs from the latest Young Stock Health by Age All sample and snapshot."""
-    keys = _sensehub_id_keys(_latest_sensehub_samples(db))
-    snapshot = next(
+def _youngstock_health_snapshot(db: Session) -> SenseHubReportSnapshot | None:
+    return next(
         (
             item
             for item in db.scalars(select(SenseHubReportSnapshot)).all()
@@ -1484,16 +1502,280 @@ def _youngstock_health_all_keys(db: Session) -> set[str]:
         ),
         None,
     )
-    if snapshot is not None:
-        keys.update(_id_keys_from_report_rows((snapshot.payload or {}).get("rows") or []))
+
+
+def _metric_is_blank(value: Any) -> bool:
+    if value is None:
+        return True
+    text = str(value).strip().casefold()
+    return text in {"", "-", "—", "–", "none", "null", "n/a", "na", "."}
+
+
+def _health_metrics_are_blank(*values: Any) -> bool:
+    return all(_metric_is_blank(value) for value in values)
+
+
+def _row_health_metrics_are_blank(row: dict[str, Any]) -> bool:
+    health = (
+        row["YoungStockHealthIndex"]
+        if "YoungStockHealthIndex" in row
+        else row.get("health_index")
+    )
+    eating = row["DailyEatingTime"] if "DailyEatingTime" in row else row.get("eating")
+    rumination = (
+        row["DailyRumination"] if "DailyRumination" in row else row.get("rumination")
+    )
+    return _health_metrics_are_blank(health, eating, rumination)
+
+
+def _sample_health_metrics_are_blank(sample: SenseHubYoungstockHealth) -> bool:
+    return _health_metrics_are_blank(
+        sample.health_index, sample.eating, sample.rumination
+    )
+
+
+def _identity_from_sample(sample: SenseHubYoungstockHealth) -> set[str]:
+    keys = _scr_id_keys(sample.animal_id) | _scr_id_keys(sample.raw_animal_id)
+    for value in (sample.animal_id, sample.raw_animal_id):
+        normalized = normalize_animal_id(value)
+        if normalized:
+            keys.add(normalized)
     return keys
 
 
-def _recently_tagged_ids(no_data: list[dict[str, Any]]) -> tuple[set[int], set[str]]:
+def _youngstock_health_all_keys(db: Session) -> set[str]:
+    """IDs that currently have Young Stock Health readings (not blank / '-')."""
+    keys: set[str] = set()
+    on_snapshot: set[str] = set()
+    snapshot = _youngstock_health_snapshot(db)
+    if snapshot is not None:
+        for row in (snapshot.payload or {}).get("rows") or []:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("AnimalID") or row.get("animal_name") or "").strip()
+            if not name:
+                continue
+            identity = _row_identity(name)
+            on_snapshot |= identity
+            if not _row_health_metrics_are_blank(row):
+                keys |= identity
+    for sample in _latest_sensehub_samples(db):
+        identity = _identity_from_sample(sample)
+        if identity & on_snapshot:
+            continue
+        if not _sample_health_metrics_are_blank(sample):
+            keys |= identity
+    return keys
+
+
+def _row_identity(name: str) -> set[str]:
+    identity = _scr_id_keys(name)
+    normalized = normalize_animal_id(name)
+    if normalized:
+        identity.add(normalized)
+    return identity
+
+
+def _blank_youngstock_health_items(db: Session) -> list[dict[str, Any]]:
+    """YSH All animals whose health, eating and rumination are all blank."""
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add_item(
+        name: str,
+        *,
+        age_days: int | None,
+        scr_tag: Any,
+        days_with_assigned_tag: int | None,
+    ) -> None:
+        identity = _row_identity(name)
+        if not name or identity & seen:
+            return
+        seen.update(identity)
+        tag = str(scr_tag).strip() if scr_tag not in (None, "") else None
+        if tag and tag.casefold() in {"none", "null", "-"}:
+            tag = None
+        items.append(
+            {
+                "animal_id": None,
+                "animal_name": name,
+                "age_days": age_days,
+                "scr_tag": tag,
+                "days_with_assigned_tag": days_with_assigned_tag,
+            }
+        )
+
+    snapshot = _youngstock_health_snapshot(db)
+    if snapshot is not None:
+        for row in (snapshot.payload or {}).get("rows") or []:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("AnimalID") or row.get("animal_name") or "").strip()
+            if not name or not _row_health_metrics_are_blank(row):
+                continue
+            add_item(
+                name,
+                age_days=_to_int(row.get("AgeInDays") or row.get("age_days")),
+                scr_tag=row.get("CowScrTagNumber") or row.get("CowRfidOrScrTagNumber"),
+                days_with_assigned_tag=days_with_assigned_tag(row),
+            )
+    for sample in _latest_sensehub_samples(db):
+        if not _sample_health_metrics_are_blank(sample):
+            continue
+        name = str(sample.raw_animal_id or sample.animal_id or "").strip()
+        add_item(
+            name,
+            age_days=sample.age_days,
+            scr_tag=None,
+            days_with_assigned_tag=None,
+        )
+    return items
+
+
+def _sensehub_db_id_lookup(db: Session) -> dict[str, int]:
+    """Map cow-number keys to SenseHub CowDatabaseID from herd and tag reports."""
+    by_key: dict[str, int] = {}
+
+    def add(name: Any, raw_id: Any) -> None:
+        try:
+            parsed = int(raw_id) if raw_id not in (None, "") else None
+        except (TypeError, ValueError):
+            parsed = None
+        if parsed is None:
+            return
+        for key in _row_identity(str(name or "")):
+            by_key.setdefault(key, parsed)
+
+    for item in _animals_from_herd_snapshot(db):
+        add(item.get("animal_name"), item.get("animal_id"))
+    for snapshot in db.scalars(select(SenseHubReportSnapshot)).all():
+        for row in (snapshot.payload or {}).get("rows") or []:
+            if not isinstance(row, dict):
+                continue
+            raw_id = (
+                row.get("CowDatabaseID")
+                or row.get("TagCowDatabaseID")
+                or row.get("CowDbId")
+                or row.get("animal_id")
+            )
+            name = (
+                row.get("AnimalID")
+                or row.get("TagAnimalID")
+                or row.get("animal_name")
+                or row.get("animalName")
+            )
+            add(name, raw_id)
+    return by_key
+
+
+def _sensehub_tag_lookup(db: Session) -> dict[str, str]:
+    by_key: dict[str, str] = {}
+
+    def add(name: Any, tag: Any) -> None:
+        text = str(tag).strip() if tag not in (None, "") else None
+        if not text or text.casefold() in {"none", "null", "-"}:
+            return
+        for key in _row_identity(str(name or "")):
+            by_key.setdefault(key, text)
+
+    for item in _animals_from_herd_snapshot(db):
+        add(item.get("animal_name"), item.get("scr_tag"))
+    for snapshot in db.scalars(select(SenseHubReportSnapshot)).all():
+        for row in (snapshot.payload or {}).get("rows") or []:
+            if not isinstance(row, dict):
+                continue
+            add(
+                row.get("AnimalID") or row.get("TagAnimalID") or row.get("animal_name"),
+                row.get("CowScrTagNumber")
+                or row.get("CowRfidOrScrTagNumber")
+                or row.get("TagNumber"),
+            )
+    return by_key
+
+
+def _apply_sensehub_db_ids(
+    items: list[dict[str, Any]], lookup: dict[str, int]
+) -> None:
+    for item in items:
+        if item.get("animal_id") is not None:
+            continue
+        for key in _row_identity(str(item.get("animal_name") or "")):
+            found = lookup.get(key)
+            if found is not None:
+                item["animal_id"] = found
+                break
+
+
+def _apply_sensehub_tags(
+    items: list[dict[str, Any]], lookup: dict[str, str]
+) -> None:
+    for item in items:
+        if item.get("scr_tag"):
+            continue
+        for key in _row_identity(str(item.get("animal_name") or "")):
+            found = lookup.get(key)
+            if found:
+                item["scr_tag"] = found
+                break
+
+
+def _tag_days_from_health_history(db: Session) -> dict[str, int]:
+    """Days since the earliest stored young-stock sample, keyed by identity."""
+    rows = db.execute(
+        select(
+            SenseHubYoungstockHealth.animal_id,
+            SenseHubYoungstockHealth.raw_animal_id,
+            func.min(SenseHubYoungstockHealth.sampled_at),
+        ).group_by(
+            SenseHubYoungstockHealth.animal_id,
+            SenseHubYoungstockHealth.raw_animal_id,
+        )
+    ).all()
+    today = dt.datetime.now(_UK).date()
+    by_key: dict[str, int] = {}
+    for animal_id, raw_animal_id, sampled_at in rows:
+        if sampled_at is None:
+            continue
+        days = max(0, (today - sampled_at.date()).days)
+        identity = _scr_id_keys(animal_id) | _scr_id_keys(raw_animal_id)
+        normalized = normalize_animal_id(animal_id) or normalize_animal_id(raw_animal_id)
+        if normalized:
+            identity.add(normalized)
+        for key in identity:
+            previous = by_key.get(key)
+            if previous is None or days > previous:
+                by_key[key] = days
+    return by_key
+
+
+def _resolved_days_with_tag(
+    item: dict[str, Any], identity: set[str], history_days: dict[str, int]
+) -> int | None:
+    days = item.get("days_with_assigned_tag")
+    if days is not None:
+        try:
+            return int(days)
+        except (TypeError, ValueError):
+            days = None
+    inferred: int | None = None
+    for key in identity:
+        value = history_days.get(key)
+        if value is None:
+            continue
+        inferred = value if inferred is None else max(inferred, value)
+    return inferred
+
+
+def _recently_tagged_ids(
+    items: list[dict[str, Any]],
+    history_days: dict[str, int] | None = None,
+) -> tuple[set[int], set[str]]:
     animal_ids: set[int] = set()
     keys: set[str] = set()
-    for item in no_data:
-        days = item.get("days_with_assigned_tag")
+    history_days = history_days or {}
+    for item in items:
+        identity = _scr_id_keys(str(item.get("animal_name") or ""))
+        days = _resolved_days_with_tag(item, identity, history_days)
         if days is None:
             continue
         try:
@@ -1505,7 +1787,7 @@ def _recently_tagged_ids(no_data: list[dict[str, Any]]) -> tuple[set[int], set[s
             animal_ids.add(int(item["animal_id"]))
         except (TypeError, ValueError, KeyError):
             pass
-        keys.update(_scr_id_keys(str(item.get("animal_name") or "")))
+        keys.update(identity)
     return animal_ids, keys
 
 
@@ -1747,12 +2029,48 @@ def auto_cull_exited_sensehub_animals(db: Session) -> dict[str, Any]:
     return _cull_rows_with_exit_dates(listing["animals"])
 
 
+def _inventory_record(
+    identity: set[str], inventory: dict[str, HerdInventory]
+) -> HerdInventory | None:
+    for key in identity:
+        record = inventory.get(key)
+        if record is not None:
+            return record
+    return None
+
+
+def _too_recent_no_data(
+    row: dict[str, Any],
+    days_with_tag: int | None,
+    *,
+    require_days: bool = False,
+) -> bool:
+    if row["reason"] != REASON_NO_DATA:
+        return False
+    if days_with_tag is None:
+        return require_days
+    try:
+        return int(days_with_tag) < NO_DATA_MIN_TAG_DAYS
+    except (TypeError, ValueError):
+        return require_days
+
+
 def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any]:
-    """Herd animals with no tag, No Data for 3+ days, or tagged but missing from YSH All."""
+    """Herd animals with no tag, blank/No Data for 3+ days, or tagged but missing from YSH All."""
+    id_lookup = _sensehub_db_id_lookup(db)
+    tag_lookup = _sensehub_tag_lookup(db)
     untagged = _untagged_from_herd_snapshot(db)
     no_data = _no_data_from_snapshot(db)
+    _apply_sensehub_db_ids(no_data, id_lookup)
+    _apply_sensehub_tags(no_data, tag_lookup)
+    blank_health = _blank_youngstock_health_items(db)
+    _apply_sensehub_db_ids(blank_health, id_lookup)
+    _apply_sensehub_tags(blank_health, tag_lookup)
     health_keys = _youngstock_health_all_keys(db)
-    recent_ids, recent_keys = _recently_tagged_ids(no_data)
+    history_days = _tag_days_from_health_history(db)
+    recent_ids, recent_keys = _recently_tagged_ids(
+        [*no_data, *blank_health], history_days
+    )
     inventory = _inventory_by_scr_keys(db)
     exits = _latest_exit_by_identity(db)
     animals: list[dict[str, Any]] = []
@@ -1763,11 +2081,7 @@ def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any
             continue
         name = str(item.get("animal_name") or "").strip()
         identity = _scr_id_keys(name)
-        record = None
-        for key in identity:
-            record = inventory.get(key)
-            if record is not None:
-                break
+        record = _inventory_record(identity, inventory)
         if record is not None:
             identity |= _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag)
         seen.add(animal_id)
@@ -1781,44 +2095,39 @@ def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any
         }
         _apply_exit_reason(row, identity, exits)
         animals.append(row)
-    for item in no_data:
-        animal_id = int(item["animal_id"])
-        if animal_id in seen:
-            continue
-        name = str(item.get("animal_name") or "").strip()
-        identity = _scr_id_keys(name)
-        record = None
-        for key in identity:
-            record = inventory.get(key)
+    for source, require_days in ((no_data, False), (blank_health, True)):
+        for item in source:
+            if item.get("animal_id") is None:
+                continue
+            animal_id = int(item["animal_id"])
+            if animal_id in seen:
+                continue
+            name = str(item.get("animal_name") or "").strip()
+            identity = _scr_id_keys(name)
+            record = _inventory_record(identity, inventory)
             if record is not None:
-                break
-        if record is not None:
-            identity |= _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag)
-        seen.add(animal_id)
-        age = item.get("age_days")
-        if age is None:
-            age = dairycomp_age_days(record)
-        days_with_tag = item.get("days_with_assigned_tag")
-        row = {
-            "animal_id": animal_id,
-            "id": name,
-            "age_days": age,
-            "scr_tag": item.get("scr_tag"),
-            "days_with_assigned_tag": days_with_tag,
-            "reason": REASON_NO_DATA,
-        }
-        _apply_exit_reason(row, identity, exits)
-        if (
-            row["reason"] == REASON_NO_DATA
-            and days_with_tag is not None
-            and int(days_with_tag) < NO_DATA_MIN_TAG_DAYS
-        ):
-            continue
-        animals.append(row)
+                identity |= _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag)
+            age = item.get("age_days")
+            if age is None:
+                age = dairycomp_age_days(record)
+            days_with_tag = _resolved_days_with_tag(item, identity, history_days)
+            row = {
+                "animal_id": animal_id,
+                "id": name,
+                "age_days": age,
+                "scr_tag": item.get("scr_tag"),
+                "days_with_assigned_tag": days_with_tag,
+                "reason": REASON_NO_DATA,
+            }
+            _apply_exit_reason(row, identity, exits)
+            if _too_recent_no_data(row, days_with_tag, require_days=require_days):
+                continue
+            seen.add(animal_id)
+            animals.append(row)
     if health_keys:
         no_data_days = {
             int(item["animal_id"]): item.get("days_with_assigned_tag")
-            for item in no_data
+            for item in (*no_data, *blank_health)
             if item.get("animal_id") is not None
         }
         for item in _animals_from_herd_snapshot(db):
@@ -1834,11 +2143,7 @@ def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any
                 continue
             if animal_id in recent_ids or identity & recent_keys:
                 continue
-            record = None
-            for key in identity:
-                record = inventory.get(key)
-                if record is not None:
-                    break
+            record = _inventory_record(identity, inventory)
             if record is not None:
                 identity |= _scr_id_keys(record.cow_id) | _scr_id_keys(record.etag)
             seen.add(animal_id)
@@ -1866,9 +2171,10 @@ def list_tags_to_remove(db: Session, *, auto_cull: bool = True) -> dict[str, Any
         animals = [row for row in animals if int(row["animal_id"]) not in culled]
     herd_snap = _herd_snapshot(db)
     no_data_snap = _no_data_snapshot(db)
+    health_snap = _youngstock_health_snapshot(db)
     stamps = [
         item.fetched_at
-        for item in (herd_snap, no_data_snap)
+        for item in (herd_snap, no_data_snap, health_snap)
         if item is not None and item.fetched_at is not None
     ]
     return {

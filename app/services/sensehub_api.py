@@ -758,15 +758,17 @@ def parse_no_data_rows(rows: list[Any] | None) -> list[dict[str, Any]]:
     for row in rows or []:
         if not isinstance(row, dict):
             continue
-        animal_id = _raw_report_value(row, "CowDatabaseID", "CowDbId", "CowDatabaseID")
         name = str(_raw_report_value(row, "AnimalID") or "").strip()
-        if animal_id is None or not name:
+        if not name:
             continue
+        animal_id = _as_int(
+            _raw_report_value(row, "CowDatabaseID", "CowDbId", "CowDatabaseID")
+        )
         tag = _raw_report_value(row, "CowScrTagNumber", "CowRfidOrScrTagNumber")
         age = _raw_report_value(row, "AgeInDays")
         animals.append(
             {
-                "animal_id": int(animal_id),
+                "animal_id": animal_id,
                 "animal_name": name,
                 "age_days": _as_int(age),
                 "scr_tag": str(tag).strip() if tag not in (None, "") else None,

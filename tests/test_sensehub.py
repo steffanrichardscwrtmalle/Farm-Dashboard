@@ -384,14 +384,64 @@ def _add_no_data_snapshot(session: Session, animals: list[dict]) -> None:
     )
 
 
-def _add_youngstock_health_snapshot(session: Session, animal_ids: list[str]) -> None:
+def _add_youngstock_health_snapshot(
+    session: Session,
+    animal_ids: list[str],
+    *,
+    blank: bool = False,
+    rows: list[dict] | None = None,
+) -> None:
+    payload_rows = rows
+    if payload_rows is None:
+        payload_rows = []
+        for animal_id in animal_ids:
+            row = {"AnimalID": animal_id, "AgeInDays": 40}
+            if blank:
+                row.update(
+                    {
+                        "YoungStockHealthIndex": None,
+                        "DailyEatingTime": "-",
+                        "DailyRumination": None,
+                    }
+                )
+            else:
+                row.update(
+                    {
+                        "YoungStockHealthIndex": 90,
+                        "DailyEatingTime": 120,
+                        "DailyRumination": 200,
+                    }
+                )
+            payload_rows.append(row)
     session.add(
         SenseHubReportSnapshot(
             report_key=1,
             report_name="Young Stock Health by Age All",
             title="Young Stock Health by Age All",
-            row_count=len(animal_ids),
-            payload={"rows": [{"AnimalID": animal_id} for animal_id in animal_ids]},
+            row_count=len(payload_rows),
+            payload={"rows": payload_rows},
+            fetched_at=dt.datetime(2026, 8, 25, 16, 0, 0),
+        )
+    )
+
+
+def _add_tag_list_snapshot(session: Session, animals: list[dict]) -> None:
+    session.add(
+        SenseHubReportSnapshot(
+            report_key=900003,
+            report_name="Tag List SCR",
+            title="Tag List SCR",
+            row_count=len(animals),
+            payload={
+                "rows": [
+                    {
+                        "TagAnimalID": item["animal_name"],
+                        "TagCowDatabaseID": item["animal_id"],
+                        "TagNumber": item.get("scr_tag"),
+                    }
+                    for item in animals
+                ]
+            },
             fetched_at=dt.datetime(2026, 8, 25, 16, 0, 0),
         )
     )
@@ -1758,4 +1808,108 @@ def test_list_tags_to_remove_still_auto_culls_recent_sold_no_data(monkeypatch) -
     assert sent["ids"] == [2101]
     assert sent["occurred_on"] == dt.date(2026, 8, 20)
     assert listing["animals"] == []
+    session.close()
+
+
+def test_parse_no_data_rows_keeps_animals_without_database_id() -> None:
+    from app.services.sensehub_api import parse_no_data_rows
+
+    parsed = parse_no_data_rows(
+        [
+            {
+                "AnimalID": "735171",
+                "AgeInDays": 69,
+                "CowScrTagNumber": 16688869,
+                "YoungStockHealthIndex": None,
+                "DailyEatingTime": None,
+                "DailyRumination": None,
+            }
+        ]
+    )
+    assert parsed[0]["animal_name"] == "735171"
+    assert parsed[0]["animal_id"] is None
+    assert parsed[0]["scr_tag"] == "16688869"
+
+
+def test_list_tags_to_remove_includes_blank_youngstock_health() -> None:
+    from app.services.sensehub_youngstock import list_tags_to_remove
+
+    session = _youngstock_db()
+    _add_youngstock_health_snapshot(session, ["735171"], blank=True)
+    _add_tag_list_snapshot(
+        session,
+        [{"animal_id": 1897, "animal_name": "735171", "scr_tag": "16688869"}],
+    )
+    session.add(
+        SenseHubYoungstockHealth(
+            animal_id="735171",
+            raw_animal_id="735171",
+            sampled_at=dt.datetime.now() - dt.timedelta(days=5),
+            slot="6am",
+            health_index=88.0,
+            eating=110.0,
+            rumination=190.0,
+        )
+    )
+    session.commit()
+    listing = list_tags_to_remove(session)
+    by_id = {row["id"]: row for row in listing["animals"]}
+    assert by_id["735171"]["reason"] == "No Data"
+    assert by_id["735171"]["animal_id"] == 1897
+    assert by_id["735171"]["scr_tag"] == "16688869"
+    assert by_id["735171"]["days_with_assigned_tag"] >= 3
+    session.close()
+
+
+def test_list_tags_to_remove_hides_blank_youngstock_health_until_day_three() -> None:
+    from app.services.sensehub_youngstock import list_tags_to_remove
+
+    session = _youngstock_db()
+    _add_youngstock_health_snapshot(session, ["735171"], blank=True)
+    _add_tag_list_snapshot(
+        session,
+        [{"animal_id": 1897, "animal_name": "735171", "scr_tag": "16688869"}],
+    )
+    session.add(
+        SenseHubYoungstockHealth(
+            animal_id="735171",
+            raw_animal_id="735171",
+            sampled_at=dt.datetime.now() - dt.timedelta(days=1),
+            slot="live",
+            health_index=None,
+            eating=None,
+            rumination=None,
+        )
+    )
+    session.commit()
+    listing = list_tags_to_remove(session)
+    assert [row["id"] for row in listing["animals"]] == []
+    session.close()
+
+
+def test_list_tags_to_remove_resolves_no_data_id_from_tag_list() -> None:
+    from app.services.sensehub_youngstock import list_tags_to_remove
+
+    session = _youngstock_db()
+    _add_no_data_snapshot(
+        session,
+        [
+            {
+                "animal_id": None,
+                "animal_name": "735171",
+                "age_days": 69,
+                "scr_tag": "16688869",
+                "days_with_assigned_tag": 8,
+            }
+        ],
+    )
+    _add_tag_list_snapshot(
+        session,
+        [{"animal_id": 1897, "animal_name": "735171", "scr_tag": "16688869"}],
+    )
+    session.commit()
+    listing = list_tags_to_remove(session)
+    assert listing["animals"][0]["id"] == "735171"
+    assert listing["animals"][0]["animal_id"] == 1897
+    assert listing["animals"][0]["reason"] == "No Data"
     session.close()
