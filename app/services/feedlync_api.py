@@ -35,6 +35,9 @@ _RATION_DETAIL_PARAMS = {
 
 # Loaded Mixes → By Ingredient. Do not use loads/fedmixes (different totals).
 _LOADED_MIX_INGREDIENT_PATH = "loads/ingredientspends"
+# Same Loaded Mixes kg, split by date/ration. Includes hand-added ingredients
+# that ingredientspends omits (e.g. Ammonium Chloride).
+_LOADED_MIX_FEEDPLAN_SPENDS_PATH = "loads/FeedPlanLoadIngredientSpendsByDate"
 
 # Default assignments used only to seed the settings table on first run.
 USAGE_RATIONS_BY_FARM: dict[str, tuple[str, ...]] = {
@@ -505,12 +508,92 @@ def _forage_ingredient_type_ids(
     return ids or {_FORAGE_INGREDIENT_TYPE_ID}
 
 
+def _add_qty(
+    merged: dict[tuple[str, str], dict[str, float | str]],
+    *,
+    farm: str,
+    ingredient: str,
+    as_fed_kg: float,
+    dm_kg: float,
+    cost: float,
+) -> None:
+    current = merged.setdefault(
+        (farm, ingredient),
+        {
+            "farm": farm,
+            "ingredient_name": ingredient,
+            "as_fed_kg": 0.0,
+            "dm_kg": 0.0,
+            "cost": 0.0,
+        },
+    )
+    current["as_fed_kg"] = float(current["as_fed_kg"]) + as_fed_kg
+    current["dm_kg"] = float(current["dm_kg"]) + dm_kg
+    current["cost"] = float(current["cost"]) + cost
+
+
+def _feedplan_daily_rows(payload: Any) -> list[dict[str, Any]]:
+    """Flatten Loaded Mixes-by-date rows: {date: [rows]} or a bare list."""
+    rows: list[dict[str, Any]] = []
+    if isinstance(payload, dict):
+        for value in payload.values():
+            if isinstance(value, list):
+                rows.extend(item for item in value if isinstance(item, dict))
+    elif isinstance(payload, list):
+        rows.extend(item for item in payload if isinstance(item, dict))
+    return rows
+
+
+def _add_missing_feedplan_ingredients(
+    merged: dict[tuple[str, str], dict[str, float | str]],
+    feedplan_payload: Any,
+    *,
+    ration_lookup: dict[str, str] | None,
+    ingredient_inclusion: dict[str, bool] | None,
+    forage_type_ids: set[int] | None,
+) -> None:
+    """Add Loaded Mixes ingredients that ingredientspends omitted (hand-added)."""
+    existing = {
+        (farm, usage_ingredient_key(str(row["ingredient_name"])))
+        for (farm, _name), row in merged.items()
+    }
+    for item in _feedplan_daily_rows(feedplan_payload):
+        ingredient = _ingredient_name(item)
+        if not ingredient:
+            continue
+        farm = farm_for_usage_ration(
+            str(item.get("rationName") or ""), lookup=ration_lookup
+        )
+        if not farm:
+            continue
+        if (farm, usage_ingredient_key(ingredient)) in existing:
+            continue
+        if not _usage_ingredient_included(
+            item,
+            inclusion=ingredient_inclusion,
+            forage_type_ids=forage_type_ids,
+        ):
+            continue
+        as_fed = _as_float(item.get("quantity"))
+        if as_fed <= 0:
+            continue
+        _add_qty(
+            merged,
+            farm=farm,
+            ingredient=ingredient,
+            as_fed_kg=as_fed,
+            dm_kg=_as_float(item.get("drymatterQuantity")),
+            cost=_as_float(item.get("cost")),
+        )
+
+
 def _parse_ingredient_spends_by_farm(
     payload: Any,
     *,
     forage_type_ids: set[int] | None = None,
     ration_lookup: dict[str, str] | None = None,
     ingredient_inclusion: dict[str, bool] | None = None,
+    feedplan_payload: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Split Loaded Mixes ingredient totals using the nested ration breakdown."""
     merged: dict[tuple[str, str], dict[str, float | str]] = {}
@@ -532,23 +615,22 @@ def _parse_ingredient_spends_by_farm(
             )
             if not farm:
                 continue
-            current = merged.setdefault(
-                (farm, ingredient),
-                {
-                    "farm": farm,
-                    "ingredient_name": ingredient,
-                    "as_fed_kg": 0.0,
-                    "dm_kg": 0.0,
-                    "cost": 0.0,
-                },
+            _add_qty(
+                merged,
+                farm=farm,
+                ingredient=ingredient,
+                as_fed_kg=_as_float(ration.get("quantity")),
+                dm_kg=_as_float(ration.get("drymatterQuantity")),
+                cost=_as_float(ration.get("cost")),
             )
-            current["as_fed_kg"] = float(current["as_fed_kg"]) + _as_float(
-                ration.get("quantity")
-            )
-            current["dm_kg"] = float(current["dm_kg"]) + _as_float(
-                ration.get("drymatterQuantity")
-            )
-            current["cost"] = float(current["cost"]) + _as_float(ration.get("cost"))
+    if feedplan_payload is not None:
+        _add_missing_feedplan_ingredients(
+            merged,
+            feedplan_payload,
+            ration_lookup=ration_lookup,
+            ingredient_inclusion=ingredient_inclusion,
+            forage_type_ids=forage_type_ids,
+        )
     rows = list(merged.values())
     rows.sort(
         key=lambda row: (
@@ -700,8 +782,10 @@ def fetch_loaded_mix_ingredient_usage(
     """
     Fetch Loaded Mixes → By Ingredient totals for a calendar date range.
 
-    Uses loads/ingredientspends (not loads/fedmixes). Weights are kilograms.
-    Each row includes farm (CM/GAD) from the nested ration breakdown.
+    Uses loads/ingredientspends for mixer ingredients (not loads/fedmixes).
+    Hand-added ingredients omitted there are filled from
+    loads/FeedPlanLoadIngredientSpendsByDate, which is the Loaded Mixes
+    by-date table Feedlync shows in the app. Weights are kilograms.
     """
     from_utc, to_utc = _utc_month_range(period_start, period_end)
     param_candidates = (
@@ -744,11 +828,24 @@ def fetch_loaded_mix_ingredient_usage(
                     "Feedlync Loaded Mixes request failed"
                     + (f": {last_error}" if last_error else "")
                 )
+            feedplan_payload = None
+            feedplan_response = client.get(
+                f"{FEEDLYNC_API_BASE}/{_LOADED_MIX_FEEDPLAN_SPENDS_PATH}",
+                headers=_api_headers(access_token, farm_id),
+                params={"from": from_utc, "to": to_utc},
+            )
+            if feedplan_response.status_code in (401, 403):
+                raise FeedlyncAuthError(
+                    "FeedLync session expired. Use Reconnect FeedLync on the Feed Rate page."
+                )
+            if feedplan_response.status_code == 200:
+                feedplan_payload = feedplan_response.json()
             for row in _parse_ingredient_spends_by_farm(
                 response.json(),
                 forage_type_ids=forage_type_ids,
                 ration_lookup=ration_lookup,
                 ingredient_inclusion=ingredient_inclusion,
+                feedplan_payload=feedplan_payload,
             ):
                 key = (str(row["farm"]), str(row["ingredient_name"]))
                 current = merged.setdefault(

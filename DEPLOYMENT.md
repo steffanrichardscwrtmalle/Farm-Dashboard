@@ -221,7 +221,8 @@ the B2C sign-in flow over HTTP — no browser/Chromium needed):
 - `FEEDLYNC_USERNAME` / `FEEDLYNC_PASSWORD` — store as Render secrets
 - `FEEDLYNC_SPA_REDIRECT_URI` — optional; defaults to `https://app.feedlync.com/redirect.html`
 - Run a **daily** cron `python scripts/import_feed_data.py`; it logs in, refreshes
-  the token, stores it, and imports. No manual reconnect needed.
+  the token, and imports current feed rates. On the **2nd of the month** (UK date)
+  it also fetches last month’s Loaded Mixes totals into Feed Usage.
 
 > Note: this depends on FeedLync's current B2C sign-in flow. If they change it,
 > the import falls back to the manual reconnect path below until updated.

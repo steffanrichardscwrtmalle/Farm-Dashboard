@@ -17,6 +17,8 @@ from app.services.feed_usage import (
     build_usage_xlsx,
     get_usage_report,
     import_feed_usage,
+    import_previous_month_usage_if_due,
+    previous_month_usage_import_month,
     resolve_usage_month,
 )
 from app.services.feed_usage_settings import (
@@ -67,6 +69,30 @@ def test_previous_calendar_month_from_september() -> None:
 def test_resolve_usage_month_defaults_to_last_month() -> None:
     assert resolve_usage_month(None, today=dt.date(2026, 9, 7)) == AUG_START
     assert resolve_usage_month("2026-08", today=dt.date(2026, 9, 7)) == AUG_START
+
+
+def test_previous_month_usage_import_only_on_second() -> None:
+    assert previous_month_usage_import_month(dt.date(2026, 9, 1)) is None
+    assert previous_month_usage_import_month(dt.date(2026, 9, 2)) == AUG_START
+    assert previous_month_usage_import_month(dt.date(2026, 9, 3)) is None
+    assert previous_month_usage_import_month(dt.date(2026, 1, 2)) == dt.date(2025, 12, 1)
+
+
+def test_import_previous_month_usage_if_due_skips_other_days(db: Session) -> None:
+    with patch("app.services.feed_usage.import_feed_usage") as mocked:
+        assert import_previous_month_usage_if_due(db, today=dt.date(2026, 9, 1)) is None
+        mocked.assert_not_called()
+
+
+def test_import_previous_month_usage_if_due_runs_on_second(db: Session) -> None:
+    with patch(
+        "app.services.feed_usage.import_feed_usage",
+        return_value={"rows_imported": 4, "month": "2026-08"},
+    ) as mocked:
+        result = import_previous_month_usage_if_due(db, today=dt.date(2026, 9, 2))
+    mocked.assert_called_once_with(db, month=AUG_START)
+    assert result is not None
+    assert result["month"] == "2026-08"
 
 
 def test_utc_month_range_matches_feedlync_last_month_encoding() -> None:
@@ -239,10 +265,13 @@ def test_fetch_uses_loaded_mixes_endpoint_not_fed_mixes() -> None:
     assert rows[0]["ingredient_name"] == "Rape Meal"
     assert rows[0]["farm"] == "GAD"
     assert rows[0]["as_fed_kg"] == 522593
-    url = client.get.call_args.args[0]
-    assert _LOADED_MIX_INGREDIENT_PATH in url
-    assert "fedmix" not in url.lower()
-    params = client.get.call_args.kwargs["params"]
+    urls = [call.args[0] for call in client.get.call_args_list]
+    spend_calls = [
+        call for call in client.get.call_args_list if _LOADED_MIX_INGREDIENT_PATH in call.args[0]
+    ]
+    assert spend_calls
+    assert not any("fedmixes" in url.lower() for url in urls)
+    params = spend_calls[0].kwargs["params"]
     assert params["from"] == "2026-08-01T00:00:00.000Z"
     assert params["to"] == "2026-09-01T00:00:00.000Z"
 
@@ -424,6 +453,74 @@ def test_parse_respects_saved_ingredient_inclusion() -> None:
     assert [row["ingredient_name"] for row in included] == ["Maize Silage"]
     defaulted = _parse_ingredient_spends_by_farm(payload)
     assert [row["ingredient_name"] for row in defaulted] == ["Rape Meal"]
+
+
+def test_parse_adds_hand_added_from_feedplan_spends() -> None:
+    payload = [
+        {
+            "ingredientName": "Maize Silage",
+            "ingredientTypeId": 1,
+            "rations": [
+                {
+                    "rationName": "Cwrt Close Up Ration",
+                    "quantity": 18000,
+                    "drymatterQuantity": 6300,
+                    "cost": 1,
+                }
+            ],
+        },
+        {
+            "ingredientName": "Wheat",
+            "ingredientTypeId": 2,
+            "rations": [
+                {
+                    "rationName": "Cwrt Close Up Ration",
+                    "quantity": 1500,
+                    "drymatterQuantity": 1300,
+                    "cost": 10,
+                }
+            ],
+        },
+    ]
+    feedplan = {
+        "2026-08-01": [
+            {
+                "ingredientName": "Wheat",
+                "rationName": "Cwrt Close Up Ration",
+                "quantity": 1500,
+            },
+            {
+                "ingredientName": "Ammonium Chloride",
+                "rationName": "Cwrt Close Up Ration",
+                "quantity": 24,
+            },
+        ],
+        "2026-08-02": [
+            {
+                "ingredientName": "Ammonium Chloride",
+                "rationName": "Cwrt Close Up Ration",
+                "quantity": 26,
+            },
+        ],
+    }
+    rows = _parse_ingredient_spends_by_farm(
+        payload,
+        ration_lookup={"cwrt close up ration": "CM"},
+        feedplan_payload=feedplan,
+    )
+    by_name = {row["ingredient_name"]: row for row in rows}
+    assert "Maize Silage" not in by_name
+    assert by_name["Wheat"]["as_fed_kg"] == 1500
+    assert by_name["Ammonium Chloride"]["as_fed_kg"] == 50
+    assert by_name["Ammonium Chloride"]["farm"] == "CM"
+
+    excluded = _parse_ingredient_spends_by_farm(
+        payload,
+        ration_lookup={"cwrt close up ration": "CM"},
+        feedplan_payload=feedplan,
+        ingredient_inclusion={"ammonium chloride": False, "wheat": True},
+    )
+    assert [row["ingredient_name"] for row in excluded] == ["Wheat"]
 
 
 def test_ingredient_inclusion_lookup_round_trip(db: Session) -> None:

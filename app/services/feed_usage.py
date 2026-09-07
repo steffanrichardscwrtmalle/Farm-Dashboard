@@ -91,6 +91,22 @@ def resolve_usage_month(value: str | None, *, today: dt.date | None = None) -> d
     return previous_calendar_month(today)
 
 
+def previous_month_usage_import_month(today: dt.date) -> dt.date | None:
+    """On the 2nd of the month, return the first day of the previous month."""
+    if today.day != 2:
+        return None
+    return previous_calendar_month(today)
+
+
+def import_previous_month_usage_if_due(
+    db: Session, *, today: dt.date
+) -> dict[str, Any] | None:
+    month = previous_month_usage_import_month(today)
+    if month is None:
+        return None
+    return import_feed_usage(db, month=month)
+
+
 def _round_kg(value: float) -> float:
     return round(value, 2)
 
