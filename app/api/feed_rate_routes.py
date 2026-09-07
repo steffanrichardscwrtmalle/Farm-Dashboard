@@ -32,6 +32,14 @@ from app.services.feed_rate_import import (
     mark_import_started,
     run_import_in_background,
 )
+from app.services.feed_usage import (
+    get_import_status as get_usage_import_status,
+    get_usage_report,
+    is_import_running as is_usage_import_running,
+    mark_import_started as mark_usage_import_started,
+    resolve_usage_month,
+    run_usage_import_in_background,
+)
 
 router = APIRouter(prefix="/api/feed-rate")
 
@@ -111,6 +119,49 @@ def api_feed_rate_status(
         "row_count": row_count,
         "latest_import": latest_import.isoformat() if latest_import else None,
         "import_status": get_import_status(),
+    }
+
+
+def _usage_month_or_400(value: str | None) -> dt.date:
+    try:
+        return resolve_usage_month(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/usage")
+def api_feed_usage_report(
+    month: str | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_FEED_RATE)),
+):
+    period = _usage_month_or_400(month)
+    return get_usage_report(db, month=period)
+
+
+@router.get("/usage/import/status")
+def api_feed_usage_import_status(
+    _: User = Depends(get_current_user),
+):
+    return get_usage_import_status()
+
+
+@router.post("/usage/import")
+def api_feed_usage_import(
+    background_tasks: BackgroundTasks,
+    month: str | None = None,
+    _: User = Depends(get_current_user),
+):
+    period = _usage_month_or_400(month)
+    if is_usage_import_running():
+        return {"status": "running", "message": "Usage import already in progress."}
+
+    mark_usage_import_started(period.strftime("%Y-%m"))
+    background_tasks.add_task(run_usage_import_in_background, SessionLocal, period)
+    return {
+        "status": "started",
+        "message": f"Feedlync usage import started for {period.strftime('%Y-%m')}.",
+        "month": period.strftime("%Y-%m"),
     }
 
 

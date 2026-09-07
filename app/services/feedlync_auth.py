@@ -37,7 +37,10 @@ def get_stored_refresh_token(db: Session) -> str | None:
     row = db.get(FeedlyncAuth, _SINGLETON_ID)
     if row is None or not row.refresh_token:
         return None
-    return _decrypt_token(row.refresh_token)
+    try:
+        return _decrypt_token(row.refresh_token)
+    except FeedlyncAuthError:
+        return None
 
 
 def resolve_refresh_token(db: Session) -> str:

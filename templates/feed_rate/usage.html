@@ -1,0 +1,490 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(200px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .page-layout { grid-template-columns: 1fr; }
+    }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+    }
+    .filter-actions button { width: 100%; margin: 0; }
+    .month-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin-bottom: 0.85rem;
+    }
+    .month-field label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .month-field input[type="month"] {
+      width: 100%;
+      padding: 0.4rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+    }
+    .import-status {
+      margin-top: 0.75rem;
+      font-size: 0.8125rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .import-status.error { color: var(--danger); }
+    .import-status.running { color: var(--accent); }
+    .reconnect-panel {
+      margin-top: 0.75rem;
+      padding: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      display: none;
+    }
+    .reconnect-panel p {
+      margin: 0 0 0.5rem;
+      font-size: 0.8125rem;
+      color: #991b1b;
+      line-height: 1.4;
+    }
+    .reconnect-panel a {
+      display: inline-block;
+      font-size: 0.8125rem;
+      font-weight: 600;
+    }
+    .connection-line {
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .source-note {
+      margin: 0.75rem 0 0;
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .content-panel { min-width: 0; }
+    .meta-line {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin-bottom: 0.75rem;
+    }
+    .totals-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 700px) {
+      .totals-grid { grid-template-columns: 1fr; }
+    }
+    .total-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+    }
+    .total-card h3 {
+      margin: 0 0 0.35rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .total-card .value {
+      font-size: 1.2rem;
+      font-weight: 700;
+    }
+    .total-card .avg {
+      margin-top: 0.25rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .view-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .view-header h2 {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+    .table-wrap {
+      overflow-x: auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    #usage-table {
+      width: 100%;
+      table-layout: auto;
+    }
+    #usage-table th,
+    #usage-table td {
+      text-align: right;
+      white-space: nowrap;
+      padding: 0.55rem 0.75rem;
+    }
+    #usage-table th:first-child,
+    #usage-table td:first-child {
+      text-align: left;
+    }
+    #usage-table thead th {
+      background: #eef2f6;
+      font-weight: 600;
+    }
+    #usage-table tr.total-row td {
+      font-weight: 700;
+      border-top: 2px solid var(--border);
+      background: #f8fafc;
+    }
+    .empty-state {
+      padding: 2rem;
+      color: var(--muted);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="page-layout">
+    <div class="sidebar-column">
+      <aside class="filter-panel">
+        <h2>Actions</h2>
+        <div class="month-field">
+          <label for="usage-month">Month</label>
+          <input type="month" id="usage-month">
+        </div>
+        {% if can_import_feed %}
+        <div class="filter-actions">
+          <button type="button" id="refresh-feed-btn">Refresh from Feedlync</button>
+          <p style="margin:0.5rem 0 0;font-size:0.75rem;">
+            <a href="/feed-rate/connect?return=%2Ffeed-rate%2Fusage">Connect / reconnect FeedLync</a>
+          </p>
+        </div>
+        <div class="import-status" id="import-status" style="display:none;"></div>
+        <div class="reconnect-panel" id="reconnect-panel">
+          <p id="reconnect-message">FeedLync session expired.</p>
+          <a href="/feed-rate/connect?return=%2Ffeed-rate%2Fusage">Reconnect FeedLync</a>
+        </div>
+        <p class="connection-line" id="connection-line" style="display:none;"></p>
+        {% else %}
+        <p style="margin:0;font-size:0.875rem;color:var(--muted);">Use Refresh from Feedlync to load monthly ingredient usage.</p>
+        {% endif %}
+        <p class="source-note">Source: Loaded Mixes → By Ingredient. Figures are kilograms as shown in Feedlync (Metric, UK).</p>
+      </aside>
+    </div>
+
+    <section class="content-panel">
+      <p class="meta-line" id="meta-line"></p>
+      <div id="totals-grid" class="totals-grid" style="display:none;"></div>
+      <div id="table-view" style="display:none;">
+        <div class="view-header">
+          <h2 id="table-title">Ingredient usage</h2>
+          <button type="button" id="download-csv-btn">Download CSV</button>
+        </div>
+        <div class="table-wrap">
+          <table id="usage-table">
+            <thead>
+              <tr>
+                <th>Ingredient</th>
+                <th>As Fed (kg)</th>
+                <th>DM (kg)</th>
+                <th>Cost (£)</th>
+              </tr>
+            </thead>
+            <tbody id="usage-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="empty-state" class="empty-state" style="display:none;"></div>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const CAN_IMPORT_FEED = {{ can_import_feed | default(false) | tojson }};
+    let importPollTimer = null;
+    let reportData = null;
+
+    function previousMonthValue(fromDate = new Date()) {
+      const year = fromDate.getFullYear();
+      const month = fromDate.getMonth();
+      const prev = month === 0 ? new Date(year - 1, 11, 1) : new Date(year, month - 1, 1);
+      return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
+    }
+
+    function selectedMonth() {
+      return document.getElementById("usage-month").value || previousMonthValue();
+    }
+
+    function formatInt(value) {
+      if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+      return Number(value).toLocaleString("en-GB", { maximumFractionDigits: 0 });
+    }
+
+    function formatDecimal(value, decimals = 1) {
+      if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+      return Number(value).toLocaleString("en-GB", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      });
+    }
+
+    function formatMoney(value, decimals = 2) {
+      if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+      return Number(value).toLocaleString("en-GB", {
+        style: "currency",
+        currency: "GBP",
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      });
+    }
+
+    function formatDateUk(iso) {
+      if (!iso) return "";
+      const [year, month, day] = iso.split("-");
+      return `${day}/${month}/${year}`;
+    }
+
+    function escapeHtml(text) {
+      return String(text ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function setImportStatus(text, className = "", needsAuth = false) {
+      const el = document.getElementById("import-status");
+      const reconnect = document.getElementById("reconnect-panel");
+      if (!el) return;
+      el.style.display = text ? "" : "none";
+      el.textContent = text;
+      el.className = `import-status${className ? ` ${className}` : ""}`;
+      if (reconnect) {
+        reconnect.style.display = needsAuth ? "" : "none";
+        if (needsAuth && text) {
+          const msg = document.getElementById("reconnect-message");
+          if (msg) msg.textContent = text;
+        }
+      }
+    }
+
+    function stopImportPoll() {
+      if (importPollTimer) {
+        clearInterval(importPollTimer);
+        importPollTimer = null;
+      }
+    }
+
+    function renderReport(data) {
+      reportData = data;
+      const empty = document.getElementById("empty-state");
+      const tableView = document.getElementById("table-view");
+      const totalsGrid = document.getElementById("totals-grid");
+      const meta = document.getElementById("meta-line");
+      const rows = data.ingredients || [];
+      const period = `${formatDateUk(data.period_start)} – ${formatDateUk(data.period_end)}`;
+      const imported = data.latest_import
+        ? ` · imported ${new Date(data.latest_import).toLocaleString("en-GB")}`
+        : "";
+      meta.textContent = rows.length
+        ? `${data.source} · ${period}${imported}`
+        : "";
+
+      if (!rows.length) {
+        tableView.style.display = "none";
+        totalsGrid.style.display = "none";
+        empty.style.display = "";
+        empty.textContent = `No Loaded Mixes data for ${period}. Use Refresh from Feedlync to fetch this month.`;
+        return;
+      }
+
+      empty.style.display = "none";
+      totalsGrid.style.display = "";
+      totalsGrid.innerHTML = `
+        <article class="total-card">
+          <h3>As Fed</h3>
+          <div class="value">${formatInt(data.totals.as_fed_kg)} kg</div>
+          <div class="avg">${formatInt(data.averages.as_fed_kg)} kg / day</div>
+        </article>
+        <article class="total-card">
+          <h3>Dry matter</h3>
+          <div class="value">${formatInt(data.totals.dm_kg)} kg</div>
+          <div class="avg">${formatInt(data.averages.dm_kg)} kg / day</div>
+        </article>
+        <article class="total-card">
+          <h3>Cost</h3>
+          <div class="value">${formatMoney(data.totals.cost)}</div>
+          <div class="avg">${formatMoney(data.averages.cost)} / day</div>
+        </article>
+      `;
+
+      document.getElementById("table-title").textContent = `Ingredient usage · ${period}`;
+      const body = document.getElementById("usage-body");
+      body.innerHTML = rows.map(row => `
+        <tr>
+          <td>${escapeHtml(row.ingredient_name)}</td>
+          <td>${formatInt(row.as_fed_kg)}</td>
+          <td>${formatInt(row.dm_kg)}</td>
+          <td>${formatMoney(row.cost)}</td>
+        </tr>
+      `).join("") + `
+        <tr class="total-row">
+          <td>Total</td>
+          <td>${formatInt(data.totals.as_fed_kg)}</td>
+          <td>${formatInt(data.totals.dm_kg)}</td>
+          <td>${formatMoney(data.totals.cost)}</td>
+        </tr>
+      `;
+      tableView.style.display = "";
+    }
+
+    async function loadReport() {
+      const month = selectedMonth();
+      const res = await fetch(`/api/feed-rate/usage?month=${encodeURIComponent(month)}`);
+      if (!res.ok) {
+        document.getElementById("empty-state").style.display = "";
+        document.getElementById("empty-state").textContent = "Failed to load feed usage data.";
+        document.getElementById("table-view").style.display = "none";
+        document.getElementById("totals-grid").style.display = "none";
+        return;
+      }
+      const data = await res.json();
+      if (data.month) document.getElementById("usage-month").value = data.month;
+      renderReport(data);
+    }
+
+    async function pollImportStatus() {
+      const res = await fetch("/api/feed-rate/usage/import/status");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.status === "running") {
+        setImportStatus(data.message || "Importing from Feedlync…", "running");
+        return;
+      }
+      stopImportPoll();
+      const btn = document.getElementById("refresh-feed-btn");
+      if (btn) btn.disabled = false;
+      if (data.status === "complete") {
+        setImportStatus(data.message || "Import complete.");
+        await loadConnectionStatus();
+        await loadReport();
+        return;
+      }
+      if (data.status === "error") {
+        setImportStatus(data.message || "Import failed.", "error", !!data.needs_auth);
+        return;
+      }
+      setImportStatus("");
+    }
+
+    async function startImport() {
+      const btn = document.getElementById("refresh-feed-btn");
+      if (btn) btn.disabled = true;
+      setImportStatus("Starting Feedlync import…", "running");
+      const month = selectedMonth();
+      const res = await fetch(`/api/feed-rate/usage/import?month=${encodeURIComponent(month)}`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setImportStatus(err.detail || "Failed to start import.", "error");
+        if (btn) btn.disabled = false;
+        return;
+      }
+      const data = await res.json();
+      setImportStatus(data.message || "Import started.", "running");
+      stopImportPoll();
+      importPollTimer = setInterval(pollImportStatus, 3000);
+      pollImportStatus();
+    }
+
+    function downloadCsv() {
+      if (!reportData || !reportData.ingredients || !reportData.ingredients.length) return;
+      const headers = ["Ingredient", "As Fed (kg)", "DM (kg)", "Cost (£)"];
+      const escape = value => {
+        const text = value === null || value === undefined ? "" : String(value);
+        return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+      };
+      const lines = [
+        headers.join(","),
+        ...reportData.ingredients.map(row => [
+          escape(row.ingredient_name),
+          row.as_fed_kg,
+          row.dm_kg,
+          row.cost,
+        ].join(",")),
+        ["Total", reportData.totals.as_fed_kg, reportData.totals.dm_kg, reportData.totals.cost].join(","),
+      ];
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `feed_usage_${reportData.month || selectedMonth()}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+
+    async function loadConnectionStatus() {
+      if (!CAN_IMPORT_FEED) return;
+      const res = await fetch("/api/feedlync/status");
+      if (!res.ok) return;
+      const data = await res.json();
+      const line = document.getElementById("connection-line");
+      if (!line) return;
+      line.style.display = "";
+      if (data.connected) {
+        const when = data.updated_at || data.connected_at;
+        line.textContent = when
+          ? `FeedLync connected (${data.source || "saved"}) · updated ${new Date(when).toLocaleString("en-GB")}`
+          : "FeedLync connected.";
+      } else {
+        line.textContent = "FeedLync not connected.";
+      }
+    }
+
+    function maybeRetryAfterConnect() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("feedlync") !== "connected") return;
+      const clean = new URL(window.location.href);
+      clean.searchParams.delete("feedlync");
+      clean.searchParams.delete("retry_import");
+      window.history.replaceState({}, "", clean.pathname + clean.search);
+      if (params.get("retry_import") === "1" && CAN_IMPORT_FEED) startImport();
+    }
+
+    const monthInput = document.getElementById("usage-month");
+    const urlMonth = new URLSearchParams(window.location.search).get("month");
+    monthInput.value = urlMonth || previousMonthValue();
+    monthInput.addEventListener("change", loadReport);
+    document.getElementById("download-csv-btn").addEventListener("click", downloadCsv);
+    if (CAN_IMPORT_FEED) {
+      document.getElementById("refresh-feed-btn").addEventListener("click", startImport);
+    }
+    loadConnectionStatus();
+    maybeRetryAfterConnect();
+    loadReport();
+  </script>
+{% endblock %}

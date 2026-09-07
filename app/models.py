@@ -499,6 +499,37 @@ class FeedRateRecord(Base):
         }
 
 
+class FeedUsageRecord(Base):
+    """Monthly Loaded Mixes → By Ingredient totals imported from Feedlync."""
+
+    __tablename__ = "feed_usage_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    period_start: Mapped[datetime.date] = mapped_column(Date, index=True)
+    period_end: Mapped[datetime.date] = mapped_column(Date, index=True)
+    ingredient_name: Mapped[str] = mapped_column(String(255), index=True)
+    as_fed_kg: Mapped[float] = mapped_column(Float, default=0)
+    dm_kg: Mapped[float] = mapped_column(Float, default=0)
+    cost: Mapped[float] = mapped_column(Float, default=0)
+    import_timestamp: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "period_start": self.period_start.isoformat() if self.period_start else None,
+            "period_end": self.period_end.isoformat() if self.period_end else None,
+            "ingredient_name": self.ingredient_name,
+            "as_fed_kg": self.as_fed_kg,
+            "dm_kg": self.dm_kg,
+            "cost": self.cost,
+            "import_timestamp": (
+                self.import_timestamp.isoformat() if self.import_timestamp else None
+            ),
+        }
+
+
 class SenseHubReportSnapshot(Base):
     """Latest SenseHub report snapshot imported from st.scrdairy.com."""
 

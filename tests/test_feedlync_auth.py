@@ -1,4 +1,4 @@
-from app.services.feedlync_auth import _decrypt_token, _encrypt_token
+from app.services.feedlync_auth import _decrypt_token, _encrypt_token, get_stored_refresh_token
 from app.services.feedlync_oauth import build_authorize_url, generate_pkce_pair
 
 
@@ -24,3 +24,14 @@ def test_encrypt_decrypt_roundtrip() -> None:
     encrypted = _encrypt_token(token)
     assert encrypted != token
     assert _decrypt_token(encrypted) == token
+
+
+def test_get_stored_refresh_token_returns_none_when_decrypt_fails() -> None:
+    class _Row:
+        refresh_token = "not-valid-encrypted-token"
+
+    class _Db:
+        def get(self, *_args, **_kwargs):
+            return _Row()
+
+    assert get_stored_refresh_token(_Db()) is None

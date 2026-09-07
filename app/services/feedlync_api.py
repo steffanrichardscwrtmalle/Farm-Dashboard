@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 from typing import Any
 
@@ -31,6 +32,9 @@ _RATION_DETAIL_PARAMS = {
     "nutrients": "false",
     "ingredientNutrients": "false",
 }
+
+# Loaded Mixes → By Ingredient. Do not use loads/fedmixes (different totals).
+_LOADED_MIX_INGREDIENT_PATH = "loads/ingredientspends"
 
 
 def _refresh_access_token(
@@ -283,3 +287,198 @@ def fetch_feed_data(db: Session, *, ration_name: str | None = None) -> list[dict
             )
 
     return all_rows
+
+
+def month_bounds(year: int, month: int) -> tuple[dt.date, dt.date]:
+    """Return the first and last calendar day of a month."""
+    last = calendar.monthrange(year, month)[1]
+    return dt.date(year, month, 1), dt.date(year, month, last)
+
+
+def previous_calendar_month(today: dt.date | None = None) -> dt.date:
+    """Return the first day of the previous calendar month."""
+    current = today or dt.date.today()
+    first_of_this_month = current.replace(day=1)
+    previous = first_of_this_month - dt.timedelta(days=1)
+    return previous.replace(day=1)
+
+
+def _utc_month_range(period_start: dt.date, period_end: dt.date) -> tuple[str, str]:
+    """Feedlync Last Month window as UTC midnight → next-day midnight (exclusive)."""
+    start = dt.datetime(
+        period_start.year, period_start.month, period_start.day, tzinfo=dt.timezone.utc
+    )
+    end_exclusive = dt.datetime(
+        period_end.year, period_end.month, period_end.day, tzinfo=dt.timezone.utc
+    ) + dt.timedelta(days=1)
+    return (
+        start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        end_exclusive.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+    )
+
+
+def _as_float(value: Any) -> float:
+    if value is None or value is False:
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _ingredient_name(row: dict[str, Any]) -> str:
+    nested = row.get("ingredient")
+    if isinstance(nested, dict):
+        name = nested.get("name") or nested.get("ingredientName")
+        if name:
+            return str(name).strip()
+    for key in ("ingredientName", "name", "ingredient"):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _as_fed_kg(row: dict[str, Any]) -> float:
+    for key in (
+        "quantity",
+        "asFed",
+        "asFedQuantity",
+        "fresh",
+        "freshQuantity",
+        "loadedQuantity",
+        "loaded",
+        "weight",
+    ):
+        if key in row and row[key] is not None:
+            return _as_float(row[key])
+    return 0.0
+
+
+def _dm_kg(row: dict[str, Any]) -> float:
+    for key in (
+        "drymatterQuantity",
+        "dryMatterQuantity",
+        "dmQuantity",
+        "dmWeight",
+        "drymatter",
+        "dryMatter",
+    ):
+        if key in row and row[key] is not None:
+            return _as_float(row[key])
+    return 0.0
+
+
+def _spend_items(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in (
+        "ingredientSpends",
+        "ingredients",
+        "items",
+        "data",
+        "results",
+        "rows",
+    ):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _parse_ingredient_spends(payload: Any) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, float | str]] = {}
+    for item in _spend_items(payload):
+        name = _ingredient_name(item)
+        if not name:
+            continue
+        current = merged.setdefault(
+            name,
+            {"ingredient_name": name, "as_fed_kg": 0.0, "dm_kg": 0.0, "cost": 0.0},
+        )
+        current["as_fed_kg"] = float(current["as_fed_kg"]) + _as_fed_kg(item)
+        current["dm_kg"] = float(current["dm_kg"]) + _dm_kg(item)
+        current["cost"] = float(current["cost"]) + _as_float(item.get("cost"))
+    rows = list(merged.values())
+    rows.sort(key=lambda row: float(row["as_fed_kg"]), reverse=True)
+    return rows
+
+
+def _authenticate_farms(
+    db: Session, client: httpx.Client
+) -> tuple[str, list[str]]:
+    access_token = _acquire_access_token(db, client)
+    summary_response = client.get(
+        f"{FEEDLYNC_API_BASE}/farms/summary",
+        headers={"Authorization": f"Bearer {access_token}", "accept": "application/json"},
+    )
+    if summary_response.status_code in (401, 403):
+        raise FeedlyncAuthError(
+            "FeedLync session expired. Use Reconnect FeedLync on the Feed Rate page."
+        )
+    summary_response.raise_for_status()
+    return access_token, _extract_farm_ids(summary_response.json())
+
+
+def fetch_loaded_mix_ingredient_usage(
+    db: Session,
+    *,
+    period_start: dt.date,
+    period_end: dt.date,
+) -> list[dict[str, Any]]:
+    """
+    Fetch Loaded Mixes → By Ingredient totals for a calendar date range.
+
+    Uses loads/ingredientspends (not loads/fedmixes). Weights are kilograms.
+    """
+    from_utc, to_utc = _utc_month_range(period_start, period_end)
+    param_candidates = (
+        {"from": from_utc, "to": to_utc},
+        {"startDate": from_utc, "endDate": to_utc},
+        {"fromDate": from_utc, "toDate": to_utc},
+    )
+    merged: dict[str, dict[str, float | str]] = {}
+
+    with httpx.Client(timeout=120.0) as client:
+        access_token, farm_ids = _authenticate_farms(db, client)
+        for farm_id in farm_ids:
+            response = None
+            last_error: str | None = None
+            for params in param_candidates:
+                response = client.get(
+                    f"{FEEDLYNC_API_BASE}/{_LOADED_MIX_INGREDIENT_PATH}",
+                    headers=_api_headers(access_token, farm_id),
+                    params=params,
+                )
+                if response.status_code in (401, 403):
+                    raise FeedlyncAuthError(
+                        "FeedLync session expired. Use Reconnect FeedLync on the Feed Rate page."
+                    )
+                if response.status_code == 200:
+                    break
+                last_error = f"{response.status_code} {response.text[:300]}"
+            if response is None or response.status_code != 200:
+                raise ValueError(
+                    "Feedlync Loaded Mixes request failed"
+                    + (f": {last_error}" if last_error else "")
+                )
+            for row in _parse_ingredient_spends(response.json()):
+                name = str(row["ingredient_name"])
+                current = merged.setdefault(
+                    name,
+                    {
+                        "ingredient_name": name,
+                        "as_fed_kg": 0.0,
+                        "dm_kg": 0.0,
+                        "cost": 0.0,
+                    },
+                )
+                current["as_fed_kg"] = float(current["as_fed_kg"]) + float(row["as_fed_kg"])
+                current["dm_kg"] = float(current["dm_kg"]) + float(row["dm_kg"])
+                current["cost"] = float(current["cost"]) + float(row["cost"])
+
+    rows = list(merged.values())
+    rows.sort(key=lambda row: float(row["as_fed_kg"]), reverse=True)
+    return rows

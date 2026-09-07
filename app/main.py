@@ -1129,6 +1129,21 @@ def feed_contracts_page(request: Request):
     )
 
 
+@app.get("/feed-rate/usage", response_class=HTMLResponse)
+def feed_usage_page(request: Request):
+    if denied := _page_guard(request, PAGE_FEED_RATE):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "feed_rate/usage.html",
+        _template_ctx(
+            request,
+            page_heading="Feed Usage",
+            **_feed_rate_context("Feed Usage", "feed-usage", "Feed Usage"),
+        ),
+    )
+
+
 @app.get("/feed-rate/connect", response_class=HTMLResponse)
 def feed_rate_connect_page(request: Request):
     if denied := _page_guard(request, PAGE_FEED_RATE):
