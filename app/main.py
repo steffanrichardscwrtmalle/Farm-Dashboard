@@ -1790,6 +1790,7 @@ def sensehub_page(request: Request):
             page_heading="Youngstock Health Report",
             default_threshold=86,
             treated_within_days=None,
+            highlight_low_health=False,
             print_title="Youngstock health",
             empty_message="No animals at or below that health index.",
             **_sensehub_context("Youngstock Health Report", "sensehub", "Youngstock Health Report"),
@@ -1809,6 +1810,7 @@ def sensehub_recently_treated_page(request: Request):
             page_heading="Recently Treated Calves",
             default_threshold=100,
             treated_within_days=7,
+            highlight_low_health=True,
             print_title="Recently treated calves",
             empty_message="No animals at or below that health index treated in the last 7 days.",
             **_sensehub_context(

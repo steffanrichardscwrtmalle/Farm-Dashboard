@@ -79,6 +79,16 @@
       background: #e7f7ed;
     }
     #health-table tbody tr.recent-abx:hover { background: #d5f0df; }
+    #health-table td.low-health {
+      background: #fecaca;
+      color: #7f1d1d;
+      font-weight: 700;
+    }
+    #health-table tbody tr.recent-abx td.low-health,
+    #health-table tbody tr.recent-abx:hover td.low-health,
+    #health-table tbody tr:hover td.low-health {
+      background: #fecaca;
+    }
     .trend {
       display: flex;
       align-items: center;
@@ -284,6 +294,12 @@
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
+      #health-table td.low-health {
+        background: #fecaca !important;
+        color: #7f1d1d !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
       .trend { gap: 1px; }
       .trend-dot {
         width: 5pt;
@@ -426,6 +442,8 @@
   <script>
     const DEFAULT_THRESHOLD = {{ default_threshold | default(86) }};
     const TREATED_WITHIN_DAYS = {{ treated_within_days | tojson }};
+    const HIGHLIGHT_LOW_HEALTH = {{ highlight_low_health | default(false) | tojson }};
+    const LOW_HEALTH_INDEX = 86;
     const thresholdEl = document.getElementById("threshold");
     const applyBtn = document.getElementById("apply-btn");
     const refreshBtn = document.getElementById("refresh-btn");
@@ -729,11 +747,15 @@
             : recentAbx
               ? "Draxxin in the last 7 days"
               : "";
+        const healthValue = Number(row.health_index);
+        const lowHealth = HIGHLIGHT_LOW_HEALTH
+          && Number.isFinite(healthValue)
+          && healthValue < LOW_HEALTH_INDEX;
         return `
         <tr data-id="${row.animal_id}" class="${classes}" title="${title}">
           <td>${row.animal_id}</td>
           <td>${row.etag4 || "—"}</td>
-          <td>${row.health_index ?? "—"}</td>
+          <td class="${lowHealth ? "low-health" : ""}">${row.health_index ?? "—"}</td>
           <td>${trendHtml(row.trend)}</td>
           <td>${row.age_days ?? "—"}</td>
           <td>${row.days_since_last_treatment ?? "—"}</td>
