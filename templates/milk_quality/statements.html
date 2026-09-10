@@ -42,6 +42,28 @@
     .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
     .action-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+    .action-bar .slicer-btn {
+      min-height: 2.2rem;
+      padding: 0.35rem 0.75rem;
+    }
+    #compare-ly-btn {
+      background: #fce7f3;
+      border-color: #f9a8d4;
+      color: #9d174d;
+    }
+    #compare-ly-btn:hover {
+      background: #fbcfe8;
+      border-color: #f472b6;
+      color: #831843;
+    }
+    #compare-ly-btn.selected {
+      background: #db2777;
+      border-color: #be185d;
+      color: #fff;
+    }
+    #stmt-table:not(.show-ly) .ly-col { display: none; }
+    #stmt-table.show-ly td.cmp-up { color: #047857; font-weight: 600; }
+    #stmt-table.show-ly td.cmp-down { color: #b91c1c; font-weight: 600; }
     .import-scope { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 0.8rem; color: var(--muted); }
     .import-scope select { margin: 0; padding: 0.25rem 0.4rem; font-size: 0.8rem; width: auto; }
     .table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
@@ -138,7 +160,8 @@
           Confirmed monthly milk sales from buyer payment statements (Freshways for
           GAD, Dairy Partners for Cwrt Malle). CM milk price is shown net of haulage.
           The fiscal year runs April to March; the Total / Avg row sums litres and
-          shows the litres-weighted average of each quality figure.
+          shows the litres-weighted average of each quality figure. Use Last year
+          to compare litres, price, fat and protein with the same month a year ago.
         </p>
       </aside>
     </div>
@@ -148,6 +171,7 @@
       <p class="meta-line" id="meta-line">Loading…</p>
 
       <div class="action-bar">
+        <button type="button" class="slicer-btn" id="compare-ly-btn" aria-pressed="false">Last year</button>
         {% if can_import %}
         <button type="button" class="small" id="import-btn">Import from email</button>
         <button type="button" class="secondary small" id="upload-btn">Upload PDF</button>
@@ -168,9 +192,13 @@
             <tr>
               <th></th>
               <th>Litres Sold</th>
+              <th class="ly-col">LY Litres</th>
               <th>Price</th>
+              <th class="ly-col">LY Price</th>
               <th>Fat %</th>
+              <th class="ly-col">LY Fat %</th>
               <th>Protein %</th>
+              <th class="ly-col">LY Protein %</th>
               <th>SCC</th>
               <th>Bacto</th>
               <th>Thermo</th>
@@ -194,6 +222,9 @@
   const metaLine = document.getElementById("meta-line");
   const statusMsg = document.getElementById("status-message");
   const tbody = document.getElementById("stmt-body");
+  const stmtTable = document.getElementById("stmt-table");
+  const compareBtn = document.getElementById("compare-ly-btn");
+  let compareLastYear = false;
 
   function showMessage(text, isError) {
     statusMsg.innerHTML = "";
@@ -287,6 +318,21 @@
     return Number(v).toLocaleString("en-GB");
   }
 
+  function cmpClass(current, prior) {
+    if (current === null || current === undefined || current === "") return "";
+    if (prior === null || prior === undefined || prior === "") return "";
+    const a = Number(current);
+    const b = Number(prior);
+    if (isNaN(a) || isNaN(b)) return "";
+    if (a > b) return "cmp-up";
+    if (a < b) return "cmp-down";
+    return "";
+  }
+
+  function colCount() {
+    return compareLastYear ? 13 : 9;
+  }
+
   function selectedFarms() {
     const btns = document.querySelectorAll(".farm-slicer .slicer-btn.selected");
     const farms = [...btns].map((b) => b.dataset.value);
@@ -296,10 +342,14 @@
   function rowCells(row) {
     return `
       <td>${row.month_label || "—"}</td>
-      <td>${fmtInt(row.litres_sold)}</td>
-      <td>${fmtNum(row.milk_price_ppl, 3)}</td>
-      <td>${fmtNum(row.butterfat_pct, 2)}</td>
-      <td>${fmtNum(row.protein_pct, 2)}</td>
+      <td class="${cmpClass(row.litres_sold, row.prior_litres_sold)}">${fmtInt(row.litres_sold)}</td>
+      <td class="ly-col">${fmtInt(row.prior_litres_sold)}</td>
+      <td class="${cmpClass(row.milk_price_ppl, row.prior_milk_price_ppl)}">${fmtNum(row.milk_price_ppl, 2)}</td>
+      <td class="ly-col">${fmtNum(row.prior_milk_price_ppl, 2)}</td>
+      <td class="${cmpClass(row.butterfat_pct, row.prior_butterfat_pct)}">${fmtNum(row.butterfat_pct, 2)}</td>
+      <td class="ly-col">${fmtNum(row.prior_butterfat_pct, 2)}</td>
+      <td class="${cmpClass(row.protein_pct, row.prior_protein_pct)}">${fmtNum(row.protein_pct, 2)}</td>
+      <td class="ly-col">${fmtNum(row.prior_protein_pct, 2)}</td>
       <td>${fmtInt(row.scc)}</td>
       <td>${fmtInt(row.bactoscan)}</td>
       <td>${fmtInt(row.thermoduric)}</td>
@@ -446,10 +496,20 @@
         `${data.farm_label} — ${data.fiscal_year_label} ` +
         `(${data.months_with_data} month(s) with statements)`;
     } catch (err) {
-      tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Failed to load data.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="' + colCount() + '" class="empty-state">Failed to load data.</td></tr>';
       showMessage(err.message || "Load failed", true);
     }
   }
+
+  compareBtn.addEventListener("click", () => {
+    compareLastYear = !compareLastYear;
+    compareBtn.classList.toggle("selected", compareLastYear);
+    compareBtn.setAttribute("aria-pressed", compareLastYear ? "true" : "false");
+    stmtTable.classList.toggle("show-ly", compareLastYear);
+    tbody.querySelectorAll("td.empty-state").forEach((td) => {
+      td.colSpan = colCount();
+    });
+  });
 
   document.querySelectorAll(".farm-slicer .slicer-btn").forEach((btn) => {
     btn.addEventListener("click", () => {

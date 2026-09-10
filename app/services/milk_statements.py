@@ -62,19 +62,42 @@ def _combine(records: Sequence[MilkStatement]) -> dict[str, Any]:
         if field in _INT_FIELDS:
             out[field] = int(round(weighted))
         else:
-            out[field] = round(weighted, 3 if field == "milk_price_ppl" else 2)
+            out[field] = round(weighted, 2)
 
     return out
 
 
-def _month_row(records: Sequence[MilkStatement], month_start: dt.date) -> dict[str, Any]:
+_PRIOR_FIELDS = (
+    ("litres_sold", "prior_litres_sold"),
+    ("milk_price_ppl", "prior_milk_price_ppl"),
+    ("butterfat_pct", "prior_butterfat_pct"),
+    ("protein_pct", "prior_protein_pct"),
+)
+
+
+def _prior_month(month_start: dt.date) -> dt.date:
+    return month_start.replace(year=month_start.year - 1)
+
+
+def _attach_prior(row: dict[str, Any], prior_records: Sequence[MilkStatement]) -> dict[str, Any]:
+    prior = _combine(prior_records)
+    for src, dest in _PRIOR_FIELDS:
+        row[dest] = prior.get(src)
+    return row
+
+
+def _month_row(
+    records: Sequence[MilkStatement],
+    month_start: dt.date,
+    prior_records: Sequence[MilkStatement] | None = None,
+) -> dict[str, Any]:
     row: dict[str, Any] = {
         "month_label": month_start.strftime("%b-%y"),
         "statement_month": month_start.isoformat(),
         "has_data": bool(records),
     }
     row.update(_combine(records))
-    return row
+    return _attach_prior(row, prior_records or [])
 
 
 def _normalise_farms(farms: Sequence[str] | None) -> list[str]:
@@ -122,15 +145,24 @@ def list_milk_statements(
 
     fy_start, fy_end = _fiscal_year_calendar_bounds(fiscal_year)
     months = _iter_month_starts(fy_start, fy_end)
-    rows = [_month_row(by_month.get(m, []), m) for m in months]
+    rows = [
+        _month_row(by_month.get(m, []), m, by_month.get(_prior_month(m), []))
+        for m in months
+    ]
 
     year_records = [r for m in months for r in by_month.get(m, [])]
-    total = {
-        "month_label": "Total / Avg",
-        "statement_month": None,
-        "is_total": True,
-        **_combine(year_records),
-    }
+    prior_year_records = [
+        r for m in months for r in by_month.get(_prior_month(m), [])
+    ]
+    total = _attach_prior(
+        {
+            "month_label": "Total / Avg",
+            "statement_month": None,
+            "is_total": True,
+            **_combine(year_records),
+        },
+        prior_year_records,
+    )
 
     multi = len(selected_farms) > 1
     if multi:
