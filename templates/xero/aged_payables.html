@@ -474,11 +474,12 @@
   <div id="payments-modal" class="part-pay-modal" hidden>
     <div class="part-pay-modal-backdrop" data-payments-close="1"></div>
     <div class="part-pay-modal-body payments-modal-body" role="dialog" aria-modal="true" aria-labelledby="payments-title">
-      <h3 id="payments-title">Payments since last Xero sync</h3>
-      <p class="muted" id="payments-meta">Local payments are cleared the next time invoices are synced from Xero.</p>
+      <h3 id="payments-title">Local payments</h3>
+      <p class="muted" id="payments-meta">These stay on the grid until you clear them, including after a Xero download.</p>
       <div class="payments-list-wrap" id="payments-list-wrap"></div>
       <p class="payments-total" id="payments-total"></p>
       <div class="part-pay-actions">
+        <button type="button" class="danger" id="payments-clear" hidden>Clear payments</button>
         <button type="button" class="secondary" id="payments-close">Close</button>
       </div>
     </div>
@@ -843,14 +844,17 @@
       return paidState.byView[view];
     }
 
-    function reconcilePaidWithSync(data) {
+    function clearLocalPayments() {
       const view = selectedView();
-      const synced = data.last_synced_at || "";
-      const bucket = viewPaidBucket(view);
-      if (bucket.lastSyncedAt !== synced) {
-        paidState.byView[view] = { lastSyncedAt: synced, paid: {}, entries: [] };
-        savePaidState();
-      }
+      const previous = viewPaidBucket(view);
+      paidState.byView[view] = {
+        lastSyncedAt: previous.lastSyncedAt || "",
+        paid: {},
+        entries: [],
+      };
+      savePaidState();
+      if (tableData) renderTable(tableData);
+      else updatePaymentsUi();
     }
 
     function migrateRolledPaid(data) {
@@ -991,6 +995,8 @@
       const btn = document.getElementById("payments-btn");
       btn.hidden = !entries.length;
       btn.textContent = entries.length === 1 ? "Payments (1)" : `Payments (${entries.length})`;
+      const clearBtn = document.getElementById("payments-clear");
+      if (clearBtn) clearBtn.hidden = !entries.length;
       const modal = document.getElementById("payments-modal");
       if (modal && !modal.hidden) renderPaymentsList();
     }
@@ -1004,7 +1010,7 @@
         ? `Total paid locally ${formatMoney(total)}`
         : "";
       if (!entries.length) {
-        wrap.innerHTML = `<p class="payments-empty">No local payments since the last Xero sync.</p>`;
+        wrap.innerHTML = `<p class="payments-empty">No local payments.</p>`;
         return;
       }
       wrap.innerHTML = `
@@ -1146,6 +1152,42 @@
         if (selected) set.add(id);
         else set.delete(id);
       });
+    }
+
+    function pruneZeroToPaySelections(data) {
+      const set = selectionSet(selectedView());
+      const byKey = new Map();
+      const byFolded = new Map();
+      (data?.contacts || []).forEach((row) => {
+        keysForRow(row).forEach((key) => byKey.set(key, row));
+        const folded = String(row.contact || "").trim().toLowerCase();
+        if (folded) byFolded.set(folded, row);
+      });
+      let changed = false;
+      [...set].forEach((id) => {
+        const sep = id.indexOf("\t");
+        if (sep < 0) {
+          set.delete(id);
+          changed = true;
+          return;
+        }
+        const key = id.slice(0, sep);
+        const monthKey = id.slice(sep + 1);
+        let row = byKey.get(key);
+        if (!row && !String(key).startsWith(CONTACT_ID_PREFIX)) {
+          row = byFolded.get(String(key).trim().toLowerCase());
+        }
+        const remaining = Math.abs(Number((row?.amounts || {})[monthKey] || 0));
+        if (row && remaining >= 0.005) return;
+        if (row) {
+          identityKeys(row.contact, contactIdsFromRow(row)).forEach((identity) => {
+            if (set.delete(cellId(identity, monthKey))) changed = true;
+          });
+        }
+        if (set.delete(id)) changed = true;
+      });
+      if (changed) schedulePersistMarks();
+      return changed;
     }
 
     function bindMarksToContacts(data) {
@@ -1382,11 +1424,11 @@
     function renderTable(data) {
       tableData = data;
       bindMarksToContacts(data);
-      reconcilePaidWithSync(data);
       migrateRolledSelections(data);
       migrateRolledPaid(data);
       updatePaymentsUi();
       const display = applyLocalPayments(data);
+      pruneZeroToPaySelections(display);
       if (!rowOrder) lockRowOrder(sortedContacts(display));
       const table = document.getElementById("aged-table");
       const empty = document.getElementById("empty-note");
@@ -1402,7 +1444,7 @@
       const meta = document.getElementById("meta-line");
       const query = contactQuery();
       const allToPay = contacts.reduce((sum, row) => sum + rowToPay(row, dates), 0);
-      const localNote = hasLocalPayments() ? " Local payments are applied until the next Xero sync." : "";
+      const localNote = hasLocalPayments() ? " Local payments are applied until you clear them." : "";
       meta.textContent = last
         ? `${display.business_label}: ${Number(display.contact_count || 0).toLocaleString("en-GB")} contacts · ${Number(data.invoice_count || 0).toLocaleString("en-GB")} outstanding bills. Last sync ${last}. Click amounts for To Pay; right-click an amount to pay (full or part); click a contact for critical (red) then standing order (blue).${localNote}`
         : `${display.business_label}: no synced bills yet. Sync invoices from Connection first.`;
@@ -1412,7 +1454,7 @@
         empty.hidden = false;
         empty.textContent = last
           ? (hasLocalPayments()
-            ? "No remaining supplier bills for this view. Local payments will clear on the next Xero sync."
+            ? "No remaining supplier bills for this view. Clear local payments to show amounts again."
             : "No outstanding supplier bills for this view.")
           : "Sync invoices from Connection, then return here.";
         updateToPayWidget(0, 0);
@@ -1453,8 +1495,8 @@
         const cells = dates.map((key) => {
           const n = Number(amounts[key] || 0);
           const neg = n < 0 ? " neg" : "";
-          const selected = !standingOrder && isSelected(row.contact, key, ids) ? " selected" : "";
           const hasAmount = Math.abs(n) >= 0.005;
+          const selected = !standingOrder && hasAmount && isSelected(row.contact, key, ids) ? " selected" : "";
           const clickable = !standingOrder && hasAmount ? " pay-cell" : "";
           const monthClass = hasAmount ? " month-cell" : "";
           let title = "";
@@ -1709,6 +1751,9 @@
     document.getElementById("payments-btn").addEventListener("click", () => {
       hidePayMenu();
       showPaymentsModal();
+    });
+    document.getElementById("payments-clear").addEventListener("click", () => {
+      clearLocalPayments();
     });
     document.getElementById("payments-close").addEventListener("click", hidePaymentsModal);
     document.querySelectorAll("[data-payments-close]").forEach((el) => {

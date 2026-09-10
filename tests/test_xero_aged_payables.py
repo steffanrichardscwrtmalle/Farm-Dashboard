@@ -336,3 +336,44 @@ def test_colour_marks_follow_contact_id_after_rename(db: Session) -> None:
     assert stored["contact_status"]["GAD"]["id:cid-wynnstay"] == "critical"
     assert "id:cid-wynnstay\t2026-01-01" in stored["selections"]["GAD"]
 
+
+def test_prune_zero_selections_clears_paid_cells() -> None:
+    from app.services.xero_aged_payable_marks import is_selected, prune_zero_selections
+
+    payload = {
+        "contact_status": {"GAD": {"Wynnstay": "critical"}},
+        "selections": {
+            "GAD": [
+                "Wynnstay\t2026-01-01",
+                "id:cid-wynnstay\t2026-01-01",
+                "Wynnstay\t2026-03-01",
+                "Prostock\t2026-01-01",
+            ]
+        },
+    }
+    contacts = [
+        {
+            "contact": "Wynnstay",
+            "contact_ids": ["cid-wynnstay"],
+            "amounts": {"2026-03-01": 50.0},
+        }
+    ]
+    pruned, changed = prune_zero_selections(payload, contacts)
+    assert changed
+    assert pruned["contact_status"]["GAD"]["Wynnstay"] == "critical"
+    assert pruned["selections"]["GAD"] == ["Wynnstay\t2026-03-01"]
+    assert not is_selected(
+        pruned,
+        view="GAD",
+        contact="Wynnstay",
+        month_key="2026-01-01",
+        contact_ids=["cid-wynnstay"],
+    )
+    assert is_selected(
+        pruned,
+        view="GAD",
+        contact="Wynnstay",
+        month_key="2026-03-01",
+        contact_ids=["cid-wynnstay"],
+    )
+

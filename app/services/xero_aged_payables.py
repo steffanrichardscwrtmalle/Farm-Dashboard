@@ -135,8 +135,8 @@ def apply_local_payments(
 ) -> dict[str, Any]:
     """Hide locally paid amounts from an aged-payables payload.
 
-    `payments` is keyed by ``contact\\tmonth`` with the paid amount. This overlay
-    is discarded after a Xero refresh; the caller decides when to clear it.
+    `payments` is keyed by ``contact\\tmonth`` with the paid amount. The overlay
+    stays until the caller clears it.
     """
     paid = payments or {}
     dates = list(result.get("months") or [])

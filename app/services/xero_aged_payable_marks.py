@@ -13,6 +13,7 @@ from app.models import XeroAgedPayableMarks
 CONTACT_ID_PREFIX = "id:"
 FARM_SCOPE = "farm"
 _VALID_STATUS = frozenset({"critical", "standing_order"})
+_AMOUNT_EPS = 0.00499
 
 
 def empty_payload() -> dict[str, Any]:
@@ -188,6 +189,52 @@ def bind_marks_to_contacts(
                         selected.append(cell)
                         selected_set.add(cell)
                         changed = True
+    return merged, changed
+
+
+def prune_zero_selections(
+    payload: Any,
+    contacts: list[dict[str, Any]] | None,
+) -> tuple[dict[str, Any], bool]:
+    """Drop To Pay marks for paid-off cells and contacts that have left the grid."""
+    merged = normalize_payload(payload)
+    key_to_row: dict[str, dict[str, Any]] = {}
+    folded_to_row: dict[str, dict[str, Any]] = {}
+    for row in contacts or []:
+        name = str(row.get("contact") or "").strip()
+        ids = [str(item).strip() for item in (row.get("contact_ids") or []) if str(item).strip()]
+        if row.get("contact_id"):
+            contact_id = str(row.get("contact_id") or "").strip()
+            if contact_id and contact_id not in ids:
+                ids.append(contact_id)
+        for key in contact_keys(name, ids):
+            key_to_row[key] = row
+        if name:
+            folded_to_row[name.casefold()] = row
+
+    changed = False
+    pruned: dict[str, list[str]] = {}
+    for view, selected in merged["selections"].items():
+        kept: list[str] = []
+        for item in selected:
+            sep = item.find("\t")
+            if sep < 0:
+                changed = True
+                continue
+            key, month = item[:sep], item[sep + 1 :]
+            row = key_to_row.get(key)
+            if row is None and not key.startswith(CONTACT_ID_PREFIX):
+                row = folded_to_row.get(key.strip().casefold())
+            remaining = abs(float(((row or {}).get("amounts") or {}).get(month) or 0.0))
+            if row is None or remaining <= _AMOUNT_EPS:
+                changed = True
+                continue
+            kept.append(item)
+        if kept:
+            pruned[view] = kept
+        elif selected:
+            changed = True
+    merged["selections"] = pruned
     return merged, changed
 
 
