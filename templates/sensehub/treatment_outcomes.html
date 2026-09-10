@@ -1,0 +1,1157 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(180px, 15rem) minmax(0, 1fr);
+      gap: 1.25rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .page-layout { grid-template-columns: 1fr; }
+    }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-child { margin-bottom: 0; }
+    .section-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.4rem;
+    }
+    .slicer-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+    }
+    .slicer-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.25rem;
+      min-height: 3rem;
+      padding: 0.45rem 0.35rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .slicer-btn .slicer-icon {
+      width: 1.4rem;
+      height: 1.4rem;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #e5e7eb;
+      font-size: 0.75rem;
+    }
+    .slicer-btn[data-value="CM"].selected {
+      background: #dceaf7;
+      border-color: #5a9fd4;
+      color: #1e3a5f;
+    }
+    .slicer-btn[data-value="CM"].selected .slicer-icon {
+      background: #9ec5e8;
+      color: #1e3a5f;
+    }
+    .slicer-btn[data-value="GAD"].selected {
+      background: #ffecd9;
+      border-color: #ffb366;
+      color: #b45309;
+    }
+    .slicer-btn[data-value="GAD"].selected .slicer-icon {
+      background: #ffc285;
+      color: #b45309;
+    }
+    .slicer-btn[data-value="dairy"].selected {
+      background: #e8f5e9;
+      border-color: #2ca02c;
+      color: #1b5e20;
+    }
+    .slicer-btn[data-value="dairy"].selected .slicer-icon {
+      background: #a5d6a7;
+      color: #1b5e20;
+    }
+    .slicer-btn[data-value="beef"].selected {
+      background: #f5e6d3;
+      border-color: #8B4513;
+      color: #5c2e0a;
+    }
+    .slicer-btn[data-value="beef"].selected .slicer-icon {
+      background: #c9a66b;
+      color: #5c2e0a;
+    }
+    .date-inputs,
+    .filter-selects {
+      display: grid;
+      gap: 0.45rem;
+    }
+    .date-inputs label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+    }
+    .date-inputs input[type="range"] { width: 100%; margin: 0; }
+    .date-inputs .month-label {
+      font-weight: 600;
+      min-width: 4.5rem;
+      text-align: right;
+    }
+    .filter-selects label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .filter-selects select {
+      margin: 0;
+      width: 100%;
+    }
+    .filter-select { width: 100%; margin: 0; }
+    .product-filter {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin: 0;
+      padding: 0;
+      border: none;
+    }
+    .product-filter label {
+      font-size: 0.875rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .product-filter .count {
+      color: var(--muted);
+      font-size: 0.75rem;
+    }
+    .tick-dropdown { position: relative; width: 100%; }
+    .tick-trigger {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem;
+      margin: 0;
+      padding: 0.45rem 0.6rem;
+      font-size: 0.875rem;
+      text-align: left;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .tick-trigger-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .tick-chevron { flex-shrink: 0; font-size: 0.7rem; opacity: 0.7; }
+    .tick-panel {
+      position: absolute;
+      z-index: 40;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 16rem;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+      padding: 0.35rem 0;
+    }
+    .tick-option {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.3rem 0.65rem;
+      font-size: 0.8125rem;
+      cursor: pointer;
+      margin: 0;
+    }
+    .tick-option:hover { background: rgba(0, 0, 0, 0.04); }
+    .tick-option input { margin: 0; flex-shrink: 0; }
+    .tick-option-all {
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.45rem;
+      margin-bottom: 0.2rem;
+    }
+    .tick-option .count { color: var(--muted); font-size: 0.75rem; }
+    .filter-actions button { width: 100%; margin: 0; }
+    .content-panel { min-width: 0; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin: 0 0 0.75rem; }
+    .note-line { color: var(--muted); font-size: 0.8rem; margin: 0.4rem 0 1rem; }
+    .chart-card,
+    .table-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.1rem 0.85rem;
+      margin-bottom: 1rem;
+    }
+    .chart-card h3,
+    .table-card h3 {
+      margin: 0 0 0.65rem;
+      font-size: 1rem;
+    }
+    .chart-wrap { position: relative; height: 360px; }
+    .summary-table,
+    .unrecovered-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .summary-table th,
+    .summary-table td,
+    .unrecovered-table th,
+    .unrecovered-table td {
+      padding: 0.45rem 0.55rem;
+      border-bottom: 1px solid var(--border);
+      text-align: center;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+    .summary-table th,
+    .unrecovered-table th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+    }
+    .summary-table td:first-child,
+    .unrecovered-table td:first-child,
+    .summary-table th:first-child,
+    .unrecovered-table th:first-child { text-align: left; }
+    .summary-table tr.total-row { font-weight: 700; background: #f3f4f6; }
+    .table-wrap { overflow: auto; max-width: 100%; }
+    .unrecovered-table tbody tr { cursor: pointer; }
+    .unrecovered-table tbody tr:hover { background: #eef6fb; }
+    .empty-state { padding: 0.75rem 0; color: var(--muted); text-align: center; }
+    .drawer {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.75rem;
+    }
+    .drawer[hidden] { display: none; }
+    .drawer-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+    }
+    .drawer-panel {
+      position: relative;
+      width: min(96vw, 1100px);
+      max-height: calc(100vh - 1.5rem);
+      background: var(--card);
+      overflow: auto;
+      padding: 1.25rem 1.5rem;
+      border-radius: 10px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.25);
+    }
+    .drawer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin: 0 0 0.5rem;
+    }
+    .drawer-panel h2 { margin: 0; font-size: 1.15rem; }
+    .drawer-close {
+      width: 2.5rem;
+      height: 2.5rem;
+      padding: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+      gap: 0.6rem;
+      margin: 0.75rem 0 1rem;
+    }
+    .detail-grid div { background: #f3f4f6; border-radius: 6px; padding: 0.5rem 0.65rem; }
+    .detail-grid .label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; }
+    .detail-grid .value { font-weight: 700; }
+    #events-table { width: 100%; border-collapse: collapse; }
+    #events-table th, #events-table td {
+      padding: 0.4rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      font-size: 0.875rem;
+    }
+    #events-table th { background: #f3f4f6; }
+    @media (max-width: 768px) {
+      .drawer { padding: 0; }
+      .drawer-panel {
+        width: 100%;
+        height: 100%;
+        max-height: none;
+        border-radius: 0;
+      }
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="page-layout">
+    <aside class="filter-panel">
+      <h2>Filters</h2>
+      <div class="filter-section">
+        <span class="section-label">Farm</span>
+        <div class="slicer-group farm-slicer" role="group" aria-label="Farm">
+          {% for farm in farm_options %}
+          <button type="button" class="slicer-btn selected" data-value="{{ farm }}" aria-pressed="true">
+            <span class="slicer-icon" aria-hidden="true">{{ farm[0] }}</span>
+            {{ farm }}
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="filter-section">
+        <span class="section-label">Breed</span>
+        <div class="slicer-group breed-slicer" role="group" aria-label="Breed">
+          <button type="button" class="slicer-btn selected" data-value="dairy" aria-pressed="true">
+            <span class="slicer-icon" aria-hidden="true">D</span>
+            Dairy
+          </button>
+          <button type="button" class="slicer-btn" data-value="beef" aria-pressed="false">
+            <span class="slicer-icon" aria-hidden="true">B</span>
+            Beef
+          </button>
+        </div>
+      </div>
+      <div class="filter-section">
+        <span class="section-label">Fiscal year</span>
+        <select id="fiscal-year-select" class="filter-select">
+          <option value="any">Any</option>
+        </select>
+      </div>
+      <div class="filter-section">
+        <span class="section-label">Treatment date range</span>
+        <div class="date-inputs">
+          <label>
+            From
+            <span class="month-label" id="min-date-label">—</span>
+          </label>
+          <input type="range" id="min-date-range" min="0" max="0" value="0">
+          <label>
+            To
+            <span class="month-label" id="max-date-label">—</span>
+          </label>
+          <input type="range" id="max-date-range" min="0" max="0" value="0">
+        </div>
+      </div>
+      <div class="filter-section">
+        <div class="filter-selects">
+          <label>Starting health
+            <select id="starting-band">
+              <option value="">All bands</option>
+              <option value="low">Low (&lt;80)</option>
+              <option value="watch">Watch (80–84)</option>
+              <option value="moderate">Moderate (85–89)</option>
+              <option value="healthy">Healthy (≥90)</option>
+            </select>
+          </label>
+          <label>Age at treatment
+            <select id="age-band">
+              <option value="">All ages</option>
+              <option value="under_3w">Under 3 weeks</option>
+              <option value="3_to_8w">3–8 weeks</option>
+              <option value="over_8w">Over 8 weeks</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="filter-section">
+        <span class="section-label">Event count</span>
+        <div class="tick-dropdown" id="event-count-dropdown">
+          <button type="button" class="tick-trigger" id="event-count-trigger" aria-expanded="false" aria-haspopup="listbox">
+            <span class="tick-trigger-label" id="event-count-trigger-label">All</span>
+            <span class="tick-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div class="tick-panel" id="event-count-panel" hidden>
+            <p class="meta-line" style="padding:0.35rem 0.65rem;margin:0;">Loading…</p>
+          </div>
+        </div>
+      </div>
+      <div class="filter-section">
+        <span class="section-label">Product</span>
+        <fieldset class="product-filter" id="product-filter">
+          <label>
+            <input type="checkbox" class="product-cb" value="draxxin">
+            Draxxin <span class="count" data-product="draxxin"></span>
+          </label>
+          <label>
+            <input type="checkbox" class="product-cb" value="fenflor">
+            Fenflor <span class="count" data-product="fenflor"></span>
+          </label>
+          <label>
+            <input type="checkbox" class="product-cb" value="other">
+            Other <span class="count" data-product="other"></span>
+          </label>
+        </fieldset>
+      </div>
+      <div class="filter-section filter-actions">
+        <button type="button" id="apply-btn">Show outcomes</button>
+      </div>
+    </aside>
+
+    <div class="content-panel">
+      <p class="meta-line" id="meta-line">Loading…</p>
+      <div class="chart-card">
+        <h3>Mean health index after respiratory treatment</h3>
+        <div class="chart-wrap">
+          <canvas id="recovery-chart"></canvas>
+        </div>
+        <p class="note-line">
+          Day 0 is the first counted RESP event in the episode (repeats within 7 days are ignored).
+          Daily score is the average of the four locked SenseHub slots. Recovery is two days in a row at 85 or above.
+          Products with 50 or fewer episodes are unticked until you select them.
+          Event count is the calf’s lifetime RESP episode (1st, 2nd, …), not the count inside this date range.
+        </p>
+        <p class="empty-state" id="chart-empty" hidden>No treated calves with health scores in this range.</p>
+      </div>
+
+      <div class="table-card">
+        <h3>Results by product</h3>
+        <div class="table-wrap">
+          <table class="summary-table" id="summary-table">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Episodes</th>
+                <th>Median days to ≥85</th>
+                <th>Recovered by day 7</th>
+                <th>Recovered by day 14</th>
+                <th>Relapsed by day 21</th>
+                <th>Died / sold</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty-state" id="summary-empty" hidden>No episodes to summarise.</p>
+      </div>
+
+      <div class="table-card">
+        <h3>Not recovered by day 14</h3>
+        <p class="note-line" id="unrecovered-meta">Calves that still had a health index below 85 after two weeks, and did not leave the herd.</p>
+        <div class="table-wrap">
+          <table class="unrecovered-table" id="unrecovered-table">
+            <thead>
+              <tr>
+                <th>Animal ID</th>
+                <th>ETAG4</th>
+                <th>Farm</th>
+                <th>Breed</th>
+                <th>Treated</th>
+                <th>Tx</th>
+                <th>Product</th>
+                <th>Age</th>
+                <th>Start HI</th>
+                <th>Day 14 HI</th>
+                <th>Remark</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty-state" id="unrecovered-empty" hidden>No unrecovered episodes in this range.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer" id="drawer" hidden>
+    <div class="drawer-backdrop" id="drawer-backdrop"></div>
+    <aside class="drawer-panel">
+      <div class="drawer-header">
+        <h2 id="detail-title">Calf</h2>
+        <button type="button" class="drawer-close" id="drawer-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="detail-grid" id="detail-grid"></div>
+      <div class="chart-card">
+        <h3>Health around this treatment</h3>
+        <div class="chart-wrap" style="height: 240px;">
+          <canvas id="episode-chart"></canvas>
+        </div>
+      </div>
+      <table id="events-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Event</th>
+            <th>Remark</th>
+            <th>Protocols</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p class="empty-state" id="events-empty" hidden>No DairyComp events since birth.</p>
+    </aside>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script>
+    const DEFAULT_MONTH_SPAN = 3;
+    const PRODUCT_COLORS = {
+      draxxin: "#0f766e",
+      fenflor: "#c2410c",
+      other: "#64748b",
+    };
+    const startingBandEl = document.getElementById("starting-band");
+    const ageBandEl = document.getElementById("age-band");
+    const fiscalYearEl = document.getElementById("fiscal-year-select");
+    const applyBtn = document.getElementById("apply-btn");
+    const metaEl = document.getElementById("meta-line");
+    const chartEmpty = document.getElementById("chart-empty");
+    const summaryBody = document.querySelector("#summary-table tbody");
+    const summaryEmpty = document.getElementById("summary-empty");
+    const unrecoveredBody = document.querySelector("#unrecovered-table tbody");
+    const unrecoveredEmpty = document.getElementById("unrecovered-empty");
+    const drawer = document.getElementById("drawer");
+    const detailTitle = document.getElementById("detail-title");
+    const detailGrid = document.getElementById("detail-grid");
+    const eventsBody = document.querySelector("#events-table tbody");
+    const eventsEmpty = document.getElementById("events-empty");
+    let recoveryChart = null;
+    let episodeChart = null;
+    let unrecovered = [];
+    let monthList = [];
+    let dateBoundsInitialized = false;
+    let productsInitialized = false;
+    let fiscalYearInitialized = false;
+    let lastFiscalYear = null;
+    let eventCountOptions = [];
+    let selectedEventCountSet = null;
+
+    function parseIsoDate(iso) {
+      const [year, month, day] = String(iso).split("-").map(Number);
+      return new Date(year, month - 1, day);
+    }
+
+    function toIsoDate(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function lastDayOfMonth(date) {
+      return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    }
+
+    function formatMonthLabel(date) {
+      const mon = date.toLocaleDateString("en-GB", { month: "short" });
+      const year = String(date.getFullYear()).slice(-2);
+      return `${mon}-${year}`;
+    }
+
+    function buildMonthList(minIso, maxIso) {
+      const months = [];
+      let current = parseIsoDate(minIso);
+      current = new Date(current.getFullYear(), current.getMonth(), 1);
+      const end = parseIsoDate(maxIso);
+      const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
+      while (current <= endMonth) {
+        months.push(new Date(current));
+        current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+      }
+      return months;
+    }
+
+    function updateDateLabels() {
+      const minIdx = parseInt(document.getElementById("min-date-range").value, 10);
+      const maxIdx = parseInt(document.getElementById("max-date-range").value, 10);
+      document.getElementById("min-date-label").textContent =
+        monthList[minIdx] ? formatMonthLabel(monthList[minIdx]) : "—";
+      document.getElementById("max-date-label").textContent =
+        monthList[maxIdx] ? formatMonthLabel(monthList[maxIdx]) : "—";
+    }
+
+    function defaultSliderIndices(maxIdx, dateFrom, dateTo) {
+      let lo = findMonthIndex(dateFrom);
+      let hi = findMonthIndex(dateTo);
+      if (lo >= 0 && hi >= 0) {
+        if (lo > hi) [lo, hi] = [hi, lo];
+        return { minIdx: lo, maxIdx: hi };
+      }
+      const now = new Date();
+      const thisMonthIso = toIsoDate(new Date(now.getFullYear(), now.getMonth(), 1));
+      hi = monthList.findIndex((month) => toIsoDate(month) === thisMonthIso);
+      if (hi < 0) {
+        const first = monthList[0];
+        hi = first && now < first ? Math.min(DEFAULT_MONTH_SPAN - 1, maxIdx) : maxIdx;
+      }
+      return { minIdx: Math.max(0, hi - (DEFAULT_MONTH_SPAN - 1)), maxIdx: hi };
+    }
+
+    function monthStartIso(isoDate) {
+      if (!isoDate) return null;
+      return `${String(isoDate).slice(0, 7)}-01`;
+    }
+
+    function findMonthIndex(isoDate) {
+      const target = monthStartIso(isoDate);
+      if (!target) return -1;
+      return monthList.findIndex((month) => toIsoDate(month) === target);
+    }
+
+    function syncDateControls(dateBounds, resetValues, preferredFrom, preferredTo) {
+      if (!dateBounds?.min || !dateBounds?.max) return;
+      let preserveFrom = null;
+      let preserveTo = null;
+      if (!resetValues && monthList.length) {
+        const current = currentDateRangeParams();
+        preserveFrom = current.date_from;
+        preserveTo = current.date_to;
+      }
+      monthList = buildMonthList(dateBounds.min, dateBounds.max);
+      const maxIdx = Math.max(0, monthList.length - 1);
+      const minRange = document.getElementById("min-date-range");
+      const maxRange = document.getElementById("max-date-range");
+      minRange.min = 0;
+      minRange.max = maxIdx;
+      maxRange.min = 0;
+      maxRange.max = maxIdx;
+      if (resetValues) {
+        const { minIdx, maxIdx: hi } = defaultSliderIndices(maxIdx, preferredFrom, preferredTo);
+        minRange.value = minIdx;
+        maxRange.value = hi;
+      } else if (preserveFrom && preserveTo) {
+        let lo = findMonthIndex(preserveFrom);
+        let hi = findMonthIndex(preserveTo);
+        if (lo < 0) lo = 0;
+        if (hi < 0) hi = maxIdx;
+        if (lo > hi) [lo, hi] = [hi, lo];
+        minRange.value = lo;
+        maxRange.value = hi;
+      } else {
+        minRange.value = Math.min(parseInt(minRange.value, 10) || 0, maxIdx);
+        maxRange.value = Math.min(parseInt(maxRange.value, 10) || maxIdx, maxIdx);
+      }
+      updateDateLabels();
+    }
+
+    function currentDateRangeParams() {
+      const minIdx = parseInt(document.getElementById("min-date-range").value, 10);
+      const maxIdx = parseInt(document.getElementById("max-date-range").value, 10);
+      let lo = Number.isNaN(minIdx) ? 0 : minIdx;
+      let hi = Number.isNaN(maxIdx) ? Math.max(0, monthList.length - 1) : maxIdx;
+      if (lo > hi) [lo, hi] = [hi, lo];
+      const startMonth = monthList[lo];
+      const endMonth = monthList[hi];
+      if (!startMonth || !endMonth) return {};
+      return {
+        date_from: toIsoDate(startMonth),
+        date_to: toIsoDate(lastDayOfMonth(endMonth)),
+      };
+    }
+
+    function selectedFiscalYear() {
+      return fiscalYearEl.value || "any";
+    }
+
+    function renderFiscalYearOptions(options, selected) {
+      const years = (options || []).map(Number).filter((year) => Number.isFinite(year));
+      const current = selected == null
+        ? (fiscalYearInitialized ? selectedFiscalYear() : (years[0] != null ? String(years[0]) : "any"))
+        : String(selected);
+      fiscalYearEl.innerHTML = '<option value="any">Any</option>' +
+        years.map((year) => `<option value="${year}">${year}</option>`).join("");
+      if (current && current !== "any" && years.includes(Number(current))) {
+        fiscalYearEl.value = current;
+      } else if (current === "any") {
+        fiscalYearEl.value = "any";
+      } else if (years.length) {
+        fiscalYearEl.value = String(years[0]);
+      } else {
+        fiscalYearEl.value = "any";
+      }
+    }
+
+    function selectedFarms() {
+      return [...document.querySelectorAll(".farm-slicer .slicer-btn.selected")]
+        .map((btn) => btn.dataset.value)
+        .filter(Boolean);
+    }
+
+    function selectedBreeds() {
+      return [...document.querySelectorAll(".breed-slicer .slicer-btn.selected")]
+        .map((btn) => btn.dataset.value)
+        .filter(Boolean);
+    }
+
+    function selectedProducts() {
+      return [...document.querySelectorAll(".product-cb:checked")].map((box) => box.value);
+    }
+
+    function allEventCountsSelected() {
+      return selectedEventCountSet === null;
+    }
+
+    function selectedEventCounts() {
+      if (selectedEventCountSet === null) {
+        return eventCountOptions.map((item) => item.id);
+      }
+      return eventCountOptions.filter((item) => selectedEventCountSet.has(item.id)).map((item) => item.id);
+    }
+
+    function updateEventCountTriggerLabel() {
+      const label = document.getElementById("event-count-trigger-label");
+      if (!label) return;
+      if (!eventCountOptions.length) {
+        label.textContent = "None";
+        return;
+      }
+      if (allEventCountsSelected()) {
+        label.textContent = "All";
+        return;
+      }
+      const selected = selectedEventCounts();
+      if (!selected.length) {
+        label.textContent = "None";
+        return;
+      }
+      if (selected.length === 1) {
+        const match = eventCountOptions.find((item) => item.id === selected[0]);
+        label.textContent = match ? match.label : "1 selected";
+        return;
+      }
+      label.textContent = `${selected.length} selected`;
+    }
+
+    function renderEventCountOptions() {
+      const panel = document.getElementById("event-count-panel");
+      if (!panel) return;
+      if (!eventCountOptions.length) {
+        panel.innerHTML = '<p class="meta-line" style="padding:0.35rem 0.65rem;margin:0;">No treatments in range</p>';
+        updateEventCountTriggerLabel();
+        return;
+      }
+      const allChecked = allEventCountsSelected();
+      const optionsHtml = eventCountOptions.map((item) => {
+        const checked = selectedEventCountSet === null || selectedEventCountSet.has(item.id);
+        const count = item.episodes != null ? ` <span class="count">(${item.episodes})</span>` : "";
+        return `
+          <label class="tick-option">
+            <input type="checkbox" class="event-count-cb" value="${item.id}" ${checked ? "checked" : ""}>
+            <span>${item.label}${count}</span>
+          </label>
+        `;
+      }).join("");
+      panel.innerHTML = `
+        <label class="tick-option tick-option-all">
+          <input type="checkbox" id="event-count-all-cb" ${allChecked ? "checked" : ""}>
+          <span>All</span>
+        </label>
+        ${optionsHtml}
+      `;
+      updateEventCountTriggerLabel();
+    }
+
+    function syncEventCountOptions(options) {
+      const nextOptions = Array.isArray(options) ? options.slice() : [];
+      const prevSelected = selectedEventCounts();
+      eventCountOptions = nextOptions;
+      if (!eventCountOptions.length) {
+        selectedEventCountSet = new Set();
+      } else if (selectedEventCountSet === null) {
+        // Keep all selected.
+      } else {
+        const allowed = new Set(eventCountOptions.map((item) => item.id));
+        const kept = prevSelected.filter((id) => allowed.has(id));
+        if (!kept.length || kept.length === eventCountOptions.length) {
+          selectedEventCountSet = kept.length === eventCountOptions.length ? null : new Set();
+        } else {
+          selectedEventCountSet = new Set(kept);
+        }
+      }
+      renderEventCountOptions();
+    }
+
+    function bindEventCountDropdown() {
+      const dropdown = document.getElementById("event-count-dropdown");
+      const trigger = document.getElementById("event-count-trigger");
+      const panel = document.getElementById("event-count-panel");
+      if (!dropdown || !trigger || !panel) return;
+      trigger.addEventListener("click", () => {
+        panel.hidden = !panel.hidden;
+        trigger.setAttribute("aria-expanded", panel.hidden ? "false" : "true");
+      });
+      panel.addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+        if (target.id === "event-count-all-cb") {
+          selectedEventCountSet = target.checked ? null : new Set();
+          renderEventCountOptions();
+          loadOutcomes();
+          return;
+        }
+        if (!target.classList.contains("event-count-cb")) return;
+        const checked = [...panel.querySelectorAll(".event-count-cb:checked")].map((box) => Number(box.value));
+        if (!checked.length) {
+          selectedEventCountSet = new Set();
+        } else if (checked.length === eventCountOptions.length) {
+          selectedEventCountSet = null;
+        } else {
+          selectedEventCountSet = new Set(checked);
+        }
+        renderEventCountOptions();
+        loadOutcomes();
+      });
+      document.addEventListener("click", (event) => {
+        if (!dropdown.contains(event.target)) {
+          panel.hidden = true;
+          trigger.setAttribute("aria-expanded", "false");
+        }
+      });
+    }
+
+    function renderProductCounts(counts) {
+      (counts || []).forEach((item) => {
+        const countEl = document.querySelector(`.product-filter .count[data-product="${item.id}"]`);
+        if (countEl) countEl.textContent = item.episodes ? `(${item.episodes})` : "(0)";
+        const box = document.querySelector(`.product-cb[value="${item.id}"]`);
+        if (box && !productsInitialized) box.checked = Boolean(item.selected);
+      });
+      productsInitialized = true;
+    }
+
+    function fmtDate(iso) {
+      const match = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!match) return iso || "—";
+      return `${match[3]}/${match[2]}/${match[1].slice(2)}`;
+    }
+
+    function fmtPct(value, part, whole) {
+      if (value == null || !whole) return "—";
+      return `${value}% (${part}/${whole})`;
+    }
+
+    function barColor(value) {
+      if (value == null || value === "") return "#9ca3af";
+      if (value < 80) return "#dc2626";
+      if (value < 85) return "#eab308";
+      if (value < 90) return "#2563eb";
+      return "#16a34a";
+    }
+
+    function bindSlicerGroup(selector) {
+      document.querySelectorAll(selector).forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const selected = document.querySelectorAll(`${selector}.selected`);
+          if (btn.classList.contains("selected") && selected.length === 1) return;
+          btn.classList.toggle("selected");
+          btn.setAttribute("aria-pressed", btn.classList.contains("selected") ? "true" : "false");
+          loadOutcomes();
+        });
+      });
+    }
+    bindSlicerGroup(".farm-slicer .slicer-btn");
+    bindSlicerGroup(".breed-slicer .slicer-btn");
+
+    function renderCurve(payload) {
+      const canvas = document.getElementById("recovery-chart");
+      if (recoveryChart) {
+        recoveryChart.destroy();
+        recoveryChart = null;
+      }
+      const series = (payload.curve && payload.curve.series) || [];
+      const offsets = (payload.curve && payload.curve.offsets) || [];
+      chartEmpty.hidden = series.length > 0;
+      if (typeof Chart === "undefined" || !canvas || !series.length) return;
+      recoveryChart = new Chart(canvas, {
+        type: "line",
+        data: {
+          labels: offsets.map((offset) => (offset === 0 ? "0 treated" : String(offset))),
+          datasets: series.map((item) => ({
+            label: item.label,
+            data: item.means,
+            borderColor: PRODUCT_COLORS[item.product] || "#64748b",
+            backgroundColor: PRODUCT_COLORS[item.product] || "#64748b",
+            tension: 0.2,
+            spanGaps: true,
+            pointRadius: 3,
+            counts: item.counts || [],
+          })),
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { position: "top" },
+            tooltip: {
+              callbacks: {
+                label(context) {
+                  const count = (context.dataset.counts || [])[context.dataIndex];
+                  const value = context.raw == null ? "—" : context.raw;
+                  const n = count != null ? ` · n=${count}` : "";
+                  return `${context.dataset.label}: ${value}${n}`;
+                },
+              },
+            },
+          },
+          scales: {
+            y: {
+              min: 50,
+              max: 104,
+              ticks: {
+                stepSize: 10,
+                callback(value) {
+                  return value > 100 ? "" : value;
+                },
+              },
+              title: { display: true, text: "Mean health index" },
+            },
+            x: {
+              title: { display: true, text: "Days from first treatment" },
+            },
+          },
+        },
+      });
+    }
+
+    function renderSummary(rows) {
+      summaryBody.innerHTML = (rows || []).map((row) => `
+        <tr class="${row.product === "total" ? "total-row" : ""}">
+          <td>${row.label}</td>
+          <td>${row.episodes}</td>
+          <td>${row.median_days_to_recover ?? "—"}</td>
+          <td>${fmtPct(row.recovered_by_day_7_pct, row.recovered_by_day_7, row.recovered_by_day_7_eligible)}</td>
+          <td>${fmtPct(row.recovered_by_day_14_pct, row.recovered_by_day_14, row.recovered_by_day_14_eligible)}</td>
+          <td>${fmtPct(row.relapsed_pct, row.relapsed, row.relapsed_eligible)}</td>
+          <td>${fmtPct(row.left_pct, row.left, row.episodes)}</td>
+        </tr>
+      `).join("");
+      summaryEmpty.hidden = (rows || []).length > 0;
+    }
+
+    function renderUnrecovered(rows) {
+      unrecovered = rows || [];
+      unrecoveredBody.innerHTML = unrecovered.map((row, index) => `
+        <tr data-index="${index}">
+          <td>${row.animal_id}</td>
+          <td>${row.etag4 || "—"}</td>
+          <td>${row.farm || "—"}</td>
+          <td>${row.breed_label || "—"}</td>
+          <td>${fmtDate(row.event_date)}</td>
+          <td>${row.treatment_label || "—"}</td>
+          <td>${row.product_label}</td>
+          <td>${row.age_days ?? "—"}</td>
+          <td>${row.starting_health ?? "—"}</td>
+          <td>${row.day14_health ?? "—"}</td>
+          <td>${row.remark || "—"}</td>
+        </tr>
+      `).join("");
+      unrecoveredEmpty.hidden = unrecovered.length > 0;
+    }
+
+    function renderEpisodeChart(daily) {
+      const canvas = document.getElementById("episode-chart");
+      if (episodeChart) {
+        episodeChart.destroy();
+        episodeChart = null;
+      }
+      if (typeof Chart === "undefined" || !canvas) return;
+      const points = daily || [];
+      episodeChart = new Chart(canvas, {
+        type: "bar",
+        data: {
+          labels: points.map((point) => (point.offset === 0 ? "0 treated" : String(point.offset))),
+          datasets: [{
+            data: points.map((point) => point.health_index),
+            backgroundColor: points.map((point) => barColor(point.health_index)),
+            borderWidth: 0,
+            skipNull: true,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { min: 30, max: 105, title: { display: true, text: "Health index" } },
+          },
+        },
+      });
+    }
+
+    async function openEpisode(row) {
+      drawer.hidden = false;
+      detailTitle.textContent = `Animal ${row.animal_id}`;
+      const cells = [
+        ["Treated", fmtDate(row.event_date)],
+        ["Breed", row.breed_label || "—"],
+        ["Event count", row.treatment_label || "—"],
+        ["Product", row.product_label],
+        ["Age in days", row.age_days ?? "—"],
+        ["Start HI", row.starting_health ?? "—"],
+        ["Day 14 HI", row.day14_health ?? "—"],
+        ["Remark", row.remark || "—"],
+      ];
+      detailGrid.innerHTML = cells.map(([label, value]) => `
+        <div><div class="label">${label}</div><div class="value">${value}</div></div>
+      `).join("");
+      renderEpisodeChart(row.daily || []);
+      eventsBody.innerHTML = "";
+      eventsEmpty.hidden = true;
+      const res = await fetch(`/api/sensehub/youngstock/${encodeURIComponent(row.animal_id)}/events`);
+      const payload = await res.json();
+      const events = payload.events || [];
+      eventsBody.innerHTML = events.map((event) => `
+        <tr>
+          <td>${fmtDate(event.event_date)}</td>
+          <td>${event.event || "—"}</td>
+          <td>${event.remark || "—"}</td>
+          <td>${event.protocols || "—"}</td>
+        </tr>
+      `).join("");
+      eventsEmpty.hidden = events.length > 0;
+    }
+
+    async function loadOutcomes() {
+      const farms = selectedFarms();
+      if (!farms.length) {
+        metaEl.textContent = "Select at least one farm.";
+        return;
+      }
+      const fiscalYear = selectedFiscalYear();
+      if (fiscalYearInitialized && fiscalYear !== lastFiscalYear) {
+        dateBoundsInitialized = false;
+        lastFiscalYear = fiscalYear;
+      }
+      const params = new URLSearchParams();
+      farms.forEach((farm) => params.append("farm", farm));
+      const breeds = selectedBreeds();
+      if (!breeds.length) {
+        metaEl.textContent = "Select Dairy and/or Beef.";
+        return;
+      }
+      breeds.forEach((breed) => params.append("breed", breed));
+      if (fiscalYearInitialized) params.set("fiscal_year", fiscalYear);
+      if (dateBoundsInitialized && monthList.length) {
+        const range = currentDateRangeParams();
+        if (range.date_from) params.set("date_from", range.date_from);
+        if (range.date_to) params.set("date_to", range.date_to);
+      }
+      if (startingBandEl.value) params.set("starting_band", startingBandEl.value);
+      if (ageBandEl.value) params.set("age_band", ageBandEl.value);
+      if (productsInitialized) {
+        selectedProducts().forEach((product) => params.append("product", product));
+        if (!selectedProducts().length) params.append("product", "__none__");
+      }
+      if (selectedEventCountSet !== null) {
+        selectedEventCounts().forEach((number) => params.append("event_count", String(number)));
+        if (!selectedEventCounts().length) params.append("event_count", "0");
+      }
+      metaEl.textContent = "Loading…";
+      const res = await fetch(`/api/sensehub/treatment-outcomes?${params}`);
+      const payload = await res.json();
+      if (!res.ok) {
+        metaEl.textContent = payload.detail || "Could not load treatment outcomes.";
+        return;
+      }
+      renderFiscalYearOptions(payload.fiscal_year_options || [], payload.fiscal_year);
+      lastFiscalYear = selectedFiscalYear();
+      fiscalYearInitialized = true;
+      if (payload.date_bounds) {
+        syncDateControls(
+          payload.date_bounds,
+          !dateBoundsInitialized,
+          payload.date_from,
+          payload.date_to,
+        );
+        dateBoundsInitialized = true;
+      }
+      syncEventCountOptions(payload.event_count_options || []);
+      const usedDefaultProducts = !productsInitialized;
+      renderProductCounts(payload.product_counts || []);
+      const skipped = payload.skipped_no_health
+        ? ` · ${payload.skipped_no_health} episode(s) had no health scores`
+        : "";
+      const nNote = usedDefaultProducts
+        ? " · products with more than 50 episodes selected"
+        : "";
+      metaEl.textContent = `${payload.episode_count} respiratory episode(s) from ${fmtDate(payload.date_from)} to ${fmtDate(payload.date_to)}${skipped}${nNote}.`;
+      renderCurve(payload);
+      renderSummary(payload.summary || []);
+      renderUnrecovered(payload.unrecovered || []);
+    }
+
+    applyBtn.addEventListener("click", loadOutcomes);
+    fiscalYearEl.addEventListener("change", () => {
+      productsInitialized = false;
+      loadOutcomes();
+    });
+    startingBandEl.addEventListener("change", loadOutcomes);
+    ageBandEl.addEventListener("change", loadOutcomes);
+    document.querySelectorAll(".product-cb").forEach((box) => {
+      box.addEventListener("change", () => {
+        productsInitialized = true;
+        loadOutcomes();
+      });
+    });
+    const minRange = document.getElementById("min-date-range");
+    const maxRange = document.getElementById("max-date-range");
+    minRange.addEventListener("input", () => {
+      if (parseInt(minRange.value, 10) > parseInt(maxRange.value, 10)) {
+        maxRange.value = minRange.value;
+      }
+      updateDateLabels();
+    });
+    maxRange.addEventListener("input", () => {
+      if (parseInt(maxRange.value, 10) < parseInt(minRange.value, 10)) {
+        minRange.value = maxRange.value;
+      }
+      updateDateLabels();
+    });
+    minRange.addEventListener("change", loadOutcomes);
+    maxRange.addEventListener("change", loadOutcomes);
+    unrecoveredBody.addEventListener("click", (ev) => {
+      const row = ev.target.closest("tr[data-index]");
+      if (!row) return;
+      const item = unrecovered[Number(row.dataset.index)];
+      if (item) openEpisode(item);
+    });
+    function closeDrawer() {
+      drawer.hidden = true;
+    }
+    document.getElementById("drawer-close").addEventListener("click", closeDrawer);
+    document.getElementById("drawer-backdrop").addEventListener("click", closeDrawer);
+    document.addEventListener("keydown", (ev) => {
+      if (!drawer.hidden && ev.key === "Escape") closeDrawer();
+    });
+
+    bindEventCountDropdown();
+    loadOutcomes();
+  </script>
+{% endblock %}

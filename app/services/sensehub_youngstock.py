@@ -294,6 +294,22 @@ def recent_antibiotic_highlight(
     return None
 
 
+def classify_antibiotic(events: list[CowEvent]) -> str:
+    """Draxxin if any event mentions it, else Fenflor, else other."""
+    found: set[str] = set()
+    for event in events:
+        text = _event_drug_text(event)
+        if _DRAXXIN_RE.search(text):
+            found.add("draxxin")
+        if _FENFLOR_RE.search(text):
+            found.add("fenflor")
+    if "draxxin" in found:
+        return "draxxin"
+    if "fenflor" in found:
+        return "fenflor"
+    return "other"
+
+
 def chart_event_markers(events: list[CowEvent]) -> list[dict[str, str]]:
     """One R/S/I/V icon for every event date. Counts still use the episode gap."""
     seen: set[tuple[str, str]] = set()

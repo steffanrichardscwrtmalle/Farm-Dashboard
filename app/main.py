@@ -1824,6 +1824,28 @@ def sensehub_recently_treated_page(request: Request):
     )
 
 
+@app.get("/sensehub/treatment-outcomes", response_class=HTMLResponse)
+def sensehub_treatment_outcomes_page(request: Request):
+    if denied := _page_guard(request, PAGE_SENSEHUB):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "sensehub/treatment_outcomes.html",
+        _template_ctx(
+            request,
+            page_heading="Treatment Outcomes",
+            farm_options=list(HERD_FARM_OPTIONS),
+            **_sensehub_context(
+                "Treatment Outcomes",
+                "sensehub-treatment-outcomes",
+                "Treatment Outcomes",
+            ),
+        ),
+    )
+
+
 @app.get("/sensehub/tags-to-remove", response_class=HTMLResponse)
 def sensehub_tags_to_remove_page(request: Request):
     if denied := _page_guard(request, PAGE_SENSEHUB):

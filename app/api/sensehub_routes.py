@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -32,6 +34,7 @@ from app.services.sensehub_youngstock import (
     run_backfill_in_background,
     save_scr_tag,
 )
+from app.services.treatment_outcomes import treatment_outcomes
 
 router = APIRouter(prefix="/api/sensehub")
 
@@ -124,6 +127,34 @@ def api_sensehub_save_scr_tag(
         )
     except (ValueError, SenseHubError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/treatment-outcomes")
+def api_sensehub_treatment_outcomes(
+    farm: list[str] | None = Query(None),
+    date_from: dt.date | None = Query(None),
+    date_to: dt.date | None = Query(None),
+    starting_band: str | None = Query(None),
+    age_band: str | None = Query(None),
+    product: list[str] | None = Query(None),
+    breed: list[str] | None = Query(None),
+    event_count: list[int] | None = Query(None),
+    fiscal_year: str | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_SENSEHUB)),
+):
+    return treatment_outcomes(
+        db,
+        farms=farm,
+        date_from=date_from,
+        date_to=date_to,
+        starting_band=starting_band,
+        age_band=age_band,
+        products=product,
+        breeds=breed,
+        event_counts=event_count,
+        fiscal_year=fiscal_year,
+    )
 
 
 @router.get("/youngstock")
