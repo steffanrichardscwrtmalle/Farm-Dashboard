@@ -54,6 +54,51 @@
     .summary-card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
     .summary-card .value { font-size: 1.4rem; font-weight: 700; color: #1e3a5f; }
     .summary-card .value.warn { color: #b91c1c; }
+    button.summary-card {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      text-align: left;
+      font: inherit;
+      width: 100%;
+      color: inherit;
+      cursor: pointer;
+    }
+    button.summary-card:hover,
+    button.summary-card:focus-visible {
+      border-color: #5a9fd4;
+      background: #f4f8fc;
+    }
+    .summary-card .card-hint {
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 500;
+      margin-top: 0.3rem;
+    }
+    .bacto-modal-meta { color: var(--muted); font-size: 0.8125rem; margin: 0 0 0.75rem; }
+    #bacto-driver-table { width: 100%; border-collapse: collapse; }
+    #bacto-driver-table th, #bacto-driver-table td {
+      padding: 0.45rem 0.6rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    #bacto-driver-table td.num, #bacto-driver-table th.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    #bacto-driver-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+    }
+    #bacto-driver-table tfoot td { font-weight: 700; background: #f3f4f6; }
+    #bacto-driver-table td.warn { color: #b45309; font-weight: 600; }
+    #bacto-driver-table td.bad { color: #b91c1c; font-weight: 600; }
     .chart-toolbar { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
     .chart-toolbar .section-label { margin: 0; }
     .smoothing-slicer, .outlier-slicer { display: inline-flex; grid-template-columns: none; gap: 0; }
@@ -72,7 +117,7 @@
       font-size: 1rem; cursor: pointer; flex-shrink: 0; padding: 0;
     }
     .chart-btn:hover, .chart-expand:hover { background: #e5e7eb; color: var(--text); }
-    .chart-wrap { position: relative; height: 240px; }
+    .chart-wrap { position: relative; height: 240px; touch-action: pan-y; }
     .chart-hint { font-size: 0.75rem; color: var(--muted); margin: -0.25rem 0 1rem; }
     .chart-modal { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 2vh 2vw; }
     .chart-modal[hidden] { display: none; }
@@ -86,6 +131,12 @@
     .chart-modal-head h3 { margin: 0; font-size: 1.1rem; }
     .chart-modal-actions { display: flex; gap: 0.5rem; }
     .chart-modal-canvas { position: relative; flex: 1 1 auto; min-height: 0; }
+    .chart-modal-body.bacto-modal-body {
+      height: auto;
+      max-height: 90vh;
+      max-width: 740px;
+      overflow: auto;
+    }
     .action-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
     .import-scope { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 0.8rem; color: var(--muted); }
     .import-scope select { margin: 0; padding: 0.25rem 0.4rem; font-size: 0.8rem; }
@@ -291,7 +342,6 @@
           <div class="chart-head">
             <h3>Volume (L/day)</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-volume" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-volume" data-title="Volume (L/day)" title="View larger">⤢</button>
             </div>
           </div>
@@ -301,7 +351,6 @@
           <div class="chart-head">
             <h3>Milk / cow (L)</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-per-cow" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-per-cow" data-title="Milk / cow (L)" title="View larger">⤢</button>
             </div>
           </div>
@@ -311,7 +360,6 @@
           <div class="chart-head">
             <h3>Temperature (°C)</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-temp" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-temp" data-title="Temperature (°C)" title="View larger">⤢</button>
             </div>
           </div>
@@ -321,7 +369,6 @@
           <div class="chart-head">
             <h3>Butterfat (%)</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-butterfat" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-butterfat" data-title="Butterfat (%)" title="View larger">⤢</button>
             </div>
           </div>
@@ -331,7 +378,6 @@
           <div class="chart-head">
             <h3>Protein (%)</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-protein" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-protein" data-title="Protein (%)" title="View larger">⤢</button>
             </div>
           </div>
@@ -341,7 +387,6 @@
           <div class="chart-head">
             <h3>Urea (%)</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-urea" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-urea" data-title="Urea (%)" title="View larger">⤢</button>
             </div>
           </div>
@@ -351,7 +396,6 @@
           <div class="chart-head">
             <h3>SCC (x1000/ml)</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-scc" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-scc" data-title="SCC (x1000/ml)" title="View larger">⤢</button>
             </div>
           </div>
@@ -361,7 +405,6 @@
           <div class="chart-head">
             <h3>BactoScan (x1000/ml, vol-weighted)</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-bactoscan" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-bactoscan" data-title="BactoScan (x1000/ml, volume-weighted)" title="View larger">⤢</button>
             </div>
           </div>
@@ -371,7 +414,6 @@
           <div class="chart-head">
             <h3>BactoScan by arrival time</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-bacto-arrival" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-bacto-arrival" data-title="BactoScan by arrival time" title="View larger">⤢</button>
             </div>
           </div>
@@ -379,7 +421,7 @@
         </div>
       </div>
 
-      <p class="chart-hint">Tip: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset. Click ⤢ to enlarge.</p>
+      <p class="chart-hint">Click ⤢ to enlarge. In the enlarged view: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset.</p>
 
       <div id="chart-modal" class="chart-modal" hidden>
         <div class="chart-modal-backdrop" data-close="1"></div>
@@ -392,6 +434,32 @@
             </div>
           </div>
           <div class="chart-modal-canvas"><canvas id="chart-modal-canvas"></canvas></div>
+        </div>
+      </div>
+
+      <div id="bactoscan-modal" class="chart-modal" hidden>
+        <div class="chart-modal-backdrop" data-close-bacto="1"></div>
+        <div class="chart-modal-body bacto-modal-body" role="dialog" aria-modal="true" aria-labelledby="bactoscan-modal-title">
+          <div class="chart-modal-head">
+            <h3 id="bactoscan-modal-title">Average BactoScan by driver</h3>
+            <div class="chart-modal-actions">
+              <button type="button" class="secondary small" data-close-bacto="1">Close</button>
+            </div>
+          </div>
+          <p class="bacto-modal-meta" id="bactoscan-modal-meta"></p>
+          <table id="bacto-driver-table">
+            <thead>
+              <tr>
+                <th>Driver</th>
+                <th class="num">Avg BactoScan</th>
+                <th class="num">Loads</th>
+                <th class="num">Over 30</th>
+                <th class="num">Over 50</th>
+              </tr>
+            </thead>
+            <tbody id="bacto-driver-body"></tbody>
+            <tfoot id="bacto-driver-foot"></tfoot>
+          </table>
         </div>
       </div>
 
@@ -678,17 +746,32 @@
         { label: 'Avg butterfat %', value: num(summary.avg_butterfat_pct, 2) || '—' },
         { label: 'Avg protein %', value: num(summary.avg_protein_pct, 2) || '—' },
         { label: 'Avg SCC', value: summary.avg_scc != null ? String(Math.round(summary.avg_scc)) : '—' },
-        { label: 'Avg BactoScan', value: summary.avg_bactoscan != null ? String(Math.round(summary.avg_bactoscan)) : '—' },
+        {
+          label: 'Avg BactoScan',
+          value: summary.avg_bactoscan != null ? String(Math.round(summary.avg_bactoscan)) : '—',
+          expand: 'bactoscan',
+          hint: 'Click for driver breakdown',
+        },
         {
           label: 'Antibiotic fails',
           value: String(summary.antibiotic_fails || 0),
           warn: (summary.antibiotic_fails || 0) > 0,
         },
       ];
-      document.getElementById('summary-cards').innerHTML = cards.map(c =>
-        '<div class="summary-card"><div class="label">' + escapeHtml(c.label) + '</div>' +
-        '<div class="value' + (c.warn ? ' warn' : '') + '">' + escapeHtml(c.value) + '</div></div>'
-      ).join('');
+      document.getElementById('summary-cards').innerHTML = cards.map(c => {
+        const inner = '<div class="label">' + escapeHtml(c.label) + '</div>' +
+          '<div class="value' + (c.warn ? ' warn' : '') + '">' + escapeHtml(c.value) + '</div>' +
+          (c.hint ? '<div class="card-hint">' + escapeHtml(c.hint) + '</div>' : '');
+        if (c.expand) {
+          return '<button type="button" class="summary-card clickable" data-expand="' +
+            escapeHtml(c.expand) + '" title="' + escapeHtml(c.hint || 'Show details') + '">' +
+            inner + '</button>';
+        }
+        return '<div class="summary-card">' + inner + '</div>';
+      }).join('');
+      if (!document.getElementById('bactoscan-modal').hidden) {
+        renderBactoDriverTable();
+      }
     }
 
     const IQR_FACTOR = 1.5; // Tukey fences
@@ -779,6 +862,101 @@
       renderSummary(computeSummary(rows));
     }
 
+    function bactoscanNumber(row) {
+      if (row.bactoscan === null || row.bactoscan === undefined || row.bactoscan === '') return null;
+      const v = Number(row.bactoscan);
+      return isNaN(v) ? null : v;
+    }
+
+    function computeBactoDriverSummary() {
+      const groups = new Map();
+      rows.forEach((row) => {
+        const value = bactoscanNumber(row);
+        if (value === null) return;
+        const driver = String(row.driver || '').trim() || 'Unknown';
+        if (!groups.has(driver)) {
+          groups.set(driver, { driver: driver, loads: 0, sum: 0, over30: 0, over50: 0 });
+        }
+        const g = groups.get(driver);
+        g.loads += 1;
+        g.sum += value;
+        if (value > 30) g.over30 += 1;
+        if (value > 50) g.over50 += 1;
+      });
+      const list = [...groups.values()].map((g) => ({
+        driver: g.driver,
+        loads: g.loads,
+        avg: g.loads ? g.sum / g.loads : null,
+        over30: g.over30,
+        over50: g.over50,
+      }));
+      list.sort((a, b) => (b.avg || 0) - (a.avg || 0) || a.driver.localeCompare(b.driver));
+      const totals = list.reduce((acc, g) => {
+        acc.loads += g.loads;
+        acc.sum += (g.avg || 0) * g.loads;
+        acc.over30 += g.over30;
+        acc.over50 += g.over50;
+        return acc;
+      }, { loads: 0, sum: 0, over30: 0, over50: 0 });
+      totals.avg = totals.loads ? totals.sum / totals.loads : null;
+      return { rows: list, totals: totals };
+    }
+
+    function bactoCountClass(count, threshold) {
+      if (!count) return 'num';
+      return 'num ' + (threshold >= 50 ? 'bad' : 'warn');
+    }
+
+    function bactoAvgClass(avg) {
+      if (avg == null) return 'num';
+      if (avg > 50) return 'num bad';
+      if (avg > 30) return 'num warn';
+      return 'num';
+    }
+
+    function bactoDriverRowHtml(row, tag) {
+      const avgText = row.avg == null ? '—' : String(Math.round(row.avg));
+      return '<' + tag + '>' +
+        '<td>' + escapeHtml(row.driver) + '</td>' +
+        '<td class="' + bactoAvgClass(row.avg) + '">' + escapeHtml(avgText) + '</td>' +
+        '<td class="num">' + escapeHtml(String(row.loads)) + '</td>' +
+        '<td class="' + bactoCountClass(row.over30, 30) + '">' + escapeHtml(String(row.over30)) + '</td>' +
+        '<td class="' + bactoCountClass(row.over50, 50) + '">' + escapeHtml(String(row.over50)) + '</td>' +
+        '</' + tag + '>';
+    }
+
+    function renderBactoDriverTable() {
+      const data = computeBactoDriverSummary();
+      const tbody = document.getElementById('bacto-driver-body');
+      const tfoot = document.getElementById('bacto-driver-foot');
+      const meta = document.getElementById('bactoscan-modal-meta');
+      meta.textContent = data.totals.loads
+        ? 'Collection loads with a BactoScan result in the current filters. Unmatched NML samples have no driver and are not included.'
+        : 'No collection loads with a BactoScan result in the current filters.';
+      if (!data.rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No BactoScan results for the current filters.</td></tr>';
+        tfoot.innerHTML = '';
+        return;
+      }
+      tbody.innerHTML = data.rows.map((row) => bactoDriverRowHtml(row, 'tr')).join('');
+      tfoot.innerHTML = bactoDriverRowHtml({
+        driver: 'All drivers',
+        avg: data.totals.avg,
+        loads: data.totals.loads,
+        over30: data.totals.over30,
+        over50: data.totals.over50,
+      }, 'tr');
+    }
+
+    function openBactoDriverModal() {
+      renderBactoDriverTable();
+      document.getElementById('bactoscan-modal').hidden = false;
+    }
+
+    function closeBactoDriverModal() {
+      document.getElementById('bactoscan-modal').hidden = true;
+    }
+
     function allDates() {
       const set = new Set();
       Object.values(trend).forEach(points => points.forEach(p => set.add(p.date)));
@@ -860,7 +1038,30 @@
       return datasets.map(d => Object.assign({}, d, { data: (d.data || []).slice() }));
     }
 
-    function buildLineConfig(datasets, labels) {
+    function zoomPluginOptions(enableZoom) {
+      if (!enableZoom) {
+        return {
+          pan: { enabled: false },
+          zoom: { wheel: { enabled: false }, pinch: { enabled: false }, drag: { enabled: false } },
+        };
+      }
+      return {
+        pan: { enabled: true, mode: 'xy', modifierKey: 'ctrl' },
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          drag: {
+            enabled: true,
+            backgroundColor: 'rgba(30,58,95,0.15)',
+            borderColor: 'rgba(30,58,95,0.6)',
+            borderWidth: 1,
+          },
+          mode: 'xy',
+        },
+      };
+    }
+
+    function buildLineConfig(datasets, labels, enableZoom) {
       return {
         type: 'line',
         data: { labels: labels.map(formatDate), datasets },
@@ -870,20 +1071,7 @@
           interaction: { mode: 'index', intersect: false },
           plugins: {
             legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-            zoom: {
-              pan: { enabled: true, mode: 'xy', modifierKey: 'ctrl' },
-              zoom: {
-                wheel: { enabled: true },
-                pinch: { enabled: true },
-                drag: {
-                  enabled: true,
-                  backgroundColor: 'rgba(30,58,95,0.15)',
-                  borderColor: 'rgba(30,58,95,0.6)',
-                  borderWidth: 1,
-                },
-                mode: 'xy',
-              },
-            },
+            zoom: zoomPluginOptions(enableZoom),
           },
           scales: { x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } } },
         },
@@ -943,7 +1131,7 @@
       }));
     }
 
-    function buildScatterConfig(datasets) {
+    function buildScatterConfig(datasets, enableZoom) {
       return {
         type: 'scatter',
         data: { datasets },
@@ -964,20 +1152,7 @@
                 },
               },
             },
-            zoom: {
-              pan: { enabled: true, mode: 'xy', modifierKey: 'ctrl' },
-              zoom: {
-                wheel: { enabled: true },
-                pinch: { enabled: true },
-                drag: {
-                  enabled: true,
-                  backgroundColor: 'rgba(30,58,95,0.15)',
-                  borderColor: 'rgba(30,58,95,0.6)',
-                  borderWidth: 1,
-                },
-                mode: 'xy',
-              },
-            },
+            zoom: zoomPluginOptions(enableZoom),
           },
           scales: {
             x: {
@@ -992,11 +1167,11 @@
       };
     }
 
-    function configForSpec(spec) {
+    function configForSpec(spec, enableZoom) {
       const datasets = cloneDatasets(spec.datasets);
       return spec.type === 'scatter'
-        ? buildScatterConfig(datasets)
-        : buildLineConfig(datasets, spec.labels);
+        ? buildScatterConfig(datasets, enableZoom)
+        : buildLineConfig(datasets, spec.labels, enableZoom);
     }
 
     function renderInlineChart(canvasId) {
@@ -1005,7 +1180,7 @@
       }
       destroyChart(canvasId);
       const canvas = document.getElementById(canvasId);
-      charts[canvasId] = new Chart(canvas, configForSpec(chartSpecs[canvasId]));
+      charts[canvasId] = new Chart(canvas, configForSpec(chartSpecs[canvasId], false));
     }
 
     function metricDatasets(metric, suffix, labels) {
@@ -1065,7 +1240,7 @@
       if (!spec || typeof Chart === 'undefined') return;
       if (modalChart) { modalChart.destroy(); modalChart = null; }
       const canvas = document.getElementById('chart-modal-canvas');
-      modalChart = new Chart(canvas, configForSpec(spec));
+      modalChart = new Chart(canvas, configForSpec(spec, true));
     }
 
     function openChartModal(canvasId, title) {
@@ -1080,8 +1255,6 @@
       if (modalChart) { modalChart.destroy(); modalChart = null; }
       openModalCanvasId = null;
     }
-
-    const CHART_IDS = ['chart-volume', 'chart-per-cow', 'chart-temp', 'chart-butterfat', 'chart-protein', 'chart-urea', 'chart-scc', 'chart-bactoscan', 'chart-bacto-arrival'];
 
     function bindChartUI() {
       document.querySelectorAll('.smoothing-slicer .slicer-btn').forEach(btn => {
@@ -1112,18 +1285,6 @@
       document.querySelectorAll('.chart-expand').forEach(btn => {
         btn.addEventListener('click', () => openChartModal(btn.dataset.canvas, btn.dataset.title));
       });
-      document.querySelectorAll('.chart-reset').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const id = btn.dataset.canvas;
-          if (charts[id]) charts[id].resetZoom();
-        });
-      });
-      CHART_IDS.forEach(id => {
-        const canvas = document.getElementById(id);
-        if (canvas) {
-          canvas.addEventListener('dblclick', () => { if (charts[id]) charts[id].resetZoom(); });
-        }
-      });
       document.querySelectorAll('#chart-modal [data-close]').forEach(el => {
         el.addEventListener('click', closeChartModal);
       });
@@ -1133,8 +1294,21 @@
       document.getElementById('chart-modal-reset').addEventListener('click', () => {
         if (modalChart) modalChart.resetZoom();
       });
+      document.getElementById('summary-cards').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-expand="bactoscan"]');
+        if (!btn) return;
+        openBactoDriverModal();
+      });
+      document.querySelectorAll('#bactoscan-modal [data-close-bacto]').forEach(el => {
+        el.addEventListener('click', closeBactoDriverModal);
+      });
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !document.getElementById('chart-modal').hidden) closeChartModal();
+        if (e.key !== 'Escape') return;
+        if (!document.getElementById('bactoscan-modal').hidden) {
+          closeBactoDriverModal();
+          return;
+        }
+        if (!document.getElementById('chart-modal').hidden) closeChartModal();
       });
     }
 
