@@ -784,6 +784,7 @@ class XeroInvoice(Base):
     line_amount_types: Mapped[str | None] = mapped_column(String(16), nullable=True)
     reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    contact_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     currency_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
     invoice_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True, index=True)
     due_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
@@ -827,6 +828,23 @@ class XeroInvoiceLine(Base):
     tax_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     invoice: Mapped[XeroInvoice] = relationship(back_populates="lines")
+
+
+class XeroAgedPayableMarks(Base):
+    """Farm-wide Aged Payables colour marks; survives Xero invoice rebuilds."""
+
+    __tablename__ = "xero_aged_payable_marks"
+    __table_args__ = (UniqueConstraint("scope", name="uq_xero_aged_payable_marks_scope"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope: Mapped[str] = mapped_column(String(32), default="farm", index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
 
 
 class XeroAccount(Base):

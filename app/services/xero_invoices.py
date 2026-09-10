@@ -113,6 +113,7 @@ def upsert_invoice(
         ),
         "reference": (str(payload.get("Reference") or "").strip() or None),
         "contact_name": (str(contact.get("Name") or "").strip() or None),
+        "contact_id": (str(contact.get("ContactID") or "").strip() or None),
         "currency_code": (str(payload.get("CurrencyCode") or "").strip() or None),
         "invoice_date": parse_xero_date(payload.get("Date")),
         "due_date": parse_xero_date(payload.get("DueDate")),

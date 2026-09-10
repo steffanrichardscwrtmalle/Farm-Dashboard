@@ -31,6 +31,7 @@ from app.services.xero_budget_mappings import (
     mapping_summary,
     set_account_budget_mapping,
 )
+from app.services.xero_aged_payable_marks import load_marks, save_marks
 from app.services.xero_aged_payables import list_aged_payables
 from app.services.xero_pnl import list_xero_pnl
 from app.services.xero_bank_transactions import clear_bank_transactions
@@ -294,6 +295,11 @@ def api_xero_pnl(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+class AgedPayableMarksBody(BaseModel):
+    contact_status: dict[str, dict[str, str]] = Field(default_factory=dict)
+    selections: dict[str, list[str]] = Field(default_factory=dict)
+
+
 @router.get("/aged-payables")
 def api_xero_aged_payables(
     business: str | None = None,
@@ -304,6 +310,27 @@ def api_xero_aged_payables(
         return list_aged_payables(db, business=business)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/aged-payables/marks")
+def api_xero_aged_payable_marks_get(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_XERO)),
+):
+    return load_marks(db)
+
+
+@router.put("/aged-payables/marks")
+def api_xero_aged_payable_marks_put(
+    body: AgedPayableMarksBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_page(PAGE_XERO)),
+):
+    return save_marks(
+        db,
+        {"contact_status": body.contact_status, "selections": body.selections},
+        user_id=user.id,
+    )
 
 
 @router.post("/accounts/sync")

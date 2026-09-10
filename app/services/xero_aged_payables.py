@@ -161,7 +161,19 @@ def apply_local_payments(
         total = _round_money(total)
         if abs(total) <= _AMOUNT_EPS and not amounts:
             continue
-        contacts.append({"contact": contact, "amounts": amounts, "total": total})
+        ids = [str(item).strip() for item in (row.get("contact_ids") or []) if str(item).strip()]
+        contact_id = str(row.get("contact_id") or "").strip() or None
+        if contact_id and contact_id not in ids:
+            ids.insert(0, contact_id)
+        contacts.append(
+            {
+                "contact": contact,
+                "contact_id": contact_id or (ids[0] if len(ids) == 1 else None),
+                "contact_ids": ids,
+                "amounts": amounts,
+                "total": total,
+            }
+        )
         grand_total += total
     updated = dict(result)
     updated["contacts"] = contacts
@@ -188,6 +200,7 @@ def list_aged_payables(
     stmt = (
         select(
             XeroInvoice.contact_name,
+            XeroInvoice.contact_id,
             XeroInvoice.invoice_type,
             XeroInvoice.invoice_date,
             XeroInvoice.amount_due,
@@ -200,8 +213,11 @@ def list_aged_payables(
     )
 
     cells: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    contact_ids: dict[str, set[str]] = defaultdict(set)
     invoice_count = 0
-    for contact_name, invoice_type, invoice_date, amount_due in db.execute(stmt):
+    for contact_name, xero_contact_id, invoice_type, invoice_date, amount_due in db.execute(
+        stmt
+    ):
         signed = _signed_amount_due(invoice_type, amount_due)
         if abs(signed) <= _AMOUNT_EPS:
             continue
@@ -210,6 +226,9 @@ def list_aged_payables(
         contact = (contact_name or "").strip() or "(No contact)"
         key = _column_key(_month_start(invoice_date), recent=recent)
         cells[contact][key] += signed
+        contact_id = str(xero_contact_id or "").strip()
+        if contact_id:
+            contact_ids[contact].add(contact_id)
         invoice_count += 1
 
     contacts: list[dict[str, Any]] = []
@@ -224,9 +243,12 @@ def list_aged_payables(
         total = _round_money(sum(amounts.values()))
         if abs(total) <= _AMOUNT_EPS and not amounts:
             continue
+        ids = sorted(contact_ids.get(contact) or [])
         contacts.append(
             {
                 "contact": contact,
+                "contact_id": ids[0] if len(ids) == 1 else None,
+                "contact_ids": ids,
                 "amounts": amounts,
                 "total": total,
             }

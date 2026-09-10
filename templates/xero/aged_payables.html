@@ -510,6 +510,9 @@
     const selections = loadSelections();
     const contactStatus = loadContactStatus();
     let paidState = loadPaidState();
+    let persistTimer = null;
+    let marksHydrated = false;
+    const CONTACT_ID_PREFIX = "id:";
 
     function selectedView() {
       return canonicalViewId(document.querySelector(".view-tab.active")?.dataset.view || DEFAULT_VIEW);
@@ -600,6 +603,77 @@
 
     function saveSelections() {
       saveNamedSets(STORAGE_KEY, selections, localStorage);
+    }
+
+    function marksPayload() {
+      const payload = { contact_status: contactStatus, selections: {} };
+      Object.entries(selections).forEach(([view, keys]) => {
+        payload.selections[view] = [...keys];
+      });
+      return payload;
+    }
+
+    function mergeIncomingMarks(incoming) {
+      let changed = false;
+      Object.entries(incoming?.contact_status || {}).forEach(([view, mapping]) => {
+        const map = viewStatusMap(canonicalViewId(view));
+        Object.entries(mapping || {}).forEach(([key, flag]) => {
+          if (flag !== "critical" && flag !== "standing_order") return;
+          if (map[key] !== flag) {
+            map[key] = flag;
+            changed = true;
+          }
+        });
+      });
+      Object.entries(incoming?.selections || {}).forEach(([view, keys]) => {
+        const set = selectionSet(canonicalViewId(view));
+        (Array.isArray(keys) ? keys : []).forEach((key) => {
+          if (!set.has(key)) {
+            set.add(key);
+            changed = true;
+          }
+        });
+      });
+      return changed;
+    }
+
+    async function persistMarks() {
+      saveContactStatus();
+      saveSelections();
+      try {
+        await fetch("/api/xero/aged-payables/marks", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(marksPayload()),
+        });
+      } catch (_) {
+        /* offline / blocked */
+      }
+    }
+
+    function schedulePersistMarks() {
+      saveContactStatus();
+      saveSelections();
+      clearTimeout(persistTimer);
+      persistTimer = setTimeout(() => {
+        persistMarks();
+      }, 250);
+    }
+
+    async function hydrateMarksFromServer() {
+      if (marksHydrated) return;
+      marksHydrated = true;
+      try {
+        const res = await fetch("/api/xero/aged-payables/marks");
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        mergeIncomingMarks(data);
+        saveContactStatus();
+        saveSelections();
+        await persistMarks();
+      } catch (_) {
+        /* offline / blocked */
+      }
     }
 
     function loadContactStatus() {
@@ -827,7 +901,13 @@
         });
         total = roundMoney(total);
         if (Math.abs(total) < 0.005 && !Object.keys(amounts).length) return;
-        contacts.push({ contact: row.contact, amounts, total });
+        contacts.push({
+          contact: row.contact,
+          contact_id: row.contact_id || null,
+          contact_ids: [...(row.contact_ids || [])],
+          amounts,
+          total,
+        });
         grandTotal += total;
       });
       return {
@@ -978,17 +1058,75 @@
       return contactStatus[view];
     }
 
-    function getContactStatus(contact) {
-      return viewStatusMap(selectedView())[contact] || "";
+    function contactIdsFromRow(row) {
+      const ids = [];
+      const seen = new Set();
+      const add = (value) => {
+        const id = String(value || "").trim();
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        ids.push(id);
+      };
+      (row?.contact_ids || []).forEach(add);
+      add(row?.contact_id);
+      return ids;
     }
 
-    function cycleContactStatus(contact) {
+    function identityKeys(contact, ids) {
+      const keys = [];
+      const seen = new Set();
+      const add = (key) => {
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        keys.push(key);
+      };
+      (ids || []).forEach((id) => add(`${CONTACT_ID_PREFIX}${id}`));
+      add(contact);
+      return keys;
+    }
+
+    function keysForRow(row) {
+      return identityKeys(row?.contact, contactIdsFromRow(row));
+    }
+
+    function identityFromTr(tr) {
+      const contact = tr?.dataset.contact || "";
+      const ids = String(tr?.dataset.contactIds || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      return { contact, ids };
+    }
+
+    function getContactStatus(contact, ids) {
       const map = viewStatusMap(selectedView());
-      const current = map[contact] || "";
-      if (current === "critical") map[contact] = "standing_order";
-      else if (current === "standing_order") delete map[contact];
-      else map[contact] = "critical";
-      saveContactStatus();
+      for (const key of identityKeys(contact, ids)) {
+        if (map[key]) return map[key];
+      }
+      const folded = String(contact || "").trim().toLowerCase();
+      if (!folded) return "";
+      for (const [key, status] of Object.entries(map)) {
+        if (String(key).startsWith(CONTACT_ID_PREFIX)) continue;
+        if (String(key).trim().toLowerCase() === folded && status) return status;
+      }
+      return "";
+    }
+
+    function writeContactStatus(contact, ids, status) {
+      const map = viewStatusMap(selectedView());
+      identityKeys(contact, ids).forEach((key) => {
+        if (status) map[key] = status;
+        else delete map[key];
+      });
+    }
+
+    function cycleContactStatus(contact, ids) {
+      const current = getContactStatus(contact, ids);
+      let next = "critical";
+      if (current === "critical") next = "standing_order";
+      else if (current === "standing_order") next = "";
+      writeContactStatus(contact, ids, next);
+      schedulePersistMarks();
       if (tableData) renderTable(tableData);
     }
 
@@ -996,8 +1134,77 @@
       return `${contact}\t${monthKey}`;
     }
 
-    function isSelected(contact, monthKey) {
-      return selectionSet(selectedView()).has(cellId(contact, monthKey));
+    function isSelected(contact, monthKey, ids) {
+      const set = selectionSet(selectedView());
+      return identityKeys(contact, ids).some((key) => set.has(cellId(key, monthKey)));
+    }
+
+    function writeSelection(contact, ids, monthKey, selected) {
+      const set = selectionSet(selectedView());
+      identityKeys(contact, ids).forEach((key) => {
+        const id = cellId(key, monthKey);
+        if (selected) set.add(id);
+        else set.delete(id);
+      });
+    }
+
+    function bindMarksToContacts(data) {
+      let changed = false;
+      const view = selectedView();
+      const statusMap = viewStatusMap(view);
+      const set = selectionSet(view);
+      const dates = data?.months || [];
+      (data?.contacts || []).forEach((row) => {
+        const keys = keysForRow(row);
+        const nameFolded = String(row?.contact || "").trim().toLowerCase();
+        let status = "";
+        keys.forEach((key) => {
+          if (!status && statusMap[key]) status = statusMap[key];
+        });
+        if (!status && nameFolded) {
+          Object.entries(statusMap).forEach(([key, flag]) => {
+            if (status || String(key).startsWith(CONTACT_ID_PREFIX)) return;
+            if (String(key).trim().toLowerCase() === nameFolded) status = flag;
+          });
+        }
+        if (status && keys.length) {
+          keys.forEach((key) => {
+            if (statusMap[key] !== status) {
+              statusMap[key] = status;
+              changed = true;
+            }
+          });
+        }
+        const monthKeys = new Set();
+        dates.forEach((monthKey) => {
+          if (keys.some((key) => set.has(cellId(key, monthKey)))) {
+            monthKeys.add(monthKey);
+          }
+        });
+        if (nameFolded) {
+          [...set].forEach((id) => {
+            const sep = id.indexOf("\t");
+            if (sep < 0) return;
+            const key = id.slice(0, sep);
+            const monthKey = id.slice(sep + 1);
+            if (String(key).startsWith(CONTACT_ID_PREFIX)) return;
+            if (String(key).trim().toLowerCase() === nameFolded && dates.includes(monthKey)) {
+              monthKeys.add(monthKey);
+            }
+          });
+        }
+        monthKeys.forEach((monthKey) => {
+          keys.forEach((key) => {
+            const id = cellId(key, monthKey);
+            if (!set.has(id)) {
+              set.add(id);
+              changed = true;
+            }
+          });
+        });
+      });
+      if (changed) schedulePersistMarks();
+      return changed;
     }
 
     function formatAmount(value) {
@@ -1029,11 +1236,12 @@
     }
 
     function rowToPay(row, dates) {
-      if (getContactStatus(row.contact) === "standing_order") return 0;
+      const ids = contactIdsFromRow(row);
+      if (getContactStatus(row.contact, ids) === "standing_order") return 0;
       const amounts = row.amounts || {};
       let sum = 0;
       dates.forEach((key) => {
-        if (isSelected(row.contact, key)) sum += Number(amounts[key] || 0);
+        if (isSelected(row.contact, key, ids)) sum += Number(amounts[key] || 0);
       });
       return sum;
     }
@@ -1041,7 +1249,7 @@
     function columnValue(row, key, dates) {
       if (key === "contact") return String(row.contact || "");
       if (key === "colour") {
-        const status = getContactStatus(row.contact);
+        const status = getContactStatus(row.contact, contactIdsFromRow(row));
         if (status === "critical") return 2;
         if (status === "standing_order") return 0;
         return 1;
@@ -1131,9 +1339,10 @@
       const dates = data.months || [];
       let count = 0;
       (data.contacts || []).forEach((row) => {
-        if (getContactStatus(row.contact) === "standing_order") return;
+        const ids = contactIdsFromRow(row);
+        if (getContactStatus(row.contact, ids) === "standing_order") return;
         dates.forEach((key) => {
-          if (isSelected(row.contact, key) && Math.abs(Number((row.amounts || {})[key] || 0)) >= 0.005) count += 1;
+          if (isSelected(row.contact, key, ids) && Math.abs(Number((row.amounts || {})[key] || 0)) >= 0.005) count += 1;
         });
       });
       return count;
@@ -1167,11 +1376,12 @@
         set.add(cellId(contact, "older"));
         changed = true;
       });
-      if (changed) saveSelections();
+      if (changed) schedulePersistMarks();
     }
 
     function renderTable(data) {
       tableData = data;
+      bindMarksToContacts(data);
       reconcilePaidWithSync(data);
       migrateRolledSelections(data);
       migrateRolledPaid(data);
@@ -1237,12 +1447,13 @@
       `;
       const bodyRows = rows.map((row) => {
         const amounts = row.amounts || {};
-        const status = getContactStatus(row.contact);
+        const ids = contactIdsFromRow(row);
+        const status = getContactStatus(row.contact, ids);
         const standingOrder = status === "standing_order";
         const cells = dates.map((key) => {
           const n = Number(amounts[key] || 0);
           const neg = n < 0 ? " neg" : "";
-          const selected = !standingOrder && isSelected(row.contact, key) ? " selected" : "";
+          const selected = !standingOrder && isSelected(row.contact, key, ids) ? " selected" : "";
           const hasAmount = Math.abs(n) >= 0.005;
           const clickable = !standingOrder && hasAmount ? " pay-cell" : "";
           const monthClass = hasAmount ? " month-cell" : "";
@@ -1271,7 +1482,7 @@
           ? `<td class="num col-topay" title="Covered by direct debit / standing order">—</td>`
           : `<td class="num col-topay${toPayNeg}${hasPay}">${formatAmount(toPay)}</td>`;
         return `
-          <tr class="${rowClass.trim()}" data-contact="${esc(row.contact)}">
+          <tr class="${rowClass.trim()}" data-contact="${esc(row.contact)}" data-contact-ids="${esc(ids.join(","))}">
             <td class="col-colour${statusClass}" title="${statusTitle}"></td>
             <td class="sticky-col contact-cell${statusClass}" title="${statusTitle}">${esc(row.contact)}</td>
             ${cells}
@@ -1338,32 +1549,28 @@
       renderTable(tableData);
     }
 
-    function togglePay(contact, monthKey) {
-      if (getContactStatus(contact) === "standing_order") return;
-      const set = selectionSet(selectedView());
+    function togglePay(contact, monthKey, ids) {
+      ids = ids || [];
+      if (getContactStatus(contact, ids) === "standing_order") return;
+      const dates = tableData?.months || [];
       if (monthKey === "__all__") {
-        const dates = tableData?.months || [];
-        const ids = dates
-          .filter((key) => Math.abs(displayAmount(contact, key)) >= 0.005)
-          .map((key) => cellId(contact, key));
-        const allOn = ids.length > 0 && ids.every((id) => set.has(id));
-        ids.forEach((id) => {
-          if (allOn) set.delete(id);
-          else set.add(id);
-        });
+        const monthKeys = dates.filter((key) => Math.abs(displayAmount(contact, key)) >= 0.005);
+        const allOn = monthKeys.length > 0 && monthKeys.every((key) => isSelected(contact, key, ids));
+        monthKeys.forEach((key) => writeSelection(contact, ids, key, !allOn));
       } else {
-        const id = cellId(contact, monthKey);
-        if (set.has(id)) set.delete(id);
-        else set.add(id);
+        writeSelection(contact, ids, monthKey, !isSelected(contact, monthKey, ids));
       }
-      saveSelections();
+      schedulePersistMarks();
       if (tableData) renderTable(tableData);
     }
 
     async function loadAgedPayables() {
       const view = selectedView();
       const params = new URLSearchParams({ business: view });
-      const res = await fetch(`/api/xero/aged-payables?${params.toString()}`);
+      const [res] = await Promise.all([
+        fetch(`/api/xero/aged-payables?${params.toString()}`),
+        hydrateMarksFromServer(),
+      ]);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         tableData = null;
@@ -1561,22 +1768,22 @@
       }
       const colourCell = ev.target.closest("td.col-colour");
       if (colourCell && !colourCell.closest(".total-row")) {
-        const contact = colourCell.closest("tr")?.dataset.contact;
-        if (contact) cycleContactStatus(contact);
+        const identity = identityFromTr(colourCell.closest("tr"));
+        if (identity.contact) cycleContactStatus(identity.contact, identity.ids);
         return;
       }
       const contactCell = ev.target.closest("td.contact-cell");
       if (contactCell && !contactCell.closest(".total-row")) {
-        const contact = contactCell.closest("tr")?.dataset.contact;
-        if (contact) cycleContactStatus(contact);
+        const identity = identityFromTr(contactCell.closest("tr"));
+        if (identity.contact) cycleContactStatus(identity.contact, identity.ids);
         return;
       }
       const td = ev.target.closest("td.pay-cell");
       if (!td || td.closest(".total-row")) return;
-      const contact = td.closest("tr")?.dataset.contact;
+      const identity = identityFromTr(td.closest("tr"));
       const monthKey = td.dataset.month;
-      if (!contact || !monthKey) return;
-      togglePay(contact, monthKey);
+      if (!identity.contact || !monthKey) return;
+      togglePay(identity.contact, monthKey, identity.ids);
     });
 
     document.getElementById("auto-sort-btn").addEventListener("click", () => {

@@ -37,6 +37,7 @@ def _bill(
     invoice_type: str = "ACCPAY",
     status: str = "AUTHORISED",
     tenant_id: str = "tenant-a",
+    contact_id: str | None = None,
 ) -> XeroInvoice:
     return XeroInvoice(
         tenant_id=tenant_id,
@@ -44,6 +45,7 @@ def _bill(
         invoice_type=invoice_type,
         status=status,
         contact_name=contact_name,
+        contact_id=contact_id,
         invoice_date=invoice_date,
         amount_due=amount_due,
         total=amount_due,
@@ -81,6 +83,7 @@ def test_list_aged_payables_pivots_contact_by_invoice_month(db: Session) -> None
             _bill(
                 invoice_id="1",
                 contact_name="Wynnstay",
+                contact_id="contact-wynnstay",
                 invoice_date=dt.date(2026, 1, 15),
                 amount_due=1200.0,
                 dashboard_business="Green Acre Dairy",
@@ -159,6 +162,8 @@ def test_list_aged_payables_pivots_contact_by_invoice_month(db: Session) -> None
     assert by_contact["Wynnstay"]["amounts"]["2026-01-01"] == 1220.0
     assert by_contact["Wynnstay"]["amounts"]["2026-03-01"] == 50.25
     assert by_contact["Wynnstay"]["total"] == 1370.25
+    assert by_contact["Wynnstay"]["contact_ids"] == ["contact-wynnstay"]
+    assert by_contact["Wynnstay"]["contact_id"] == "contact-wynnstay"
     assert by_contact["Prostock"]["amounts"]["2026-01-01"] == 80.0
     assert by_contact["Prostock"]["amounts"]["2026-04-01"] == -15.0
     assert by_contact["Prostock"]["total"] == 65.0
@@ -224,6 +229,8 @@ def test_apply_local_payments_hides_paid_amounts_and_contacts() -> None:
         "contacts": [
             {
                 "contact": "Wynnstay",
+                "contact_id": "contact-wynnstay",
+                "contact_ids": ["contact-wynnstay"],
                 "amounts": {"2026-04-01": 80.0, "older": 40.0},
                 "total": 120.0,
             },
@@ -248,9 +255,84 @@ def test_apply_local_payments_hides_paid_amounts_and_contacts() -> None:
     assert "Prostock" not in by_contact
     assert by_contact["Wynnstay"]["amounts"] == {"older": 30.0}
     assert by_contact["Wynnstay"]["total"] == 30.0
+    assert by_contact["Wynnstay"]["contact_id"] == "contact-wynnstay"
+    assert by_contact["Wynnstay"]["contact_ids"] == ["contact-wynnstay"]
     assert result["column_totals"]["2026-04-01"] == 0.0
     assert result["column_totals"]["older"] == 30.0
     assert result["grand_total"] == 30.0
     assert result["contact_count"] == 1
     assert result["invoice_count"] == 3
+
+
+def test_colour_marks_follow_contact_id_after_rename(db: Session) -> None:
+    from app.services.xero_aged_payable_marks import (
+        bind_marks_to_contacts,
+        is_selected,
+        save_marks,
+        status_for_contact,
+    )
+    from app.services.xero_invoices import upsert_invoice
+
+    upsert_invoice(
+        db,
+        tenant_id="tenant-a",
+        dashboard_business="Green Acre Dairy",
+        payload={
+            "InvoiceID": "inv-1",
+            "Type": "ACCPAY",
+            "Status": "AUTHORISED",
+            "Contact": {"ContactID": "cid-wynnstay", "Name": "Wynnstay"},
+            "Date": "2026-01-15",
+            "DueDate": "2026-02-15",
+            "AmountDue": 120.0,
+            "Total": 120.0,
+        },
+    )
+    db.commit()
+
+    named = {
+        "contact_status": {"GAD": {"Wynnstay": "critical"}},
+        "selections": {"GAD": ["Wynnstay\t2026-01-01"]},
+    }
+    bound, changed = bind_marks_to_contacts(
+        named,
+        [{"contact": "Wynnstay", "contact_ids": ["cid-wynnstay"]}],
+    )
+    assert changed
+    save_marks(db, bound)
+
+    renamed, _ = bind_marks_to_contacts(
+        bound,
+        [{"contact": "Wynnstay Limited", "contact_ids": ["cid-wynnstay"]}],
+    )
+    assert (
+        status_for_contact(
+            renamed,
+            view="GAD",
+            contact="Wynnstay Limited",
+            contact_ids=["cid-wynnstay"],
+        )
+        == "critical"
+    )
+    assert is_selected(
+        renamed,
+        view="GAD",
+        contact="Wynnstay Limited",
+        month_key="2026-01-01",
+        contact_ids=["cid-wynnstay"],
+    )
+
+    from sqlalchemy import select
+
+    from app.models import XeroInvoice
+    from app.services.xero_aged_payable_marks import load_marks
+
+    invoice = db.scalar(select(XeroInvoice).where(XeroInvoice.invoice_id == "inv-1"))
+    assert invoice is not None
+    assert invoice.contact_id == "cid-wynnstay"
+    assert invoice.contact_name == "Wynnstay"
+
+    stored = load_marks(db)
+    assert stored["contact_status"]["GAD"]["id:cid-wynnstay"] == "critical"
+    assert "id:cid-wynnstay\t2026-01-01" in stored["selections"]["GAD"]
 

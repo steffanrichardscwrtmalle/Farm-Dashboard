@@ -64,6 +64,7 @@ def init_db() -> None:
     _migrate_standing_orders_schema()
     _migrate_rental_agreements_schema()
     _migrate_xero_line_amount_types()
+    _migrate_xero_aged_payable_marks()
     _migrate_parlour_schema()
     _migrate_sensehub_calf_assignments_schema()
     _seed_financial_forecasts()
@@ -153,6 +154,23 @@ def _migrate_parlour_schema() -> None:
                         "ADD COLUMN lag_phase_seconds INTEGER"
                     )
                 )
+
+def _migrate_xero_aged_payable_marks() -> None:
+    """Store Xero ContactID on invoices and persist Aged Payables colour marks."""
+    from app.models import XeroAgedPayableMarks
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "xero_invoices" in tables:
+        cols = {col["name"] for col in inspector.get_columns("xero_invoices")}
+        if "contact_id" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE xero_invoices ADD COLUMN contact_id VARCHAR(64)")
+                )
+    if "xero_aged_payable_marks" not in tables:
+        XeroAgedPayableMarks.__table__.create(bind=engine, checkfirst=True)
+
 
 def _migrate_xero_line_amount_types() -> None:
     """Add LineAmountTypes columns used to strip VAT from Inclusive Xero docs."""
