@@ -46,6 +46,7 @@ from app.auth.permissions import (
     ACTION_HR_VIEW_SENSITIVE,
     PAGE_EVENTS,
     PAGE_FEED_RATE,
+    PAGE_FEED_CONTRACTS,
     ACTION_BENCHMARKING_EDIT,
     ACTION_CATTLE_SALES_IMPORT,
     ACTION_MILK_QUALITY_IMPORT,
@@ -56,6 +57,7 @@ from app.auth.permissions import (
     PAGE_GENETICS,
     PAGE_HR,
     PAGE_MILK_QUALITY,
+    PAGE_MILK_STATEMENTS,
     PAGE_PARLOUR,
     PAGE_SCHEDULE,
     PAGE_REPORTS,
@@ -1116,7 +1118,7 @@ def feed_rate_page(request: Request):
 
 @app.get("/feed-rate/contracts", response_class=HTMLResponse)
 def feed_contracts_page(request: Request):
-    if denied := _page_guard(request, PAGE_FEED_RATE):
+    if denied := _page_guard(request, PAGE_FEED_CONTRACTS):
         return denied
     return templates.TemplateResponse(
         request,
@@ -1626,7 +1628,7 @@ def milk_quality_collections_page(request: Request):
 
 @app.get("/milk-quality/statements", response_class=HTMLResponse)
 def milk_quality_statements_page(request: Request):
-    if denied := _page_guard(request, PAGE_MILK_QUALITY):
+    if denied := _page_guard(request, PAGE_MILK_STATEMENTS):
         return denied
     from app.config import STATEMENTS_LOOKBACK_DAYS
     from app.models import HERD_FARM_OPTIONS

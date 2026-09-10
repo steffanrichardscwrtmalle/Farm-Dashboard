@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, require_page
-from app.auth.permissions import PAGE_FEED_RATE
+from app.auth.permissions import PAGE_FEED_CONTRACTS, PAGE_FEED_RATE
 from app.db import SessionLocal, get_db
 from app.models import FeedRateRecord, User
 from app.services.feed_contracts import (
@@ -280,7 +280,7 @@ def api_list_feed_contracts(
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     db: Session = Depends(get_db),
-    _: User = Depends(require_page(PAGE_FEED_RATE)),
+    _: User = Depends(require_page(PAGE_FEED_CONTRACTS)),
 ):
     return list_feed_contracts(
         db,
@@ -297,7 +297,7 @@ def api_feed_contracts_summary(
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     db: Session = Depends(get_db),
-    _: User = Depends(require_page(PAGE_FEED_RATE)),
+    _: User = Depends(require_page(PAGE_FEED_CONTRACTS)),
 ):
     return feed_contracts_summary(
         db,
@@ -309,7 +309,7 @@ def api_feed_contracts_summary(
 @router.get("/contracts/options")
 def api_feed_contract_options(
     db: Session = Depends(get_db),
-    _: User = Depends(require_page(PAGE_FEED_RATE)),
+    _: User = Depends(require_page(PAGE_FEED_CONTRACTS)),
 ):
     return get_feed_contract_options(db)
 
@@ -319,7 +319,7 @@ def api_add_feed_option(
     kind: str,
     body: FeedOptionBody,
     db: Session = Depends(get_db),
-    _: User = Depends(require_page(PAGE_FEED_RATE)),
+    _: User = Depends(require_page(PAGE_FEED_CONTRACTS)),
 ):
     if kind not in ("products", "product_types", "suppliers"):
         raise HTTPException(status_code=400, detail="Invalid option kind.")
@@ -335,7 +335,7 @@ def api_remove_feed_option(
     kind: str,
     body: FeedOptionBody,
     db: Session = Depends(get_db),
-    _: User = Depends(require_page(PAGE_FEED_RATE)),
+    _: User = Depends(require_page(PAGE_FEED_CONTRACTS)),
 ):
     if kind not in ("products", "product_types", "suppliers"):
         raise HTTPException(status_code=400, detail="Invalid option kind.")
@@ -360,7 +360,7 @@ class FeedContractUpdateBody(BaseModel):
 def api_create_feed_contract(
     body: FeedContractBody,
     db: Session = Depends(get_db),
-    _: User = Depends(require_page(PAGE_FEED_RATE)),
+    _: User = Depends(require_page(PAGE_FEED_CONTRACTS)),
 ):
     try:
         return create_feed_contracts_bulk(db, body.model_dump())
@@ -373,7 +373,7 @@ def api_update_feed_contract(
     contract_id: int,
     body: FeedContractUpdateBody,
     db: Session = Depends(get_db),
-    _: User = Depends(require_page(PAGE_FEED_RATE)),
+    _: User = Depends(require_page(PAGE_FEED_CONTRACTS)),
 ):
     try:
         return update_feed_contract(db, contract_id, body.model_dump())
@@ -386,7 +386,7 @@ def api_update_feed_contract(
 def api_delete_feed_contract(
     contract_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_page(PAGE_FEED_RATE)),
+    _: User = Depends(require_page(PAGE_FEED_CONTRACTS)),
 ):
     try:
         return delete_feed_contract(db, contract_id)

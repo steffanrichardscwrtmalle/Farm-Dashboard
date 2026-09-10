@@ -451,7 +451,10 @@ def _migrate_user_permissions() -> None:
         ACTION_MILK_STATEMENTS_IMPORT,
         PAGE_CATTLE_SALES,
         PAGE_EVENTS,
+        PAGE_FEED_RATE,
+        PAGE_FEED_CONTRACTS,
         PAGE_MILK_QUALITY,
+        PAGE_MILK_STATEMENTS,
         PAGE_SENSEHUB,
         parse_permissions,
         serialize_permissions,
@@ -505,6 +508,16 @@ def _migrate_user_permissions() -> None:
                     changed = True
                 if PAGE_SENSEHUB not in pages and PAGE_EVENTS in pages:
                     pages.append(PAGE_SENSEHUB)
+                    perms["pages"] = sorted(set(pages))
+                    user.permissions = serialize_permissions(perms)
+                    changed = True
+                if PAGE_MILK_STATEMENTS not in pages and PAGE_MILK_QUALITY in pages:
+                    pages.append(PAGE_MILK_STATEMENTS)
+                    perms["pages"] = sorted(set(pages))
+                    user.permissions = serialize_permissions(perms)
+                    changed = True
+                if PAGE_FEED_CONTRACTS not in pages and PAGE_FEED_RATE in pages:
+                    pages.append(PAGE_FEED_CONTRACTS)
                     perms["pages"] = sorted(set(pages))
                     user.permissions = serialize_permissions(perms)
                     changed = True

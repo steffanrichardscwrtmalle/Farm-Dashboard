@@ -678,7 +678,7 @@
           </div>
           {% endif %}
 
-          {% if perms.page('feed_rate') %}
+          {% if perms.page('feed_rate') or perms.page('feed_contracts') %}
           <div class="nav-group{% if active_nav_group == 'feed-rate' %} expanded{% endif %}" data-nav-group="feed-rate">
             <button
               type="button"
@@ -690,9 +690,15 @@
               <span class="nav-collapsible-label">Feed</span>
             </button>
             <div class="nav-group-items" id="feed-rate-nav-items">
+              {% if perms.page('feed_rate') %}
               <a href="/feed-rate" class="{% if active_nav == 'feed-rate' %}active{% endif %}">Feed Rations</a>
+              {% endif %}
+              {% if perms.page('feed_contracts') %}
               <a href="/feed-rate/contracts" class="{% if active_nav == 'feed-contracts' %}active{% endif %}">Contracts</a>
+              {% endif %}
+              {% if perms.page('feed_rate') %}
               <a href="/feed-rate/usage" class="{% if active_nav == 'feed-usage' %}active{% endif %}">Feed Usage</a>
+              {% endif %}
             </div>
           </div>
           {% endif %}
@@ -760,7 +766,7 @@
           </div>
           {% endif %}
 
-          {% if perms.page('milk_quality') %}
+          {% if perms.page('milk_quality') or perms.page('milk_statements') %}
           <div class="nav-group{% if active_nav_group == 'milk-quality' %} expanded{% endif %}" data-nav-group="milk-quality">
             <button
               type="button"
@@ -772,8 +778,12 @@
               <span class="nav-collapsible-label">Milk Sales</span>
             </button>
             <div class="nav-group-items" id="milk-quality-nav-items">
+              {% if perms.page('milk_quality') %}
               <a href="/milk-quality/collections" class="{% if active_nav == 'haulier-collections' %}active{% endif %}">Collections</a>
+              {% endif %}
+              {% if perms.page('milk_statements') %}
               <a href="/milk-quality/statements" class="{% if active_nav == 'milk-statements' %}active{% endif %}">Statements</a>
+              {% endif %}
             </div>
           </div>
           {% endif %}

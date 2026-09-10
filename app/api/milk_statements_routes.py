@@ -12,7 +12,7 @@ from app.auth.deps import get_current_user, require_page
 from app.auth.import_key import require_import_or_any_action
 from app.auth.permissions import (
     MILK_IMPORT_ACTIONS,
-    PAGE_MILK_QUALITY,
+    PAGE_MILK_STATEMENTS,
 )
 from app.db import SessionLocal, get_db
 from app.models import MilkStatement, User
@@ -38,7 +38,7 @@ def api_milk_statements_list(
     farms: str | None = Query(None),
     farm: str | None = Query(None),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_page(PAGE_MILK_QUALITY)),
+    _user: User = Depends(require_page(PAGE_MILK_STATEMENTS)),
 ):
     raw = farms or farm
     farm_list = (

@@ -15,10 +15,12 @@ PAGE_BCMS = "bcms"
 PAGE_EVENTS = "events"
 PAGE_SENSEHUB = "sensehub"
 PAGE_FEED_RATE = "feed_rate"
+PAGE_FEED_CONTRACTS = "feed_contracts"
 PAGE_OFFICE_ADMIN = "office_admin"
 PAGE_XERO = "xero"
 PAGE_GENETICS = "genetics"
 PAGE_MILK_QUALITY = "milk_quality"
+PAGE_MILK_STATEMENTS = "milk_statements"
 PAGE_CATTLE_SALES = "cattle_sales"
 PAGE_BENCHMARKING = "benchmarking"
 PAGE_HR = "hr"
@@ -34,11 +36,13 @@ PAGE_KEYS: tuple[str, ...] = (
     PAGE_EVENTS,
     PAGE_SENSEHUB,
     PAGE_FEED_RATE,
+    PAGE_FEED_CONTRACTS,
     PAGE_OFFICE_ADMIN,
     PAGE_HR,
     PAGE_XERO,
     PAGE_GENETICS,
     PAGE_MILK_QUALITY,
+    PAGE_MILK_STATEMENTS,
     PAGE_CATTLE_SALES,
     PAGE_BENCHMARKING,
     PAGE_PARLOUR,
@@ -54,10 +58,12 @@ PAGE_LABELS: dict[str, str] = {
     PAGE_EVENTS: "Events",
     PAGE_SENSEHUB: "SenseHub",
     PAGE_FEED_RATE: "Feed",
+    PAGE_FEED_CONTRACTS: "Feed — Contracts",
     PAGE_OFFICE_ADMIN: "Office Admin",
     PAGE_XERO: "Xero",
     PAGE_GENETICS: "Genetics",
-    PAGE_MILK_QUALITY: "Milk Sales",
+    PAGE_MILK_QUALITY: "Milk Sales — Collections",
+    PAGE_MILK_STATEMENTS: "Milk Sales — Statements",
     PAGE_CATTLE_SALES: "Cattle Sales",
     PAGE_BENCHMARKING: "Budgeting",
     PAGE_HR: "Staff / HR",
@@ -146,7 +152,7 @@ ACTION_PAGES: dict[str, str] = {
     ACTION_GENETICS_PENDING_RESULTS: PAGE_GENETICS,
     ACTION_MILK_QUALITY_IMPORT: PAGE_MILK_QUALITY,
     ACTION_MILK_COLLECTIONS_IMPORT: PAGE_MILK_QUALITY,
-    ACTION_MILK_STATEMENTS_IMPORT: PAGE_MILK_QUALITY,
+    ACTION_MILK_STATEMENTS_IMPORT: PAGE_MILK_STATEMENTS,
     ACTION_CATTLE_SALES_IMPORT: PAGE_CATTLE_SALES,
     ACTION_BENCHMARKING_EDIT: PAGE_BENCHMARKING,
     ACTION_HR_ENROLL: PAGE_HR,
@@ -169,6 +175,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "label": "Farm worker",
         "pages": [
             PAGE_FEED_RATE,
+            PAGE_FEED_CONTRACTS,
             PAGE_EVENTS,
             PAGE_SENSEHUB,
             PAGE_STOCK_INVENTORY,
