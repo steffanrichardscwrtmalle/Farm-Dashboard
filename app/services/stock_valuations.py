@@ -24,6 +24,7 @@ from app.models import (
 )
 from app.services.events_common import (
     _fiscal_year_calendar_bounds,
+    _fiscal_year_from_date,
     _iter_month_starts,
     normalize_farms,
 )
@@ -1198,6 +1199,64 @@ def _build_kpi_detail(
     }
 
 
+def _parse_fiscal_year_filter(value: str | int | None) -> tuple[int | None, bool]:
+    """Return (fiscal_year, any_year). None/invalid with any_year False means default."""
+    if value is None:
+        return None, False
+    if isinstance(value, int):
+        return value, False
+    text = str(value).strip().lower()
+    if text in {"", "any"}:
+        return None, True
+    try:
+        return int(text), False
+    except ValueError:
+        return None, False
+
+
+def _valuation_period_bounds(
+    fiscal_year: int | None,
+    fiscal_year_options: list[int],
+    anchor_date: dt.date,
+) -> tuple[dt.date, dt.date]:
+    if fiscal_year is not None:
+        fy_start, fy_end = _fiscal_year_calendar_bounds(fiscal_year)
+    elif fiscal_year_options:
+        fy_start = _fiscal_year_calendar_bounds(min(fiscal_year_options))[0]
+        fy_end = _fiscal_year_calendar_bounds(max(fiscal_year_options))[1]
+    else:
+        fy_start, fy_end = _fiscal_year_calendar_bounds(
+            _fiscal_year_from_date(anchor_date)
+        )
+    return fy_start, min(fy_end, anchor_date)
+
+
+def _month_window(
+    *,
+    fiscal_year: int | None,
+    fiscal_year_options: list[int],
+    anchor_date: dt.date,
+    month_from: dt.date | None,
+    month_to: dt.date | None,
+) -> tuple[dt.date, dt.date, dt.date, dt.date, dict[str, str]]:
+    fy_start, available_end = _valuation_period_bounds(
+        fiscal_year, fiscal_year_options, anchor_date
+    )
+    slider_min = _month_start(fy_start)
+    slider_max = _month_start(available_end)
+    effective_from = _month_start(month_from) if month_from is not None else slider_min
+    effective_to = _month_start(month_to) if month_to is not None else slider_max
+    effective_from = max(effective_from, slider_min)
+    effective_to = min(effective_to, slider_max)
+    if effective_from > effective_to:
+        effective_from, effective_to = effective_to, effective_from
+    date_bounds = {
+        "min": slider_min.isoformat(),
+        "max": _month_end(slider_max).isoformat(),
+    }
+    return fy_start, available_end, effective_from, effective_to, date_bounds
+
+
 def _fiscal_year_options(db: Session, selected_farms: list[str]) -> list[int]:
     years: set[int] = set()
     for value in db.scalars(
@@ -1365,7 +1424,8 @@ def _compute_stock_valuations_report(
     *,
     selected_farms: list[str],
     anchor_ts: dt.datetime,
-    fiscal_year: int,
+    fiscal_year: int | None,
+    fiscal_year_options: list[int],
     month_from: dt.date | None = None,
     month_to: dt.date | None = None,
     selected_month: dt.date | None = None,
@@ -1377,27 +1437,19 @@ def _compute_stock_valuations_report(
         anchor_ts=anchor_ts,
     )
 
-    fy_start, fy_end = _fiscal_year_calendar_bounds(fiscal_year)
-    available_end = min(fy_end, anchor_date)
-    slider_min = _month_start(fy_start)
-    slider_max = _month_start(available_end)
-    effective_from = _month_start(month_from) if month_from is not None else slider_min
-    effective_to = _month_start(month_to) if month_to is not None else slider_max
-    effective_from = max(effective_from, slider_min)
-    effective_to = min(effective_to, slider_max)
-    if effective_from > effective_to:
-        effective_from, effective_to = effective_to, effective_from
+    fy_start, available_end, effective_from, effective_to, date_bounds = _month_window(
+        fiscal_year=fiscal_year,
+        fiscal_year_options=fiscal_year_options,
+        anchor_date=anchor_date,
+        month_from=month_from,
+        month_to=month_to,
+    )
 
     month_starts = [
         month_start
         for month_start in _iter_month_starts(fy_start, available_end)
         if effective_from <= month_start <= effective_to
     ]
-
-    date_bounds = {
-        "min": slider_min.isoformat(),
-        "max": _month_end(slider_max).isoformat(),
-    }
     months = _compute_month_rows(
         month_starts=month_starts,
         anchor_date=anchor_date,
@@ -1492,22 +1544,19 @@ def _report_from_snapshots(
     selected_farms: list[str],
     anchor_ts: dt.datetime,
     anchor_date: dt.date,
-    fiscal_year: int,
+    fiscal_year: int | None,
     fiscal_year_options: list[int],
     month_from: dt.date | None,
     month_to: dt.date | None,
     selected_month: dt.date | None,
 ) -> dict[str, Any]:
-    fy_start, fy_end = _fiscal_year_calendar_bounds(fiscal_year)
-    available_end = min(fy_end, anchor_date)
-    slider_min = _month_start(fy_start)
-    slider_max = _month_start(available_end)
-    effective_from = _month_start(month_from) if month_from is not None else slider_min
-    effective_to = _month_start(month_to) if month_to is not None else slider_max
-    effective_from = max(effective_from, slider_min)
-    effective_to = min(effective_to, slider_max)
-    if effective_from > effective_to:
-        effective_from, effective_to = effective_to, effective_from
+    _, _, effective_from, effective_to, date_bounds = _month_window(
+        fiscal_year=fiscal_year,
+        fiscal_year_options=fiscal_year_options,
+        anchor_date=anchor_date,
+        month_from=month_from,
+        month_to=month_to,
+    )
 
     snapshots = db.scalars(
         select(StockValuationSnapshot)
@@ -1555,10 +1604,7 @@ def _report_from_snapshots(
         "anchor_date": anchor_date.isoformat(),
         "fiscal_year": fiscal_year,
         "fiscal_year_options": fiscal_year_options,
-        "date_bounds": {
-            "min": slider_min.isoformat(),
-            "max": _month_end(slider_max).isoformat(),
-        },
+        "date_bounds": date_bounds,
         "months": months,
         "selected_month": _selected_month_detail(months, selected_month),
         "methodology": METHODOLOGY_SUMMARY,
@@ -1570,15 +1616,16 @@ def build_stock_valuations_report(
     db: Session,
     *,
     farms: list[str] | None = None,
-    fiscal_year: int | None = None,
+    fiscal_year: str | int | None = None,
     month_from: dt.date | None = None,
     month_to: dt.date | None = None,
     selected_month: dt.date | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
+    requested_year, any_year = _parse_fiscal_year_filter(fiscal_year)
     empty = {
         "anchor_date": None,
-        "fiscal_year": fiscal_year,
+        "fiscal_year": None if any_year else requested_year,
         "fiscal_year_options": [],
         "date_bounds": None,
         "months": [],
@@ -1598,11 +1645,17 @@ def build_stock_valuations_report(
         return empty
 
     fiscal_year_options = _fiscal_year_options(db, selected_farms)
-    if fiscal_year is None and fiscal_year_options:
-        fiscal_year = fiscal_year_options[0]
+    if any_year:
+        resolved_year = None
+    elif requested_year is not None:
+        resolved_year = requested_year
+    elif fiscal_year_options:
+        resolved_year = fiscal_year_options[0]
+    else:
+        resolved_year = None
 
     anchor_date = anchor_ts.date()
-    if fiscal_year is None:
+    if resolved_year is None and not any_year:
         return {
             **empty,
             "anchor_date": anchor_date.isoformat(),
@@ -1616,7 +1669,7 @@ def build_stock_valuations_report(
             selected_farms=selected_farms,
             anchor_ts=snapshot_ts,
             anchor_date=anchor_date,
-            fiscal_year=fiscal_year,
+            fiscal_year=resolved_year,
             fiscal_year_options=fiscal_year_options,
             month_from=month_from,
             month_to=month_to,
@@ -1627,14 +1680,15 @@ def build_stock_valuations_report(
             db,
             selected_farms=selected_farms,
             anchor_ts=anchor_ts,
-            fiscal_year=fiscal_year,
+            fiscal_year=resolved_year,
+            fiscal_year_options=fiscal_year_options,
             month_from=month_from,
             month_to=month_to,
             selected_month=selected_month,
         )
         result = {
             "anchor_date": anchor_date.isoformat(),
-            "fiscal_year": fiscal_year,
+            "fiscal_year": resolved_year,
             "fiscal_year_options": fiscal_year_options,
             "date_bounds": date_bounds,
             "months": months,

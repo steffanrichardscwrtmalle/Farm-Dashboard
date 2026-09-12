@@ -177,7 +177,7 @@ def api_unarchive_fallen_stock(
 @router.get("/stock-valuations")
 def api_stock_valuations(
     farm: list[str] | None = Query(None),
-    fiscal_year: int | None = Query(None),
+    fiscal_year: str | None = Query(None),
     month_from: dt.date | None = Query(None),
     month_to: dt.date | None = Query(None),
     month: dt.date | None = Query(None),

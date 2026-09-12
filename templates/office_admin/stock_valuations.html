@@ -266,6 +266,7 @@
     let monthList = [];
     let loadTimer = null;
     let initialBoundsSynced = false;
+    let fiscalYearInitialized = false;
 
     function selectedFarms() {
       return [...document.querySelectorAll(".farm-slicer .slicer-btn.selected")]
@@ -352,20 +353,26 @@
       updateDateLabels();
     }
 
+    function selectedFiscalYear() {
+      return document.getElementById("fiscal-year-select").value || "any";
+    }
+
     function renderFiscalYearOptions(options, selected) {
       const select = document.getElementById("fiscal-year-select");
-      const current = selected != null ? String(selected) : select.value;
-      select.innerHTML = "";
-      (options || []).forEach(fy => {
-        const opt = document.createElement("option");
-        opt.value = String(fy);
-        opt.textContent = String(fy);
-        select.appendChild(opt);
-      });
-      if (current && [...select.options].some(opt => opt.value === current)) {
+      const years = (options || []).map(Number).filter((year) => Number.isFinite(year));
+      const current = selected == null
+        ? (fiscalYearInitialized ? selectedFiscalYear() : (years[0] != null ? String(years[0]) : "any"))
+        : String(selected);
+      select.innerHTML = '<option value="any">Any</option>' +
+        years.map((year) => `<option value="${year}">${year}</option>`).join("");
+      if (current && current !== "any" && years.includes(Number(current))) {
         select.value = current;
-      } else if (options?.length) {
-        select.value = String(options[0]);
+      } else if (current === "any") {
+        select.value = "any";
+      } else if (years.length) {
+        select.value = String(years[0]);
+      } else {
+        select.value = "any";
       }
     }
 
@@ -561,6 +568,7 @@
 
       const data = await res.json();
       renderFiscalYearOptions(data.fiscal_year_options || [], data.fiscal_year);
+      fiscalYearInitialized = true;
 
       if (data.date_bounds && !initialBoundsSynced) {
         syncDateBounds(data.date_bounds);
@@ -604,7 +612,8 @@
 
       empty.style.display = "none";
       wrap.style.display = "";
-      meta.textContent = `${data.fiscal_year} — ${data.months.length} month(s) through anchor ${data.anchor_date}`;
+      const fyLabel = data.fiscal_year == null ? "Any" : data.fiscal_year;
+      meta.textContent = `${fyLabel} — ${data.months.length} month(s) through anchor ${data.anchor_date}`;
       renderMonths(data.months);
       renderDetail(data.selected_month);
     }

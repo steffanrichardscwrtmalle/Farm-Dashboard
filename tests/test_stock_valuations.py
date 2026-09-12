@@ -816,6 +816,39 @@ def test_build_report_month_range_filter(db: Session) -> None:
     assert report["months"][0]["month_start"] == "2025-05-01"
 
 
+def test_build_report_any_fiscal_year_spans_all_years(db: Session) -> None:
+    db.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="400",
+            etag="UK400",
+            event="SOLD",
+            event_date=dt.date(2024, 6, 1),
+            lact=1,
+            cbrd=1,
+            gndr="F",
+            bdat=dt.date(2018, 1, 1),
+            fiscal_year=2025,
+        )
+    )
+    db.commit()
+
+    defaulted = build_stock_valuations_report(db, farms=["GAD"])
+    assert defaulted["fiscal_year"] == 2026
+    assert defaulted["date_bounds"]["min"] == "2025-04-01"
+    assert defaulted["date_bounds"]["max"] == "2025-06-30"
+    assert defaulted["fiscal_year_options"][0] == 2026
+
+    any_year = build_stock_valuations_report(db, farms=["GAD"], fiscal_year="any")
+    assert any_year["fiscal_year"] is None
+    assert any_year["date_bounds"]["min"] == "2024-04-01"
+    assert any_year["date_bounds"]["max"] == "2025-06-30"
+    month_starts = [row["month_start"] for row in any_year["months"]]
+    assert "2024-04-01" in month_starts
+    assert "2025-06-01" in month_starts
+    assert len(any_year["months"]) > len(defaulted["months"])
+
+
 def test_rebuild_snapshots_served_from_table(db: Session) -> None:
     live = build_stock_valuations_report(db, farms=["GAD"], fiscal_year=2026)
     assert live.get("from_snapshot") is False
