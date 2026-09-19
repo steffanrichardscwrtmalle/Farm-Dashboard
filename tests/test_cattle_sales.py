@@ -19,6 +19,7 @@ from app.services.cattle_sale_pdf import (
 from app.services.cattle_sales import (
     BUYER_BUITELAAR,
     BUYER_GAME_CHANGER,
+    BUYER_PICKSTOCK,
     compute_dim_at_cull,
     compute_price_per_kg,
     format_age_years_months,
@@ -807,3 +808,112 @@ def test_looks_like_game_changer_pdf():
         "PAYMENT ADVICE\nABP UK T/A GameChanger Farming\nEartag Breed Sex Weight"
     )
     assert not looks_like_game_changer_pdf("Eurofarm Wales Cheque Payment Report")
+
+
+def _pickstock_fixture_path():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent
+    candidates = [
+        root / "fixtures" / "FPF_GREEN ACRE DAIRY LIMITED746063.PDF",
+        root.parent / "FPF_GREEN ACRE DAIRY LIMITED746063.PDF",
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+def test_looks_like_pickstock_pdf():
+    from app.services.pickstock_pdf import looks_like_pickstock_pdf
+
+    assert looks_like_pickstock_pdf(
+        "Remittance Pickstock Telford Ltd\nKill Date: Sep 17 2026\nEartag Cold wt Value"
+    )
+    assert not looks_like_pickstock_pdf("Eurofarm Wales Cheque Payment Report")
+
+
+def test_parse_pickstock_pdf_sample():
+    from app.services.pickstock_pdf import parse_pickstock_pdf
+
+    path = _pickstock_fixture_path()
+    assert path is not None, "Pickstock sample PDF fixture missing"
+    result = parse_pickstock_pdf(path.read_bytes(), source_file=path.name)
+    assert result["farm"] == "GAD"
+    assert result["sale_date"] == dt.date(2026, 9, 17)
+    assert len(result["lines"]) == 8
+    assert abs(sum(line["amount_gbp"] for line in result["lines"]) - 12584.54) < 0.01
+    first = next(line for line in result["lines"] if line["etag"] == "UK752261510110")
+    assert first["cold_weight_kg"] == 359.3
+    assert first["amount_gbp"] == 1814.47
+    assert first["kill_date"] == dt.date(2026, 9, 17)
+    assert first["reject_kg"] is None
+    condemned = next(line for line in result["lines"] if line["etag"] == "UK752261706878")
+    assert condemned["cold_weight_kg"] == 323.6
+    assert condemned["amount_gbp"] == 1585.64
+    assert condemned["reject_kg"] == 4.6
+
+
+def test_parse_sale_pdf_dispatches_pickstock():
+    from app.services.cattle_sales_import import _parse_sale_pdf
+
+    path = _pickstock_fixture_path()
+    assert path is not None, "Pickstock sample PDF fixture missing"
+    result = _parse_sale_pdf(
+        path.read_bytes(),
+        mailbox_farm=None,
+        source_file=path.name,
+    )
+    assert result["buyer"] == BUYER_PICKSTOCK
+    assert result["farm"] == "GAD"
+    assert len(result["lines"]) == 8
+
+
+def test_infer_cattle_sale_buyer_pickstock_filename():
+    assert (
+        infer_cattle_sale_buyer(source_file="FPF_GREEN ACRE DAIRY LIMITED746063.PDF")
+        == BUYER_PICKSTOCK
+    )
+    assert infer_cattle_sale_buyer(source_file="pickstock-remittance.pdf") == BUYER_PICKSTOCK
+
+
+def test_list_cattle_sales_matches_pickstock_cull_line() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CowEvent(
+            farm="GAD",
+            cow_id="10110",
+            etag="UK752261510110",
+            event="SOLD",
+            event_date=dt.date(2026, 9, 17),
+            dest="PICKSTOCK",
+            gndr="F",
+            bdat=dt.date(2022, 3, 1),
+            lact=3,
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="GAD",
+            etag="UK752261510110",
+            sale_date=dt.date(2026, 9, 17),
+            kill_date=dt.date(2026, 9, 17),
+            cold_weight_kg=359.3,
+            amount_gbp=1814.47,
+            buyer=BUYER_PICKSTOCK,
+            source_file="FPF_GREEN ACRE DAIRY LIMITED746063.PDF",
+        )
+    )
+    session.commit()
+
+    result = list_cattle_sales(session, farms=["GAD"])
+    assert result["total"] == 1
+    row = result["rows"][0]
+    assert row["event_matched"] is True
+    assert row["amount_gbp"] == 1814.47
+    assert row["cold_weight_kg"] == 359.3
+    assert row["buyer"] == BUYER_PICKSTOCK
+
+    session.close()

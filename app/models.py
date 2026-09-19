@@ -1365,7 +1365,7 @@ class MilkCollection(Base):
 
 
 class CattleSaleLine(Base):
-    """Per-animal line from cattle-sale remittance PDFs (Eurofarm / Pathway / Buitelaar / Game Changer)."""
+    """Per-animal line from cattle-sale remittance PDFs (Eurofarm / Pathway / Buitelaar / Game Changer / Pickstock)."""
 
     __tablename__ = "cattle_sale_lines"
     __table_args__ = (

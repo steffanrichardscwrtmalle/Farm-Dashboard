@@ -25,11 +25,13 @@ BUYER_EUROFARM = "Euro Farm Wales"
 BUYER_PATHWAY = "Pathway"
 BUYER_BUITELAAR = "Buitelaar"
 BUYER_GAME_CHANGER = "Game Changer"
+BUYER_PICKSTOCK = "Pickstock"
 KNOWN_BUYERS: tuple[str, ...] = (
     BUYER_EUROFARM,
     BUYER_PATHWAY,
     BUYER_BUITELAAR,
     BUYER_GAME_CHANGER,
+    BUYER_PICKSTOCK,
 )
 
 
@@ -61,6 +63,8 @@ def infer_cattle_sale_buyer(
         return BUYER_PATHWAY
     if "buitelaar" in name or "vendbill" in name:
         return BUYER_BUITELAAR
+    if "pickstock" in name or name.startswith("fpf") or " fpf" in name:
+        return BUYER_PICKSTOCK
     if (
         "gamechanger" in name.replace(" ", "")
         or "game changer" in name

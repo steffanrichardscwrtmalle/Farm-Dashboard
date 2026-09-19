@@ -129,7 +129,7 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_MILK_QUALITY_IMPORT: "Milk Sales — import NML results from email",
     ACTION_MILK_COLLECTIONS_IMPORT: "Milk Sales — import haulier collections from email",
     ACTION_MILK_STATEMENTS_IMPORT: "Milk Sales — import buyer statements from email",
-    ACTION_CATTLE_SALES_IMPORT: "Cattle Sales — import Eurofarm / Pathway / Buitelaar / Game Changer remittances from email",
+    ACTION_CATTLE_SALES_IMPORT: "Cattle Sales — import Eurofarm / Pathway / Buitelaar / Game Changer / Pickstock remittances from email",
     ACTION_BENCHMARKING_EDIT: "Budgeting — edit forecast tables",
     ACTION_HR_ENROLL: "HR — enroll new staff",
     ACTION_HR_VIEW_SENSITIVE: "HR — view sensitive (NI, pay, contracts, documents)",
