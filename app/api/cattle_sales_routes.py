@@ -45,6 +45,8 @@ def api_cattle_sales_list(
     farms: str | None = Query(None),
     category: list[str] | None = Query(None),
     categories: str | None = Query(None),
+    gender: list[str] | None = Query(None),
+    genders: str | None = Query(None),
     buyer: list[str] | None = Query(None),
     buyers: str | None = Query(None),
     date_from: str | None = Query(None),
@@ -63,6 +65,12 @@ def api_cattle_sales_list(
             c for c in (part.strip() for part in categories.split(",")) if c
         ]
 
+    gender_list: list[str] | None = list(gender) if gender else None
+    if not gender_list and genders:
+        gender_list = [
+            g for g in (part.strip() for part in genders.split(",")) if g
+        ]
+
     buyer_list: list[str] | None = list(buyer) if buyer else None
     if not buyer_list and buyers:
         buyer_list = [b for b in (part.strip() for part in buyers.split(",")) if b]
@@ -71,6 +79,7 @@ def api_cattle_sales_list(
         db,
         farms=farm_list,
         categories=category_list,
+        genders=gender_list,
         buyers=buyer_list,
         date_from=_parse_date(date_from),
         date_to=_parse_date(date_to),

@@ -21,6 +21,7 @@ EVENT_MATCH_WINDOW_DAYS = 14
 # PATHWAY is the historical JV event name; PATH is also accepted.
 CATTLE_SALES_JV_EXIT_EVENTS: tuple[str, ...] = ("GAME", "PATH", "PATHWAY")
 CATTLE_CATEGORIES: tuple[str, ...] = ("Dairy", "Youngstock", "Beef")
+CATTLE_GENDERS: tuple[str, ...] = ("Male", "Female")
 BUYER_EUROFARM = "Euro Farm Wales"
 BUYER_PATHWAY = "Pathway"
 BUYER_BUITELAAR = "Buitelaar"
@@ -198,10 +199,30 @@ def _best_sold_match(
     return best
 
 
+def format_cattle_gender(gndr: str | None) -> str | None:
+    normalized = (gndr or "").strip().upper()
+    if normalized in {"M", "MALE"}:
+        return "Male"
+    if normalized in {"F", "FEMALE"}:
+        return "Female"
+    return None
+
+
 def normalize_categories(categories: list[str] | None) -> list[str] | None:
     if not categories:
         return None
     selected = [c for c in categories if c in CATTLE_CATEGORIES]
+    return selected or None
+
+
+def normalize_genders(genders: list[str] | None) -> list[str] | None:
+    if not genders:
+        return None
+    selected: list[str] = []
+    for raw in genders:
+        mapped = format_cattle_gender(raw)
+        if mapped and mapped not in selected:
+            selected.append(mapped)
     return selected or None
 
 
@@ -217,6 +238,7 @@ def list_cattle_sales(
     *,
     farms: list[str] | None = None,
     categories: list[str] | None = None,
+    genders: list[str] | None = None,
     buyers: list[str] | None = None,
     date_from: dt.date | None = None,
     date_to: dt.date | None = None,
@@ -225,6 +247,7 @@ def list_cattle_sales(
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     selected_categories = normalize_categories(categories)
+    selected_genders = normalize_genders(genders)
     selected_buyers = normalize_buyers(buyers)
     if not selected_farms:
         return {
@@ -307,12 +330,14 @@ def list_cattle_sales(
         dim_value = None
         lact = None
         category = None
+        gender = None
         event_date = None
 
         if match is not None:
             cow_id = (match.cow_id or "").strip() or None
             lact = _normalize_lact(match.lact)
             category = _category_from_event(match.lact, match.cbrd, match.gndr)
+            gender = format_cattle_gender(match.gndr)
             event_date = match.event_date
             if match.bdat and match.event_date:
                 age_days = (match.event_date - match.bdat).days
@@ -326,6 +351,12 @@ def list_cattle_sales(
             )
 
         if selected_categories and category is not None and category not in selected_categories:
+            continue
+        if (
+            selected_genders
+            and set(selected_genders) != set(CATTLE_GENDERS)
+            and gender not in selected_genders
+        ):
             continue
 
         rejected = is_rejected_sale(
@@ -345,6 +376,7 @@ def list_cattle_sales(
                 "dim": dim_value,
                 "lact": lact,
                 "category": category,
+                "gender": gender,
                 "buyer": buyer,
                 "cold_weight_kg": line.cold_weight_kg,
                 "reject_kg": line.reject_kg,

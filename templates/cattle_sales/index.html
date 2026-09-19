@@ -50,6 +50,8 @@
     .slicer-btn[data-value="Dairy"].selected { background: #dbeafe; border-color: #3b82f6; color: #1e40af; }
     .slicer-btn[data-value="Youngstock"].selected { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
     .slicer-btn[data-value="Beef"].selected { background: #ede9fe; border-color: #a78bfa; color: #5b21b6; }
+    .slicer-btn[data-value="Male"].selected { background: #e0f2fe; border-color: #0ea5e9; color: #075985; }
+    .slicer-btn[data-value="Female"].selected { background: #fce7f3; border-color: #ec4899; color: #9d174d; }
     .date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
     .date-row label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
     .date-row select { margin: 0; width: 100%; }
@@ -153,6 +155,13 @@
             <button type="button" class="slicer-btn selected" data-value="Dairy" aria-pressed="true">Dairy</button>
             <button type="button" class="slicer-btn" data-value="Youngstock" aria-pressed="false">Youngstock</button>
             <button type="button" class="slicer-btn" data-value="Beef" aria-pressed="false">Beef</button>
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Gender</span>
+          <div class="slicer-group gender-slicer" role="group" aria-label="Gender">
+            <button type="button" class="slicer-btn selected" data-value="Male" aria-pressed="true">Male</button>
+            <button type="button" class="slicer-btn selected" data-value="Female" aria-pressed="true">Female</button>
           </div>
         </div>
         <div class="filter-section">
@@ -310,7 +319,7 @@
           if (selected && count <= minSelected) return;
           btn.classList.toggle('selected', !selected);
           btn.setAttribute('aria-pressed', btn.classList.contains('selected') ? 'true' : 'false');
-          if (selector === '.farm-slicer' || selector === '.category-slicer') fetchData();
+          if (selector === '.farm-slicer' || selector === '.category-slicer' || selector === '.gender-slicer') fetchData();
           else refreshView();
         });
       });
@@ -394,6 +403,7 @@
       const params = new URLSearchParams();
       selectedValues('.farm-slicer').forEach(f => params.append('farm', f));
       selectedValues('.category-slicer').forEach(c => params.append('category', c));
+      selectedValues('.gender-slicer').forEach(g => params.append('gender', g));
       const buyer = document.getElementById('buyer-filter')?.value || '';
       if (buyer) params.append('buyer', buyer);
       params.set('include_unmatched', 'true');
@@ -955,6 +965,7 @@
 
     bindSlicers('.farm-slicer');
     bindSlicers('.category-slicer');
+    bindSlicers('.gender-slicer');
     bindChartUI();
     fetchData();
   </script>
