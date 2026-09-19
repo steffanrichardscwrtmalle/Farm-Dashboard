@@ -54,7 +54,7 @@
     .slicer-btn[data-value="Female"].selected { background: #fce7f3; border-color: #ec4899; color: #9d174d; }
     .date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
     .date-row label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
-    .date-row select { margin: 0; width: 100%; }
+    .date-row select, .date-row input { margin: 0; width: 100%; }
     #buyer-filter { width: 100%; margin: 0; }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
     .meta-line.is-loading { font-style: italic; }
@@ -165,6 +165,13 @@
           </div>
         </div>
         <div class="filter-section">
+          <span class="section-label">Age (days)</span>
+          <div class="date-row">
+            <label>Min <input type="number" id="age-min" min="0" step="1" value="0" inputmode="numeric" title="Minimum age in days"></label>
+            <label>Max <input type="number" id="age-max" min="0" step="1" value="9999" inputmode="numeric" title="Maximum age in days"></label>
+          </div>
+        </div>
+        <div class="filter-section">
           <span class="section-label">Buyer</span>
           <select id="buyer-filter" title="Filter by cattle buyer">
             <option value="" selected>Any</option>
@@ -270,7 +277,7 @@
               <th data-sort="cow_id">ID</th>
               <th data-sort="etag">ETAG</th>
               <th data-sort="lact">Lact</th>
-              <th data-sort="age">Age</th>
+              <th data-sort="age_days">Age</th>
               <th data-sort="dim">DIM</th>
               <th data-sort="cold_weight_kg">Cold Wt (kg)</th>
               <th data-sort="amount_gbp">Amount (£)</th>
@@ -399,15 +406,34 @@
       return allRows.filter(r => r.sale_date >= fromDate && r.sale_date <= toDate);
     }
 
+    const AGE_MIN_DEFAULT = 0;
+    const AGE_MAX_DEFAULT = 9999;
+
+    function ageParam(id, fallback) {
+      const el = document.getElementById(id);
+      if (!el) return fallback;
+      const raw = String(el.value || '').trim();
+      if (raw === '') return fallback;
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) && n >= 0 ? n : fallback;
+    }
+
     function buildQueryParams() {
       const params = new URLSearchParams();
       selectedValues('.farm-slicer').forEach(f => params.append('farm', f));
       selectedValues('.category-slicer').forEach(c => params.append('category', c));
       selectedValues('.gender-slicer').forEach(g => params.append('gender', g));
-      const buyer = document.getElementById('buyer-filter')?.value || '';
-      if (buyer) params.append('buyer', buyer);
+      let ageMin = ageParam('age-min', AGE_MIN_DEFAULT);
+      let ageMax = ageParam('age-max', AGE_MAX_DEFAULT);
+      if (ageMin > ageMax) { const t = ageMin; ageMin = ageMax; ageMax = t; }
+      params.set('age_min', String(ageMin));
+      params.set('age_max', String(ageMax));
       params.set('include_unmatched', 'true');
       return params;
+    }
+
+    function buyersFromRows(rows) {
+      return [...new Set((rows || []).map(r => r.buyer).filter(Boolean))].sort();
     }
 
     function populateBuyerFilter(buyers) {
@@ -425,6 +451,12 @@
       } else {
         sel.value = '';
       }
+    }
+
+    function displayedRows() {
+      const dated = filteredRows();
+      const buyer = document.getElementById('buyer-filter')?.value || '';
+      return buyer ? dated.filter(r => r.buyer === buyer) : dated;
     }
 
     function fmtNum(v, dp = 2) {
@@ -835,7 +867,8 @@
     }
 
     function refreshView() {
-      const rows = filteredRows();
+      populateBuyerFilter(buyersFromRows(filteredRows()));
+      const rows = displayedRows();
       const unmatched = rows.filter(r => !r.event_matched).length;
       let meta = `${rows.length} sale line(s)`;
       if (unmatched) meta += ` · ${unmatched} without matching sale exit event`;
@@ -852,7 +885,6 @@
         if (!res.ok) throw new Error('Failed to load');
         const payload = await res.json();
         allRows = payload.rows || [];
-        populateBuyerFilter(payload.buyers || []);
         populateMonthSelects(payload.date_bounds, { resetRange: isInitialCattleSalesLoad });
         isInitialCattleSalesLoad = false;
         refreshView();
@@ -955,13 +987,21 @@
         const key = th.dataset.sort;
         if (sortKey === key) sortDir *= -1;
         else { sortKey = key; sortDir = 1; }
-        renderTable(filteredRows());
+        renderTable(displayedRows());
       });
     });
 
     document.getElementById('date-from').addEventListener('change', refreshView);
     document.getElementById('date-to').addEventListener('change', refreshView);
-    document.getElementById('buyer-filter')?.addEventListener('change', fetchData);
+    document.getElementById('buyer-filter')?.addEventListener('change', refreshView);
+    ['age-min', 'age-max'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', fetchData);
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); fetchData(); }
+      });
+    });
 
     bindSlicers('.farm-slicer');
     bindSlicers('.category-slicer');

@@ -22,6 +22,8 @@ EVENT_MATCH_WINDOW_DAYS = 14
 CATTLE_SALES_JV_EXIT_EVENTS: tuple[str, ...] = ("GAME", "PATH", "PATHWAY")
 CATTLE_CATEGORIES: tuple[str, ...] = ("Dairy", "Youngstock", "Beef")
 CATTLE_GENDERS: tuple[str, ...] = ("Male", "Female")
+AGE_MIN_DAYS_DEFAULT = 0
+AGE_MAX_DAYS_DEFAULT = 9999
 BUYER_EUROFARM = "Euro Farm Wales"
 BUYER_PATHWAY = "Pathway"
 BUYER_BUITELAAR = "Buitelaar"
@@ -226,6 +228,21 @@ def normalize_genders(genders: list[str] | None) -> list[str] | None:
     return selected or None
 
 
+def normalize_age_days_range(
+    age_min: int | None,
+    age_max: int | None,
+) -> tuple[int, int]:
+    lo = AGE_MIN_DAYS_DEFAULT if age_min is None else int(age_min)
+    hi = AGE_MAX_DAYS_DEFAULT if age_max is None else int(age_max)
+    if lo < 0:
+        lo = 0
+    if hi < 0:
+        hi = 0
+    if lo > hi:
+        lo, hi = hi, lo
+    return lo, hi
+
+
 def normalize_buyers(buyers: list[str] | None) -> list[str] | None:
     if not buyers:
         return None
@@ -240,6 +257,8 @@ def list_cattle_sales(
     categories: list[str] | None = None,
     genders: list[str] | None = None,
     buyers: list[str] | None = None,
+    age_min_days: int | None = None,
+    age_max_days: int | None = None,
     date_from: dt.date | None = None,
     date_to: dt.date | None = None,
     include_unmatched: bool = True,
@@ -249,6 +268,11 @@ def list_cattle_sales(
     selected_categories = normalize_categories(categories)
     selected_genders = normalize_genders(genders)
     selected_buyers = normalize_buyers(buyers)
+    age_lo, age_hi = normalize_age_days_range(age_min_days, age_max_days)
+    age_filter_active = (age_lo, age_hi) != (
+        AGE_MIN_DAYS_DEFAULT,
+        AGE_MAX_DAYS_DEFAULT,
+    )
     if not selected_farms:
         return {
             "rows": [],
@@ -270,14 +294,6 @@ def list_cattle_sales(
     )
     sale_lines = list(db.scalars(query).all())
 
-    available_buyers = sorted(
-        {
-            infer_cattle_sale_buyer(buyer=line.buyer, source_file=line.source_file)
-            for line in sale_lines
-        }
-        - {None}
-    )
-
     date_bounds = None
     if include_date_bounds:
         bounds = db.execute(
@@ -295,7 +311,7 @@ def list_cattle_sales(
             "rows": [],
             "total": 0,
             "date_bounds": date_bounds,
-            "buyers": available_buyers,
+            "buyers": [],
             "charts": {"cold_weight_vs_date": [], "amount_vs_date": [], "amount_vs_dim": []},
         }
 
@@ -310,10 +326,9 @@ def list_cattle_sales(
     sold_by_key = _load_sold_events(db, selected_farms, etags, min_sale, max_sale)
 
     rows: list[dict[str, Any]] = []
+    available_buyer_set: set[str] = set()
     for line in sale_lines:
         buyer = infer_cattle_sale_buyer(buyer=line.buyer, source_file=line.source_file)
-        if selected_buyers and (buyer is None or buyer not in selected_buyers):
-            continue
 
         norm_etag = normalize_etag(line.etag)
         match = _best_sold_match(
@@ -327,6 +342,7 @@ def list_cattle_sales(
 
         cow_id = None
         age_display = None
+        age_days = None
         dim_value = None
         lact = None
         category = None
@@ -358,6 +374,15 @@ def list_cattle_sales(
             and gender not in selected_genders
         ):
             continue
+        if age_filter_active and (
+            age_days is None or age_days < age_lo or age_days > age_hi
+        ):
+            continue
+
+        if buyer:
+            available_buyer_set.add(buyer)
+        if selected_buyers and (buyer is None or buyer not in selected_buyers):
+            continue
 
         rejected = is_rejected_sale(
             line.cold_weight_kg, line.reject_kg, line.amount_gbp
@@ -373,6 +398,7 @@ def list_cattle_sales(
                 "cow_id": cow_id,
                 "etag": line.etag,
                 "age": age_display,
+                "age_days": age_days,
                 "dim": dim_value,
                 "lact": lact,
                 "category": category,
@@ -414,7 +440,7 @@ def list_cattle_sales(
         "rows": rows,
         "total": len(rows),
         "date_bounds": date_bounds,
-        "buyers": available_buyers,
+        "buyers": sorted(available_buyer_set),
         "charts": charts,
         "categories": list(CATTLE_CATEGORIES),
         "farms": list(HERD_FARM_OPTIONS),

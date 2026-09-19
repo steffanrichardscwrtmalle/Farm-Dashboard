@@ -26,6 +26,7 @@ from app.services.cattle_sales import (
     format_cattle_gender,
     infer_cattle_sale_buyer,
     list_cattle_sales,
+    normalize_age_days_range,
 )
 
 
@@ -71,6 +72,13 @@ def test_format_cattle_gender():
     assert format_cattle_gender("Male") == "Male"
     assert format_cattle_gender(None) is None
     assert format_cattle_gender("") is None
+
+
+def test_normalize_age_days_range():
+    assert normalize_age_days_range(None, None) == (0, 9999)
+    assert normalize_age_days_range(30, 90) == (30, 90)
+    assert normalize_age_days_range(90, 30) == (30, 90)
+    assert normalize_age_days_range(-5, -1) == (0, 0)
 
 
 def test_compute_dim_at_cull_lactating():
@@ -510,6 +518,77 @@ def test_list_cattle_sales_filters_by_buyer() -> None:
     session.close()
 
 
+def test_list_cattle_sales_buyers_follow_category_filter() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="135074",
+            etag="UK740651135074",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 29),
+            dest="PATHWAY",
+            gndr="M",
+            bdat=dt.date(2026, 5, 1),
+            lact=0,
+            cbrd=1,
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="724069",
+            etag="UK740651724069",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 16),
+            dest="EUROFARM",
+            gndr="F",
+            bdat=dt.date(2022, 1, 1),
+            lact=3,
+            cbrd=1,
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651135074",
+            sale_date=dt.date(2026, 6, 29),
+            cold_weight_kg=64.0,
+            amount_gbp=460.0,
+            buyer="Pathway",
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651724069",
+            sale_date=dt.date(2026, 6, 16),
+            cold_weight_kg=263.6,
+            amount_gbp=1159.93,
+            buyer="Euro Farm Wales",
+        )
+    )
+    session.commit()
+
+    dairy = list_cattle_sales(session, farms=["CM"], categories=["Dairy"])
+    assert dairy["buyers"] == ["Euro Farm Wales"]
+    assert dairy["total"] == 1
+
+    beef = list_cattle_sales(session, farms=["CM"], categories=["Beef"])
+    assert beef["buyers"] == ["Pathway"]
+    assert beef["total"] == 1
+
+    dairy_pathway = list_cattle_sales(
+        session, farms=["CM"], categories=["Dairy"], buyers=["Pathway"]
+    )
+    assert dairy_pathway["total"] == 0
+    assert dairy_pathway["buyers"] == ["Euro Farm Wales"]
+
+    session.close()
+
+
 def test_list_cattle_sales_filters_by_gender() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
@@ -577,6 +656,83 @@ def test_list_cattle_sales_filters_by_gender() -> None:
     assert females["total"] == 1
     assert females["rows"][0]["etag"] == "UK740651724069"
     assert females["rows"][0]["gender"] == "Female"
+
+    session.close()
+
+
+def test_list_cattle_sales_filters_by_age_days() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="135074",
+            etag="UK740651135074",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 29),
+            dest="PATHWAY",
+            gndr="M",
+            bdat=dt.date(2026, 5, 1),
+            lact=0,
+            cbrd=1,
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="724069",
+            etag="UK740651724069",
+            event="SOLD",
+            event_date=dt.date(2026, 6, 16),
+            dest="EUROFARM",
+            gndr="F",
+            bdat=dt.date(2022, 1, 1),
+            lact=3,
+            cbrd=1,
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651135074",
+            sale_date=dt.date(2026, 6, 29),
+            cold_weight_kg=64.0,
+            amount_gbp=460.0,
+            buyer="Pathway",
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651724069",
+            sale_date=dt.date(2026, 6, 16),
+            cold_weight_kg=263.6,
+            amount_gbp=1159.93,
+            buyer="Euro Farm Wales",
+        )
+    )
+    session.commit()
+
+    default_range = list_cattle_sales(
+        session, farms=["CM"], age_min_days=0, age_max_days=9999
+    )
+    assert default_range["total"] == 2
+    calf = next(row for row in default_range["rows"] if row["etag"] == "UK740651135074")
+    cow = next(row for row in default_range["rows"] if row["etag"] == "UK740651724069")
+    assert calf["age_days"] == 59
+    assert cow["age_days"] == 1627
+
+    young = list_cattle_sales(session, farms=["CM"], age_min_days=0, age_max_days=90)
+    assert young["total"] == 1
+    assert young["rows"][0]["etag"] == "UK740651135074"
+
+    older = list_cattle_sales(session, farms=["CM"], age_min_days=100, age_max_days=9999)
+    assert older["total"] == 1
+    assert older["rows"][0]["etag"] == "UK740651724069"
+
+    none = list_cattle_sales(session, farms=["CM"], age_min_days=0, age_max_days=50)
+    assert none["total"] == 0
 
     session.close()
 
