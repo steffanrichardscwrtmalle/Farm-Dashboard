@@ -217,7 +217,6 @@
           <div class="chart-head">
             <h3>Avg cold weight vs date</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-weight" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-weight" data-title="Avg cold weight vs date" title="View larger">⤢</button>
             </div>
           </div>
@@ -227,7 +226,6 @@
           <div class="chart-head">
             <h3>Avg amount vs date</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-amount-date" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-amount-date" data-title="Avg amount vs date" title="View larger">⤢</button>
             </div>
           </div>
@@ -237,7 +235,6 @@
           <div class="chart-head">
             <h3>Avg £/kg vs date</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-price-kg" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-price-kg" data-title="Avg £/kg vs date" title="View larger">⤢</button>
             </div>
           </div>
@@ -247,14 +244,13 @@
           <div class="chart-head">
             <h3>Avg amount vs DIM</h3>
             <div class="chart-actions">
-              <button type="button" class="chart-btn chart-reset" data-canvas="chart-amount-dim" title="Reset zoom">⟲</button>
               <button type="button" class="chart-expand" data-canvas="chart-amount-dim" data-title="Avg amount vs DIM" title="View larger">⤢</button>
             </div>
           </div>
           <div class="chart-wrap"><canvas id="chart-amount-dim"></canvas></div>
         </div>
       </div>
-      <p class="chart-hint">Date charts: weekly average per animal over trailing 21 days. Amount vs DIM: average amount in 30-day DIM groups. Scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset.</p>
+      <p class="chart-hint">Date charts: weekly average per animal over trailing 21 days. Amount vs DIM: average amount in 30-day DIM groups. Click ⤢ to enlarge. In the enlarged view: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset.</p>
 
       <div id="chart-modal" class="chart-modal" hidden>
         <div class="chart-modal-backdrop" data-close="1"></div>
@@ -673,15 +669,6 @@
                 },
               },
             },
-            zoom: {
-              pan: { enabled: true, mode: 'xy', modifierKey: 'ctrl' },
-              zoom: {
-                wheel: { enabled: true },
-                pinch: { enabled: true },
-                drag: { enabled: true, backgroundColor: 'rgba(30,58,95,0.15)', borderColor: 'rgba(30,58,95,0.6)', borderWidth: 1 },
-                mode: 'xy',
-              },
-            },
           },
           scales: {
             x: {
@@ -774,15 +761,6 @@
                 },
               },
             },
-            zoom: {
-              pan: { enabled: true, mode: 'xy', modifierKey: 'ctrl' },
-              zoom: {
-                wheel: { enabled: true },
-                pinch: { enabled: true },
-                drag: { enabled: true, backgroundColor: 'rgba(30,58,95,0.15)', borderColor: 'rgba(30,58,95,0.6)', borderWidth: 1 },
-                mode: 'xy',
-              },
-            },
           },
           scales: {
             x: {
@@ -793,6 +771,37 @@
           },
         },
       };
+    }
+
+    function zoomPluginOptions(enableZoom) {
+      if (!enableZoom) {
+        return {
+          pan: { enabled: false },
+          zoom: { wheel: { enabled: false }, pinch: { enabled: false }, drag: { enabled: false } },
+        };
+      }
+      return {
+        pan: { enabled: true, mode: 'xy', modifierKey: 'ctrl' },
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          drag: {
+            enabled: true,
+            backgroundColor: 'rgba(30,58,95,0.15)',
+            borderColor: 'rgba(30,58,95,0.6)',
+            borderWidth: 1,
+          },
+          mode: 'xy',
+        },
+      };
+    }
+
+    function configWithZoom(spec, enableZoom) {
+      const options = Object.assign({}, spec.options || {});
+      const plugins = Object.assign({}, options.plugins || {});
+      plugins.zoom = zoomPluginOptions(enableZoom);
+      options.plugins = plugins;
+      return { type: spec.type, data: spec.data, options };
     }
 
     function destroyChart(id) {
@@ -812,7 +821,7 @@
         chartSpecs[id] = specs[id];
         try {
           destroyChart(id);
-          charts[id] = new Chart(document.getElementById(id), specs[id]);
+          charts[id] = new Chart(document.getElementById(id), configWithZoom(specs[id], false));
         } catch (err) {
           chartError = err?.message || String(err);
           console.error('Chart render failed', id, err);
@@ -828,7 +837,7 @@
       const spec = chartSpecs[canvasId];
       if (!spec || typeof Chart === 'undefined') return;
       if (modalChart) { modalChart.destroy(); modalChart = null; }
-      modalChart = new Chart(document.getElementById('chart-modal-canvas'), spec);
+      modalChart = new Chart(document.getElementById('chart-modal-canvas'), configWithZoom(spec, true));
     }
 
     function openChartModal(canvasId, title) {
@@ -847,13 +856,6 @@
     function bindChartUI() {
       document.querySelectorAll('.chart-expand').forEach(btn => {
         btn.addEventListener('click', () => openChartModal(btn.dataset.canvas, btn.dataset.title));
-      });
-      document.querySelectorAll('.chart-reset').forEach(btn => {
-        btn.addEventListener('click', () => { if (charts[btn.dataset.canvas]) charts[btn.dataset.canvas].resetZoom(); });
-      });
-      CHART_IDS.forEach(id => {
-        const canvas = document.getElementById(id);
-        if (canvas) canvas.addEventListener('dblclick', () => { if (charts[id]) charts[id].resetZoom(); });
       });
       document.querySelectorAll('#chart-modal [data-close]').forEach(el => el.addEventListener('click', closeChartModal));
       document.getElementById('chart-modal-reset').addEventListener('click', () => { if (modalChart) modalChart.resetZoom(); });
