@@ -14,7 +14,8 @@ from app.models import (
     RationIngredient,
     RationIngredientCost,
 )
-from app.services.benchmarking import available_fiscal_years, fiscal_year_months
+from app.services.benchmarking import ration_month_range, ration_period_meta
+from app.services.events_common import _fiscal_year_from_date, _month_start
 
 RATION_CATEGORY_ORDER: tuple[str, ...] = RATION_INGREDIENT_CATEGORIES
 
@@ -152,21 +153,33 @@ def deactivate_ingredient(db: Session, *, ingredient_id: int) -> None:
     db.commit()
 
 
-def list_ingredient_costs(db: Session, *, fiscal_year: int) -> dict[str, Any]:
-    months = fiscal_year_months(fiscal_year)
+def list_ingredient_costs(
+    db: Session,
+    *,
+    fiscal_year: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
+) -> dict[str, Any]:
+    months = ration_month_range(
+        fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+    )
     ingredients = list_ingredients(db)
     ingredient_ids = {ing["id"] for ing in ingredients}
 
-    stored = db.scalars(
-        select(RationIngredientCost).where(
-            RationIngredientCost.fiscal_year == fiscal_year
+    query = select(RationIngredientCost)
+    if fiscal_year is not None:
+        query = query.where(RationIngredientCost.fiscal_year == fiscal_year)
+    elif months:
+        query = query.where(
+            RationIngredientCost.cost_month >= months[0],
+            RationIngredientCost.cost_month <= months[-1],
         )
-    ).all()
+    stored = db.scalars(query).all()
     by_key: dict[tuple[str, int], float | None] = {}
     for line in stored:
         if line.ingredient_id not in ingredient_ids:
             continue
-        by_key[(line.cost_month.isoformat(), line.ingredient_id)] = line.cost
+        by_key[(_month_start(line.cost_month).isoformat(), line.ingredient_id)] = line.cost
 
     rows = []
     for month_start in months:
@@ -181,8 +194,7 @@ def list_ingredient_costs(db: Session, *, fiscal_year: int) -> dict[str, Any]:
         })
 
     return {
-        "fiscal_year": fiscal_year,
-        "fiscal_year_options": available_fiscal_years(),
+        **ration_period_meta(months, fiscal_year),
         "categories": list_ingredient_categories(),
         "ingredients": ingredients,
         "rows": rows,
@@ -192,11 +204,16 @@ def list_ingredient_costs(db: Session, *, fiscal_year: int) -> dict[str, Any]:
 def save_ingredient_costs(
     db: Session,
     *,
-    fiscal_year: int,
+    fiscal_year: int | None,
     rows: list[dict[str, Any]],
     user_id: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[str, Any]:
-    valid_months = {m.isoformat() for m in fiscal_year_months(fiscal_year)}
+    months = ration_month_range(
+        fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+    )
+    valid_months = {m.isoformat() for m in months}
     ingredient_ids = {ing["id"] for ing in list_ingredients(db)}
 
     for row in rows:
@@ -205,9 +222,9 @@ def save_ingredient_costs(
         if not cost_month_raw or ingredient_id not in ingredient_ids:
             continue
         if isinstance(cost_month_raw, dt.date):
-            cost_month = cost_month_raw
+            cost_month = _month_start(cost_month_raw)
         else:
-            cost_month = dt.date.fromisoformat(str(cost_month_raw))
+            cost_month = _month_start(dt.date.fromisoformat(str(cost_month_raw)))
         if cost_month.isoformat() not in valid_months:
             continue
 
@@ -218,9 +235,12 @@ def save_ingredient_costs(
         else:
             cost = float(cost_raw)
 
+        row_fy = (
+            fiscal_year if fiscal_year is not None else _fiscal_year_from_date(cost_month)
+        )
         existing = db.scalar(
             select(RationIngredientCost).where(
-                RationIngredientCost.fiscal_year == fiscal_year,
+                RationIngredientCost.fiscal_year == row_fy,
                 RationIngredientCost.cost_month == cost_month,
                 RationIngredientCost.ingredient_id == ingredient_id,
             )
@@ -235,7 +255,7 @@ def save_ingredient_costs(
         else:
             db.add(
                 RationIngredientCost(
-                    fiscal_year=fiscal_year,
+                    fiscal_year=row_fy,
                     cost_month=cost_month,
                     ingredient_id=ingredient_id,
                     cost=cost,
@@ -244,4 +264,9 @@ def save_ingredient_costs(
             )
 
     db.commit()
-    return list_ingredient_costs(db, fiscal_year=fiscal_year)
+    return list_ingredient_costs(
+        db,
+        fiscal_year=fiscal_year,
+        month_from=months[0] if months else month_from,
+        month_to=months[-1] if months else month_to,
+    )

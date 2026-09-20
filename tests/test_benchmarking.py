@@ -15,6 +15,8 @@ from app.services.benchmarking import (
     forecast_period_cutoff,
     list_forecasts,
     list_metric_definitions,
+    parse_fiscal_year_filter,
+    ration_month_range,
     save_forecasts,
 )
 
@@ -33,6 +35,34 @@ def test_fiscal_year_months_apr_to_mar() -> None:
     assert len(months) == 12
     assert months[0] == dt.date(2025, 4, 1)
     assert months[-1] == dt.date(2026, 3, 1)
+
+
+def test_parse_fiscal_year_filter_any() -> None:
+    assert parse_fiscal_year_filter("any") == (None, True)
+    assert parse_fiscal_year_filter("Any") == (None, True)
+    assert parse_fiscal_year_filter(2027) == (2027, False)
+    assert parse_fiscal_year_filter("2027") == (2027, False)
+    assert parse_fiscal_year_filter(None) == (None, False)
+
+
+def test_ration_month_range_any_uses_custom_dates() -> None:
+    months = ration_month_range(
+        fiscal_year=None,
+        month_from=dt.date(2025, 4, 1),
+        month_to=dt.date(2027, 3, 1),
+    )
+    assert months[0] == dt.date(2025, 4, 1)
+    assert months[-1] == dt.date(2027, 3, 1)
+    assert len(months) == 24
+
+
+def test_ration_month_range_specific_year_ignores_custom_dates() -> None:
+    months = ration_month_range(
+        fiscal_year=2026,
+        month_from=dt.date(2024, 1, 1),
+        month_to=dt.date(2028, 12, 1),
+    )
+    assert months == fiscal_year_months(2026)
 
 
 def test_list_metric_definitions_has_thirteen_tab_metrics() -> None:
@@ -181,3 +211,75 @@ def test_beef_calf_sale_saves_births_with_sales(db: Session) -> None:
     assert stored[0].quantity == 12
     assert stored[1].metric == "beef_calf_sale"
     assert stored[1].quantity == 8
+
+
+def test_list_forecasts_any_year_spans_range(db: Session) -> None:
+    save_forecasts(
+        db,
+        fiscal_year=2026,
+        metric="cull",
+        rows=[
+            {
+                "forecast_month": "2025-04-01",
+                "farm": "CM",
+                "quantity": 4,
+                "unit_price": 1100.0,
+            }
+        ],
+        user_id=1,
+    )
+    save_forecasts(
+        db,
+        fiscal_year=2027,
+        metric="cull",
+        rows=[
+            {
+                "forecast_month": "2026-04-01",
+                "farm": "CM",
+                "quantity": 6,
+                "unit_price": 1200.0,
+            }
+        ],
+        user_id=1,
+    )
+    result = list_forecasts(
+        db,
+        fiscal_year=None,
+        month_from=dt.date(2025, 4, 1),
+        month_to=dt.date(2027, 3, 1),
+    )
+    assert result["any_year"] is True
+    assert result["fiscal_year"] is None
+    assert len(result["months"]) == 24
+    cull = {row["forecast_month"]: row for row in result["metrics"]["cull"]["rows"]}
+    assert cull["2025-04-01"]["CM"]["quantity"] == 4
+    assert cull["2026-04-01"]["CM"]["quantity"] == 6
+
+
+def test_save_forecasts_any_year_derives_fiscal_year(db: Session) -> None:
+    save_forecasts(
+        db,
+        fiscal_year=None,
+        month_from=dt.date(2025, 4, 1),
+        month_to=dt.date(2027, 3, 1),
+        metric="cow_death",
+        rows=[
+            {
+                "forecast_month": "2025-04-01",
+                "farm": "GAD",
+                "quantity": 1,
+            },
+            {
+                "forecast_month": "2026-05-01",
+                "farm": "GAD",
+                "quantity": 2,
+            },
+        ],
+        user_id=1,
+    )
+    stored = {
+        row.forecast_month.isoformat(): row
+        for row in db.query(BenchmarkForecastLine).all()
+    }
+    assert stored["2025-04-01"].fiscal_year == 2026
+    assert stored["2026-05-01"].fiscal_year == 2027

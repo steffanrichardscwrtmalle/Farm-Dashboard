@@ -143,3 +143,52 @@ def test_deactivate_ingredient_hides_from_library(db: Session) -> None:
     row = db.get(RationIngredient, ing["id"])
     assert row is not None
     assert row.is_active is False
+
+
+def test_list_ingredient_costs_any_year_spans_range(db: Session) -> None:
+    ing = create_ingredient(db, name="Wheat", category="concentrate", user_id=1)
+    save_ingredient_costs(
+        db,
+        fiscal_year=2026,
+        rows=[{"cost_month": "2025-04-01", "ingredient_id": ing["id"], "cost": 200.0}],
+        user_id=1,
+    )
+    save_ingredient_costs(
+        db,
+        fiscal_year=2027,
+        rows=[{"cost_month": "2026-04-01", "ingredient_id": ing["id"], "cost": 220.0}],
+        user_id=1,
+    )
+    result = list_ingredient_costs(
+        db,
+        fiscal_year=None,
+        month_from=dt.date(2025, 4, 1),
+        month_to=dt.date(2027, 3, 1),
+    )
+    assert result["any_year"] is True
+    assert result["fiscal_year"] is None
+    assert len(result["rows"]) == 24
+    assert result["rows"][0]["costs"][str(ing["id"])] == 200.0
+    april_26 = next(row for row in result["rows"] if row["cost_month"] == "2026-04-01")
+    assert april_26["costs"][str(ing["id"])] == 220.0
+
+
+def test_save_ingredient_costs_any_year_derives_fiscal_year(db: Session) -> None:
+    ing = create_ingredient(db, name="Barley", category="concentrate", user_id=1)
+    result = save_ingredient_costs(
+        db,
+        fiscal_year=None,
+        month_from=dt.date(2025, 4, 1),
+        month_to=dt.date(2027, 3, 1),
+        rows=[
+            {"cost_month": "2025-04-01", "ingredient_id": ing["id"], "cost": 180.0},
+            {"cost_month": "2026-05-01", "ingredient_id": ing["id"], "cost": 190.0},
+        ],
+        user_id=1,
+    )
+    assert result["any_year"] is True
+    assert len(result["rows"]) == 24
+    stored = db.query(RationIngredientCost).all()
+    by_month = {row.cost_month.isoformat(): row for row in stored}
+    assert by_month["2025-04-01"].fiscal_year == 2026
+    assert by_month["2026-05-01"].fiscal_year == 2027

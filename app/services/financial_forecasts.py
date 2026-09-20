@@ -22,10 +22,11 @@ from app.models import (
 )
 from app.services.financial_data_sources import validate_data_source_keys
 from app.services.benchmarking import (
-    available_fiscal_years,
-    fiscal_year_months,
     forecast_period_cutoff,
+    ration_month_range,
+    ration_period_meta,
 )
+from app.services.events_common import _fiscal_year_from_date, _month_start
 
 # (item_type, band, group, heading)
 DEFAULT_FINANCIAL_MAPPINGS: tuple[tuple[str, str, str, str], ...] = (
@@ -638,23 +639,38 @@ def _empty_farm_amounts() -> dict[str, float | None]:
     return {farm: None for farm in HERD_FARM_OPTIONS}
 
 
-def list_financial_forecasts(db: Session, *, fiscal_year: int) -> dict[str, Any]:
-    months = fiscal_year_months(fiscal_year)
+def list_financial_forecasts(
+    db: Session,
+    *,
+    fiscal_year: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
+) -> dict[str, Any]:
+    months = ration_month_range(
+        fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+    )
     month_set = set(months)
     bands = list_band_definitions(db)
 
-    stored = db.scalars(
-        select(FinancialForecastLine).where(FinancialForecastLine.fiscal_year == fiscal_year)
-    ).all()
+    query = select(FinancialForecastLine)
+    if fiscal_year is not None:
+        query = query.where(FinancialForecastLine.fiscal_year == fiscal_year)
+    elif months:
+        query = query.where(
+            FinancialForecastLine.forecast_month >= months[0],
+            FinancialForecastLine.forecast_month <= months[-1],
+        )
+    stored = db.scalars(query).all()
 
     by_mapping_month: dict[int, dict[dt.date, dict[str, float | None]]] = {}
     for line in stored:
-        if line.forecast_month not in month_set:
+        month_key = _month_start(line.forecast_month)
+        if month_key not in month_set:
             continue
         if line.farm not in HERD_FARM_OPTIONS:
             continue
         month_bucket = by_mapping_month.setdefault(line.mapping_id, {})
-        farm_bucket = month_bucket.setdefault(line.forecast_month, _empty_farm_amounts())
+        farm_bucket = month_bucket.setdefault(month_key, _empty_farm_amounts())
         farm_bucket[line.farm] = line.amount
 
     bands_payload: dict[str, Any] = {}
@@ -713,8 +729,7 @@ def list_financial_forecasts(db: Session, *, fiscal_year: int) -> dict[str, Any]
     ]
 
     return {
-        "fiscal_year": fiscal_year,
-        "fiscal_year_options": available_fiscal_years(),
+        **ration_period_meta(months, fiscal_year),
         "months": [m.isoformat() for m in months],
         "month_labels": month_labels,
         "bands": bands_payload,
@@ -736,12 +751,18 @@ def _parse_optional_float(value: Any) -> float | None:
 def _upsert_financial_forecast_rows(
     db: Session,
     *,
-    fiscal_year: int,
+    fiscal_year: int | None,
     rows: list[dict[str, Any]],
     allowed_mapping_ids: set[int] | None,
     user_id: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[str, int]:
-    months = set(fiscal_year_months(fiscal_year))
+    months = set(
+        ration_month_range(
+            fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+        )
+    )
     saved = 0
     deleted = 0
 
@@ -755,14 +776,21 @@ def _upsert_financial_forecast_rows(
         forecast_month = row.get("forecast_month")
         if isinstance(forecast_month, str):
             forecast_month = dt.date.fromisoformat(forecast_month)
+        if isinstance(forecast_month, dt.date):
+            forecast_month = _month_start(forecast_month)
         if forecast_month not in months:
             continue
+        row_fy = (
+            fiscal_year
+            if fiscal_year is not None
+            else _fiscal_year_from_date(forecast_month)
+        )
 
         for farm in HERD_FARM_OPTIONS:
             amount = _parse_optional_float(row.get(farm))
             existing = db.scalar(
                 select(FinancialForecastLine).where(
-                    FinancialForecastLine.fiscal_year == fiscal_year,
+                    FinancialForecastLine.fiscal_year == row_fy,
                     FinancialForecastLine.forecast_month == forecast_month,
                     FinancialForecastLine.mapping_id == mapping_id,
                     FinancialForecastLine.farm == farm,
@@ -776,7 +804,7 @@ def _upsert_financial_forecast_rows(
             if existing is None:
                 db.add(
                     FinancialForecastLine(
-                        fiscal_year=fiscal_year,
+                        fiscal_year=row_fy,
                         forecast_month=forecast_month,
                         mapping_id=mapping_id,
                         farm=farm,
@@ -797,10 +825,12 @@ def _upsert_financial_forecast_rows(
 def save_financial_forecasts(
     db: Session,
     *,
-    fiscal_year: int,
+    fiscal_year: int | None,
     band_id: str,
     rows: list[dict[str, Any]],
     user_id: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[str, int]:
     if band_id == "all":
         valid_ids = {
@@ -812,6 +842,8 @@ def save_financial_forecasts(
             rows=rows,
             allowed_mapping_ids=valid_ids,
             user_id=user_id,
+            month_from=month_from,
+            month_to=month_to,
         )
 
     band_defs = {b["id"]: b for b in list_band_definitions(db)}
@@ -825,4 +857,6 @@ def save_financial_forecasts(
         rows=rows,
         allowed_mapping_ids=allowed_mapping_ids,
         user_id=user_id,
+        month_from=month_from,
+        month_to=month_to,
     )

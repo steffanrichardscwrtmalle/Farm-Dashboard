@@ -2175,8 +2175,8 @@ def benchmarking_rations_hub_page(request: Request):
         "benchmarking/rations/index.html",
         _template_ctx(
             request,
-            page_heading="Rations",
-            **_benchmarking_context("Rations", "rations", None),
+            page_heading="Ration Forecasts",
+            **_benchmarking_context("Ration Forecasts", "rations", "Ration Forecasts"),
         ),
     )
 
@@ -2192,7 +2192,7 @@ def benchmarking_rations_ingredients_page(request: Request):
             request,
             page_heading="Ingredients",
             can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
-            **_benchmarking_context("Rations", "rations-ingredients", "Ingredients"),
+            **_benchmarking_context("Rations", "rations-ingredients", "Ration Forecasts &rsaquo; Ingredients"),
         ),
     )
 
@@ -2210,7 +2210,7 @@ def benchmarking_rations_cm_page(request: Request):
             farm_label="CM",
             farm_slug="cm",
             can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
-            **_benchmarking_context("Rations", "rations-cm", "CM Rations"),
+            **_benchmarking_context("Rations", "rations-cm", "Ration Forecasts &rsaquo; CM Rations"),
         ),
     )
 
@@ -2228,7 +2228,7 @@ def benchmarking_rations_gad_page(request: Request):
             farm_label="GAD",
             farm_slug="gad",
             can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
-            **_benchmarking_context("Rations", "rations-gad", "GAD Rations"),
+            **_benchmarking_context("Rations", "rations-gad", "Ration Forecasts &rsaquo; GAD Rations"),
         ),
     )
 
@@ -2246,7 +2246,7 @@ def benchmarking_rations_cost_comparison_page(request: Request):
             **_benchmarking_context(
                 "Rations",
                 "rations-comparison",
-                "Ration Cost Comparison",
+                "Ration Forecasts &rsaquo; Ration Cost Comparison",
             ),
         ),
     )

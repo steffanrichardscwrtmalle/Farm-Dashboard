@@ -16,8 +16,9 @@ from app.models import (
     FarmRationIngredient,
     RationIngredientCost,
 )
-from app.services.benchmarking import available_fiscal_years, fiscal_year_months
+from app.services.benchmarking import ration_month_range, ration_period_meta
 from app.services.benchmarking_rations import list_ingredients
+from app.services.events_common import _fiscal_year_from_date, _month_start
 
 FARM_RATION_SLUGS: dict[str, str] = {
     "cm": "CM",
@@ -71,19 +72,25 @@ def _total_cost_per_head(
 
 
 def _ingredient_costs_by_month(
-    db: Session, *, fiscal_year: int, ingredient_ids: set[int]
+    db: Session,
+    *,
+    fiscal_year: int | None,
+    months: list[dt.date],
+    ingredient_ids: set[int],
 ) -> dict[str, dict[str, float | None]]:
-    if not ingredient_ids:
+    if not ingredient_ids or not months:
         return {}
-    stored = db.scalars(
-        select(RationIngredientCost).where(
-            RationIngredientCost.fiscal_year == fiscal_year,
-            RationIngredientCost.ingredient_id.in_(ingredient_ids),
-        )
-    ).all()
+    query = select(RationIngredientCost).where(
+        RationIngredientCost.ingredient_id.in_(ingredient_ids),
+        RationIngredientCost.cost_month >= months[0],
+        RationIngredientCost.cost_month <= months[-1],
+    )
+    if fiscal_year is not None:
+        query = query.where(RationIngredientCost.fiscal_year == fiscal_year)
+    stored = db.scalars(query).all()
     by_month: dict[str, dict[str, float | None]] = {}
     for line in stored:
-        month_key = line.cost_month.isoformat()
+        month_key = _month_start(line.cost_month).isoformat()
         by_month.setdefault(month_key, {})[str(line.ingredient_id)] = line.cost
     return by_month
 
@@ -253,28 +260,50 @@ def deactivate_farm_ration(db: Session, *, ration_id: int, farm: str) -> None:
 
 
 def get_farm_ration_workbook(
-    db: Session, *, farm: str, fiscal_year: int, ration_id: int | None = None
+    db: Session,
+    *,
+    farm: str,
+    fiscal_year: int | None,
+    ration_id: int | None = None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[str, Any]:
     farm_code = normalize_farm_code(farm)
     rations = list_farm_rations(db, farm=farm_code)
     available_ingredients = list_ingredients(db)
     all_ingredient_ids = {ing["id"] for ing in available_ingredients}
+    months = ration_month_range(
+        fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+    )
 
     costs_by_month = _ingredient_costs_by_month(
-        db, fiscal_year=fiscal_year, ingredient_ids=all_ingredient_ids
+        db,
+        fiscal_year=fiscal_year,
+        months=months,
+        ingredient_ids=all_ingredient_ids,
     )
-    months = fiscal_year_months(fiscal_year)
 
-    stored_inclusions = db.scalars(
-        select(FarmRationInclusion).where(
-            FarmRationInclusion.fiscal_year == fiscal_year,
-            FarmRationInclusion.ration_id.in_([r["id"] for r in rations] or [-1]),
+    inclusion_query = select(FarmRationInclusion).where(
+        FarmRationInclusion.ration_id.in_([r["id"] for r in rations] or [-1]),
+    )
+    if fiscal_year is not None:
+        inclusion_query = inclusion_query.where(
+            FarmRationInclusion.fiscal_year == fiscal_year
         )
-    ).all()
+    elif months:
+        inclusion_query = inclusion_query.where(
+            FarmRationInclusion.inclusion_month >= months[0],
+            FarmRationInclusion.inclusion_month <= months[-1],
+        )
+    stored_inclusions = db.scalars(inclusion_query).all()
     inclusion_lookup: dict[tuple[int, str, int], float | None] = {}
     for line in stored_inclusions:
         inclusion_lookup[
-            (line.ration_id, line.inclusion_month.isoformat(), line.ingredient_id)
+            (
+                line.ration_id,
+                _month_start(line.inclusion_month).isoformat(),
+                line.ingredient_id,
+            )
         ] = line.kg_per_head
 
     ration_payloads = []
@@ -311,8 +340,7 @@ def get_farm_ration_workbook(
 
     return {
         "farm": farm_code,
-        "fiscal_year": fiscal_year,
-        "fiscal_year_options": available_fiscal_years(),
+        **ration_period_meta(months, fiscal_year),
         "available_ingredients": available_ingredients,
         "rations": ration_payloads,
         "active_ration_id": active_id,
@@ -324,14 +352,19 @@ def save_farm_ration_inclusions(
     *,
     farm: str,
     ration_id: int,
-    fiscal_year: int,
+    fiscal_year: int | None,
     rows: list[dict[str, Any]],
     user_id: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[str, Any]:
     farm_code = normalize_farm_code(farm)
     _get_active_ration(db, ration_id=ration_id, farm=farm_code)
     ingredient_ids = set(_ration_ingredient_ids(db, ration_id))
-    valid_months = {m.isoformat() for m in fiscal_year_months(fiscal_year)}
+    months = ration_month_range(
+        fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+    )
+    valid_months = {m.isoformat() for m in months}
 
     for row in rows:
         month_raw = row.get("inclusion_month")
@@ -339,9 +372,9 @@ def save_farm_ration_inclusions(
         if not month_raw or ingredient_id not in ingredient_ids:
             continue
         if isinstance(month_raw, dt.date):
-            inclusion_month = month_raw
+            inclusion_month = _month_start(month_raw)
         else:
-            inclusion_month = dt.date.fromisoformat(str(month_raw))
+            inclusion_month = _month_start(dt.date.fromisoformat(str(month_raw)))
         if inclusion_month.isoformat() not in valid_months:
             continue
 
@@ -352,9 +385,14 @@ def save_farm_ration_inclusions(
         else:
             kg = float(kg_raw)
 
+        row_fy = (
+            fiscal_year
+            if fiscal_year is not None
+            else _fiscal_year_from_date(inclusion_month)
+        )
         existing = db.scalar(
             select(FarmRationInclusion).where(
-                FarmRationInclusion.fiscal_year == fiscal_year,
+                FarmRationInclusion.fiscal_year == row_fy,
                 FarmRationInclusion.inclusion_month == inclusion_month,
                 FarmRationInclusion.ration_id == ration_id,
                 FarmRationInclusion.ingredient_id == ingredient_id,
@@ -370,7 +408,7 @@ def save_farm_ration_inclusions(
         else:
             db.add(
                 FarmRationInclusion(
-                    fiscal_year=fiscal_year,
+                    fiscal_year=row_fy,
                     inclusion_month=inclusion_month,
                     ration_id=ration_id,
                     ingredient_id=ingredient_id,
@@ -381,7 +419,12 @@ def save_farm_ration_inclusions(
 
     db.commit()
     return get_farm_ration_workbook(
-        db, farm=farm_code, fiscal_year=fiscal_year, ration_id=ration_id
+        db,
+        farm=farm_code,
+        fiscal_year=fiscal_year,
+        ration_id=ration_id,
+        month_from=months[0] if months else month_from,
+        month_to=months[-1] if months else month_to,
     )
 
 
@@ -471,12 +514,32 @@ def _index_rations_by_base(
     return indexed
 
 
-def get_ration_cost_comparison(db: Session, *, fiscal_year: int) -> dict[str, Any]:
-    cm_workbook = get_farm_ration_workbook(db, farm="CM", fiscal_year=fiscal_year)
-    gad_workbook = get_farm_ration_workbook(db, farm="GAD", fiscal_year=fiscal_year)
+def get_ration_cost_comparison(
+    db: Session,
+    *,
+    fiscal_year: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
+) -> dict[str, Any]:
+    cm_workbook = get_farm_ration_workbook(
+        db,
+        farm="CM",
+        fiscal_year=fiscal_year,
+        month_from=month_from,
+        month_to=month_to,
+    )
+    gad_workbook = get_farm_ration_workbook(
+        db,
+        farm="GAD",
+        fiscal_year=fiscal_year,
+        month_from=month_from,
+        month_to=month_to,
+    )
     cm_index = _index_rations_by_base(cm_workbook["rations"], "CM")
     gad_index = _index_rations_by_base(gad_workbook["rations"], "GAD")
-    months = fiscal_year_months(fiscal_year)
+    months = ration_month_range(
+        fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+    )
 
     comparisons: list[dict[str, Any]] = []
     for key in sorted(set(cm_index) | set(gad_index)):
@@ -524,7 +587,6 @@ def get_ration_cost_comparison(db: Session, *, fiscal_year: int) -> dict[str, An
         })
 
     return {
-        "fiscal_year": fiscal_year,
-        "fiscal_year_options": available_fiscal_years(),
+        **ration_period_meta(months, fiscal_year),
         "comparisons": comparisons,
     }

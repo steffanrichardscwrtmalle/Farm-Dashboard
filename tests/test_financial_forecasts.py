@@ -244,3 +244,87 @@ def test_clearing_amount_deletes_line(db: Session) -> None:
         )
     ).all()
     assert remaining == []
+
+
+def test_list_financial_forecasts_any_year_spans_range(db: Session) -> None:
+    mapping = db.scalars(
+        __import__("sqlalchemy").select(FinancialForecastMapping).limit(1)
+    ).first()
+    assert mapping is not None
+    band_id = f"{mapping.item_type}|{mapping.band}"
+    save_financial_forecasts(
+        db,
+        fiscal_year=2026,
+        band_id=band_id,
+        rows=[
+            {
+                "mapping_id": mapping.id,
+                "forecast_month": dt.date(2025, 4, 1),
+                "CM": 100.0,
+                "GAD": 50.0,
+            }
+        ],
+        user_id=None,
+    )
+    save_financial_forecasts(
+        db,
+        fiscal_year=2027,
+        band_id=band_id,
+        rows=[
+            {
+                "mapping_id": mapping.id,
+                "forecast_month": dt.date(2026, 4, 1),
+                "CM": 200.0,
+                "GAD": 80.0,
+            }
+        ],
+        user_id=None,
+    )
+    result = list_financial_forecasts(
+        db,
+        fiscal_year=None,
+        month_from=dt.date(2025, 4, 1),
+        month_to=dt.date(2027, 3, 1),
+    )
+    assert result["any_year"] is True
+    assert len(result["months"]) == 24
+    heading = result["bands"][band_id]["headings"][str(mapping.id)]
+    by_month = {row["forecast_month"]: row for row in heading["rows"]}
+    assert by_month["2025-04-01"]["CM"] == 100.0
+    assert by_month["2026-04-01"]["CM"] == 200.0
+
+
+def test_save_financial_forecasts_any_year_derives_fiscal_year(db: Session) -> None:
+    mapping = db.scalars(
+        __import__("sqlalchemy").select(FinancialForecastMapping).limit(1)
+    ).first()
+    assert mapping is not None
+    save_financial_forecasts(
+        db,
+        fiscal_year=None,
+        month_from=dt.date(2025, 4, 1),
+        month_to=dt.date(2027, 3, 1),
+        band_id="all",
+        rows=[
+            {
+                "mapping_id": mapping.id,
+                "forecast_month": dt.date(2025, 4, 1),
+                "CM": 10.0,
+                "GAD": None,
+            },
+            {
+                "mapping_id": mapping.id,
+                "forecast_month": dt.date(2026, 5, 1),
+                "CM": 20.0,
+                "GAD": None,
+            },
+        ],
+        user_id=None,
+    )
+    stored = {
+        row.forecast_month.isoformat(): row
+        for row in db.query(FinancialForecastLine).all()
+        if row.farm == "CM"
+    }
+    assert stored["2025-04-01"].fiscal_year == 2026
+    assert stored["2026-05-01"].fiscal_year == 2027

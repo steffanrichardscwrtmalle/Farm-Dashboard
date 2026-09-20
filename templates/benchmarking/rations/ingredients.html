@@ -33,13 +33,15 @@
       margin: 0;
     }
     .ingredients-toolbar select,
-    .ingredients-toolbar input[type="text"] {
+    .ingredients-toolbar input[type="text"],
+    .ingredients-toolbar input[type="month"] {
       margin: 0;
       padding: 0.2rem 0.35rem;
       font-size: 0.82rem;
       min-width: 0;
     }
     .ingredients-toolbar #fiscal-year-select { width: 5.5rem; }
+    .ingredients-toolbar input[type="month"] { width: 9.5rem; }
     .ingredients-toolbar #ingredient-name { width: 9rem; }
     .ingredients-toolbar #ingredient-category { width: 7rem; }
     .ingredients-toolbar button {
@@ -204,8 +206,8 @@
 {% block content %}
   <div class="ingredients-page">
     <div class="ingredients-top">
-      <a href="/benchmarking/rations">&larr; Rations</a>
-      <span class="muted">Monthly ingredient cost (£/t), UK fiscal year Apr–Mar.</span>
+      <a href="/benchmarking/rations">&larr; Ration Forecasts</a>
+      <span class="muted">Monthly ingredient cost (£/t). Choose a fiscal year, or Any for a custom date range.</span>
       {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
     </div>
 
@@ -214,6 +216,16 @@
         FY
         <select id="fiscal-year-select"></select>
       </label>
+      <span id="date-range-controls" hidden>
+        <label>
+          From
+          <input type="month" id="month-from">
+        </label>
+        <label>
+          To
+          <input type="month" id="month-to">
+        </label>
+      </span>
       {% if can_edit %}
       <label>
         Add
@@ -488,31 +500,79 @@
       }
     }
 
-    async function loadCosts() {
+    function isoToMonthInput(iso) {
+      return iso ? String(iso).slice(0, 7) : '';
+    }
+
+    function monthInputToIso(value) {
+      return value ? `${value}-01` : '';
+    }
+
+    function isAnyYearSelected() {
+      return document.getElementById('fiscal-year-select').value === 'any';
+    }
+
+    function periodQueryParams() {
+      const params = new URLSearchParams();
+      const fy = document.getElementById('fiscal-year-select').value || 'any';
+      params.set('fiscal_year', fy);
+      if (fy === 'any') {
+        const from = monthInputToIso(document.getElementById('month-from').value);
+        const to = monthInputToIso(document.getElementById('month-to').value);
+        if (from) params.set('month_from', from);
+        if (to) params.set('month_to', to);
+      }
+      return params;
+    }
+
+    function periodSaveBody() {
       const fy = document.getElementById('fiscal-year-select').value;
+      const body = { fiscal_year: fy === 'any' ? 'any' : Number(fy) };
+      if (fy === 'any') {
+        body.month_from = monthInputToIso(document.getElementById('month-from').value) || null;
+        body.month_to = monthInputToIso(document.getElementById('month-to').value) || null;
+      }
+      return body;
+    }
+
+    function syncDateRangeControls(data) {
+      const wrap = document.getElementById('date-range-controls');
+      const anyYear = isAnyYearSelected() || Boolean(data?.any_year);
+      wrap.hidden = !anyYear;
+      if (!anyYear) return;
+      const fromInput = document.getElementById('month-from');
+      const toInput = document.getElementById('month-to');
+      if (data?.month_from) fromInput.value = isoToMonthInput(data.month_from);
+      if (data?.month_to) toInput.value = isoToMonthInput(data.month_to);
+    }
+
+    async function loadCosts() {
       document.getElementById('load-error').hidden = true;
       try {
-        const res = await fetch(`/api/benchmarking/rations/ingredient-costs?fiscal_year=${encodeURIComponent(fy)}`);
+        const res = await fetch(`/api/benchmarking/rations/ingredient-costs?${periodQueryParams()}`);
         if (!res.ok) throw new Error('load failed');
         costData = await res.json();
+        syncDateRangeControls(costData);
         renderTable();
       } catch (_) {
         document.getElementById('load-error').hidden = false;
       }
     }
 
-    function populateFiscalYears(options, selected) {
+    function populateFiscalYears(options, selected, anyYear) {
       const select = document.getElementById('fiscal-year-select');
-      select.innerHTML = options.map(fy => `
-        <option value="${fy}"${fy === selected ? ' selected' : ''}>${fy}</option>
-      `).join('');
+      const selectedValue = anyYear || selected == null ? 'any' : String(selected);
+      select.innerHTML = '<option value="any">Any</option>' +
+        (options || []).map(fy => `
+          <option value="${fy}"${String(fy) === selectedValue ? ' selected' : ''}>${fy}</option>
+        `).join('');
+      select.value = selectedValue;
     }
 
     async function saveCosts() {
       if (!CAN_EDIT) return;
       const statusEl = document.getElementById('save-status');
       const btn = document.getElementById('save-btn');
-      const fy = Number(document.getElementById('fiscal-year-select').value);
       btn.disabled = true;
       statusEl.textContent = 'Saving…';
       statusEl.className = 'save-status';
@@ -520,7 +580,7 @@
         const res = await fetch('/api/benchmarking/rations/ingredient-costs', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fiscal_year: fy, rows: collectRows() }),
+          body: JSON.stringify({ ...periodSaveBody(), rows: collectRows() }),
         });
         const payload = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -531,6 +591,7 @@
           throw new Error(message);
         }
         costData = payload;
+        syncDateRangeControls(costData);
         renderTable();
         statusEl.textContent = 'Saved.';
         statusEl.className = 'save-status ok';
@@ -583,8 +644,10 @@
         costData = await res.json();
         populateFiscalYears(
           costData.fiscal_year_options || [costData.fiscal_year],
-          costData.fiscal_year
+          costData.fiscal_year,
+          costData.any_year
         );
+        syncDateRangeControls(costData);
         renderTable();
       } catch (_) {
         document.getElementById('load-error').hidden = false;
@@ -593,7 +656,16 @@
 
       bindTableKeyboard();
       bindLibraryActions();
-      document.getElementById('fiscal-year-select').addEventListener('change', loadCosts);
+      document.getElementById('fiscal-year-select').addEventListener('change', () => {
+        document.getElementById('date-range-controls').hidden = !isAnyYearSelected();
+        loadCosts();
+      });
+      document.getElementById('month-from').addEventListener('change', () => {
+        if (isAnyYearSelected()) loadCosts();
+      });
+      document.getElementById('month-to').addEventListener('change', () => {
+        if (isAnyYearSelected()) loadCosts();
+      });
       if (CAN_EDIT) {
         document.getElementById('save-btn').addEventListener('click', saveCosts);
         document.getElementById('add-ingredient-btn').addEventListener('click', addIngredient);

@@ -32,13 +32,15 @@
       gap: 0.35rem;
       margin: 0;
     }
-    .benchmark-toolbar select {
+    .benchmark-toolbar select,
+    .benchmark-toolbar input[type="month"] {
       min-width: 0;
-      width: 5.5rem;
       margin: 0;
       padding: 0.2rem 0.35rem;
       font-size: 0.82rem;
     }
+    .benchmark-toolbar select { width: 5.5rem; }
+    .benchmark-toolbar input[type="month"] { width: 9.5rem; }
     .metric-tabs {
       display: flex;
       flex-wrap: wrap;
@@ -289,11 +291,22 @@
       <label>
         FY
         <select id="fiscal-year-select">
+          <option value="any">Any</option>
           {% for fy in fiscal_year_options %}
-          <option value="{{ fy }}">FY {{ fy }}</option>
+          <option value="{{ fy }}"{% if loop.first %} selected{% endif %}>FY {{ fy }}</option>
           {% endfor %}
         </select>
       </label>
+      <span id="date-range-controls" hidden>
+        <label>
+          From
+          <input type="month" id="month-from">
+        </label>
+        <label>
+          To
+          <input type="month" id="month-to">
+        </label>
+      </span>
     </div>
 
     <div class="metric-tabs" id="metric-tabs" role="tablist"></div>
@@ -379,9 +392,68 @@
       return metricDefs.find(m => m.id === id);
     }
 
-    function snapshotKey(metric = activeMetric) {
+    function isoToMonthInput(iso) {
+      return iso ? String(iso).slice(0, 7) : '';
+    }
+
+    function monthInputToIso(value) {
+      return value ? `${value}-01` : '';
+    }
+
+    function isAnyYearSelected() {
+      return document.getElementById('fiscal-year-select').value === 'any';
+    }
+
+    function periodQueryParams() {
+      const params = new URLSearchParams();
+      const fy = document.getElementById('fiscal-year-select').value || 'any';
+      params.set('fiscal_year', fy);
+      if (fy === 'any') {
+        const from = monthInputToIso(document.getElementById('month-from').value);
+        const to = monthInputToIso(document.getElementById('month-to').value);
+        if (from) params.set('month_from', from);
+        if (to) params.set('month_to', to);
+      }
+      return params;
+    }
+
+    function periodSaveBody() {
       const fy = document.getElementById('fiscal-year-select').value;
-      return `${fy}|${metric}`;
+      const body = { fiscal_year: fy === 'any' ? 'any' : Number(fy) };
+      if (fy === 'any') {
+        body.month_from = monthInputToIso(document.getElementById('month-from').value) || null;
+        body.month_to = monthInputToIso(document.getElementById('month-to').value) || null;
+      }
+      return body;
+    }
+
+    function periodSnapshotToken() {
+      const fy = document.getElementById('fiscal-year-select').value || 'any';
+      if (fy !== 'any') return fy;
+      return `any:${document.getElementById('month-from').value}:${document.getElementById('month-to').value}`;
+    }
+
+    function syncDateRangeControls(data) {
+      const wrap = document.getElementById('date-range-controls');
+      const anyYear = isAnyYearSelected() || Boolean(data?.any_year);
+      wrap.hidden = !anyYear;
+      if (!anyYear) return;
+      if (data?.month_from) document.getElementById('month-from').value = isoToMonthInput(data.month_from);
+      if (data?.month_to) document.getElementById('month-to').value = isoToMonthInput(data.month_to);
+    }
+
+    function populateFiscalYears(options, selected, anyYear) {
+      const select = document.getElementById('fiscal-year-select');
+      const selectedValue = anyYear || selected == null ? 'any' : String(selected);
+      select.innerHTML = '<option value="any">Any</option>' +
+        (options || []).map(fy => `
+          <option value="${fy}">FY ${fy}</option>
+        `).join('');
+      select.value = selectedValue;
+    }
+
+    function snapshotKey(metric = activeMetric) {
+      return `${periodSnapshotToken()}|${metric}`;
     }
 
     function normalizeRows(rows) {
@@ -760,20 +832,35 @@
     async function loadForecasts(options = {}) {
       const { skipLeaveCheck = false } = options;
       const fySelect = document.getElementById('fiscal-year-select');
-      const fy = fySelect.value;
-      const previousFy = fySelect.dataset.loadedFy || fy;
-      if (!skipLeaveCheck && fy !== previousFy && !(await confirmLeaveCurrentTable())) {
-        fySelect.value = previousFy;
+      const periodToken = periodSnapshotToken();
+      const previousToken = fySelect.dataset.loadedPeriod || periodToken;
+      if (!skipLeaveCheck && periodToken !== previousToken && !(await confirmLeaveCurrentTable())) {
+        const [prevFy, prevFrom, prevTo] = previousToken.split(':');
+        if (previousToken.startsWith('any:')) {
+          fySelect.value = 'any';
+          document.getElementById('month-from').value = prevFrom || '';
+          document.getElementById('month-to').value = prevTo || '';
+          document.getElementById('date-range-controls').hidden = false;
+        } else {
+          fySelect.value = previousToken;
+          document.getElementById('date-range-controls').hidden = true;
+        }
         return;
       }
       document.getElementById('load-error').hidden = true;
       try {
-        const res = await fetch(`/api/benchmarking/forecasts?fiscal_year=${encodeURIComponent(fy)}`);
+        const res = await fetch(`/api/benchmarking/forecasts?${periodQueryParams()}`);
         if (!res.ok) throw new Error('load failed');
         forecastData = await res.json();
+        populateFiscalYears(
+          forecastData.fiscal_year_options || [],
+          forecastData.fiscal_year,
+          forecastData.any_year
+        );
+        syncDateRangeControls(forecastData);
         projectedFromMonth = forecastData.projected_from || null;
         updatePeriodLegend();
-        fySelect.dataset.loadedFy = fy;
+        fySelect.dataset.loadedPeriod = periodSnapshotToken();
         if (!activeMetric && metricDefs.length) {
           activeMetric = metricDefs[0].id;
         }
@@ -794,7 +881,6 @@
       }
 
       const statusEl = document.getElementById('save-status');
-      const fy = Number(document.getElementById('fiscal-year-select').value);
       const btn = document.getElementById('save-btn');
       saveInFlight = true;
       pendingSave = false;
@@ -809,7 +895,7 @@
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            fiscal_year: fy,
+            ...periodSaveBody(),
             metric: activeMetric,
             rows: collectRows(),
           }),
@@ -865,8 +951,19 @@
       }
 
       document.getElementById('fiscal-year-select').addEventListener('change', async () => {
+        document.getElementById('date-range-controls').hidden = !isAnyYearSelected();
         if (CAN_EDIT) await flushAutosave();
         await loadForecasts();
+      });
+      document.getElementById('month-from').addEventListener('change', async () => {
+        if (!isAnyYearSelected()) return;
+        if (CAN_EDIT) await flushAutosave();
+        await loadForecasts({ skipLeaveCheck: true });
+      });
+      document.getElementById('month-to').addEventListener('change', async () => {
+        if (!isAnyYearSelected()) return;
+        if (CAN_EDIT) await flushAutosave();
+        await loadForecasts({ skipLeaveCheck: true });
       });
       if (CAN_EDIT) {
         document.getElementById('save-btn').addEventListener('click', () => {

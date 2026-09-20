@@ -838,7 +838,7 @@
               <span class="nav-collapsible-label">Budgeting</span>
             </button>
             <div class="nav-group-items" id="benchmarking-nav-items">
-              <a href="/benchmarking/forecasts" class="{% if active_nav == 'forecasts' or active_nav == 'forecasts-livestock' or active_nav == 'forecasts-financial' %}active{% endif %}">Budgets</a>
+              <a href="/benchmarking/forecasts" class="{% if active_nav == 'forecasts' or active_nav.startswith('forecasts-') or active_nav == 'rations' or active_nav.startswith('rations-') %}active{% endif %}">Budgets</a>
               <a href="/benchmarking/stock-forecasts" class="{% if active_nav == 'stock-forecasts' %}active{% endif %}">Stock Forecasts</a>
               <a href="/benchmarking/feed-purchase-forecasts" class="{% if active_nav == 'feed-purchase-forecasts' %}active{% endif %}">Feed Purchase Forecasts</a>
               <a href="/benchmarking/milk-sales-forecasts" class="{% if active_nav == 'milk-sales-forecasts' %}active{% endif %}">Milk Sales Forecast</a>
@@ -847,7 +847,6 @@
               <a href="/benchmarking/standing-orders" class="{% if active_nav == 'standing-orders' %}active{% endif %}">Standing Orders</a>
               <a href="/benchmarking/rental-agreements" class="{% if active_nav == 'rental-agreements' %}active{% endif %}">Rental Agreements</a>
               <a href="/benchmarking/cash-requirements" class="{% if active_nav == 'cash-requirements' %}active{% endif %}">Cash Requirements</a>
-              <a href="/benchmarking/rations" class="{% if active_nav == 'rations' or active_nav == 'rations-ingredients' or active_nav == 'rations-cm' or active_nav == 'rations-gad' or active_nav == 'rations-comparison' %}active{% endif %}">Rations</a>
             </div>
           </div>
           {% endif %}

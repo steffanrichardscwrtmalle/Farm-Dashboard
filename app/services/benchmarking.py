@@ -13,6 +13,7 @@ from app.services.events_common import (
     _fiscal_year_calendar_bounds,
     _fiscal_year_from_date,
     _iter_month_starts,
+    _month_start,
 )
 
 BENCHMARK_METRICS: dict[str, dict[str, Any]] = {
@@ -170,6 +171,67 @@ def fiscal_year_months(fiscal_year: int) -> list[dt.date]:
     return _iter_month_starts(start, end)
 
 
+MAX_RATION_RANGE_MONTHS = 60
+
+
+def parse_fiscal_year_filter(value: str | int | None) -> tuple[int | None, bool]:
+    """Return (fiscal_year, any_year). None/invalid with any_year False means default."""
+    if value is None:
+        return None, False
+    if isinstance(value, bool):
+        return None, False
+    if isinstance(value, int):
+        return value, False
+    text = str(value).strip().lower()
+    if text == "any":
+        return None, True
+    if text == "":
+        return None, False
+    try:
+        return int(text), False
+    except ValueError:
+        return None, False
+
+
+def ration_month_range(
+    *,
+    fiscal_year: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
+) -> list[dt.date]:
+    """Months for a single FY, or a custom range when fiscal_year is None (Any)."""
+    if fiscal_year is not None:
+        return fiscal_year_months(fiscal_year)
+    years = available_fiscal_years()
+    if years:
+        default_start = _fiscal_year_calendar_bounds(min(years))[0]
+        default_end = _fiscal_year_calendar_bounds(max(years))[1]
+    else:
+        default_start, default_end = _fiscal_year_calendar_bounds(
+            _fiscal_year_from_date(dt.date.today())
+        )
+    start = _month_start(month_from) if month_from is not None else default_start
+    end = _month_start(month_to) if month_to is not None else default_end
+    if start > end:
+        start, end = end, start
+    months = _iter_month_starts(start, end)
+    if len(months) > MAX_RATION_RANGE_MONTHS:
+        months = months[:MAX_RATION_RANGE_MONTHS]
+    return months
+
+
+def ration_period_meta(
+    months: list[dt.date], fiscal_year: int | None
+) -> dict[str, Any]:
+    return {
+        "fiscal_year": fiscal_year,
+        "fiscal_year_options": available_fiscal_years(),
+        "any_year": fiscal_year is None,
+        "month_from": months[0].isoformat() if months else None,
+        "month_to": months[-1].isoformat() if months else None,
+    }
+
+
 def list_metric_definitions() -> list[dict[str, Any]]:
     by_category: dict[str, list[dict[str, Any]]] = {
         cat: [] for cat in BENCHMARK_CATEGORY_ORDER
@@ -192,28 +254,41 @@ def _line_to_cells(line: BenchmarkForecastLine) -> dict[str, float | None]:
     return {"quantity": line.quantity, "unit_price": line.unit_price}
 
 
-def list_forecasts(db: Session, *, fiscal_year: int) -> dict[str, Any]:
-    months = fiscal_year_months(fiscal_year)
+def list_forecasts(
+    db: Session,
+    *,
+    fiscal_year: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
+) -> dict[str, Any]:
+    months = ration_month_range(
+        fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+    )
     month_set = set(months)
 
-    stored = db.scalars(
-        select(BenchmarkForecastLine).where(
-            BenchmarkForecastLine.fiscal_year == fiscal_year
+    query = select(BenchmarkForecastLine)
+    if fiscal_year is not None:
+        query = query.where(BenchmarkForecastLine.fiscal_year == fiscal_year)
+    elif months:
+        query = query.where(
+            BenchmarkForecastLine.forecast_month >= months[0],
+            BenchmarkForecastLine.forecast_month <= months[-1],
         )
-    ).all()
+    stored = db.scalars(query).all()
 
     by_metric_month: dict[str, dict[dt.date, dict[str, dict[str, float | None]]]] = {
         metric: {} for metric in BENCHMARK_METRIC_KEYS
     }
     for line in stored:
-        if line.forecast_month not in month_set:
+        month_key = _month_start(line.forecast_month)
+        if month_key not in month_set:
             continue
         if line.metric not in by_metric_month:
             continue
         if line.farm not in HERD_FARM_OPTIONS:
             continue
         month_bucket = by_metric_month[line.metric].setdefault(
-            line.forecast_month, _empty_farm_cells()
+            month_key, _empty_farm_cells()
         )
         month_bucket[line.farm] = _line_to_cells(line)
 
@@ -233,8 +308,7 @@ def list_forecasts(db: Session, *, fiscal_year: int) -> dict[str, Any]:
         metrics_payload[metric] = {"rows": rows}
 
     return {
-        "fiscal_year": fiscal_year,
-        "fiscal_year_options": available_fiscal_years(),
+        **ration_period_meta(months, fiscal_year),
         "months": [m.isoformat() for m in months],
         "metrics": metrics_payload,
         **forecast_period_cutoff(),
@@ -326,15 +400,20 @@ def _farm_cells_for_metric_row(
 def save_forecasts(
     db: Session,
     *,
-    fiscal_year: int,
+    fiscal_year: int | None,
     metric: str,
     rows: list[dict[str, Any]],
     user_id: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[str, Any]:
     if metric not in BENCHMARK_METRICS:
         raise ValueError(f"Unknown metric: {metric}")
 
-    valid_months = {m.isoformat() for m in fiscal_year_months(fiscal_year)}
+    months = ration_month_range(
+        fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+    )
+    valid_months = {m.isoformat() for m in months}
     updated = 0
     deleted = 0
 
@@ -344,19 +423,22 @@ def save_forecasts(
         if not forecast_month_raw or farm not in HERD_FARM_OPTIONS:
             continue
         if isinstance(forecast_month_raw, dt.date):
-            forecast_month = forecast_month_raw
+            forecast_month = _month_start(forecast_month_raw)
         else:
-            forecast_month = dt.date.fromisoformat(str(forecast_month_raw))
+            forecast_month = _month_start(dt.date.fromisoformat(str(forecast_month_raw)))
         if forecast_month.isoformat() not in valid_months:
             continue
 
         quantity = _parse_optional_float(row.get("quantity"))
         unit_price = _parse_optional_float(row.get("unit_price"))
         births = _parse_optional_float(row.get("births"))
+        row_fy = (
+            fiscal_year if fiscal_year is not None else _fiscal_year_from_date(forecast_month)
+        )
 
         updated_delta, deleted_delta = _upsert_forecast_line(
             db,
-            fiscal_year=fiscal_year,
+            fiscal_year=row_fy,
             forecast_month=forecast_month,
             metric=metric,
             farm=farm,
@@ -371,7 +453,7 @@ def save_forecasts(
         if births_metric:
             b_updated, b_deleted = _upsert_forecast_line(
                 db,
-                fiscal_year=fiscal_year,
+                fiscal_year=row_fy,
                 forecast_month=forecast_month,
                 metric=births_metric,
                 farm=farm,
@@ -383,4 +465,9 @@ def save_forecasts(
             deleted += b_deleted
 
     db.commit()
-    return {"metric": metric, "fiscal_year": fiscal_year, "updated": updated, "deleted": deleted}
+    return {
+        "metric": metric,
+        **ration_period_meta(months, fiscal_year),
+        "updated": updated,
+        "deleted": deleted,
+    }

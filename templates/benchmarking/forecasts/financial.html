@@ -202,12 +202,14 @@
       gap: 0.35rem;
       margin: 0;
     }
-    .grid-toolbar select {
+    .grid-toolbar select,
+    .grid-toolbar input[type="month"] {
       min-width: 0;
       margin: 0;
       padding: 0.2rem 0.35rem;
       font-size: 0.82rem;
     }
+    .grid-toolbar input[type="month"] { width: 9.5rem; }
     .grid-panel {
       flex: 1;
       display: flex;
@@ -794,11 +796,22 @@
         <label>
           FY
           <select id="fiscal-year-select">
+            <option value="any">Any</option>
             {% for fy in fiscal_year_options %}
-            <option value="{{ fy }}">FY {{ fy }}</option>
+            <option value="{{ fy }}"{% if loop.first %} selected{% endif %}>FY {{ fy }}</option>
             {% endfor %}
           </select>
         </label>
+        <span id="date-range-controls" hidden>
+          <label>
+            From
+            <input type="month" id="month-from">
+          </label>
+          <label>
+            To
+            <input type="month" id="month-to">
+          </label>
+        </span>
         <label>
           Farm
           <select id="farm-select">
@@ -853,11 +866,22 @@
         <label>
           FY
           <select id="comparison-fy-select">
+            <option value="any">Any</option>
             {% for fy in fiscal_year_options %}
-            <option value="{{ fy }}">FY {{ fy }}</option>
+            <option value="{{ fy }}"{% if loop.first %} selected{% endif %}>FY {{ fy }}</option>
             {% endfor %}
           </select>
         </label>
+        <span id="comparison-date-range-controls" hidden>
+          <label>
+            From
+            <input type="month" id="comparison-month-from">
+          </label>
+          <label>
+            To
+            <input type="month" id="comparison-month-to">
+          </label>
+        </span>
         <span class="muted">Total PPL for each budget row — CM vs GAD</span>
       </div>
       <div class="comparison-table-wrap">
@@ -1384,9 +1408,7 @@
 
     async function loadComparison() {
       document.getElementById('comparison-error').hidden = true;
-      const fySelect = document.getElementById('fiscal-year-select');
-      const cmpSelect = document.getElementById('comparison-fy-select');
-      if (cmpSelect && fySelect) cmpSelect.value = fySelect.value;
+      syncComparisonPeriodFromBudget();
       try {
         const hasGridEdits = !!document.querySelector('#forecast-grid-body input.amount-input');
         if (CAN_EDIT && forecastData && hasGridEdits) await flushAutosave();
@@ -1931,6 +1953,98 @@
       });
     }
 
+    function isoToMonthInput(iso) {
+      return iso ? String(iso).slice(0, 7) : '';
+    }
+
+    function monthInputToIso(value) {
+      return value ? `${value}-01` : '';
+    }
+
+    function isAnyYearSelected() {
+      return document.getElementById('fiscal-year-select').value === 'any';
+    }
+
+    function populateFiscalYears(options, selected, anyYear) {
+      const selectedValue = anyYear || selected == null ? 'any' : String(selected);
+      ['fiscal-year-select', 'comparison-fy-select'].forEach(id => {
+        const select = document.getElementById(id);
+        if (!select) return;
+        select.innerHTML = '<option value="any">Any</option>' +
+          (options || []).map(fy => `<option value="${fy}">FY ${fy}</option>`).join('');
+        select.value = selectedValue;
+      });
+    }
+
+    function syncDateRangeControls(data) {
+      const anyYear = isAnyYearSelected() || Boolean(data?.any_year);
+      const wraps = [
+        document.getElementById('date-range-controls'),
+        document.getElementById('comparison-date-range-controls'),
+      ];
+      wraps.forEach(wrap => { if (wrap) wrap.hidden = !anyYear; });
+      if (!anyYear) return;
+      const fromVal = data?.month_from ? isoToMonthInput(data.month_from) : document.getElementById('month-from').value;
+      const toVal = data?.month_to ? isoToMonthInput(data.month_to) : document.getElementById('month-to').value;
+      ['month-from', 'comparison-month-from'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && fromVal) el.value = fromVal;
+      });
+      ['month-to', 'comparison-month-to'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && toVal) el.value = toVal;
+      });
+    }
+
+    function syncComparisonPeriodFromBudget() {
+      const fy = document.getElementById('fiscal-year-select').value;
+      const cmp = document.getElementById('comparison-fy-select');
+      if (cmp) cmp.value = fy;
+      const anyYear = fy === 'any';
+      const cmpWrap = document.getElementById('comparison-date-range-controls');
+      if (cmpWrap) cmpWrap.hidden = !anyYear;
+      if (anyYear) {
+        const cmpFrom = document.getElementById('comparison-month-from');
+        const cmpTo = document.getElementById('comparison-month-to');
+        if (cmpFrom) cmpFrom.value = document.getElementById('month-from').value;
+        if (cmpTo) cmpTo.value = document.getElementById('month-to').value;
+      }
+    }
+
+    function syncBudgetPeriodFromComparison() {
+      const fy = document.getElementById('comparison-fy-select').value;
+      document.getElementById('fiscal-year-select').value = fy;
+      const anyYear = fy === 'any';
+      document.getElementById('date-range-controls').hidden = !anyYear;
+      if (anyYear) {
+        document.getElementById('month-from').value = document.getElementById('comparison-month-from').value;
+        document.getElementById('month-to').value = document.getElementById('comparison-month-to').value;
+      }
+    }
+
+    function periodQueryParams() {
+      const params = new URLSearchParams();
+      const fy = document.getElementById('fiscal-year-select').value || 'any';
+      params.set('fiscal_year', fy);
+      if (fy === 'any') {
+        const from = monthInputToIso(document.getElementById('month-from').value);
+        const to = monthInputToIso(document.getElementById('month-to').value);
+        if (from) params.set('month_from', from);
+        if (to) params.set('month_to', to);
+      }
+      return params;
+    }
+
+    function periodSaveBody() {
+      const fy = document.getElementById('fiscal-year-select').value;
+      const body = { fiscal_year: fy === 'any' ? 'any' : Number(fy) };
+      if (fy === 'any') {
+        body.month_from = monthInputToIso(document.getElementById('month-from').value) || null;
+        body.month_to = monthInputToIso(document.getElementById('month-to').value) || null;
+      }
+      return body;
+    }
+
     function setSaveStatus(text, kind) {
       const statusEl = document.getElementById('save-status');
       if (!statusEl) return;
@@ -1939,11 +2053,16 @@
     }
 
     async function fetchAndRenderForecasts() {
-      const fy = document.getElementById('fiscal-year-select').value;
-      const res = await fetch(`/api/benchmarking/financial-forecasts?fiscal_year=${encodeURIComponent(fy)}`);
+      const res = await fetch(`/api/benchmarking/financial-forecasts?${periodQueryParams()}`);
       const data = await readResponse(res);
       if (!res.ok) throw new Error(data.detail || 'load failed');
       forecastData = data;
+      populateFiscalYears(
+        forecastData.fiscal_year_options || [],
+        forecastData.fiscal_year,
+        forecastData.any_year
+      );
+      syncDateRangeControls(forecastData);
       renderForecastGrid();
       bindGridAmountFormatting();
       bindGridKeyboard();
@@ -1969,15 +2088,13 @@
     }
 
     async function autoFillInBackground() {
-      const fyAtStart = document.getElementById('fiscal-year-select').value;
+      const periodAtStart = periodQueryParams().toString();
       setSaveStatus('Updating from data sources…');
       try {
-        await postFillFromSources(['milk_sales.'], fyAtStart);
-        // Re-render only if the user hasn't changed year/farm and isn't mid-edit.
-        const fyNow = document.getElementById('fiscal-year-select').value;
+        await postFillFromSources(['milk_sales.']);
         const editing = document.activeElement
           && document.activeElement.matches('#forecast-grid-body input.amount-input');
-        if (fyNow === fyAtStart && !editing) {
+        if (periodQueryParams().toString() === periodAtStart && !editing) {
           await fetchAndRenderForecasts();
         }
         setSaveStatus('All changes saved', 'ok');
@@ -1986,12 +2103,12 @@
       }
     }
 
-    async function postFillFromSources(sourcePrefixes, fiscalYear) {
+    async function postFillFromSources(sourcePrefixes) {
       const res = await fetch('/api/benchmarking/financial-forecasts/fill-from-sources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fiscal_year: Number(fiscalYear),
+          ...periodSaveBody(),
           fill_mode: 'replace',
           source_prefixes: sourcePrefixes,
         }),
@@ -2008,7 +2125,6 @@
       setSaveStatus('Refreshing from data sources…');
       try {
         // One prefix per request so milk / feed / valuations never share the 512MB worker.
-        const fy = document.getElementById('fiscal-year-select').value;
         const prefixes = [
           'hp_schedules.',
           'rents.',
@@ -2021,7 +2137,7 @@
         let mappingsFilled = 0;
         for (const prefix of prefixes) {
           setSaveStatus(`Refreshing ${prefix.replace(/\.$/, '').replace(/_/g, ' ')}…`);
-          const data = await postFillFromSources([prefix], fy);
+          const data = await postFillFromSources([prefix]);
           updated += Number(data.updated || 0);
           mappingsFilled += Number(data.mappings_filled || 0);
         }
@@ -2041,15 +2157,13 @@
       if (!CAN_EDIT) return;
       const rows = payload?.rows || (isCombinedFarm() ? null : collectForecastRows());
       if (!rows) return;
-      const fiscalYear = payload?.fiscal_year != null
-        ? payload.fiscal_year
-        : Number(document.getElementById('fiscal-year-select').value);
+      const period = payload?.period || periodSaveBody();
       try {
         const res = await fetch('/api/benchmarking/financial-forecasts', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            fiscal_year: fiscalYear,
+            ...period,
             band_id: 'all',
             rows,
           }),
@@ -2067,7 +2181,7 @@
       clearTimeout(autosaveTimer);
       autosaveTimer = null;
       const payload = {
-        fiscal_year: Number(document.getElementById('fiscal-year-select').value),
+        period: periodSaveBody(),
         rows: collectForecastRows(),
       };
       setSaveStatus('Saving…');
@@ -2296,17 +2410,37 @@
     }
 
     document.getElementById('fiscal-year-select').addEventListener('change', async () => {
-      const cmpSelect = document.getElementById('comparison-fy-select');
-      if (cmpSelect) cmpSelect.value = document.getElementById('fiscal-year-select').value;
+      document.getElementById('date-range-controls').hidden = !isAnyYearSelected();
+      syncComparisonPeriodFromBudget();
       if (CAN_EDIT) await flushAutosave();
       await loadForecasts();
       if (!document.getElementById('section-comparison').hidden) renderComparisonTable();
     });
     document.getElementById('comparison-fy-select').addEventListener('change', async () => {
-      document.getElementById('fiscal-year-select').value = document.getElementById('comparison-fy-select').value;
+      document.getElementById('comparison-date-range-controls').hidden =
+        document.getElementById('comparison-fy-select').value !== 'any';
+      syncBudgetPeriodFromComparison();
       if (CAN_EDIT) await flushAutosave();
       await loadForecasts({ autoFill: false });
       renderComparisonTable();
+    });
+    ['month-from', 'month-to'].forEach(id => {
+      document.getElementById(id).addEventListener('change', async () => {
+        if (!isAnyYearSelected()) return;
+        syncComparisonPeriodFromBudget();
+        if (CAN_EDIT) await flushAutosave();
+        await loadForecasts({ autoFill: false });
+        if (!document.getElementById('section-comparison').hidden) renderComparisonTable();
+      });
+    });
+    ['comparison-month-from', 'comparison-month-to'].forEach(id => {
+      document.getElementById(id).addEventListener('change', async () => {
+        if (document.getElementById('comparison-fy-select').value !== 'any') return;
+        syncBudgetPeriodFromComparison();
+        if (CAN_EDIT) await flushAutosave();
+        await loadForecasts({ autoFill: false });
+        renderComparisonTable();
+      });
     });
     document.getElementById('farm-select').addEventListener('change', async (e) => {
       if (!isCombinedFarm()) {

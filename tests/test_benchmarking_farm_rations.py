@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -162,3 +164,69 @@ def test_ration_cost_comparison_pairs_by_suffix(db: Session) -> None:
     april = result["comparisons"][0]["rows"][0]
     assert april["cm"]["cost_per_head_day"] == 3.1
     assert april["gad"]["cost_per_head_day"] == 3.72
+
+
+def test_workbook_any_year_includes_months_across_fiscal_years(db: Session) -> None:
+    a, _b = _seed_ingredients(db)
+    ration = create_farm_ration(
+        db, farm="cm", name="Milkers", ingredient_ids=[a["id"]], user_id=1
+    )
+    save_farm_ration_inclusions(
+        db,
+        farm="cm",
+        ration_id=ration["id"],
+        fiscal_year=None,
+        month_from=dt.date(2025, 4, 1),
+        month_to=dt.date(2027, 3, 1),
+        rows=[
+            {
+                "inclusion_month": "2025-04-01",
+                "ingredient_id": a["id"],
+                "kg_per_head": 8.0,
+            },
+            {
+                "inclusion_month": "2026-04-01",
+                "ingredient_id": a["id"],
+                "kg_per_head": 9.0,
+            },
+        ],
+        user_id=1,
+    )
+    workbook = get_farm_ration_workbook(
+        db,
+        farm="cm",
+        fiscal_year=None,
+        month_from=dt.date(2025, 4, 1),
+        month_to=dt.date(2027, 3, 1),
+    )
+    assert workbook["any_year"] is True
+    assert len(workbook["rations"][0]["rows"]) == 24
+    by_month = {
+        row["inclusion_month"]: row for row in workbook["rations"][0]["rows"]
+    }
+    assert by_month["2025-04-01"]["inclusions"][str(a["id"])] == 8.0
+    assert by_month["2026-04-01"]["inclusions"][str(a["id"])] == 9.0
+    stored = db.query(FarmRationInclusion).all()
+    fy_by_month = {row.inclusion_month.isoformat(): row.fiscal_year for row in stored}
+    assert fy_by_month["2025-04-01"] == 2026
+    assert fy_by_month["2026-04-01"] == 2027
+
+
+def test_cost_comparison_any_year_uses_custom_range(db: Session) -> None:
+    a = create_ingredient(db, name="Blend", category="concentrate", user_id=1)
+    create_farm_ration(
+        db, farm="cm", name="CM Milkers", ingredient_ids=[a["id"]], user_id=1
+    )
+    create_farm_ration(
+        db, farm="gad", name="GAD Milkers", ingredient_ids=[a["id"]], user_id=1
+    )
+    result = get_ration_cost_comparison(
+        db,
+        fiscal_year=None,
+        month_from=dt.date(2025, 10, 1),
+        month_to=dt.date(2026, 6, 1),
+    )
+    assert result["any_year"] is True
+    assert len(result["comparisons"][0]["rows"]) == 9
+    assert result["comparisons"][0]["rows"][0]["inclusion_month"] == "2025-10-01"
+    assert result["comparisons"][0]["rows"][-1]["inclusion_month"] == "2026-06-01"

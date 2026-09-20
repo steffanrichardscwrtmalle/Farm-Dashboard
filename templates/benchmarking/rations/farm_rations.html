@@ -30,11 +30,13 @@
       gap: 0.35rem;
       margin: 0;
     }
-    .farm-rations-toolbar select {
+    .farm-rations-toolbar select,
+    .farm-rations-toolbar input[type="month"] {
       margin: 0;
       padding: 0.2rem 0.35rem;
       font-size: 0.82rem;
     }
+    .farm-rations-toolbar input[type="month"] { width: 9.5rem; }
     .farm-rations-toolbar button {
       padding: 0.25rem 0.55rem;
       font-size: 0.82rem;
@@ -211,7 +213,7 @@
 {% block content %}
   <div class="farm-rations-page">
     <div class="farm-rations-top">
-      <a href="/benchmarking/rations">&larr; Rations</a>
+      <a href="/benchmarking/rations">&larr; Ration Forecasts</a>
       <span class="muted">Daily kg/head inclusions by month, with £/head/day from ingredient prices.</span>
       {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
     </div>
@@ -221,6 +223,16 @@
         FY
         <select id="fiscal-year-select"></select>
       </label>
+      <span id="date-range-controls" hidden>
+        <label>
+          From
+          <input type="month" id="month-from">
+        </label>
+        <label>
+          To
+          <input type="month" id="month-to">
+        </label>
+      </span>
       {% if can_edit %}
       <button type="button" id="new-ration-btn">New ration</button>
       {% endif %}
@@ -456,9 +468,54 @@
       renderInclusionTable();
     }
 
-    async function loadWorkbook() {
+    function isoToMonthInput(iso) {
+      return iso ? String(iso).slice(0, 7) : '';
+    }
+
+    function monthInputToIso(value) {
+      return value ? `${value}-01` : '';
+    }
+
+    function isAnyYearSelected() {
+      return document.getElementById('fiscal-year-select').value === 'any';
+    }
+
+    function periodQueryParams() {
+      const params = new URLSearchParams();
+      const fy = document.getElementById('fiscal-year-select').value || 'any';
+      params.set('fiscal_year', fy);
+      if (fy === 'any') {
+        const from = monthInputToIso(document.getElementById('month-from').value);
+        const to = monthInputToIso(document.getElementById('month-to').value);
+        if (from) params.set('month_from', from);
+        if (to) params.set('month_to', to);
+      }
+      return params;
+    }
+
+    function periodSaveBody() {
       const fy = document.getElementById('fiscal-year-select').value;
-      const params = new URLSearchParams({ fiscal_year: fy });
+      const body = { fiscal_year: fy === 'any' ? 'any' : Number(fy) };
+      if (fy === 'any') {
+        body.month_from = monthInputToIso(document.getElementById('month-from').value) || null;
+        body.month_to = monthInputToIso(document.getElementById('month-to').value) || null;
+      }
+      return body;
+    }
+
+    function syncDateRangeControls(data) {
+      const wrap = document.getElementById('date-range-controls');
+      const anyYear = isAnyYearSelected() || Boolean(data?.any_year);
+      wrap.hidden = !anyYear;
+      if (!anyYear) return;
+      const fromInput = document.getElementById('month-from');
+      const toInput = document.getElementById('month-to');
+      if (data?.month_from) fromInput.value = isoToMonthInput(data.month_from);
+      if (data?.month_to) toInput.value = isoToMonthInput(data.month_to);
+    }
+
+    async function loadWorkbook() {
+      const params = periodQueryParams();
       if (activeRationId) params.set('ration_id', String(activeRationId));
       document.getElementById('load-error').hidden = true;
       try {
@@ -467,24 +524,27 @@
         workbook = await res.json();
         activeRationId = workbook.active_ration_id;
         isNewRation = false;
+        syncDateRangeControls(workbook);
         renderAll();
       } catch (_) {
         document.getElementById('load-error').hidden = false;
       }
     }
 
-    function populateFiscalYears(options, selected) {
+    function populateFiscalYears(options, selected, anyYear) {
       const select = document.getElementById('fiscal-year-select');
-      select.innerHTML = options.map(fy => `
-        <option value="${fy}"${fy === selected ? ' selected' : ''}>${fy}</option>
-      `).join('');
+      const selectedValue = anyYear || selected == null ? 'any' : String(selected);
+      select.innerHTML = '<option value="any">Any</option>' +
+        (options || []).map(fy => `
+          <option value="${fy}"${String(fy) === selectedValue ? ' selected' : ''}>${fy}</option>
+        `).join('');
+      select.value = selectedValue;
     }
 
     async function saveInclusions() {
       if (!CAN_EDIT || !activeRationId) return;
       const statusEl = document.getElementById('save-status');
       const btn = document.getElementById('save-inclusions-btn');
-      const fy = Number(document.getElementById('fiscal-year-select').value);
       btn.disabled = true;
       setStatus('save-status', 'Saving…');
       try {
@@ -493,13 +553,14 @@
           {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fiscal_year: fy, rows: collectInclusions() }),
+            body: JSON.stringify({ ...periodSaveBody(), rows: collectInclusions() }),
           }
         );
         const payload = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(payload.detail || 'Save failed');
         workbook = payload;
         activeRationId = workbook.active_ration_id;
+        syncDateRangeControls(workbook);
         renderAll();
         setStatus('save-status', 'Saved.', 'ok');
       } catch (err) {
@@ -605,8 +666,10 @@
         workbook = await res.json();
         populateFiscalYears(
           workbook.fiscal_year_options || [workbook.fiscal_year],
-          workbook.fiscal_year
+          workbook.fiscal_year,
+          workbook.any_year
         );
+        syncDateRangeControls(workbook);
         activeRationId = workbook.active_ration_id;
         renderAll();
       } catch (_) {
@@ -615,7 +678,16 @@
       }
 
       bindTableKeyboard();
-      document.getElementById('fiscal-year-select').addEventListener('change', loadWorkbook);
+      document.getElementById('fiscal-year-select').addEventListener('change', () => {
+        document.getElementById('date-range-controls').hidden = !isAnyYearSelected();
+        loadWorkbook();
+      });
+      document.getElementById('month-from').addEventListener('change', () => {
+        if (isAnyYearSelected()) loadWorkbook();
+      });
+      document.getElementById('month-to').addEventListener('change', () => {
+        if (isAnyYearSelected()) loadWorkbook();
+      });
       if (CAN_EDIT) {
         document.getElementById('new-ration-btn').addEventListener('click', startNewRation);
         document.getElementById('save-ration-btn').addEventListener('click', saveRation);

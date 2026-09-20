@@ -16,6 +16,7 @@ from app.services.benchmarking import (
     available_fiscal_years,
     list_forecasts,
     list_metric_definitions,
+    parse_fiscal_year_filter,
     save_forecasts,
 )
 from app.services.benchmarking_farm_rations import (
@@ -100,7 +101,9 @@ class ForecastRowBody(BaseModel):
 
 
 class SaveForecastsBody(BaseModel):
-    fiscal_year: int
+    fiscal_year: int | str
+    month_from: dt.date | None = None
+    month_to: dt.date | None = None
     metric: str
     rows: list[ForecastRowBody] = Field(default_factory=list)
 
@@ -114,18 +117,18 @@ def api_benchmarking_metrics(
 
 @router.get("/forecasts")
 def api_list_forecasts(
-    fiscal_year: int | None = Query(None),
+    fiscal_year: str | None = Query(None),
+    month_from: dt.date | None = Query(None),
+    month_to: dt.date | None = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_BENCHMARKING)),
 ):
-    years = available_fiscal_years()
-    year = fiscal_year if fiscal_year is not None else years[0]
-    if year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
-    return list_forecasts(db, fiscal_year=year)
+    year, range_from, range_to = _resolve_ration_period(
+        fiscal_year, month_from, month_to
+    )
+    return list_forecasts(
+        db, fiscal_year=year, month_from=range_from, month_to=range_to
+    )
 
 
 @router.put("/forecasts")
@@ -134,16 +137,15 @@ def api_save_forecasts(
     db: Session = Depends(get_db),
     user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
 ):
-    years = available_fiscal_years()
-    if body.fiscal_year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
+    year, range_from, range_to = _resolve_ration_period(
+        body.fiscal_year, body.month_from, body.month_to
+    )
     try:
         saved = save_forecasts(
             db,
-            fiscal_year=body.fiscal_year,
+            fiscal_year=year,
+            month_from=range_from,
+            month_to=range_to,
             metric=body.metric,
             rows=[row.model_dump() for row in body.rows],
             user_id=user.id,
@@ -154,7 +156,9 @@ def api_save_forecasts(
         try:
             refresh_milk_sales_financial_forecasts(
                 db,
-                fiscal_year=body.fiscal_year,
+                fiscal_year=year,
+                month_from=range_from,
+                month_to=range_to,
                 user_id=user.id,
             )
         except Exception:
@@ -179,7 +183,9 @@ class IngredientCostRowBody(BaseModel):
 
 
 class SaveIngredientCostsBody(BaseModel):
-    fiscal_year: int
+    fiscal_year: int | str
+    month_from: dt.date | None = None
+    month_to: dt.date | None = None
     rows: list[IngredientCostRowBody] = Field(default_factory=list)
 
 
@@ -250,18 +256,18 @@ def api_deactivate_ration_ingredient(
 
 @router.get("/rations/ingredient-costs")
 def api_list_ingredient_costs(
-    fiscal_year: int | None = Query(None),
+    fiscal_year: str | None = Query(None),
+    month_from: dt.date | None = Query(None),
+    month_to: dt.date | None = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_BENCHMARKING)),
 ):
-    years = available_fiscal_years()
-    year = fiscal_year if fiscal_year is not None else years[0]
-    if year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
-    return list_ingredient_costs(db, fiscal_year=year)
+    year, range_from, range_to = _resolve_ration_period(
+        fiscal_year, month_from, month_to
+    )
+    return list_ingredient_costs(
+        db, fiscal_year=year, month_from=range_from, month_to=range_to
+    )
 
 
 @router.put("/rations/ingredient-costs")
@@ -270,15 +276,14 @@ def api_save_ingredient_costs(
     db: Session = Depends(get_db),
     user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
 ):
-    years = available_fiscal_years()
-    if body.fiscal_year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
+    year, range_from, range_to = _resolve_ration_period(
+        body.fiscal_year, body.month_from, body.month_to
+    )
     return save_ingredient_costs(
         db,
-        fiscal_year=body.fiscal_year,
+        fiscal_year=year,
+        month_from=range_from,
+        month_to=range_to,
         rows=[row.model_dump() for row in body.rows],
         user_id=user.id,
     )
@@ -296,7 +301,9 @@ class FarmRationInclusionRowBody(BaseModel):
 
 
 class SaveFarmRationInclusionsBody(BaseModel):
-    fiscal_year: int
+    fiscal_year: int | str
+    month_from: dt.date | None = None
+    month_to: dt.date | None = None
     rows: list[FarmRationInclusionRowBody] = Field(default_factory=list)
 
 
@@ -307,24 +314,51 @@ def _validate_farm_slug(farm: str) -> str:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _resolve_ration_period(
+    fiscal_year: str | int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
+) -> tuple[int | None, dt.date | None, dt.date | None]:
+    years = available_fiscal_years()
+    year, any_year = parse_fiscal_year_filter(fiscal_year)
+    if any_year:
+        return None, month_from, month_to
+    if year is None:
+        if fiscal_year not in (None, ""):
+            raise HTTPException(
+                status_code=400,
+                detail=f"fiscal_year must be any or one of {years}",
+            )
+        year = years[0]
+    if year not in years:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fiscal_year must be any or one of {years}",
+        )
+    return year, None, None
+
+
 @router.get("/rations/farms/{farm}")
 def api_get_farm_rations(
     farm: str,
-    fiscal_year: int | None = Query(None),
+    fiscal_year: str | None = Query(None),
     ration_id: int | None = Query(None),
+    month_from: dt.date | None = Query(None),
+    month_to: dt.date | None = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_BENCHMARKING)),
 ):
     _validate_farm_slug(farm)
-    years = available_fiscal_years()
-    year = fiscal_year if fiscal_year is not None else years[0]
-    if year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
+    year, range_from, range_to = _resolve_ration_period(
+        fiscal_year, month_from, month_to
+    )
     return get_farm_ration_workbook(
-        db, farm=farm, fiscal_year=year, ration_id=ration_id
+        db,
+        farm=farm,
+        fiscal_year=year,
+        ration_id=ration_id,
+        month_from=range_from,
+        month_to=range_to,
     )
 
 
@@ -395,18 +429,17 @@ def api_save_farm_ration_inclusions(
     user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
 ):
     _validate_farm_slug(farm)
-    years = available_fiscal_years()
-    if body.fiscal_year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
+    year, range_from, range_to = _resolve_ration_period(
+        body.fiscal_year, body.month_from, body.month_to
+    )
     try:
         return save_farm_ration_inclusions(
             db,
             farm=farm,
             ration_id=ration_id,
-            fiscal_year=body.fiscal_year,
+            fiscal_year=year,
+            month_from=range_from,
+            month_to=range_to,
             rows=[row.model_dump() for row in body.rows],
             user_id=user.id,
         )
@@ -416,18 +449,18 @@ def api_save_farm_ration_inclusions(
 
 @router.get("/rations/cost-comparison")
 def api_ration_cost_comparison(
-    fiscal_year: int | None = Query(None),
+    fiscal_year: str | None = Query(None),
+    month_from: dt.date | None = Query(None),
+    month_to: dt.date | None = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_BENCHMARKING)),
 ):
-    years = available_fiscal_years()
-    year = fiscal_year if fiscal_year is not None else years[0]
-    if year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
-    return get_ration_cost_comparison(db, fiscal_year=year)
+    year, range_from, range_to = _resolve_ration_period(
+        fiscal_year, month_from, month_to
+    )
+    return get_ration_cost_comparison(
+        db, fiscal_year=year, month_from=range_from, month_to=range_to
+    )
 
 
 @router.get("/stock-forecasts-page")
@@ -570,13 +603,17 @@ class FinancialForecastRowBody(BaseModel):
 
 
 class SaveFinancialForecastsBody(BaseModel):
-    fiscal_year: int
+    fiscal_year: int | str
+    month_from: dt.date | None = None
+    month_to: dt.date | None = None
     band_id: str
     rows: list[FinancialForecastRowBody] = Field(default_factory=list)
 
 
 class FillFinancialForecastsBody(BaseModel):
-    fiscal_year: int
+    fiscal_year: int | str
+    month_from: dt.date | None = None
+    month_to: dt.date | None = None
     farms: list[str] = Field(default_factory=list)
     fill_mode: str = "replace"
     source_prefixes: list[str] = Field(default_factory=list)
@@ -732,18 +769,18 @@ def api_financial_forecast_bands(
 
 @router.get("/financial-forecasts")
 def api_list_financial_forecasts(
-    fiscal_year: int | None = Query(None),
+    fiscal_year: str | None = Query(None),
+    month_from: dt.date | None = Query(None),
+    month_to: dt.date | None = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_BENCHMARKING)),
 ):
-    years = available_fiscal_years()
-    year = fiscal_year if fiscal_year is not None else years[0]
-    if year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
-    return list_financial_forecasts(db, fiscal_year=year)
+    year, range_from, range_to = _resolve_ration_period(
+        fiscal_year, month_from, month_to
+    )
+    return list_financial_forecasts(
+        db, fiscal_year=year, month_from=range_from, month_to=range_to
+    )
 
 
 @router.post("/financial-forecasts/fill-from-sources")
@@ -752,16 +789,15 @@ def api_fill_financial_forecasts_from_sources(
     db: Session = Depends(get_db),
     user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
 ):
-    years = available_fiscal_years()
-    if body.fiscal_year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
+    year, range_from, range_to = _resolve_ration_period(
+        body.fiscal_year, body.month_from, body.month_to
+    )
     try:
         return fill_financial_forecasts_from_data_sources(
             db,
-            fiscal_year=body.fiscal_year,
+            fiscal_year=year,
+            month_from=range_from,
+            month_to=range_to,
             farms=body.farms or None,
             fill_mode=body.fill_mode,
             user_id=user.id,
@@ -782,16 +818,15 @@ def api_save_financial_forecasts(
     db: Session = Depends(get_db),
     user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
 ):
-    years = available_fiscal_years()
-    if body.fiscal_year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
+    year, range_from, range_to = _resolve_ration_period(
+        body.fiscal_year, body.month_from, body.month_to
+    )
     try:
         return save_financial_forecasts(
             db,
-            fiscal_year=body.fiscal_year,
+            fiscal_year=year,
+            month_from=range_from,
+            month_to=range_to,
             band_id=body.band_id,
             rows=[row.model_dump() for row in body.rows],
             user_id=user.id,

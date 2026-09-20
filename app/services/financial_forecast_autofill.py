@@ -11,7 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import HERD_FARM_OPTIONS, FinancialForecastLine, FinancialForecastMapping
-from app.services.benchmarking import fiscal_year_months
+from app.services.benchmarking import ration_month_range
+from app.services.events_common import _fiscal_year_from_date
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
 from app.services.financial_forecasts import (
     ensure_milk_deductions_data_source,
@@ -353,7 +354,9 @@ def _write_mapping_amounts(
 def fill_financial_forecasts_from_data_sources(
     db: Session,
     *,
-    fiscal_year: int,
+    fiscal_year: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
     farms: list[str] | None = None,
     fill_mode: str = "replace",
     user_id: int | None = None,
@@ -369,7 +372,14 @@ def fill_financial_forecasts_from_data_sources(
         if farm not in HERD_FARM_OPTIONS:
             raise ValueError(f"Unknown farm: {farm}")
 
-    months = fiscal_year_months(fiscal_year)
+    months = ration_month_range(
+        fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+    )
+    months_by_fy: dict[int, list[dt.date]] = {}
+    for month in months:
+        fy = fiscal_year if fiscal_year is not None else _fiscal_year_from_date(month)
+        months_by_fy.setdefault(fy, []).append(month)
+
     ensure_milk_sales_data_source(db)
     ensure_milk_deductions_data_source(db)
     ensure_stock_valuation_change_data_source(db)
@@ -410,25 +420,26 @@ def fill_financial_forecasts_from_data_sources(
         source_keys = [
             key for mapping in subset for key in (mapping.get("data_sources") or [])
         ]
-        ctx = _build_data_source_context(
-            db, fiscal_year=fiscal_year, today=today, source_keys=source_keys
-        )
-        prefix_updated, prefix_skipped, prefix_filled = _write_mapping_amounts(
-            db,
-            mappings=subset,
-            months=months,
-            target_farms=target_farms,
-            fiscal_year=fiscal_year,
-            fill_mode=fill_mode,
-            user_id=user_id,
-            ctx=ctx,
-        )
-        db.commit()
-        del ctx
-        _release_session_memory(db)
-        updated += prefix_updated
-        skipped += prefix_skipped
-        mappings_filled.update(prefix_filled)
+        for fy, fy_months in months_by_fy.items():
+            ctx = _build_data_source_context(
+                db, fiscal_year=fy, today=today, source_keys=source_keys
+            )
+            prefix_updated, prefix_skipped, prefix_filled = _write_mapping_amounts(
+                db,
+                mappings=subset,
+                months=fy_months,
+                target_farms=target_farms,
+                fiscal_year=fy,
+                fill_mode=fill_mode,
+                user_id=user_id,
+                ctx=ctx,
+            )
+            db.commit()
+            del ctx
+            _release_session_memory(db)
+            updated += prefix_updated
+            skipped += prefix_skipped
+            mappings_filled.update(prefix_filled)
 
     return {
         "updated": updated,
@@ -440,7 +451,9 @@ def fill_financial_forecasts_from_data_sources(
 def refresh_milk_sales_financial_forecasts(
     db: Session,
     *,
-    fiscal_year: int,
+    fiscal_year: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
     user_id: int | None = None,
     today: dt.date | None = None,
 ) -> dict[str, int]:
@@ -448,6 +461,8 @@ def refresh_milk_sales_financial_forecasts(
     return fill_financial_forecasts_from_data_sources(
         db,
         fiscal_year=fiscal_year,
+        month_from=month_from,
+        month_to=month_to,
         fill_mode="replace",
         user_id=user_id,
         today=today,
