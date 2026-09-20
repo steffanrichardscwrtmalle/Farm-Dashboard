@@ -16,8 +16,10 @@ from app.services.financial_forecasts import (
     create_financial_mapping,
     delete_financial_mapping,
     ensure_milk_sales_data_source,
+    inflated_budget_amount,
     list_financial_forecasts,
     list_financial_mappings,
+    prior_year_budget_for_mapping,
     save_financial_forecasts,
     seed_financial_forecasts_if_empty,
     update_financial_mapping,
@@ -345,3 +347,55 @@ def test_save_financial_forecasts_any_year_derives_fiscal_year(db: Session) -> N
     }
     assert stored["2025-04-01"].fiscal_year == 2026
     assert stored["2026-05-01"].fiscal_year == 2027
+
+
+def test_inflated_budget_amount_steps() -> None:
+    assert inflated_budget_amount(1000, 0) == 1000
+    assert inflated_budget_amount(1000, 3) == 1030
+    assert inflated_budget_amount(1000, 0.5) == 1005
+    assert inflated_budget_amount(1000, -3) == 970
+
+
+def test_prior_year_budget_uses_same_month_last_year(db: Session) -> None:
+    mapping = next(m for m in list_financial_mappings(db) if m["heading"] == "Labour")
+    band_id = f"{mapping['item_type']}|{mapping['band']}"
+    save_financial_forecasts(
+        db,
+        fiscal_year=2027,
+        band_id=band_id,
+        rows=[
+            {
+                "mapping_id": mapping["id"],
+                "forecast_month": dt.date(2026, 4, 1),
+                "CM": 1000.0,
+                "GAD": 400.0,
+            },
+            {
+                "mapping_id": mapping["id"],
+                "forecast_month": dt.date(2026, 5, 1),
+                "CM": 800.0,
+                "GAD": None,
+            },
+        ],
+        user_id=None,
+    )
+    result = prior_year_budget_for_mapping(
+        db,
+        mapping_id=mapping["id"],
+        farm="CM",
+        fiscal_year=2028,
+    )
+    by_month = {row["forecast_month"]: row["amount"] for row in result["months"]}
+    assert result["has_prior"] is True
+    assert by_month["2027-04-01"] == 1000.0
+    assert by_month["2027-05-01"] == 800.0
+    assert by_month["2027-06-01"] is None
+    gad = prior_year_budget_for_mapping(
+        db,
+        mapping_id=mapping["id"],
+        farm="GAD",
+        fiscal_year=2028,
+    )
+    gad_by_month = {row["forecast_month"]: row["amount"] for row in gad["months"]}
+    assert gad_by_month["2027-04-01"] == 400.0
+    assert gad_by_month["2027-05-01"] is None

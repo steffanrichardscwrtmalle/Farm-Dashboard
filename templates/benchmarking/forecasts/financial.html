@@ -684,6 +684,116 @@
     }
     .comparison-table td.neg { color: #b91c1c; }
     .comparison-table td.pos { color: #15803d; }
+    .grid-table tbody td.heading-menu-target {
+      cursor: context-menu;
+    }
+    .grid-table tbody td.heading-menu-target:hover {
+      background: #e8f1fb;
+    }
+    .heading-cell-menu {
+      position: fixed;
+      z-index: 80;
+      min-width: 12.5rem;
+      padding: 0.25rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+    }
+    .heading-cell-menu[hidden] { display: none; }
+    .heading-cell-menu-item {
+      display: block;
+      width: 100%;
+      margin: 0;
+      padding: 0.45rem 0.7rem;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text);
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+    }
+    .heading-cell-menu-item:hover {
+      background: #e8f1fb;
+      color: #1e3a5f;
+    }
+    .inflation-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.25rem;
+    }
+    .inflation-modal[hidden] { display: none; }
+    .inflation-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.4);
+    }
+    .inflation-modal-body {
+      position: relative;
+      width: min(22rem, 100%);
+      padding: 1.1rem 1.15rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
+    }
+    .inflation-modal-body h3 {
+      margin: 0 0 0.35rem;
+      font-size: 1.05rem;
+    }
+    .inflation-modal-body .muted { margin: 0 0 0.85rem; }
+    .inflation-stepper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      margin: 0 0 1rem;
+    }
+    .inflation-stepper button {
+      width: 2.4rem;
+      height: 2.4rem;
+      margin: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #f8fafc;
+      font-size: 1.25rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .inflation-stepper button:hover { filter: brightness(0.97); }
+    .inflation-stepper #inflation-step-up {
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #166534;
+    }
+    .inflation-stepper #inflation-step-up:hover { background: #bbf7d0; }
+    .inflation-stepper #inflation-step-down {
+      background: #fee2e2;
+      border-color: #fca5a5;
+      color: #b91c1c;
+    }
+    .inflation-stepper #inflation-step-down:hover { background: #fecaca; }
+    .inflation-stepper input {
+      width: 6.5rem;
+      margin: 0;
+      padding: 0.45rem 0.4rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-align: center;
+      font-size: 1.15rem;
+      font-weight: 700;
+    }
+    .inflation-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+    }
 {% endblock %}
 
 {% block content %}
@@ -838,7 +948,7 @@
         <span class="muted" id="combined-view-hint" hidden>Combined = CM + GAD (view only)</span>
         {% if can_edit %}<span class="save-status" id="save-status"></span>{% endif %}
       </div>
-      <p class="muted" style="margin:0;font-size:0.8rem">Changes save automatically. Rows linked to a data source are read-only. Milk Sales updates when livestock milk price is saved; use <strong>Refresh from data sources</strong> to refill other linked headings. Drag across month cells to see Count, Sum and Average.</p>
+      <p class="muted" style="margin:0;font-size:0.8rem">Changes save automatically. Rows linked to a data source are read-only. Milk Sales updates when livestock milk price is saved; use <strong>Refresh from data sources</strong> to refill linked headings for this year and next, for CM and GAD. Right-click a heading to copy last year’s budget. Drag across month cells to see Count, Sum and Average.</p>
 
       <div class="grid-panel">
         <div class="grid-table-wrap">
@@ -902,6 +1012,27 @@
     </div>
   </div>
 
+  <div id="heading-cell-menu" class="heading-cell-menu" hidden role="menu" aria-label="Apply last year">
+    <button type="button" class="heading-cell-menu-item" id="apply-as-was-btn" role="menuitem">Apply As Was</button>
+    <button type="button" class="heading-cell-menu-item" id="apply-with-inflation-btn" role="menuitem">Apply With Adjustment</button>
+  </div>
+  <div id="inflation-modal" class="inflation-modal" hidden>
+    <div class="inflation-modal-backdrop" data-inflation-close></div>
+    <div class="inflation-modal-body" role="dialog" aria-labelledby="inflation-modal-title">
+      <h3 id="inflation-modal-title">Apply With Adjustment</h3>
+      <p class="muted" id="inflation-modal-note">Adjust last year’s monthly figures by this percentage.</p>
+      <div class="inflation-stepper">
+        <button type="button" id="inflation-step-down" aria-label="Decrease by 0.5 percent">−</button>
+        <input type="text" inputmode="decimal" id="inflation-pct-input" value="0.0%" aria-label="Adjustment percent">
+        <button type="button" id="inflation-step-up" aria-label="Increase by 0.5 percent">+</button>
+      </div>
+      <div class="inflation-modal-actions">
+        <button type="button" class="small" data-inflation-close>Cancel</button>
+        <button type="button" id="inflation-apply-btn">Apply</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/js/table-selection-stats.js"></script>
   <script src="/static/js/unsaved-guard.js"></script>
   <script>
@@ -919,6 +1050,9 @@
     let savedSnapshot = '';
     let mappingsSnapshot = '';
     let leaveGuard = null;
+    let headingMenuTarget = null;
+    let priorYearCache = new Map();
+    let inflationPct = 0;
 
     function isCombinedFarm(farm = activeFarm) {
       return farm === 'Combined';
@@ -1586,6 +1720,7 @@
 
       document.getElementById('forecast-grid-body').innerHTML = rows.map((row, rowIdx) => {
         const span = spans[rowIdx];
+        const isAuto = rowIsAuto(row);
         const labelCells = [
           span.showItemType
             ? `<td class="sticky-col col-item-type span-item-type" rowspan="${span.item_type}">${esc(row.item_type)}</td>`
@@ -1596,10 +1731,9 @@
           span.showGroup
             ? `<td class="sticky-col col-group span-group" rowspan="${span.group}">${esc(row.group)}</td>`
             : '',
-          `<td class="sticky-col col-heading">${esc(row.heading)}</td>`,
+          `<td class="sticky-col col-heading${CAN_EDIT && !combined && !isAuto ? ' heading-menu-target' : ''}" data-mapping-id="${row.mapping_id}" data-row-idx="${rowIdx}"${CAN_EDIT && !combined && !isAuto ? ' title="Right-click to copy last year’s budget"' : ''}>${esc(row.heading)}</td>`,
         ].join('');
 
-        const isAuto = rowIsAuto(row);
         const isCurrency = row.item_type !== 'Data';
         let rowTotal = 0;
         const monthCells = row.months.map((month, colIdx) => {
@@ -2081,10 +2215,12 @@
       );
       syncDateRangeControls(forecastData);
       loadedPeriodBody = periodSaveBody();
+      priorYearCache.clear();
       renderForecastGrid();
       bindGridAmountFormatting();
       bindGridKeyboard();
       bindGridAutosave();
+      bindHeadingContextMenu();
       if (typeof enableTableSelectionStats === 'function') {
         enableTableSelectionStats(document.getElementById('forecast-grid'), {
           cellSelector: 'td.month-col',
@@ -2121,12 +2257,14 @@
       }
     }
 
-    async function postFillFromSources(sourcePrefixes) {
+    async function postFillFromSources(sourcePrefixes, { allBudgetYears = false } = {}) {
       const res = await fetch('/api/benchmarking/financial-forecasts/fill-from-sources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...periodSaveBody(),
+          ...(allBudgetYears
+            ? { all_budget_years: true, farms: ['CM', 'GAD'] }
+            : periodSaveBody()),
           fill_mode: 'replace',
           source_prefixes: sourcePrefixes,
         }),
@@ -2166,9 +2304,9 @@
         let updated = 0;
         let mappingsFilled = 0;
         for (const [prefix, label] of prefixes) {
-          setBusy(true, `Refreshing ${label}…`);
-          setSaveStatus(`Refreshing ${label}…`);
-          const data = await postFillFromSources([prefix]);
+          setBusy(true, `Refreshing ${label} (this year + next)…`);
+          setSaveStatus(`Refreshing ${label} for this year and next, CM and GAD…`);
+          const data = await postFillFromSources([prefix], { allBudgetYears: true });
           updated += Number(data.updated || 0);
           mappingsFilled += Number(data.mappings_filled || 0);
         }
@@ -2306,6 +2444,197 @@
         updateRowTotals();
         renderProfitSummary();
         updateStickyLabelOffsets();
+      });
+    }
+
+    function hideHeadingMenu() {
+      const menu = document.getElementById('heading-cell-menu');
+      if (menu) menu.hidden = true;
+    }
+
+    function positionFixedMenu(el, x, y) {
+      el.style.left = '0px';
+      el.style.top = '0px';
+      el.hidden = false;
+      const rect = el.getBoundingClientRect();
+      const left = Math.min(x, window.innerWidth - rect.width - 8);
+      const top = Math.min(y, window.innerHeight - rect.height - 8);
+      el.style.left = `${Math.max(8, left)}px`;
+      el.style.top = `${Math.max(8, top)}px`;
+    }
+
+    function showHeadingMenu(x, y, mappingId, rowIdx) {
+      headingMenuTarget = { mappingId, rowIdx };
+      positionFixedMenu(document.getElementById('heading-cell-menu'), x, y);
+    }
+
+    function priorYearCacheKey(mappingId) {
+      return `${mappingId}|${activeFarm}|${periodQueryParams().toString()}`;
+    }
+
+    async function fetchPriorYearBudget(mappingId) {
+      const key = priorYearCacheKey(mappingId);
+      if (priorYearCache.has(key)) return priorYearCache.get(key);
+      const params = periodQueryParams();
+      params.set('mapping_id', String(mappingId));
+      params.set('farm', activeFarm);
+      const res = await fetch(`/api/benchmarking/financial-forecasts/prior-year?${params}`);
+      const data = await readResponse(res);
+      if (!res.ok) throw new Error(data.detail || 'Could not load last year’s budget');
+      priorYearCache.set(key, data);
+      return data;
+    }
+
+    function inflatedAmount(amount, pct) {
+      if (amount == null || amount === '') return null;
+      const n = Number(amount);
+      if (!Number.isFinite(n)) return null;
+      return Math.round(n * (1 + Number(pct) / 100) * 100) / 100;
+    }
+
+    function applyPriorYearToRow(prior, pct) {
+      if (!headingMenuTarget || !forecastData) return 0;
+      const mappingId = headingMenuTarget.mappingId;
+      const row = (forecastData.grid_rows || []).find(r => r.mapping_id === mappingId);
+      if (!row || rowIsAuto(row)) return 0;
+      const byMonth = new Map((prior.months || []).map(m => [m.forecast_month, m.amount]));
+      let filled = 0;
+      document.querySelectorAll(
+        `#forecast-grid-body input.amount-input[data-mapping-id="${mappingId}"]`
+      ).forEach(input => {
+        if (input.disabled) return;
+        const next = inflatedAmount(byMonth.get(input.dataset.month), pct);
+        const month = (row.months || []).find(m => m.forecast_month === input.dataset.month);
+        if (month) month[activeFarm] = next;
+        input.value = formatAmountDisplay(next, row.item_type !== 'Data');
+        filled += 1;
+      });
+      updateRowTotals();
+      renderProfitSummary();
+      updateStickyLabelOffsets();
+      scheduleAutosave();
+      return filled;
+    }
+
+    async function applyLastYearBudget(pct) {
+      if (!CAN_EDIT || isCombinedFarm() || !headingMenuTarget) return;
+      hideHeadingMenu();
+      try {
+        const prior = await fetchPriorYearBudget(headingMenuTarget.mappingId);
+        if (!prior.has_prior) {
+          setSaveStatus('No last-year budget for this heading', 'err');
+          return;
+        }
+        applyPriorYearToRow(prior, pct);
+        const pctLabel = Number(pct) === 0 ? 'as was' : `${Number(pct) > 0 ? '+' : ''}${Number(pct).toFixed(1)}%`;
+        setSaveStatus(`Applied last year ${pctLabel}`, 'unsaved');
+      } catch (err) {
+        setSaveStatus(err.message, 'err');
+      }
+    }
+
+    function formatInflationPct(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '0.0%';
+      return `${n.toFixed(1)}%`;
+    }
+
+    function snapInflationPct(raw) {
+      const cleaned = String(raw ?? '').replace(/%/g, '').trim();
+      const n = Number(cleaned);
+      if (!Number.isFinite(n)) return 0;
+      const snapped = Math.round(n * 2) / 2;
+      return Math.max(-99.5, Math.min(99.5, snapped));
+    }
+
+    function setInflationPct(value) {
+      inflationPct = snapInflationPct(value);
+      const input = document.getElementById('inflation-pct-input');
+      if (input) input.value = formatInflationPct(inflationPct);
+    }
+
+    function hideInflationModal() {
+      const modal = document.getElementById('inflation-modal');
+      if (modal) modal.hidden = true;
+    }
+
+    function showInflationModal() {
+      hideHeadingMenu();
+      const row = (forecastData?.grid_rows || []).find(
+        r => r.mapping_id === headingMenuTarget?.mappingId
+      );
+      const heading = row?.heading || 'this heading';
+      document.getElementById('inflation-modal-note').textContent =
+        `${heading} · ${activeFarm}. Click +/− in 0.5% steps, then Apply.`;
+      setInflationPct(0);
+      document.getElementById('inflation-modal').hidden = false;
+      document.getElementById('inflation-pct-input').focus();
+      document.getElementById('inflation-pct-input').select();
+    }
+
+    function bindHeadingContextMenu() {
+      const grid = document.getElementById('forecast-grid');
+      if (!grid || grid.dataset.headingMenuBound === '1') return;
+      grid.dataset.headingMenuBound = '1';
+      grid.addEventListener('contextmenu', (ev) => {
+        if (!CAN_EDIT || isCombinedFarm()) return;
+        const cell = ev.target.closest('td.heading-menu-target');
+        if (!cell || !grid.contains(cell)) return;
+        const mappingId = Number(cell.dataset.mappingId);
+        const rowIdx = Number(cell.dataset.rowIdx);
+        if (!Number.isFinite(mappingId)) return;
+        ev.preventDefault();
+        showHeadingMenu(ev.clientX, ev.clientY, mappingId, rowIdx);
+      });
+
+      document.getElementById('apply-as-was-btn').addEventListener('click', () => {
+        applyLastYearBudget(0);
+      });
+      document.getElementById('apply-with-inflation-btn').addEventListener('click', () => {
+        showInflationModal();
+      });
+      document.getElementById('inflation-step-up').addEventListener('click', () => {
+        setInflationPct(inflationPct + 0.5);
+      });
+      document.getElementById('inflation-step-down').addEventListener('click', () => {
+        setInflationPct(inflationPct - 0.5);
+      });
+      document.getElementById('inflation-pct-input').addEventListener('blur', (ev) => {
+        setInflationPct(ev.target.value);
+      });
+      document.getElementById('inflation-pct-input').addEventListener('keydown', (ev) => {
+        if (ev.key === 'ArrowUp') {
+          ev.preventDefault();
+          setInflationPct(inflationPct + 0.5);
+        } else if (ev.key === 'ArrowDown') {
+          ev.preventDefault();
+          setInflationPct(inflationPct - 0.5);
+        } else if (ev.key === 'Enter') {
+          ev.preventDefault();
+          setInflationPct(ev.target.value);
+          applyLastYearBudget(inflationPct);
+          hideInflationModal();
+        } else if (ev.key === 'Escape') {
+          hideInflationModal();
+        }
+      });
+      document.getElementById('inflation-apply-btn').addEventListener('click', () => {
+        setInflationPct(document.getElementById('inflation-pct-input').value);
+        applyLastYearBudget(inflationPct);
+        hideInflationModal();
+      });
+      document.querySelectorAll('[data-inflation-close]').forEach(el => {
+        el.addEventListener('click', hideInflationModal);
+      });
+      document.addEventListener('pointerdown', (ev) => {
+        const menu = document.getElementById('heading-cell-menu');
+        if (!menu || menu.hidden || menu.contains(ev.target)) return;
+        hideHeadingMenu();
+      });
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Escape') return;
+        hideHeadingMenu();
+        hideInflationModal();
       });
     }
 
@@ -2566,6 +2895,7 @@
         bindGridAmountFormatting();
         bindGridKeyboard();
         bindGridAutosave();
+        bindHeadingContextMenu();
       } else {
         await loadForecasts({ autoFill: false });
       }

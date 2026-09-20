@@ -927,3 +927,63 @@ def save_financial_forecasts(
         month_from=month_from,
         month_to=month_to,
     )
+
+
+def _same_month_last_year(month_start: dt.date) -> dt.date:
+    month_start = _month_start(month_start)
+    return dt.date(month_start.year - 1, month_start.month, 1)
+
+
+def inflated_budget_amount(amount: float, inflation_pct: float) -> float:
+    return round(float(amount) * (1.0 + float(inflation_pct) / 100.0), 2)
+
+
+def prior_year_budget_for_mapping(
+    db: Session,
+    *,
+    mapping_id: int,
+    farm: str,
+    fiscal_year: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
+) -> dict[str, Any]:
+    farm_code = str(farm or "").strip().upper()
+    if farm_code not in HERD_FARM_OPTIONS:
+        raise ValueError("farm must be CM or GAD")
+    mapping = db.scalar(
+        select(FinancialForecastMapping).where(
+            FinancialForecastMapping.id == mapping_id
+        )
+    )
+    if mapping is None:
+        raise ValueError("Unknown heading mapping")
+
+    months = ration_month_range(
+        fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+    )
+    prior_months = [_same_month_last_year(month) for month in months]
+    stored = db.scalars(
+        select(FinancialForecastLine).where(
+            FinancialForecastLine.mapping_id == mapping_id,
+            FinancialForecastLine.farm == farm_code,
+            FinancialForecastLine.forecast_month.in_(prior_months),
+        )
+    ).all()
+    by_prior = {
+        _month_start(line.forecast_month): line.amount for line in stored
+    }
+    values = [
+        {
+            "forecast_month": month.isoformat(),
+            "prior_month": _same_month_last_year(month).isoformat(),
+            "amount": by_prior.get(_same_month_last_year(month)),
+        }
+        for month in months
+    ]
+    return {
+        "mapping_id": mapping_id,
+        "heading": mapping.heading,
+        "farm": farm_code,
+        "months": values,
+        "has_prior": any(row["amount"] is not None for row in values),
+    }

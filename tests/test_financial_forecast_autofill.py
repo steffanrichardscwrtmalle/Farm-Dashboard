@@ -464,3 +464,38 @@ def test_refresh_milk_sales_does_not_build_stock_valuations(
         db, fiscal_year=FISCAL_YEAR, today=TODAY
     )
     assert called["valuations"] is False
+
+
+def test_all_budget_years_fills_current_and_next(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    years_built: list[int] = []
+
+    def fake_context(db_session, *, fiscal_year, today=None, source_keys=None):
+        years_built.append(fiscal_year)
+        from app.services.financial_forecast_autofill import _DataSourceContext
+
+        return _DataSourceContext(
+            milk={},
+            stock={},
+            feed={},
+            hp={},
+            rents={},
+            stock_valuations={},
+        )
+
+    monkeypatch.setattr(
+        "app.services.financial_forecast_autofill.available_fiscal_years",
+        lambda: [2027, 2028],
+    )
+    monkeypatch.setattr(
+        "app.services.financial_forecast_autofill._build_data_source_context",
+        fake_context,
+    )
+    fill_financial_forecasts_from_data_sources(
+        db,
+        fiscal_year=2027,
+        all_budget_years=True,
+        source_prefixes=("hp_schedules.",),
+    )
+    assert years_built == [2027, 2028]

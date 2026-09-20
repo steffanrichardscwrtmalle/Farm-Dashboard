@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import HERD_FARM_OPTIONS, FinancialForecastLine, FinancialForecastMapping
-from app.services.benchmarking import ration_month_range
+from app.services.benchmarking import available_fiscal_years, ration_month_range
 from app.services.events_common import _fiscal_year_from_date
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
 from app.services.financial_forecasts import (
@@ -367,10 +367,30 @@ def fill_financial_forecasts_from_data_sources(
     user_id: int | None = None,
     today: dt.date | None = None,
     source_prefixes: tuple[str, ...] | None = None,
+    all_budget_years: bool = False,
 ) -> dict[str, int]:
     """Write monthly amounts for mappings that have data sources configured."""
     if fill_mode not in ("replace", "fill_empty"):
         raise ValueError("fill_mode must be 'replace' or 'fill_empty'")
+
+    if all_budget_years:
+        totals = {"updated": 0, "mappings_filled": 0, "skipped": 0}
+        for year in available_fiscal_years():
+            result = fill_financial_forecasts_from_data_sources(
+                db,
+                fiscal_year=year,
+                farms=farms or list(HERD_FARM_OPTIONS),
+                fill_mode=fill_mode,
+                user_id=user_id,
+                today=today,
+                source_prefixes=source_prefixes,
+            )
+            totals["updated"] += result["updated"]
+            totals["skipped"] += result["skipped"]
+            totals["mappings_filled"] = max(
+                totals["mappings_filled"], result["mappings_filled"]
+            )
+        return totals
 
     target_farms = farms or list(HERD_FARM_OPTIONS)
     for farm in target_farms:

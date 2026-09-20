@@ -53,6 +53,7 @@ from app.services.financial_forecasts import (
     list_financial_forecasts,
     list_financial_mappings,
     list_financial_options,
+    prior_year_budget_for_mapping,
     save_financial_forecasts,
     update_financial_mapping,
     update_financial_option,
@@ -611,12 +612,13 @@ class SaveFinancialForecastsBody(BaseModel):
 
 
 class FillFinancialForecastsBody(BaseModel):
-    fiscal_year: int | str
+    fiscal_year: int | str | None = None
     month_from: dt.date | None = None
     month_to: dt.date | None = None
     farms: list[str] = Field(default_factory=list)
     fill_mode: str = "replace"
     source_prefixes: list[str] = Field(default_factory=list)
+    all_budget_years: bool = False
 
 
 @router.get("/financial-forecasts/options")
@@ -767,6 +769,32 @@ def api_financial_forecast_bands(
     return {"bands": list_band_definitions(db)}
 
 
+@router.get("/financial-forecasts/prior-year")
+def api_financial_forecasts_prior_year(
+    mapping_id: int = Query(...),
+    farm: str = Query(...),
+    fiscal_year: str | None = Query(None),
+    month_from: dt.date | None = Query(None),
+    month_to: dt.date | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    year, range_from, range_to = _resolve_ration_period(
+        fiscal_year, month_from, month_to
+    )
+    try:
+        return prior_year_budget_for_mapping(
+            db,
+            mapping_id=mapping_id,
+            farm=farm,
+            fiscal_year=year,
+            month_from=range_from,
+            month_to=range_to,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/financial-forecasts")
 def api_list_financial_forecasts(
     fiscal_year: str | None = Query(None),
@@ -789,19 +817,23 @@ def api_fill_financial_forecasts_from_sources(
     db: Session = Depends(get_db),
     user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
 ):
-    year, range_from, range_to = _resolve_ration_period(
-        body.fiscal_year, body.month_from, body.month_to
-    )
+    if body.all_budget_years:
+        year, range_from, range_to = None, None, None
+    else:
+        year, range_from, range_to = _resolve_ration_period(
+            body.fiscal_year, body.month_from, body.month_to
+        )
     try:
         return fill_financial_forecasts_from_data_sources(
             db,
             fiscal_year=year,
             month_from=range_from,
             month_to=range_to,
-            farms=body.farms or None,
+            farms=None if body.all_budget_years else (body.farms or None),
             fill_mode=body.fill_mode,
             user_id=user.id,
             source_prefixes=tuple(body.source_prefixes) if body.source_prefixes else None,
+            all_budget_years=body.all_budget_years,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
