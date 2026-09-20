@@ -477,6 +477,7 @@
     .save-status { font-size: 0.8rem; color: var(--muted); }
     .save-status.ok { color: #15803d; }
     .save-status.err { color: #b91c1c; }
+    .save-status.unsaved { color: #b45309; }
     .message.ok { color: #15803d; }
     .message.err { color: #b91c1c; }
     .summary-wrap {
@@ -895,6 +896,7 @@
   </div>
 
   <script src="/static/js/table-selection-stats.js"></script>
+  <script src="/static/js/unsaved-guard.js"></script>
   <script>
     const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
 
@@ -908,6 +910,8 @@
     let forecastData = null;
     let activeFarm = 'CM';
     let savedSnapshot = '';
+    let mappingsSnapshot = '';
+    let leaveGuard = null;
 
     function isCombinedFarm(farm = activeFarm) {
       return farm === 'Combined';
@@ -1224,6 +1228,7 @@
       `).join('');
       tbody.querySelectorAll('.data-source-dropdown').forEach(initDataSourceDropdown);
       refreshDataSourceDisabledStates();
+      mappingsSnapshot = collectMappingsSnapshot();
     }
 
     async function loadMappings() {
@@ -1410,8 +1415,6 @@
       document.getElementById('comparison-error').hidden = true;
       syncComparisonPeriodFromBudget();
       try {
-        const hasGridEdits = !!document.querySelector('#forecast-grid-body input.amount-input');
-        if (CAN_EDIT && forecastData && hasGridEdits) await flushAutosave();
         if (!forecastData) {
           await fetchAndRenderForecasts();
         }
@@ -2063,6 +2066,7 @@
         forecastData.any_year
       );
       syncDateRangeControls(forecastData);
+      loadedPeriodBody = periodSaveBody();
       renderForecastGrid();
       bindGridAmountFormatting();
       bindGridKeyboard();
@@ -2120,6 +2124,7 @@
 
     async function fillFromDataSources() {
       if (!CAN_EDIT) return;
+      if (!(await confirmLeaveTable())) return;
       const btn = document.getElementById('fill-from-sources-btn');
       btn.disabled = true;
       setSaveStatus('Refreshing from data sources…');
@@ -2151,13 +2156,52 @@
     }
 
     let autosaveTimer = null;
-    let currentSave = Promise.resolve();
+    let currentSave = Promise.resolve(true);
+    let saveInFlight = false;
+    let loadedPeriodBody = null;
+
+    function collectMappingsSnapshot() {
+      return [...document.querySelectorAll('#mappings-body tr[data-id]')].map(row => {
+        const body = { id: row.dataset.id };
+        row.querySelectorAll('[data-field]').forEach(el => {
+          if (el.dataset.field === 'data_sources') {
+            body.data_sources = selectedDataSources(el).join('|');
+          } else {
+            body[el.dataset.field] = el.value;
+          }
+        });
+        return JSON.stringify(body);
+      }).sort().join('\n');
+    }
+
+    function isMappingsDirty() {
+      if (!CAN_EDIT) return false;
+      if (!document.querySelector('#mappings-body tr[data-id]')) return false;
+      return collectMappingsSnapshot() !== mappingsSnapshot;
+    }
+
+    function gridSnapshot() {
+      return collectForecastRows().map(r => JSON.stringify(r)).sort().join('|');
+    }
+
+    function isGridDirty() {
+      if (!CAN_EDIT || isCombinedFarm()) return false;
+      if (!document.querySelector('#forecast-grid-body input.amount-input')) return false;
+      if (!savedSnapshot) return false;
+      return gridSnapshot() !== savedSnapshot;
+    }
+
+    function hasUnsavedWork() {
+      return isGridDirty() || isMappingsDirty() || saveInFlight || Boolean(autosaveTimer);
+    }
 
     async function doAutosave(payload) {
-      if (!CAN_EDIT) return;
-      const rows = payload?.rows || (isCombinedFarm() ? null : collectForecastRows());
-      if (!rows) return;
-      const period = payload?.period || periodSaveBody();
+      if (!CAN_EDIT || isCombinedFarm()) return true;
+      const rows = payload?.rows;
+      if (!rows) return true;
+      const period = payload?.period || loadedPeriodBody || periodSaveBody();
+      saveInFlight = true;
+      setSaveStatus('Saving…');
       try {
         const res = await fetch('/api/benchmarking/financial-forecasts', {
           method: 'PUT',
@@ -2170,43 +2214,60 @@
         });
         const data = await readResponse(res);
         if (!res.ok) throw new Error(data.detail || 'Save failed');
-        setSaveStatus('All changes saved', 'ok');
+        applyActiveFarmDomToForecastData();
+        savedSnapshot = gridSnapshot();
+        setSaveStatus('Saved ✓', 'ok');
+        return true;
       } catch (err) {
         setSaveStatus(err.message, 'err');
+        return false;
+      } finally {
+        saveInFlight = false;
       }
     }
 
+    function enqueueAutosave(payload) {
+      if (!CAN_EDIT || isCombinedFarm()) return currentSave;
+      const next = currentSave.then(() => doAutosave(payload));
+      currentSave = next.then((ok) => ok, () => false);
+      return next;
+    }
+
     function queueBackgroundAutosave() {
-      if (!CAN_EDIT || isCombinedFarm()) return;
+      if (!CAN_EDIT || isCombinedFarm()) return currentSave;
       clearTimeout(autosaveTimer);
       autosaveTimer = null;
-      const payload = {
-        period: periodSaveBody(),
+      return enqueueAutosave({
+        period: loadedPeriodBody || periodSaveBody(),
         rows: collectForecastRows(),
-      };
-      setSaveStatus('Saving…');
-      currentSave = currentSave.then(() => doAutosave(payload));
+      });
     }
 
     function scheduleAutosave() {
-      if (isCombinedFarm()) return;
-      setSaveStatus('Saving…');
+      if (!CAN_EDIT || isCombinedFarm()) return;
+      setSaveStatus('Unsaved changes', 'unsaved');
       clearTimeout(autosaveTimer);
       autosaveTimer = setTimeout(() => {
-        currentSave = currentSave.then(doAutosave);
+        autosaveTimer = null;
+        queueBackgroundAutosave();
       }, 800);
     }
 
     async function flushAutosave() {
-      if (isCombinedFarm()) {
-        clearTimeout(autosaveTimer);
-        autosaveTimer = null;
-        return;
-      }
       clearTimeout(autosaveTimer);
       autosaveTimer = null;
-      currentSave = currentSave.then(doAutosave);
-      await currentSave;
+      if (isCombinedFarm()) return true;
+      if (!isGridDirty() && !saveInFlight) return true;
+      const ok = await queueBackgroundAutosave();
+      return Boolean(ok) && !isGridDirty();
+    }
+
+    async function confirmLeaveTable() {
+      if (!CAN_EDIT) return true;
+      if (leaveGuard) return leaveGuard.confirmLeave();
+      const ok = await flushAutosave();
+      if (ok && !hasUnsavedWork()) return true;
+      return window.confirm('This table still has unsaved changes. Continue anyway?');
     }
 
     function bindGridAutosave() {
@@ -2224,6 +2285,8 @@
 
     document.querySelectorAll('.page-tab').forEach(tab => {
       tab.addEventListener('click', async () => {
+        if (tab.classList.contains('active')) return;
+        if (!(await confirmLeaveTable())) return;
         document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         const section = tab.dataset.section;
@@ -2407,28 +2470,43 @@
 
       document.getElementById('search-mappings')?.addEventListener('input', (e) => renderMappings(e.target.value));
       document.getElementById('fill-from-sources-btn')?.addEventListener('click', fillFromDataSources);
+      document.getElementById('mappings-body').addEventListener('change', () => {
+        if (isMappingsDirty()) showMsg('mapping-message', 'Unsaved mapping changes', false);
+      });
     }
 
     document.getElementById('fiscal-year-select').addEventListener('change', async () => {
+      const previous = loadedPeriodBody || periodSaveBody();
       document.getElementById('date-range-controls').hidden = !isAnyYearSelected();
+      if (!(await confirmLeaveTable())) {
+        restorePeriodControls(previous);
+        return;
+      }
       syncComparisonPeriodFromBudget();
-      if (CAN_EDIT) await flushAutosave();
       await loadForecasts();
       if (!document.getElementById('section-comparison').hidden) renderComparisonTable();
     });
     document.getElementById('comparison-fy-select').addEventListener('change', async () => {
+      const previous = loadedPeriodBody || periodSaveBody();
       document.getElementById('comparison-date-range-controls').hidden =
         document.getElementById('comparison-fy-select').value !== 'any';
+      if (!(await confirmLeaveTable())) {
+        restorePeriodControls(previous);
+        return;
+      }
       syncBudgetPeriodFromComparison();
-      if (CAN_EDIT) await flushAutosave();
       await loadForecasts({ autoFill: false });
       renderComparisonTable();
     });
     ['month-from', 'month-to'].forEach(id => {
       document.getElementById(id).addEventListener('change', async () => {
         if (!isAnyYearSelected()) return;
+        const previous = loadedPeriodBody || periodSaveBody();
+        if (!(await confirmLeaveTable())) {
+          restorePeriodControls(previous);
+          return;
+        }
         syncComparisonPeriodFromBudget();
-        if (CAN_EDIT) await flushAutosave();
         await loadForecasts({ autoFill: false });
         if (!document.getElementById('section-comparison').hidden) renderComparisonTable();
       });
@@ -2436,16 +2514,24 @@
     ['comparison-month-from', 'comparison-month-to'].forEach(id => {
       document.getElementById(id).addEventListener('change', async () => {
         if (document.getElementById('comparison-fy-select').value !== 'any') return;
+        const previous = loadedPeriodBody || periodSaveBody();
+        if (!(await confirmLeaveTable())) {
+          restorePeriodControls(previous);
+          return;
+        }
         syncBudgetPeriodFromComparison();
-        if (CAN_EDIT) await flushAutosave();
         await loadForecasts({ autoFill: false });
         renderComparisonTable();
       });
     });
     document.getElementById('farm-select').addEventListener('change', async (e) => {
+      const previousFarm = activeFarm;
       if (!isCombinedFarm()) {
         applyActiveFarmDomToForecastData();
-        queueBackgroundAutosave();
+      }
+      if (!(await confirmLeaveTable())) {
+        e.target.value = previousFarm;
+        return;
       }
       activeFarm = e.target.value;
       updateFarmViewHints();
@@ -2459,8 +2545,35 @@
       }
     });
 
+    function restorePeriodControls(previous) {
+      if (!previous) return;
+      const fy = previous.fiscal_year == null ? 'any' : String(previous.fiscal_year);
+      document.getElementById('fiscal-year-select').value = fy;
+      document.getElementById('comparison-fy-select').value = fy;
+      document.getElementById('date-range-controls').hidden = fy !== 'any';
+      document.getElementById('comparison-date-range-controls').hidden = fy !== 'any';
+      if (fy === 'any') {
+        const from = isoToMonthInput(previous.month_from);
+        const to = isoToMonthInput(previous.month_to);
+        document.getElementById('month-from').value = from;
+        document.getElementById('month-to').value = to;
+        document.getElementById('comparison-month-from').value = from;
+        document.getElementById('comparison-month-to').value = to;
+      }
+    }
+
     async function init() {
       bindDataSourceDropdowns();
+      if (CAN_EDIT) {
+        leaveGuard = bindUnsavedGuard({
+          isDirty: hasUnsavedWork,
+          flush: async () => {
+            const ok = await flushAutosave();
+            return ok && !isMappingsDirty();
+          },
+          message: 'This table still has unsaved changes. Continue anyway?',
+        });
+      }
       try {
         await loadDataSources();
         await loadOptions();

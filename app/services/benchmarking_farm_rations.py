@@ -51,6 +51,33 @@ def _cost_per_head(kg_per_head: float | None, cost_per_tonne: float | None) -> f
     return (kg_per_head / 1000.0) * cost_per_tonne
 
 
+def _latest_inclusions_before(
+    db: Session, *, ration_ids: list[int], before: dt.date
+) -> dict[tuple[int, int], float]:
+    """Last entered kg/head for each ration/ingredient before a month."""
+    if not ration_ids:
+        return {}
+    rows = db.scalars(
+        select(FarmRationInclusion)
+        .where(
+            FarmRationInclusion.ration_id.in_(ration_ids),
+            FarmRationInclusion.inclusion_month < before,
+            FarmRationInclusion.kg_per_head.isnot(None),
+        )
+        .order_by(
+            FarmRationInclusion.ration_id,
+            FarmRationInclusion.ingredient_id,
+            FarmRationInclusion.inclusion_month.desc(),
+        )
+    ).all()
+    latest: dict[tuple[int, int], float] = {}
+    for line in rows:
+        key = (line.ration_id, line.ingredient_id)
+        if key not in latest:
+            latest[key] = line.kg_per_head
+    return latest
+
+
 def _total_cost_per_head(
     inclusions: dict[str, float | None],
     costs: dict[str, float | None],
@@ -306,23 +333,46 @@ def get_farm_ration_workbook(
             )
         ] = line.kg_per_head
 
+    carried_from_prior = (
+        _latest_inclusions_before(
+            db,
+            ration_ids=[r["id"] for r in rations],
+            before=months[0],
+        )
+        if months
+        else {}
+    )
+
     ration_payloads = []
     for ration in rations:
         ingredient_ids = ration["ingredient_ids"]
+        last_kg: dict[int, float] = {
+            ingredient_id: carried_from_prior[key]
+            for ingredient_id in ingredient_ids
+            if (key := (ration["id"], ingredient_id)) in carried_from_prior
+        }
         rows = []
         for month_start in months:
             month_iso = month_start.isoformat()
             month_costs = costs_by_month.get(month_iso, {})
+            entered: dict[str, float | None] = {}
             inclusions: dict[str, float | None] = {}
             for ingredient_id in ingredient_ids:
                 key = str(ingredient_id)
-                inclusions[key] = inclusion_lookup.get(
+                stored = inclusion_lookup.get(
                     (ration["id"], month_iso, ingredient_id)
                 )
+                entered[key] = stored
+                if stored is not None:
+                    last_kg[ingredient_id] = stored
+                    inclusions[key] = stored
+                else:
+                    inclusions[key] = last_kg.get(ingredient_id)
             rows.append({
                 "inclusion_month": month_iso,
                 "month_label": month_start.strftime("%b-%y"),
                 "inclusions": inclusions,
+                "entered_inclusions": entered,
                 "ingredient_costs": {
                     key: month_costs.get(key) for key in inclusions
                 },

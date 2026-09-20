@@ -187,6 +187,9 @@
       background: #f8fafc;
       color: var(--muted);
     }
+    .inclusion-table input[data-carried="1"] {
+      color: var(--muted);
+    }
     .cost-hint {
       display: block;
       font-size: 0.65rem;
@@ -203,6 +206,7 @@
     .status-msg { font-size: 0.8rem; color: var(--muted); }
     .status-msg.ok { color: #15803d; }
     .status-msg.err { color: #b91c1c; }
+    .status-msg.unsaved { color: #b45309; }
     .empty-state-box {
       padding: 1rem;
       color: var(--muted);
@@ -214,7 +218,7 @@
   <div class="farm-rations-page">
     <div class="farm-rations-top">
       <a href="/benchmarking/rations">&larr; Ration Forecasts</a>
-      <span class="muted">Daily kg/head inclusions by month, with £/head/day from ingredient prices.</span>
+      <span class="muted">Daily kg/head inclusions by month, with £/head/day from ingredient prices. Blank cells use the previous month.{% if can_edit %} Changes save automatically.{% endif %}</span>
       {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
     </div>
 
@@ -273,6 +277,7 @@
       <div class="panel-actions">
         <button type="button" id="save-inclusions-btn">Save inclusions</button>
         <span class="status-msg" id="save-status"></span>
+        <span class="muted" style="font-size:0.8rem">Changes save automatically.</span>
       </div>
       {% endif %}
     </div>
@@ -280,6 +285,7 @@
 
   <p class="empty-state" id="load-error" hidden>Failed to load ration data.</p>
 
+  <script src="/static/js/unsaved-guard.js"></script>
   <script>
     const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
     const FARM_SLUG = {{ farm_slug|tojson }};
@@ -288,6 +294,13 @@
     let workbook = null;
     let activeRationId = null;
     let isNewRation = false;
+    let savedInclusionSnapshot = '';
+    let savedSetupSnapshot = '';
+    let autosaveTimer = null;
+    let saveInFlight = false;
+    let saveChain = Promise.resolve(true);
+    let loadedPeriodBody = null;
+    let leaveGuard = null;
 
     function activeRation() {
       return (workbook?.rations || []).find(r => r.id === activeRationId) || null;
@@ -312,8 +325,11 @@
           data-ration-id="${r.id}" role="tab">${escapeHtml(r.name)}</button>
       `).join('');
       container.querySelectorAll('.ration-tab').forEach(btn => {
-        btn.addEventListener('click', () => {
-          activeRationId = Number(btn.dataset.rationId);
+        btn.addEventListener('click', async () => {
+          const nextId = Number(btn.dataset.rationId);
+          if (nextId === activeRationId && !isNewRation) return;
+          if (CAN_EDIT && leaveGuard && !(await leaveGuard.confirmLeave())) return;
+          activeRationId = nextId;
           isNewRation = false;
           renderAll();
         });
@@ -381,12 +397,13 @@
       return value.toFixed(2);
     }
 
-    function cellInput(month, ingredientId, value, rowIdx) {
+    function cellInput(month, ingredientId, value, rowIdx, carried) {
       const val = value == null ? '' : value;
       const disabled = CAN_EDIT ? '' : ' disabled';
+      const carriedAttr = carried ? ' data-carried="1"' : '';
       return `<input type="number" step="any" min="0"
         data-month="${month}" data-ingredient-id="${ingredientId}" data-row-idx="${rowIdx}"
-        value="${val}"${disabled}>`;
+        value="${val}"${carriedAttr}${disabled}>`;
     }
 
     function renderInclusionTable() {
@@ -409,8 +426,12 @@
       tbody.innerHTML = (ration.rows || []).map((row, rowIdx) => {
         let cells = `<td>${row.month_label}</td>`;
         ration.ingredients.forEach(ing => {
-          const val = row.inclusions[String(ing.id)];
-          cells += `<td>${cellInput(row.inclusion_month, ing.id, val, rowIdx)}</td>`;
+          const key = String(ing.id);
+          const entered = row.entered_inclusions ? row.entered_inclusions[key] : row.inclusions[key];
+          const effective = row.inclusions[key];
+          const carried = entered == null && effective != null;
+          const val = entered != null ? entered : effective;
+          cells += `<td>${cellInput(row.inclusion_month, ing.id, val, rowIdx, carried)}</td>`;
         });
         const total = calcCostPerHead(row, ration);
         cells += `<td class="total-col" data-total-row="${rowIdx}">${formatMoney(total)}</td>`;
@@ -418,15 +439,38 @@
       }).join('');
     }
 
+    function previousInclusionValue(input) {
+      const tbody = document.getElementById('inclusion-tbody');
+      const ingredientId = input.dataset.ingredientId;
+      const rowIdx = Number(input.dataset.rowIdx);
+      for (let i = rowIdx - 1; i >= 0; i -= 1) {
+        const prev = tbody.querySelector(
+          `input[data-row-idx="${i}"][data-ingredient-id="${CSS.escape(ingredientId)}"]`
+        );
+        if (!prev) continue;
+        const raw = prev.value.trim();
+        if (raw !== '') return raw;
+      }
+      return '';
+    }
+
     function updateTotalsFromInputs() {
       const ration = activeRation();
       if (!ration) return;
+      const lastKg = {};
       document.querySelectorAll('#inclusion-tbody tr').forEach((tr, rowIdx) => {
         const rowData = { inclusions: {}, ingredient_costs: {} };
         ration.ingredients.forEach(ing => {
           const key = String(ing.id);
           const input = tr.querySelector(`input[data-ingredient-id="${ing.id}"]`);
-          rowData.inclusions[key] = input?.value ?? '';
+          const raw = input?.value?.trim() ?? '';
+          let kg = raw === '' ? null : Number(raw);
+          if (kg == null || Number.isNaN(kg)) {
+            kg = lastKg[ing.id] ?? null;
+          } else {
+            lastKg[ing.id] = kg;
+          }
+          rowData.inclusions[key] = kg;
           const serverRow = ration.rows[rowIdx];
           rowData.ingredient_costs[key] = serverRow?.ingredient_costs?.[key] ?? null;
         });
@@ -438,6 +482,14 @@
     function collectInclusions() {
       const rows = [];
       document.querySelectorAll('#inclusion-tbody input').forEach(input => {
+        if (input.dataset.carried === '1') {
+          rows.push({
+            inclusion_month: input.dataset.month,
+            ingredient_id: Number(input.dataset.ingredientId),
+            kg_per_head: null,
+          });
+          return;
+        }
         const raw = input.value.trim();
         const value = raw === '' ? null : Number(raw);
         rows.push({
@@ -466,6 +518,7 @@
       renderTabs();
       renderSetup();
       renderInclusionTable();
+      captureSnapshots();
     }
 
     function isoToMonthInput(iso) {
@@ -525,6 +578,7 @@
         activeRationId = workbook.active_ration_id;
         isNewRation = false;
         syncDateRangeControls(workbook);
+        loadedPeriodBody = periodSaveBody();
         renderAll();
       } catch (_) {
         document.getElementById('load-error').hidden = false;
@@ -541,33 +595,105 @@
       select.value = selectedValue;
     }
 
-    async function saveInclusions() {
-      if (!CAN_EDIT || !activeRationId) return;
-      const statusEl = document.getElementById('save-status');
-      const btn = document.getElementById('save-inclusions-btn');
-      btn.disabled = true;
-      setStatus('save-status', 'Saving…');
-      try {
-        const res = await fetch(
-          `/api/benchmarking/rations/farms/${FARM_SLUG}/${activeRationId}/inclusions`,
-          {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...periodSaveBody(), rows: collectInclusions() }),
-          }
-        );
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(payload.detail || 'Save failed');
-        workbook = payload;
-        activeRationId = workbook.active_ration_id;
-        syncDateRangeControls(workbook);
-        renderAll();
-        setStatus('save-status', 'Saved.', 'ok');
-      } catch (err) {
-        setStatus('save-status', err.message || 'Save failed', 'err');
-      } finally {
-        btn.disabled = false;
+    function setupSnapshot() {
+      return JSON.stringify({
+        isNew: isNewRation,
+        rationId: activeRationId,
+        name: document.getElementById('ration-name')?.value.trim() || '',
+        ingredient_ids: selectedIngredientIds(),
+      });
+    }
+
+    function captureSnapshots() {
+      savedInclusionSnapshot = JSON.stringify(collectInclusions());
+      savedSetupSnapshot = setupSnapshot();
+    }
+
+    function isInclusionsDirty() {
+      if (!CAN_EDIT || !activeRationId || isNewRation) return false;
+      if (!document.querySelector('#inclusion-tbody input')) return false;
+      return savedInclusionSnapshot !== JSON.stringify(collectInclusions());
+    }
+
+    function isSetupDirty() {
+      if (!CAN_EDIT) return false;
+      if (!document.getElementById('ration-setup') || document.getElementById('ration-setup').hidden) {
+        return isNewRation;
       }
+      return savedSetupSnapshot !== setupSnapshot();
+    }
+
+    function hasUnsavedWork() {
+      return isInclusionsDirty() || isSetupDirty() || saveInFlight || Boolean(autosaveTimer);
+    }
+
+    function scheduleAutosave() {
+      if (!CAN_EDIT || !activeRationId || isNewRation) return;
+      setStatus('save-status', 'Unsaved changes', 'unsaved');
+      clearTimeout(autosaveTimer);
+      autosaveTimer = setTimeout(() => {
+        autosaveTimer = null;
+        saveInclusions({ fromAutosave: true, reloadAfterSave: false });
+      }, 600);
+    }
+
+    async function flushAutosave() {
+      if (!CAN_EDIT) return true;
+      clearTimeout(autosaveTimer);
+      autosaveTimer = null;
+      if (!isInclusionsDirty() && !saveInFlight) return true;
+      return saveInclusions({ fromAutosave: true, reloadAfterSave: false });
+    }
+
+    async function saveInclusions(options = {}) {
+      const { fromAutosave = false, reloadAfterSave = true } = options;
+      if (!CAN_EDIT || !activeRationId || isNewRation) return true;
+      const queued = saveChain.then(async () => {
+        let lastOk = true;
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          if (!isInclusionsDirty() && !reloadAfterSave) return lastOk;
+          const statusEl = document.getElementById('save-status');
+          const btn = document.getElementById('save-inclusions-btn');
+          saveInFlight = true;
+          if (btn) btn.disabled = true;
+          setStatus('save-status', 'Saving…');
+          try {
+            const res = await fetch(
+              `/api/benchmarking/rations/farms/${FARM_SLUG}/${activeRationId}/inclusions`,
+              {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  ...(loadedPeriodBody || periodSaveBody()),
+                  rows: collectInclusions(),
+                }),
+              }
+            );
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(payload.detail || 'Save failed');
+            workbook = payload;
+            activeRationId = workbook.active_ration_id;
+            syncDateRangeControls(workbook);
+            if (reloadAfterSave) {
+              renderAll();
+            } else {
+              savedInclusionSnapshot = JSON.stringify(collectInclusions());
+            }
+            setStatus('save-status', fromAutosave ? 'Saved ✓' : 'Saved.', 'ok');
+            lastOk = true;
+            if (!isInclusionsDirty() || reloadAfterSave) return true;
+          } catch (err) {
+            setStatus('save-status', err.message || 'Save failed', 'err');
+            return false;
+          } finally {
+            saveInFlight = false;
+            if (btn) btn.disabled = false;
+          }
+        }
+        return !isInclusionsDirty();
+      });
+      saveChain = queued.then(() => true, () => true);
+      return queued;
     }
 
     async function saveRation() {
@@ -580,6 +706,9 @@
       if (!ingredientIds.length) {
         setStatus('toolbar-status', 'Select at least one ingredient.', 'err');
         return;
+      }
+      if (activeRationId && !isNewRation) {
+        await flushAutosave();
       }
       setStatus('toolbar-status', 'Saving…');
       const isCreate = isNewRation || !activeRationId;
@@ -626,6 +755,16 @@
     }
 
     function startNewRation() {
+      if (CAN_EDIT && leaveGuard) {
+        leaveGuard.confirmLeave().then((ok) => {
+          if (!ok) return;
+          isNewRation = true;
+          activeRationId = null;
+          renderAll();
+          document.getElementById('ration-name').focus();
+        });
+        return;
+      }
       isNewRation = true;
       activeRationId = null;
       renderAll();
@@ -655,8 +794,35 @@
         }
       });
       tbody.addEventListener('input', (e) => {
-        if (e.target.matches('input')) updateTotalsFromInputs();
+        if (!e.target.matches('input')) return;
+        if (e.target.value.trim() === '') {
+          e.target.dataset.carried = '1';
+        } else {
+          delete e.target.dataset.carried;
+        }
+        updateTotalsFromInputs();
+        scheduleAutosave();
       });
+      tbody.addEventListener('blur', (e) => {
+        if (!e.target.matches('input')) return;
+        if (e.target.value.trim() !== '') return;
+        const prev = previousInclusionValue(e.target);
+        if (prev === '') return;
+        e.target.value = prev;
+        e.target.dataset.carried = '1';
+        updateTotalsFromInputs();
+      }, true);
+    }
+
+    function restorePeriodControls(previous) {
+      if (!previous) return;
+      const fy = previous.fiscal_year == null ? 'any' : String(previous.fiscal_year);
+      document.getElementById('fiscal-year-select').value = fy;
+      document.getElementById('date-range-controls').hidden = fy !== 'any';
+      if (fy === 'any') {
+        document.getElementById('month-from').value = isoToMonthInput(previous.month_from);
+        document.getElementById('month-to').value = isoToMonthInput(previous.month_to);
+      }
     }
 
     async function init() {
@@ -670,6 +836,7 @@
           workbook.any_year
         );
         syncDateRangeControls(workbook);
+        loadedPeriodBody = periodSaveBody();
         activeRationId = workbook.active_ration_id;
         renderAll();
       } catch (_) {
@@ -678,21 +845,56 @@
       }
 
       bindTableKeyboard();
-      document.getElementById('fiscal-year-select').addEventListener('change', () => {
+      document.getElementById('fiscal-year-select').addEventListener('change', async () => {
+        const previous = loadedPeriodBody || periodSaveBody();
         document.getElementById('date-range-controls').hidden = !isAnyYearSelected();
+        if (CAN_EDIT && leaveGuard && !(await leaveGuard.confirmLeave())) {
+          restorePeriodControls(previous);
+          return;
+        }
         loadWorkbook();
       });
-      document.getElementById('month-from').addEventListener('change', () => {
-        if (isAnyYearSelected()) loadWorkbook();
+      document.getElementById('month-from').addEventListener('change', async () => {
+        if (!isAnyYearSelected()) return;
+        const previous = loadedPeriodBody || periodSaveBody();
+        if (CAN_EDIT && leaveGuard && !(await leaveGuard.confirmLeave())) {
+          restorePeriodControls(previous);
+          return;
+        }
+        loadWorkbook();
       });
-      document.getElementById('month-to').addEventListener('change', () => {
-        if (isAnyYearSelected()) loadWorkbook();
+      document.getElementById('month-to').addEventListener('change', async () => {
+        if (!isAnyYearSelected()) return;
+        const previous = loadedPeriodBody || periodSaveBody();
+        if (CAN_EDIT && leaveGuard && !(await leaveGuard.confirmLeave())) {
+          restorePeriodControls(previous);
+          return;
+        }
+        loadWorkbook();
       });
       if (CAN_EDIT) {
+        leaveGuard = bindUnsavedGuard({
+          isDirty: hasUnsavedWork,
+          flush: async () => {
+            const ok = await flushAutosave();
+            return ok && !isSetupDirty();
+          },
+          message: 'This table still has unsaved changes. Continue anyway?',
+        });
         document.getElementById('new-ration-btn').addEventListener('click', startNewRation);
         document.getElementById('save-ration-btn').addEventListener('click', saveRation);
         document.getElementById('delete-ration-btn').addEventListener('click', deleteRation);
-        document.getElementById('save-inclusions-btn').addEventListener('click', saveInclusions);
+        document.getElementById('save-inclusions-btn').addEventListener('click', () => {
+          clearTimeout(autosaveTimer);
+          autosaveTimer = null;
+          saveInclusions({ fromAutosave: false, reloadAfterSave: false });
+        });
+        document.getElementById('ration-name')?.addEventListener('input', () => {
+          if (isSetupDirty()) setStatus('toolbar-status', 'Unsaved ration setup', 'unsaved');
+        });
+        document.getElementById('ingredient-picks')?.addEventListener('change', () => {
+          if (isSetupDirty()) setStatus('toolbar-status', 'Unsaved ration setup', 'unsaved');
+        });
       }
     }
 

@@ -93,6 +93,73 @@ def test_save_inclusions_calculates_cost_per_head(db: Session) -> None:
     assert april["cost_per_head"] == 3.0
 
 
+def test_blank_inclusion_uses_previous_month(db: Session) -> None:
+    a, _b = _seed_ingredients(db)
+    ration = create_farm_ration(
+        db, farm="cm", name="Milkers", ingredient_ids=[a["id"]], user_id=1
+    )
+    save_ingredient_costs(
+        db,
+        fiscal_year=2026,
+        rows=[
+            {"cost_month": "2025-04-01", "ingredient_id": a["id"], "cost": 300.0},
+            {"cost_month": "2025-05-01", "ingredient_id": a["id"], "cost": 300.0},
+        ],
+        user_id=1,
+    )
+    save_farm_ration_inclusions(
+        db,
+        farm="cm",
+        ration_id=ration["id"],
+        fiscal_year=2026,
+        rows=[
+            {
+                "inclusion_month": "2025-04-01",
+                "ingredient_id": a["id"],
+                "kg_per_head": 10.0,
+            }
+        ],
+        user_id=1,
+    )
+    workbook = get_farm_ration_workbook(
+        db, farm="cm", fiscal_year=2026, ration_id=ration["id"]
+    )
+    april = workbook["rations"][0]["rows"][0]
+    may = workbook["rations"][0]["rows"][1]
+    assert april["entered_inclusions"][str(a["id"])] == 10.0
+    assert may["entered_inclusions"][str(a["id"])] is None
+    assert may["inclusions"][str(a["id"])] == 10.0
+    assert may["cost_per_head"] == 3.0
+
+
+def test_blank_inclusion_carries_from_previous_fiscal_year(db: Session) -> None:
+    a, _b = _seed_ingredients(db)
+    ration = create_farm_ration(
+        db, farm="gad", name="Milkers", ingredient_ids=[a["id"]], user_id=1
+    )
+    save_farm_ration_inclusions(
+        db,
+        farm="gad",
+        ration_id=ration["id"],
+        fiscal_year=2026,
+        rows=[
+            {
+                "inclusion_month": "2026-03-01",
+                "ingredient_id": a["id"],
+                "kg_per_head": 8.0,
+            }
+        ],
+        user_id=1,
+    )
+    workbook = get_farm_ration_workbook(
+        db, farm="gad", fiscal_year=2027, ration_id=ration["id"]
+    )
+    april = workbook["rations"][0]["rows"][0]
+    assert april["inclusion_month"] == "2026-04-01"
+    assert april["entered_inclusions"][str(a["id"])] is None
+    assert april["inclusions"][str(a["id"])] == 8.0
+
+
 def test_update_ration_changes_ingredients(db: Session) -> None:
     a, b = _seed_ingredients(db)
     ration = create_farm_ration(

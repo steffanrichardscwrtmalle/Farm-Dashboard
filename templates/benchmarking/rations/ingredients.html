@@ -196,6 +196,7 @@
     }
     .save-status.ok { color: #15803d; }
     .save-status.err { color: #b91c1c; }
+    .save-status.unsaved { color: #b45309; }
     .empty-ingredients {
       padding: 0.75rem;
       color: var(--muted);
@@ -207,7 +208,7 @@
   <div class="ingredients-page">
     <div class="ingredients-top">
       <a href="/benchmarking/rations">&larr; Ration Forecasts</a>
-      <span class="muted">Monthly ingredient cost (£/t). Choose a fiscal year, or Any for a custom date range.</span>
+      <span class="muted">Monthly ingredient cost (£/t). Choose a fiscal year, or Any for a custom date range.{% if can_edit %} Changes save automatically.{% endif %}</span>
       {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
     </div>
 
@@ -271,6 +272,7 @@
       <div class="panel-actions">
         <button type="button" id="save-btn">Save costs</button>
         <span class="save-status" id="save-status"></span>
+        <span class="muted" style="font-size:0.8rem">Changes save automatically.</span>
       </div>
       {% endif %}
     </div>
@@ -278,12 +280,19 @@
 
   <p class="empty-state" id="load-error" hidden>Failed to load ingredient data.</p>
 
+  <script src="/static/js/unsaved-guard.js"></script>
   <script>
     const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
     const CATEGORY_ORDER = ['concentrate', 'forage', 'straw'];
 
     let costData = null;
     let categories = [];
+    let savedSnapshot = '';
+    let autosaveTimer = null;
+    let saveInFlight = false;
+    let saveChain = Promise.resolve(true);
+    let loadedPeriodBody = null;
+    let leaveGuard = null;
 
     function categoryOptions(selected) {
       return categories.map(c => `
@@ -389,6 +398,7 @@
         return `<tr>${cells}</tr>`;
       }).join('');
       renderFeedLibrary();
+      captureSnapshot();
     }
 
     function collectRows() {
@@ -427,6 +437,15 @@
           }
         }
       });
+      tbody.addEventListener('input', (e) => {
+        if (!e.target.matches('input') || e.target.disabled) return;
+        const statusEl = document.getElementById('save-status');
+        if (statusEl) {
+          statusEl.textContent = 'Unsaved changes';
+          statusEl.className = 'save-status unsaved';
+        }
+        scheduleAutosave();
+      });
     }
 
     function bindLibraryActions() {
@@ -447,6 +466,7 @@
     }
 
     async function saveLibraryRow(row, ingredientId) {
+      if (CAN_EDIT) await flushAutosave();
       const name = row.querySelector('.library-name').value.trim();
       const category = row.querySelector('.library-category').value;
       const statusEl = document.getElementById('add-status');
@@ -473,6 +493,7 @@
       if (!window.confirm('Remove this ingredient from the library? Its cost history will be kept but hidden.')) {
         return;
       }
+      if (CAN_EDIT) await flushAutosave();
       const statusEl = document.getElementById('add-status');
       try {
         const res = await fetch(`/api/benchmarking/rations/ingredients/${ingredientId}`, {
@@ -553,6 +574,7 @@
         if (!res.ok) throw new Error('load failed');
         costData = await res.json();
         syncDateRangeControls(costData);
+        loadedPeriodBody = periodSaveBody();
         renderTable();
       } catch (_) {
         document.getElementById('load-error').hidden = false;
@@ -569,41 +591,101 @@
       select.value = selectedValue;
     }
 
-    async function saveCosts() {
+    function captureSnapshot() {
+      savedSnapshot = JSON.stringify(collectRows());
+    }
+
+    function isCurrentTableDirty() {
+      if (!CAN_EDIT) return false;
+      if (!document.querySelector('#cost-tbody input')) return false;
+      return savedSnapshot !== JSON.stringify(collectRows());
+    }
+
+    function hasUnsavedWork() {
+      return isCurrentTableDirty() || saveInFlight || Boolean(autosaveTimer);
+    }
+
+    function scheduleAutosave() {
       if (!CAN_EDIT) return;
-      const statusEl = document.getElementById('save-status');
-      const btn = document.getElementById('save-btn');
-      btn.disabled = true;
-      statusEl.textContent = 'Saving…';
-      statusEl.className = 'save-status';
-      try {
-        const res = await fetch('/api/benchmarking/rations/ingredient-costs', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...periodSaveBody(), rows: collectRows() }),
-        });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const detail = payload.detail;
-          const message = Array.isArray(detail)
-            ? detail.map(item => item.msg || String(item)).join(', ')
-            : (detail || 'Save failed');
-          throw new Error(message);
+      clearTimeout(autosaveTimer);
+      autosaveTimer = setTimeout(() => {
+        autosaveTimer = null;
+        saveCosts({ fromAutosave: true, reloadAfterSave: false });
+      }, 600);
+    }
+
+    async function flushAutosave() {
+      if (!CAN_EDIT) return true;
+      clearTimeout(autosaveTimer);
+      autosaveTimer = null;
+      if (!isCurrentTableDirty() && !saveInFlight) return true;
+      return saveCosts({ fromAutosave: true, reloadAfterSave: false });
+    }
+
+    async function saveCosts(options = {}) {
+      const { fromAutosave = false, reloadAfterSave = true } = options;
+      if (!CAN_EDIT) return true;
+      const queued = saveChain.then(async () => {
+        let lastOk = true;
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          if (!isCurrentTableDirty() && !reloadAfterSave) return lastOk;
+          const statusEl = document.getElementById('save-status');
+          const btn = document.getElementById('save-btn');
+          saveInFlight = true;
+          if (btn) btn.disabled = true;
+          if (statusEl) {
+            statusEl.textContent = 'Saving…';
+            statusEl.className = 'save-status';
+          }
+          try {
+            const res = await fetch('/api/benchmarking/rations/ingredient-costs', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...(loadedPeriodBody || periodSaveBody()),
+                rows: collectRows(),
+              }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              const detail = payload.detail;
+              const message = Array.isArray(detail)
+                ? detail.map(item => item.msg || String(item)).join(', ')
+                : (detail || 'Save failed');
+              throw new Error(message);
+            }
+            costData = payload;
+            syncDateRangeControls(costData);
+            if (reloadAfterSave) {
+              renderTable();
+            } else {
+              captureSnapshot();
+            }
+            if (statusEl) {
+              statusEl.textContent = fromAutosave ? 'Saved ✓' : 'Saved.';
+              statusEl.className = 'save-status ok';
+            }
+            lastOk = true;
+            if (!isCurrentTableDirty() || reloadAfterSave) return true;
+          } catch (err) {
+            if (statusEl) {
+              statusEl.textContent = err.message || 'Save failed.';
+              statusEl.className = 'save-status err';
+            }
+            return false;
+          } finally {
+            saveInFlight = false;
+            if (btn) btn.disabled = false;
+          }
         }
-        costData = payload;
-        syncDateRangeControls(costData);
-        renderTable();
-        statusEl.textContent = 'Saved.';
-        statusEl.className = 'save-status ok';
-      } catch (err) {
-        statusEl.textContent = err.message || 'Save failed.';
-        statusEl.className = 'save-status err';
-      } finally {
-        btn.disabled = false;
-      }
+        return !isCurrentTableDirty();
+      });
+      saveChain = queued.then(() => true, () => true);
+      return queued;
     }
 
     async function addIngredient() {
+      if (CAN_EDIT) await flushAutosave();
       const statusEl = document.getElementById('add-status');
       const nameInput = document.getElementById('ingredient-name');
       const categorySelect = document.getElementById('ingredient-category');
@@ -636,6 +718,17 @@
       }
     }
 
+    function restorePeriodControls(previous) {
+      if (!previous) return;
+      const fy = previous.fiscal_year == null ? 'any' : String(previous.fiscal_year);
+      document.getElementById('fiscal-year-select').value = fy;
+      document.getElementById('date-range-controls').hidden = fy !== 'any';
+      if (fy === 'any') {
+        document.getElementById('month-from').value = isoToMonthInput(previous.month_from);
+        document.getElementById('month-to').value = isoToMonthInput(previous.month_to);
+      }
+    }
+
     async function init() {
       try {
         await loadCategories();
@@ -648,6 +741,7 @@
           costData.any_year
         );
         syncDateRangeControls(costData);
+        loadedPeriodBody = periodSaveBody();
         renderTable();
       } catch (_) {
         document.getElementById('load-error').hidden = false;
@@ -656,18 +750,44 @@
 
       bindTableKeyboard();
       bindLibraryActions();
-      document.getElementById('fiscal-year-select').addEventListener('change', () => {
+      document.getElementById('fiscal-year-select').addEventListener('change', async () => {
+        const previous = loadedPeriodBody || periodSaveBody();
         document.getElementById('date-range-controls').hidden = !isAnyYearSelected();
+        if (CAN_EDIT && leaveGuard && !(await leaveGuard.confirmLeave())) {
+          restorePeriodControls(previous);
+          return;
+        }
         loadCosts();
       });
-      document.getElementById('month-from').addEventListener('change', () => {
-        if (isAnyYearSelected()) loadCosts();
+      document.getElementById('month-from').addEventListener('change', async () => {
+        if (!isAnyYearSelected()) return;
+        const previous = loadedPeriodBody || periodSaveBody();
+        if (CAN_EDIT && leaveGuard && !(await leaveGuard.confirmLeave())) {
+          restorePeriodControls(previous);
+          return;
+        }
+        loadCosts();
       });
-      document.getElementById('month-to').addEventListener('change', () => {
-        if (isAnyYearSelected()) loadCosts();
+      document.getElementById('month-to').addEventListener('change', async () => {
+        if (!isAnyYearSelected()) return;
+        const previous = loadedPeriodBody || periodSaveBody();
+        if (CAN_EDIT && leaveGuard && !(await leaveGuard.confirmLeave())) {
+          restorePeriodControls(previous);
+          return;
+        }
+        loadCosts();
       });
       if (CAN_EDIT) {
-        document.getElementById('save-btn').addEventListener('click', saveCosts);
+        leaveGuard = bindUnsavedGuard({
+          isDirty: hasUnsavedWork,
+          flush: flushAutosave,
+          message: 'This table still has unsaved changes. Continue anyway?',
+        });
+        document.getElementById('save-btn').addEventListener('click', () => {
+          clearTimeout(autosaveTimer);
+          autosaveTimer = null;
+          saveCosts({ fromAutosave: false, reloadAfterSave: false });
+        });
         document.getElementById('add-ingredient-btn').addEventListener('click', addIngredient);
         document.getElementById('ingredient-name').addEventListener('keydown', (e) => {
           if (e.key === 'Enter') {
