@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from unittest.mock import MagicMock
 
 from app.services.stock_valuation_forecasts import (
     CATEGORY_DISPLAY_ORDER,
@@ -12,6 +13,7 @@ from app.services.stock_valuation_forecasts import (
     _merge_farm_views,
     _projected_category,
     build_stock_valuation_change_index_from_report,
+    build_stock_valuation_forecasts_report,
     monthly_valuation_change_gbp,
 )
 
@@ -214,3 +216,221 @@ def test_valuation_change_index_per_farm_month() -> None:
         ]
     }
     assert build_stock_valuation_change_index_from_report(empty_report) == {}
+
+
+def _farm_totals(
+    *,
+    dairy: int,
+    dairy_avg: int,
+    youngstock: int = 0,
+    young_avg: int = 0,
+    beef: int = 0,
+    beef_avg: int = 0,
+) -> dict:
+    categories = {
+        "Dairy": {
+            "count": dairy,
+            "value_gbp": dairy * dairy_avg,
+            "avg_value_gbp": dairy_avg if dairy else 0,
+        },
+        "Youngstock": {
+            "count": youngstock,
+            "value_gbp": youngstock * young_avg,
+            "avg_value_gbp": young_avg if youngstock else 0,
+        },
+        "Beef": {
+            "count": beef,
+            "value_gbp": beef * beef_avg,
+            "avg_value_gbp": beef_avg if beef else 0,
+        },
+    }
+    return {
+        "dairy_cows": dairy,
+        "categories": categories,
+        "grand_total_gbp": sum(cat["value_gbp"] for cat in categories.values()),
+        "total_animals": dairy + youngstock + beef,
+    }
+
+
+def test_future_fy_populates_when_livestock_tables_are_blank(monkeypatch) -> None:
+    """Next FY used to start at a zero herd and skip autofill."""
+    today = dt.date(2026, 9, 20)
+    last_actual = dt.date(2026, 8, 1)
+    cm = _farm_totals(dairy=100, dairy_avg=2000)
+    gad = _farm_totals(dairy=80, dairy_avg=2100)
+
+    def fake_valuations(_db, **kwargs):
+        month_from = kwargs.get("month_from")
+        if month_from == last_actual:
+            return {
+                "months": [
+                    {
+                        "month_start": "2026-08-01",
+                        "month_label": "Aug-26",
+                        "totals": {"CM": cm, "GAD": gad},
+                    }
+                ]
+            }
+        return {"months": []}
+
+    def fake_heads(_db, **kwargs):
+        return {"CM": {}, "GAD": {}}
+
+    monkeypatch.setattr(
+        "app.services.stock_valuation_forecasts.build_stock_valuations_report",
+        fake_valuations,
+    )
+    monkeypatch.setattr(
+        "app.services.stock_valuation_forecasts.build_stock_forecast_heads_index",
+        fake_heads,
+    )
+
+    report = build_stock_valuation_forecasts_report(
+        MagicMock(),
+        farms=["CM", "GAD"],
+        fiscal_year=2028,
+        today=today,
+    )
+    april = next(row for row in report["rows"] if row["month_start"] == "2027-04-01")
+    assert april["source"] == "projected"
+    assert april["totals"]["CM"]["opening_grand_total_gbp"] == 200_000
+    assert april["totals"]["CM"]["closing_grand_total_gbp"] == 200_000
+    assert april["totals"]["GAD"]["opening_grand_total_gbp"] == 168_000
+
+    index = build_stock_valuation_change_index_from_report(report)
+    assert index[("CM", dt.date(2027, 4, 1))] == 0
+    assert index[("GAD", dt.date(2027, 4, 1))] == 0
+
+
+def test_future_fy_opening_uses_stock_forecast_heads_not_last_actual(
+    monkeypatch,
+) -> None:
+    """YE 2028 April must continue YE 2027 projected closing, not last actual."""
+    today = dt.date(2026, 9, 20)
+    last_actual = dt.date(2026, 8, 1)
+    gad_actual = _farm_totals(dairy=843, dairy_avg=2100)
+    cm_actual = _farm_totals(dairy=100, dairy_avg=2000)
+
+    def fake_valuations(_db, **kwargs):
+        month_from = kwargs.get("month_from")
+        if month_from == last_actual:
+            return {
+                "months": [
+                    {
+                        "month_start": "2026-08-01",
+                        "month_label": "Aug-26",
+                        "totals": {"CM": cm_actual, "GAD": gad_actual},
+                    }
+                ]
+            }
+        return {"months": []}
+
+    def fake_heads(_db, **kwargs):
+        # Stock forecasts walk Sep–Mar, so April opening is March's projected close.
+        return {
+            "CM": {
+                "2027-04-01": {
+                    "Dairy": {"opening": 98, "closing": 97},
+                    "Youngstock": {"opening": 0, "closing": 0},
+                    "Beef": {"opening": 0, "closing": 0},
+                }
+            },
+            "GAD": {
+                "2027-04-01": {
+                    "Dairy": {"opening": 959, "closing": 961},
+                    "Youngstock": {"opening": 0, "closing": 0},
+                    "Beef": {"opening": 0, "closing": 0},
+                }
+            },
+        }
+
+    monkeypatch.setattr(
+        "app.services.stock_valuation_forecasts.build_stock_valuations_report",
+        fake_valuations,
+    )
+    monkeypatch.setattr(
+        "app.services.stock_valuation_forecasts.build_stock_forecast_heads_index",
+        fake_heads,
+    )
+
+    report = build_stock_valuation_forecasts_report(
+        MagicMock(),
+        farms=["CM", "GAD"],
+        fiscal_year=2028,
+        today=today,
+    )
+    april = next(row for row in report["rows"] if row["month_start"] == "2027-04-01")
+    assert april["totals"]["GAD"]["categories"]["Dairy"]["opening"]["count"] == 959
+    assert april["totals"]["GAD"]["categories"]["Dairy"]["closing"]["count"] == 961
+    assert april["totals"]["CM"]["categories"]["Dairy"]["opening"]["count"] == 98
+    assert april["totals"]["CM"]["categories"]["Dairy"]["closing"]["count"] == 97
+    assert april["totals"]["GAD"]["opening_grand_total_gbp"] == 959 * 2100
+
+    index = build_stock_valuation_change_index_from_report(report)
+    assert index[("CM", dt.date(2027, 4, 1))] == 2_000
+
+
+def test_actual_months_still_fill_when_heads_builder_fails(monkeypatch) -> None:
+    today = dt.date(2026, 9, 20)
+    july = _farm_totals(dairy=102, dairy_avg=2000)
+    aug = _farm_totals(dairy=100, dairy_avg=2000)
+
+    def fake_valuations(_db, **kwargs):
+        fy = kwargs.get("fiscal_year")
+        month_from = kwargs.get("month_from")
+        if fy == 2027 and month_from == dt.date(2026, 4, 1):
+            return {
+                "months": [
+                    {
+                        "month_start": "2026-07-01",
+                        "month_label": "Jul-26",
+                        "totals": {"CM": july, "GAD": july},
+                    },
+                    {
+                        "month_start": "2026-08-01",
+                        "month_label": "Aug-26",
+                        "totals": {"CM": aug, "GAD": aug},
+                    },
+                ]
+            }
+        if month_from == dt.date(2026, 8, 1):
+            return {
+                "months": [
+                    {
+                        "month_start": "2026-08-01",
+                        "month_label": "Aug-26",
+                        "totals": {"CM": aug, "GAD": aug},
+                    }
+                ]
+            }
+        return {"months": []}
+
+    def fake_heads(*_args, **_kwargs):
+        raise RuntimeError("livestock forecast table incomplete")
+
+    monkeypatch.setattr(
+        "app.services.stock_valuation_forecasts.build_stock_valuations_report",
+        fake_valuations,
+    )
+    monkeypatch.setattr(
+        "app.services.stock_valuation_forecasts.build_stock_forecast_heads_index",
+        fake_heads,
+    )
+
+    report = build_stock_valuation_forecasts_report(
+        MagicMock(),
+        farms=["CM", "GAD"],
+        fiscal_year=2027,
+        today=today,
+    )
+    august = next(row for row in report["rows"] if row["month_start"] == "2026-08-01")
+    assert august["source"] == "actual"
+    assert august["totals"]["CM"]["closing_grand_total_gbp"] == 200_000
+
+    september = next(row for row in report["rows"] if row["month_start"] == "2026-09-01")
+    assert september["source"] == "projected"
+    assert september["totals"]["CM"]["opening_grand_total_gbp"] == 200_000
+
+    index = build_stock_valuation_change_index_from_report(report)
+    assert ("CM", dt.date(2026, 8, 1)) in index
+    assert ("CM", dt.date(2026, 9, 1)) in index

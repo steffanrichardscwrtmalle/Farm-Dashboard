@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import gc
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,6 +30,8 @@ from app.services.stock_sales_purchases_forecasts import (
     build_stock_sales_purchases_forecasts_report,
 )
 from app.services.stock_valuation_forecasts import build_stock_valuation_change_index
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -126,6 +129,7 @@ def _try_build(builder):
     try:
         return builder()
     except Exception:
+        logger.exception("Financial forecast data source failed to build")
         return None
 
 

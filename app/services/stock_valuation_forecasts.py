@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import math
 from typing import Any
 
@@ -18,6 +19,8 @@ from app.services.events_common import (
 )
 from app.services.stock_forecasts import build_stock_forecast_heads_index
 from app.services.stock_valuations import build_stock_valuations_report
+
+logger = logging.getLogger(__name__)
 
 CATEGORY_DISPLAY_ORDER: tuple[str, ...] = ("Dairy", "Youngstock", "Beef")
 
@@ -213,6 +216,10 @@ def _farm_view_from_counts_and_deltas(
     }, closing_counts
 
 
+def _empty_counts() -> dict[str, int]:
+    return {category: 0 for category in CATEGORY_DISPLAY_ORDER}
+
+
 def _seed_opening_counts_from_prior_month(
     farm: str,
     month_start: dt.date,
@@ -227,7 +234,56 @@ def _seed_opening_counts_from_prior_month(
         return _closing_counts_by_category(farm_totals)
     if month_start == fy_start_month:
         return _closing_counts_by_category(prior_month_totals.get(farm, {}))
-    return {category: 0 for category in CATEGORY_DISPLAY_ORDER}
+    return _empty_counts()
+
+
+def _fixed_rates_from_totals(
+    totals_by_farm: dict[str, Any],
+    farms: list[str],
+    month_label: str | None,
+) -> tuple[dict[str, dict[str, int]], str | None]:
+    fixed: dict[str, dict[str, int]] = {}
+    for farm in farms:
+        farm_totals = totals_by_farm.get(farm, {})
+        fixed[farm] = {
+            category: int(
+                _closing_category_snapshot(farm_totals, category)["avg_value_gbp"]
+            )
+            for category in CATEGORY_DISPLAY_ORDER
+        }
+    return fixed, month_label
+
+
+def _opening_counts_from_heads(
+    farm_heads: dict[str, dict[str, dict[str, int]]],
+    month_iso: str,
+) -> dict[str, int] | None:
+    month_heads = farm_heads.get(month_iso) or {}
+    if not month_heads:
+        return None
+    counts = {
+        category: int((month_heads.get(category) or {}).get("opening", 0))
+        for category in CATEGORY_DISPLAY_ORDER
+        if category in month_heads
+    }
+    return counts or None
+
+
+def _roll_projected_month(
+    *,
+    farm: str,
+    month_iso: str,
+    opening_counts: dict[str, int],
+    forecast_heads: dict[str, dict[str, dict[str, dict[str, int]]]],
+    fixed_rates: dict[str, dict[str, int]],
+) -> tuple[dict[str, Any], dict[str, int]]:
+    heads = forecast_heads.get(farm, {}).get(month_iso, {})
+    deltas = _forecast_deltas_by_category(heads)
+    return _farm_view_from_counts_and_deltas(
+        opening_counts,
+        deltas,
+        fixed_rates.get(farm, {}),
+    )
 
 
 def _merge_farm_views(farm_views: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -306,14 +362,9 @@ def _extract_fixed_rates(
         return empty, None
 
     latest = actual_months[-1]
-    fixed: dict[str, dict[str, int]] = {}
-    for farm in farms:
-        farm_totals = latest.get("totals", {}).get(farm, {})
-        fixed[farm] = {}
-        for category in CATEGORY_DISPLAY_ORDER:
-            snap = _closing_category_snapshot(farm_totals, category)
-            fixed[farm][category] = int(snap["avg_value_gbp"])
-    return fixed, latest.get("month_label")
+    return _fixed_rates_from_totals(
+        latest.get("totals", {}), farms, latest.get("month_label")
+    )
 
 
 def _load_prior_month_valuation_totals(
@@ -352,9 +403,7 @@ def build_stock_valuation_forecasts_report(
     last_actual_month = _subtract_month(current_month)
 
     year_options = available_fiscal_years()
-    year = fiscal_year if fiscal_year is not None else year_options[0]
-    if year not in year_options:
-        year = year_options[0]
+    year = int(fiscal_year) if fiscal_year is not None else year_options[0]
 
     fy_start, fy_end = _fiscal_year_calendar_bounds(year)
     fy_start_month = _month_start(fy_start)
@@ -392,23 +441,60 @@ def build_stock_valuation_forecasts_report(
         farms=selected_farms,
         prior_month=prev_fy_month,
     )
+    last_actual_iso = last_actual_month.isoformat()
+    if last_actual_iso in val_by_month:
+        last_actual_totals = val_by_month[last_actual_iso].get("totals", {})
+    else:
+        last_actual_totals = _load_prior_month_valuation_totals(
+            db,
+            farms=selected_farms,
+            prior_month=last_actual_month,
+        )
 
     fixed_rates, fixed_rates_month = _extract_fixed_rates(
         val_report.get("months", []),
         selected_farms,
         last_actual_month,
     )
+    if not fixed_rates_month and last_actual_totals:
+        fixed_rates, fixed_rates_month = _fixed_rates_from_totals(
+            last_actual_totals,
+            selected_farms,
+            last_actual_month.strftime("%b-%y"),
+        )
 
-    forecast_heads = forecast_heads or build_stock_forecast_heads_index(
-        db,
-        farms=selected_farms,
-        fiscal_year=year,
-        today=reference_today,
-        shared=shared,
-    )
+    if forecast_heads is None:
+        try:
+            forecast_heads = build_stock_forecast_heads_index(
+                db,
+                farms=selected_farms,
+                fiscal_year=year,
+                today=reference_today,
+                shared=shared,
+            )
+        except Exception:
+            logger.exception("Stock forecast heads failed for FY %s", year)
+            forecast_heads = {farm: {} for farm in selected_farms}
+
+    rolling_closing: dict[str, dict[str, int]] = {}
+    seed_totals = last_actual_totals or prior_month_totals
+    for farm in selected_farms:
+        if seed_totals.get(farm):
+            rolling_closing[farm] = _closing_counts_by_category(seed_totals[farm])
+
+    # Next FY must open at the previous FY's projected closing, not last actual.
+    if fy_start_month > current_month:
+        first_iso = fy_start_month.isoformat()
+        for farm in selected_farms:
+            from_heads = _opening_counts_from_heads(
+                forecast_heads.get(farm, {}), first_iso
+            )
+            if from_heads:
+                base = dict(rolling_closing.get(farm) or _empty_counts())
+                base.update(from_heads)
+                rolling_closing[farm] = base
 
     rows: list[dict[str, Any]] = []
-    rolling_closing: dict[str, dict[str, int]] = {}
     for month_start in _iter_month_starts(fy_start_month, fy_end_month):
         month_iso = month_start.isoformat()
         month_label = month_start.strftime("%b-%y")
@@ -416,12 +502,14 @@ def build_stock_valuation_forecasts_report(
         source = "projected" if is_projected else "actual"
 
         farm_totals: dict[str, Any] = {}
+        val_month = val_by_month.get(month_iso) if not is_projected else None
+        if not is_projected and val_month is None:
+            # Keep the month in the table; roll counts if this snapshot is missing.
+            is_projected = True
+            source = "projected"
         if not is_projected:
-            val_month = val_by_month.get(month_iso)
             prev_month = _subtract_month(month_start)
             prev_val_month = val_by_month.get(prev_month.isoformat())
-            if val_month is None:
-                continue
             if prev_val_month is not None:
                 prev_farm_totals = prev_val_month.get("totals", {})
             elif month_start == fy_start_month:
@@ -442,14 +530,14 @@ def build_stock_valuation_forecasts_report(
                         month_start,
                         fy_start_month,
                         val_by_month,
-                        prior_month_totals,
+                        prior_month_totals or last_actual_totals,
                     )
-                heads = forecast_heads[farm].get(month_iso, {})
-                deltas = _forecast_deltas_by_category(heads)
-                view, rolling_closing[farm] = _farm_view_from_counts_and_deltas(
-                    opening_counts,
-                    deltas,
-                    fixed_rates.get(farm, {}),
+                view, rolling_closing[farm] = _roll_projected_month(
+                    farm=farm,
+                    month_iso=month_iso,
+                    opening_counts=opening_counts,
+                    forecast_heads=forecast_heads,
+                    fixed_rates=fixed_rates,
                 )
                 farm_totals[farm] = view
 

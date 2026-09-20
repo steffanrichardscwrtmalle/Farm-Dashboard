@@ -444,6 +444,41 @@ def test_projected_rows_update_when_manual_forecasts_change(db: Session) -> None
     assert july_updated["sales"]["CULL"] == 9
 
 
+def test_next_fy_april_opening_continues_prior_fy_projection(db: Session) -> None:
+    """Next FY must not restart from last actual; April opening = March closing."""
+    _seed_cows_baseline(db, opening=100)
+    db.add(
+        BenchmarkForecastLine(
+            fiscal_year=FISCAL_YEAR,
+            forecast_month=dt.date(2026, 8, 1),
+            metric="cull",
+            farm="CM",
+            quantity=10,
+        )
+    )
+    db.commit()
+
+    fy27 = build_stock_forecasts_report(
+        db,
+        farms=["CM"],
+        stock_group="cows",
+        fiscal_year=2027,
+        today=TODAY,
+    )["rows"]
+    fy28 = build_stock_forecasts_report(
+        db,
+        farms=["CM"],
+        stock_group="cows",
+        fiscal_year=2028,
+        today=TODAY,
+    )["rows"]
+    march = next(r for r in fy27 if r["month_start"] == "2027-03-01")
+    april = next(r for r in fy28 if r["month_start"] == "2027-04-01")
+    assert march["closing"] == 90
+    assert april["opening"] == march["closing"]
+    assert april["opening"] != 100
+
+
 def test_stock_forecasts_page_report_combined(db: Session) -> None:
     from app.services.stock_forecasts import build_stock_forecasts_page_report
 

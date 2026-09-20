@@ -494,9 +494,17 @@
     }
 
     function renderValuationsFromCache(data, farms) {
-      updateValuationsNote(data);
-      renderValuationsTable(data, farms);
-      renderValuationChangeTable(data, farms);
+      try {
+        updateValuationsNote(data);
+      } catch (_) { /* keep tables rendering */ }
+      try {
+        renderValuationsTable(data, farms);
+      } catch (_) { /* change table can still render */ }
+      try {
+        renderValuationChangeTable(data, farms);
+      } catch (_) {
+        hideValuationChangeTable("Failed to render valuation change forecast.");
+      }
     }
 
     function formatGbp(value) {
@@ -518,22 +526,21 @@
 
     function categoryForecastCells(totals, categoryKey, options = {}) {
       const cats = totals.categories || {};
-      const data = cats[categoryKey] || {
-        opening: { count: 0, value_gbp: 0 },
-        closing: { count: 0, value_gbp: 0, avg_value_gbp: 0 },
-      };
+      const data = cats[categoryKey] || {};
+      const opening = data.opening || { count: 0, value_gbp: 0 };
+      const closing = data.closing || { count: 0, value_gbp: 0, avg_value_gbp: 0 };
       const openCount = options.useDairyCows
-        ? (totals.dairy_cows_opening ?? data.opening.count)
-        : data.opening.count;
+        ? (totals.dairy_cows_opening ?? opening.count)
+        : opening.count;
       const closeCount = options.useDairyCows
-        ? (totals.dairy_cows_closing ?? data.closing.count)
-        : data.closing.count;
+        ? (totals.dairy_cows_closing ?? closing.count)
+        : closing.count;
       return `
         <td class="group-start">${formatNum(openCount)}</td>
-        <td>${formatGbp(data.opening.value_gbp)}</td>
+        <td>${formatGbp(opening.value_gbp)}</td>
         <td>${formatNum(closeCount)}</td>
-        <td>${formatGbp(data.closing.avg_value_gbp)}</td>
-        <td>${formatGbp(data.closing.value_gbp)}</td>
+        <td>${formatGbp(closing.avg_value_gbp)}</td>
+        <td>${formatGbp(closing.value_gbp)}</td>
       `;
     }
 
@@ -577,7 +584,6 @@
         empty.style.display = "";
         empty.textContent = "No valuations forecast data for the selected filters.";
         wrap.style.display = "none";
-        hideValuationChangeTable("No valuation change data for the selected filters.");
         return;
       }
 
@@ -734,7 +740,7 @@
       }
 
       empty.style.display = "none";
-      wrap.style.display = "";
+      wrap.style.display = "block";
       renderValuationChangeHead(farms);
 
       body.innerHTML = rows.map(row => {
@@ -1107,9 +1113,6 @@
       if (pageData?.stock_forecasts) {
         applyStockForecastData(pageData.stock_forecasts, farms);
       }
-      if (pageData?.valuation_forecasts) {
-        applyValuationForecastData(pageData.valuation_forecasts, farms);
-      }
       if (window.StockForecastsPageCache && pageData) {
         StockForecastsPageCache.set(
           pageData.stock_forecasts?.selected_fiscal_year,
@@ -1118,6 +1121,17 @@
           pageData
         );
       }
+      const valuation = pageData?.valuation_forecasts;
+      if (valuation?.rows?.length) {
+        applyValuationForecastData(valuation, farms);
+        return true;
+      }
+      return false;
+    }
+
+    async function loadValuationsIfMissing(rendered) {
+      if (rendered) return;
+      await loadValuationsForecast();
     }
 
     async function loadReport({ force = false } = {}) {
@@ -1151,7 +1165,7 @@
           farms
         );
         if (sessionCached) {
-          applyPageData(sessionCached, farms);
+          await loadValuationsIfMissing(applyPageData(sessionCached, farms));
           return;
         }
 
@@ -1166,6 +1180,9 @@
             && pageData.stock_forecasts?.stock_group === stockGroup
           ) {
             applyPageData(pageData, farms);
+            await loadValuationsIfMissing(
+              Boolean(pageData?.valuation_forecasts?.rows?.length)
+            );
             meta.classList.remove("is-loading");
             return;
           }
@@ -1179,7 +1196,7 @@
         const res = await fetch(`/api/benchmarking/stock-forecasts-page?${buildParams()}`);
         if (!res.ok) throw new Error("load failed");
         const pageData = await res.json();
-        applyPageData(pageData, farms);
+        await loadValuationsIfMissing(applyPageData(pageData, farms));
       } catch {
         meta.textContent = "";
         empty.style.display = "";

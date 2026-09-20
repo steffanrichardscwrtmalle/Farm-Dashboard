@@ -210,6 +210,17 @@
       font-size: 0.82rem;
     }
     .grid-toolbar input[type="month"] { width: 9.5rem; }
+    .grid-toolbar button.small {
+      margin: 0;
+      padding: 0.2rem 0.55rem;
+      font-size: 0.82rem;
+    }
+    .grid-toolbar button.is-refreshing {
+      background: #fef3c7;
+      border-color: #f59e0b;
+      color: #92400e;
+      cursor: wait;
+    }
     .grid-panel {
       flex: 1;
       display: flex;
@@ -472,12 +483,6 @@
     .forecast-table tbody tr.row-projected td:first-child { background: #d1fae5; }
     .forecast-table tbody tr.row-superseded td { background: #fef2f2; color: #7f1d1d; }
     .forecast-table tbody tr.row-superseded td:first-child { background: #fee2e2; }
-    .panel-actions {
-      margin-top: 0.4rem;
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
     .save-status { font-size: 0.8rem; color: var(--muted); }
     .save-status.ok { color: #15803d; }
     .save-status.err { color: #b91c1c; }
@@ -817,6 +822,9 @@
             <input type="month" id="month-to">
           </label>
         </span>
+        {% if can_edit %}
+        <button type="button" class="small" id="fill-from-sources-btn">Refresh from data sources</button>
+        {% endif %}
         <label>
           Farm
           <select id="farm-select">
@@ -836,14 +844,9 @@
         <div class="grid-table-wrap">
           <table class="grid-table" id="forecast-grid">
             <thead id="forecast-grid-head"></thead>
-            <tbody id="forecast-grid-body"></tbody>
-          </table>
-        </div>
-        {% if can_edit %}
-        <div class="panel-actions">
-          <button type="button" class="small" id="fill-from-sources-btn">Refresh from data sources</button>
-        </div>
-        {% endif %}
+          <tbody id="forecast-grid-body"></tbody>
+        </table>
+      </div>
       </div>
 
       <div class="summary-wrap" id="profit-summary-wrap">
@@ -2136,24 +2139,36 @@
 
     async function fillFromDataSources() {
       if (!CAN_EDIT) return;
-      if (!(await confirmLeaveTable())) return;
       const btn = document.getElementById('fill-from-sources-btn');
-      btn.disabled = true;
+      if (!btn || btn.disabled || btn.classList.contains('is-refreshing')) return;
+      const idleLabel = 'Refresh from data sources';
+      const setBusy = (busy, label) => {
+        btn.disabled = busy;
+        btn.classList.toggle('is-refreshing', busy);
+        btn.setAttribute('aria-busy', busy ? 'true' : 'false');
+        btn.textContent = busy ? (label || 'Refreshing…') : idleLabel;
+      };
+      setBusy(true, 'Refreshing…');
+      if (!(await confirmLeaveTable())) {
+        setBusy(false);
+        return;
+      }
       setSaveStatus('Refreshing from data sources…');
       try {
         // One prefix per request so milk / feed / valuations never share the 512MB worker.
         const prefixes = [
-          'hp_schedules.',
-          'rents.',
-          'stock_sales_purchases.',
-          'milk_sales.',
-          'feed_purchases.',
-          'stock_valuations.',
+          ['hp_schedules.', 'HP schedules'],
+          ['rents.', 'rents'],
+          ['stock_sales_purchases.', 'stock sales'],
+          ['milk_sales.', 'milk sales'],
+          ['feed_purchases.', 'feed purchases'],
+          ['stock_valuations.', 'stock valuations'],
         ];
         let updated = 0;
         let mappingsFilled = 0;
-        for (const prefix of prefixes) {
-          setSaveStatus(`Refreshing ${prefix.replace(/\.$/, '').replace(/_/g, ' ')}…`);
+        for (const [prefix, label] of prefixes) {
+          setBusy(true, `Refreshing ${label}…`);
+          setSaveStatus(`Refreshing ${label}…`);
           const data = await postFillFromSources([prefix]);
           updated += Number(data.updated || 0);
           mappingsFilled += Number(data.mappings_filled || 0);
@@ -2163,7 +2178,7 @@
       } catch (err) {
         setSaveStatus(err.message, 'err');
       } finally {
-        btn.disabled = false;
+        setBusy(false);
       }
     }
 

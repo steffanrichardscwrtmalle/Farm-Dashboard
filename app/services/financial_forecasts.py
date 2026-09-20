@@ -456,6 +456,12 @@ def ensure_stock_valuation_change_data_source(db: Session) -> bool:
         )
     ).first()
     if mapping is None:
+        mapping = db.scalars(
+            select(FinancialForecastMapping).where(
+                FinancialForecastMapping.heading == "Stock Valuation Change",
+            )
+        ).first()
+    if mapping is None:
         return False
 
     existing = db.scalars(
@@ -700,7 +706,12 @@ def list_financial_forecasts(
     month_from: dt.date | None = None,
     month_to: dt.date | None = None,
 ) -> dict[str, Any]:
+    changed = False
     if ensure_hp_schedule_data_sources(db):
+        changed = True
+    if ensure_stock_valuation_change_data_source(db):
+        changed = True
+    if changed:
         db.commit()
     months = ration_month_range(
         fiscal_year=fiscal_year, month_from=month_from, month_to=month_to

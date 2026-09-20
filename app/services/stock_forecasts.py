@@ -334,6 +334,7 @@ class _ForecastSharedContext:
     fy_start_month: dt.date
     fy_end_month: dt.date
     projected_month_starts: list[dt.date]
+    bridge_month_starts: list[dt.date]
     forecast_index: dict[tuple[str, str, dt.date], int]
     heifers_due_index: dict[tuple[str, dt.date], int]
     today: dt.date
@@ -385,6 +386,12 @@ def _build_forecast_shared_context(
         for month in _iter_month_starts(projected_from, fy_end_month)
         if month >= current_month
     ]
+    bridge_month_starts: list[dt.date] = []
+    if fy_start_month > current_month:
+        bridge_end = _subtract_month(fy_start_month)
+        if current_month <= bridge_end:
+            bridge_month_starts = _iter_month_starts(current_month, bridge_end)
+    forecast_months = bridge_month_starts + projected_month_starts
     needs_heifers = STOCK_GROUP_COWS in groups or STOCK_GROUP_YOUNGSTOCK in groups
     return _ForecastSharedContext(
         current_month=current_month,
@@ -392,15 +399,16 @@ def _build_forecast_shared_context(
         fy_start_month=fy_start_month,
         fy_end_month=fy_end_month,
         projected_month_starts=projected_month_starts,
+        bridge_month_starts=bridge_month_starts,
         forecast_index=_load_forecast_index(
             db,
             farms=farms,
-            month_starts=projected_month_starts,
+            month_starts=forecast_months,
             metrics=_metrics_for_stock_groups(groups),
         ),
         heifers_due_index=(
             _build_heifers_due_index(
-                db, farms=farms, month_starts=projected_month_starts
+                db, farms=farms, month_starts=forecast_months
             )
             if needs_heifers
             else {}
@@ -464,8 +472,8 @@ def _build_stock_forecast_rows(
             if prior_closing is not None:
                 rolling_opening = prior_closing
 
-    for month_start in shared.projected_month_starts:
-        row = _build_projected_row(
+    def _project(month_start: dt.date) -> dict[str, Any]:
+        return _build_projected_row(
             db,
             farms=farms,
             stock_group=group,
@@ -476,6 +484,14 @@ def _build_stock_forecast_rows(
             forecast_index=shared.forecast_index,
             heifers_due_index=shared.heifers_due_index,
         )
+
+    # Next FY starts after last actual: walk this year's remaining projected
+    # months so April opening equals March closing, not last actual.
+    for month_start in shared.bridge_month_starts:
+        rolling_opening = _project(month_start)["closing"]
+
+    for month_start in shared.projected_month_starts:
+        row = _project(month_start)
         projected_rows.append(row)
         rolling_opening = row["closing"]
 
