@@ -603,7 +603,7 @@
       overflow: auto;
       border: 1px solid var(--border);
       border-radius: 6px;
-      max-height: calc(100vh - 12rem);
+      max-height: calc(100vh - 22rem);
     }
     .comparison-table {
       border-collapse: separate;
@@ -684,6 +684,56 @@
     }
     .comparison-table td.neg { color: #b91c1c; }
     .comparison-table td.pos { color: #15803d; }
+    .comparison-totals-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .comparison-totals-table {
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.78rem;
+      width: 100%;
+    }
+    .comparison-totals-table th,
+    .comparison-totals-table td {
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 0.32rem 0.55rem;
+      white-space: nowrap;
+      background: #fff;
+    }
+    .comparison-totals-table thead th {
+      background: #14532d;
+      color: #fff;
+      font-weight: 600;
+      text-align: center;
+    }
+    .comparison-totals-table .metric-col {
+      text-align: left;
+      font-weight: 600;
+      min-width: 14rem;
+      background: #f8fafc;
+    }
+    .comparison-totals-table thead .metric-col {
+      background: #14532d;
+      color: #fff;
+    }
+    .comparison-totals-table .amount-col,
+    .comparison-totals-table .ppl-col,
+    .comparison-totals-table .diff-col {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      min-width: 6.5rem;
+    }
+    .comparison-totals-table .diff-col { background: #f8fafc; font-weight: 600; }
+    .comparison-totals-table thead .diff-col { background: #14532d; color: #fff; }
+    .comparison-totals-table tbody tr.ppl td { color: #475569; font-style: italic; }
+    .comparison-totals-table td.neg,
+    .comparison-totals-table tbody tr.ppl td.neg { color: #b91c1c; }
+    .comparison-totals-table td.pos,
+    .comparison-totals-table tbody tr.ppl td.pos { color: #15803d; }
+    .comparison-page .summary-note { margin-top: 0; }
     .grid-table tbody td.heading-menu-target {
       cursor: context-menu;
     }
@@ -1008,6 +1058,13 @@
           <tbody id="comparison-table-body"></tbody>
         </table>
       </div>
+      <div class="comparison-totals-wrap" id="comparison-totals-wrap">
+        <table class="comparison-totals-table" id="comparison-totals-table">
+          <thead id="comparison-totals-head"></thead>
+          <tbody id="comparison-totals-body"></tbody>
+        </table>
+      </div>
+      <p class="summary-note">Profit, profit ex depreciation and cashflow use the same rules as Monthly Budget. Profit ex depreciation excludes headings whose names contain “Depreciation”. Cashflow excludes “Depreciation” and “Valuation Change”.</p>
       <p class="empty-state" id="comparison-error" hidden>Failed to load comparison data.</p>
     </div>
   </div>
@@ -1499,6 +1556,118 @@
       return Number.isFinite(ppl) ? ppl : null;
     }
 
+    function computeFarmPeriodTotals(farm) {
+      const acc = {
+        sales: 0,
+        valuation: 0,
+        otherPL: 0,
+        otherPLExDep: 0,
+        salesForCash: 0,
+        otherPLForCash: 0,
+        cash: 0,
+        litres: 0,
+      };
+      if (!forecastData) {
+        return { profit: 0, profitExDep: 0, cashflow: 0, litres: 0 };
+      }
+      for (const row of forecastData.grid_rows || []) {
+        const itemType = row.item_type;
+        const band = row.band;
+        const heading = (row.heading || '').toLowerCase();
+        const isDepreciation = heading.includes('depreciation');
+        const isValuationChange = heading.includes('valuation change') || band === 'Valuation Change';
+        for (const month of row.months || []) {
+          const val = Number(month[farm]) || 0;
+          if (itemType === 'Profit & Loss') {
+            if (band === 'Sales') {
+              acc.sales += val;
+              acc.salesForCash += val;
+            } else if (band === 'Valuation Change' || isValuationChange) {
+              acc.valuation += val;
+            } else if (isDepreciation) {
+              acc.otherPL += val;
+            } else {
+              acc.otherPL += val;
+              acc.otherPLExDep += val;
+              acc.otherPLForCash += val;
+            }
+          } else if (itemType === 'Cash') {
+            if (!isDepreciation && !isValuationChange) {
+              acc.cash += val;
+            }
+          } else if (itemType === 'Data' && heading.includes('litre')) {
+            acc.litres += val;
+          }
+        }
+      }
+      return {
+        profit: acc.sales + acc.valuation - acc.otherPL,
+        profitExDep: acc.sales + acc.valuation - acc.otherPLExDep,
+        cashflow: acc.salesForCash - acc.otherPLForCash - acc.cash,
+        litres: acc.litres,
+      };
+    }
+
+    function renderComparisonTotalsTable() {
+      const head = document.getElementById('comparison-totals-head');
+      const body = document.getElementById('comparison-totals-body');
+      if (!head || !body) return;
+      if (!forecastData) {
+        head.innerHTML = '';
+        body.innerHTML = '';
+        return;
+      }
+
+      const cm = computeFarmPeriodTotals('CM');
+      const gad = computeFarmPeriodTotals('GAD');
+      const metrics = [
+        { label: 'Total profit', key: 'profit', ppl: false },
+        { label: 'Total profit PPL', key: 'profit', ppl: true },
+        { label: 'Profit ex depreciation', key: 'profitExDep', ppl: false },
+        { label: 'Profit ex depreciation PPL', key: 'profitExDep', ppl: true },
+        { label: 'Cashflow', key: 'cashflow', ppl: false },
+        { label: 'Cashflow PPL', key: 'cashflow', ppl: true },
+      ];
+
+      const signedClass = (value, base) => {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n === 0) return base;
+        return n < 0 ? `${base} neg` : `${base} pos`;
+      };
+      const moneyCell = (value, extraClass = 'amount-col') => {
+        const n = Number(value) || 0;
+        const cls = n < 0 ? `${extraClass} neg` : extraClass;
+        return `<td class="${cls}">${esc(formatAmountDisplay(n, true))}</td>`;
+      };
+      const pplValueCell = (ppl, extraClass = 'ppl-col') => {
+        let cls = extraClass;
+        if (ppl != null && ppl < 0) cls += ' neg';
+        else if (ppl != null && ppl > 0 && extraClass.includes('diff-col')) cls += ' pos';
+        return `<td class="${cls}">${esc(formatPplValue(ppl))}</td>`;
+      };
+
+      head.innerHTML = `<tr>
+        <th class="metric-col">Farm totals</th>
+        <th class="amount-col">CM</th>
+        <th class="amount-col">GAD</th>
+        <th class="diff-col">Diff (CM − GAD)</th>
+      </tr>`;
+
+      body.innerHTML = metrics.map(metric => {
+        const cmVal = cm[metric.key];
+        const gadVal = gad[metric.key];
+        const rowClass = metric.ppl ? ' class="ppl"' : '';
+        if (metric.ppl) {
+          const pplCM = pplForAmount(cmVal, cm.litres);
+          const pplGAD = pplForAmount(gadVal, gad.litres);
+          const pplDiff = (pplCM != null && pplGAD != null) ? (pplCM - pplGAD) : null;
+          return `<tr${rowClass}><td class="metric-col">${esc(metric.label)}</td>${pplValueCell(pplCM)}${pplValueCell(pplGAD)}${pplValueCell(pplDiff, 'diff-col')}</tr>`;
+        }
+        const diff = cmVal - gadVal;
+        return `<tr${rowClass}><td class="metric-col">${esc(metric.label)}</td>${moneyCell(cmVal)}${moneyCell(gadVal)}${moneyCell(diff, signedClass(diff, 'diff-col'))}</tr>`;
+      }).join('');
+    }
+
     function renderComparisonTable() {
       const head = document.getElementById('comparison-table-head');
       const body = document.getElementById('comparison-table-body');
@@ -1506,6 +1675,7 @@
       if (!forecastData) {
         head.innerHTML = '';
         body.innerHTML = '';
+        renderComparisonTotalsTable();
         return;
       }
 
@@ -1558,6 +1728,7 @@
 
         return `<tr>${labelCells}<td class="ppl-col${cmNeg}">${esc(formatPplValue(pplCM))}</td><td class="ppl-col${gadNeg}">${esc(formatPplValue(pplGAD))}</td><td class="${diffClass}">${esc(formatPplValue(diff))}</td></tr>`;
       }).join('');
+      renderComparisonTotalsTable();
     }
 
     async function loadComparison() {
