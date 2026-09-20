@@ -171,13 +171,12 @@ def test_extract_fixed_rates_uses_latest_actual_month() -> None:
         assert category in fixed["GAD"]
 
 
-def test_monthly_valuation_change_is_inverted_opening_minus_closing() -> None:
+def test_monthly_valuation_change_is_closing_minus_opening() -> None:
     view = {
         "opening_grand_total_gbp": 100_000,
         "closing_grand_total_gbp": 97_500,
     }
-    # Natural change -2,500; P&L import stores inverted (+2,500).
-    assert monthly_valuation_change_gbp(view) == 2_500
+    assert monthly_valuation_change_gbp(view) == -2_500
 
 
 def test_valuation_change_index_per_farm_month() -> None:
@@ -199,9 +198,8 @@ def test_valuation_change_index_per_farm_month() -> None:
         ]
     }
     index = build_stock_valuation_change_index_from_report(report)
-    # Natural CM +5,000 / GAD -2,000 → stored inverted.
-    assert index[("CM", dt.date(2026, 7, 1))] == -5_000
-    assert index[("GAD", dt.date(2026, 7, 1))] == 2_000
+    assert index[("CM", dt.date(2026, 7, 1))] == 5_000
+    assert index[("GAD", dt.date(2026, 7, 1))] == -2_000
     empty_report = {
         "rows": [
             {
@@ -367,7 +365,7 @@ def test_future_fy_opening_uses_stock_forecast_heads_not_last_actual(
     assert april["totals"]["GAD"]["opening_grand_total_gbp"] == 959 * 2100
 
     index = build_stock_valuation_change_index_from_report(report)
-    assert index[("CM", dt.date(2027, 4, 1))] == 2_000
+    assert index[("CM", dt.date(2027, 4, 1))] == -2_000
 
 
 def test_actual_months_still_fill_when_heads_builder_fails(monkeypatch) -> None:

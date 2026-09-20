@@ -848,9 +848,16 @@
 
     function renderFiscalYearOptions(options, selectedValue) {
       const select = document.getElementById("fiscal-year-select");
+      const years = (options || []).filter(year => year != null && String(year) !== "");
+      if (!years.length) {
+        if (selectedValue && [...select.options].some(opt => opt.value === String(selectedValue))) {
+          select.value = String(selectedValue);
+        }
+        return;
+      }
       const current = selectedValue || select.value;
       select.innerHTML = "";
-      (options || []).forEach(year => {
+      years.forEach(year => {
         const opt = document.createElement("option");
         opt.value = String(year);
         opt.textContent = String(year);
@@ -1109,14 +1116,23 @@
       }
     }
 
+    function isCompleteStockForecast(data) {
+      return Boolean(
+        data
+        && Array.isArray(data.rows)
+        && Array.isArray(data.fiscal_year_options)
+        && data.fiscal_year_options.length
+      );
+    }
+
     function applyPageData(pageData, farms) {
-      if (pageData?.stock_forecasts) {
+      if (isCompleteStockForecast(pageData?.stock_forecasts)) {
         applyStockForecastData(pageData.stock_forecasts, farms);
       }
-      if (window.StockForecastsPageCache && pageData) {
+      if (window.StockForecastsPageCache && isCompleteStockForecast(pageData?.stock_forecasts)) {
         StockForecastsPageCache.set(
-          pageData.stock_forecasts?.selected_fiscal_year,
-          pageData.stock_forecasts?.stock_group,
+          pageData.stock_forecasts.selected_fiscal_year,
+          pageData.stock_forecasts.stock_group,
           farms,
           pageData
         );
@@ -1153,7 +1169,11 @@
         return;
       }
 
-      const fiscalYear = document.getElementById("fiscal-year-select").value;
+      const fySelect = document.getElementById("fiscal-year-select");
+      if (!fySelect.value && fySelect.options.length) {
+        fySelect.value = fySelect.options[0].value;
+      }
+      const fiscalYear = fySelect.value;
       const stockGroup = selectedStockGroup();
 
       if (force) {
@@ -1164,7 +1184,7 @@
           stockGroup,
           farms
         );
-        if (sessionCached) {
+        if (isCompleteStockForecast(sessionCached?.stock_forecasts)) {
           await loadValuationsIfMissing(applyPageData(sessionCached, farms));
           return;
         }
@@ -1174,10 +1194,14 @@
           meta.classList.add("is-loading");
           meta.textContent = "Loading stock forecasts…";
           const pageData = await pendingPage;
+          const stillCurrent =
+            document.getElementById("fiscal-year-select").value === String(fiscalYear)
+            && selectedStockGroup() === stockGroup;
           if (
-            pageData
-            && String(pageData.stock_forecasts?.selected_fiscal_year) === String(fiscalYear)
-            && pageData.stock_forecasts?.stock_group === stockGroup
+            stillCurrent
+            && isCompleteStockForecast(pageData?.stock_forecasts)
+            && String(pageData.stock_forecasts.selected_fiscal_year) === String(fiscalYear)
+            && pageData.stock_forecasts.stock_group === stockGroup
           ) {
             applyPageData(pageData, farms);
             await loadValuationsIfMissing(
@@ -1196,6 +1220,10 @@
         const res = await fetch(`/api/benchmarking/stock-forecasts-page?${buildParams()}`);
         if (!res.ok) throw new Error("load failed");
         const pageData = await res.json();
+        const stillCurrent =
+          document.getElementById("fiscal-year-select").value === String(fiscalYear)
+          && selectedStockGroup() === stockGroup;
+        if (!stillCurrent) return;
         await loadValuationsIfMissing(applyPageData(pageData, farms));
       } catch {
         meta.textContent = "";

@@ -940,7 +940,6 @@ def list_xero_pnl(
 
     grid_rows: list[dict[str, Any]] = [milk_row]
     for band_def in bands:
-        invert_valuation = band_def.get("band") == "Valuation Change"
         for heading_info in band_def["headings"]:
             mapping_id = int(heading_info["mapping_id"])
             amounts = buckets.get(mapping_id, {})
@@ -949,13 +948,8 @@ def list_xero_pnl(
             row_total = 0.0
             budget_total = 0.0
             for key in month_keys:
-                value = float(amounts.get(key, 0.0))
-                budget_value = float(budgets.get(key, 0.0))
-                # Xero actuals: invert Valuation Change on load (budget is inverted on autofill import).
-                if invert_valuation:
-                    value *= -1
-                value = round(value, 2)
-                budget_value = round(budget_value, 2)
+                value = round(float(amounts.get(key, 0.0)), 2)
+                budget_value = round(float(budgets.get(key, 0.0)), 2)
                 month_rows.append(
                     {
                         "month": key,

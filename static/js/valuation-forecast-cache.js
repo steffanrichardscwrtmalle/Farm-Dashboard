@@ -3,7 +3,7 @@
  * Uses a single combined API to avoid parallel heavy requests (OOM on small instances).
  */
 (function () {
-  const PAGE_STORAGE_KEY = "farm-dashboard:stock-forecasts-page";
+  const PAGE_STORAGE_KEY = "farm-dashboard:stock-forecasts-page-v2";
   const FY_KEY = "farm-dashboard:valuation-forecast-fy";
   const DEFAULT_FARMS = ["CM", "GAD"];
   const DEFAULT_STOCK_GROUP = "cows";
@@ -62,7 +62,7 @@
   }
 
   function setPageCache(fiscalYear, stockGroup, farmList, pageData) {
-    if (!pageData) return;
+    if (!isCompletePageData(pageData)) return;
     const stock = pageData.stock_forecasts;
     const year = fiscalYear != null ? fiscalYear : stock?.selected_fiscal_year;
     if (year == null) return;
@@ -73,10 +73,21 @@
     writeJson(PAGE_STORAGE_KEY, store);
   }
 
+  function isCompletePageData(pageData) {
+    const stock = pageData?.stock_forecasts;
+    return Boolean(
+      stock
+      && Array.isArray(stock.rows)
+      && Array.isArray(stock.fiscal_year_options)
+      && stock.fiscal_year_options.length
+    );
+  }
+
   function getPageCache(fiscalYear, stockGroup, farmList) {
     const key = pageCacheKey(fiscalYear, stockGroup, farmList);
     const store = readJson(PAGE_STORAGE_KEY) || {};
-    return store[key] || null;
+    const pageData = store[key] || null;
+    return isCompletePageData(pageData) ? pageData : null;
   }
 
   function clearPageCache() {
@@ -155,11 +166,9 @@
 
     set(fiscalYear, data) {
       if (!data) return;
-      const page = getPageCache(fiscalYear, DEFAULT_STOCK_GROUP, farms()) || {};
+      const page = getPageCache(fiscalYear, DEFAULT_STOCK_GROUP, farms());
+      if (!page) return;
       page.valuation_forecasts = data;
-      if (!page.stock_forecasts) {
-        page.stock_forecasts = { selected_fiscal_year: fiscalYear };
-      }
       setPageCache(fiscalYear, DEFAULT_STOCK_GROUP, farms(), page);
     },
 
@@ -184,8 +193,12 @@
     },
 
     set(fiscalYear, stockGroup, farmList, data) {
-      if (!data) return;
-      const page = getPageCache(fiscalYear, stockGroup, farmList) || {};
+      if (!data || !Array.isArray(data.rows) || !Array.isArray(data.fiscal_year_options)) {
+        return;
+      }
+      const page = getPageCache(fiscalYear, stockGroup, farmList) || {
+        stock_forecasts: data,
+      };
       page.stock_forecasts = data;
       setPageCache(fiscalYear, stockGroup, farmList, page);
     },

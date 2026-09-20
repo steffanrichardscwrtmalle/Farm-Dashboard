@@ -786,7 +786,6 @@
         });
       });
 
-      // Valuation Change amounts are stored inverted (× -1 on import), then added here.
       const profit = sales.map((s, i) => s + valuation[i] - costs[i]);
       const profitExDep = sales.map((s, i) => s + valuation[i] - costsExDep[i]);
       const profitExDepExVal = sales.map((s, i) => s - costsExDep[i]);
@@ -927,7 +926,6 @@
         }).join("");
         const totalNeg = isCurrency && total < 0 ? " neg" : "";
         const ppl = isLitres ? "—" : formatPpl(total, litres);
-        // Valuation Change is stored inverted then added to profit, so higher (less negative) is better.
         const higherIsBetter = band === "Sales" || band === "Valuation Change" || isLitres;
         return `${bandHeader}<tr class="${dataClass}${zeroClass}">${labelCells}${monthCells}<td class="num col-summary col-total${totalNeg}">${formatAmount(total, isCurrency)}</td><td class="num col-summary col-ppl">${esc(ppl)}</td>${budgetColumnsHtml({
           total,
