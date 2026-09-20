@@ -313,3 +313,76 @@ def test_payment_chart_sums_from_fiscal_year_start(db: Session) -> None:
     )
     assert [m["month_label"] for m in clipped["months"]] == ["May-26"]
     assert clipped["totals"]["total"] == 1000.0
+
+
+def test_any_year_spans_custom_month_range(db: Session) -> None:
+    agreement = create_rental_agreement(db, business="CM", farm_name="Span Farm", farm_size=10)
+    save_rental_payments(
+        db,
+        fiscal_year=None,
+        month_from=dt.date(2026, 4, 1),
+        month_to=dt.date(2028, 3, 1),
+        rows=[
+            {"agreement_id": agreement["id"], "payment_month": "2026-04-01", "amount": 100},
+            {"agreement_id": agreement["id"], "payment_month": "2027-04-01", "amount": 200},
+        ],
+    )
+    report = build_rental_agreements_report(
+        db,
+        fiscal_year=None,
+        month_from=dt.date(2026, 4, 1),
+        month_to=dt.date(2028, 3, 1),
+    )
+    assert report["any_year"] is True
+    assert report["months"][0] == "2026-04-01"
+    assert report["months"][-1] == "2028-03-01"
+    row = report["agreements"][0]
+    assert row["entered_amounts"]["2026-04-01"] == 100
+    assert row["entered_amounts"]["2027-04-01"] == 200
+    assert row["amounts"]["2026-04-01"] == 100
+    assert row["amounts"]["2027-04-01"] == 200
+
+
+def test_blank_month_uses_same_month_last_year(db: Session) -> None:
+    agreement = create_rental_agreement(db, business="CM", farm_name="Carry Farm", farm_size=10)
+    save_rental_payments(
+        db,
+        fiscal_year=2027,
+        rows=[
+            {"agreement_id": agreement["id"], "payment_month": "2026-04-01", "amount": 1000},
+        ],
+    )
+    next_year = build_rental_agreements_report(db, fiscal_year=2028)
+    row = next_year["agreements"][0]
+    assert row["entered_amounts"]["2027-04-01"] is None
+    assert row["amounts"]["2027-04-01"] == 1000
+    assert row["amounts"]["2027-05-01"] is None
+    assert row["total"] == 1000
+    assert next_year["business_totals"]["CM"]["amounts"]["2027-04-01"] == 1000
+
+    index = build_rental_payment_index(db, fiscal_year=2028)
+    assert index[("CM", dt.date(2027, 4, 1))] == 1000
+
+
+def test_explicit_zero_does_not_carry_forward(db: Session) -> None:
+    agreement = create_rental_agreement(db, business="CM", farm_name="Stop Farm", farm_size=10)
+    save_rental_payments(
+        db,
+        fiscal_year=None,
+        month_from=dt.date(2026, 4, 1),
+        month_to=dt.date(2028, 3, 1),
+        rows=[
+            {"agreement_id": agreement["id"], "payment_month": "2026-04-01", "amount": 1000},
+            {"agreement_id": agreement["id"], "payment_month": "2027-04-01", "amount": 0},
+        ],
+    )
+    report = build_rental_agreements_report(
+        db,
+        fiscal_year=None,
+        month_from=dt.date(2026, 4, 1),
+        month_to=dt.date(2028, 3, 1),
+    )
+    row = report["agreements"][0]
+    assert row["amounts"]["2026-04-01"] == 1000
+    assert row["entered_amounts"]["2027-04-01"] == 0
+    assert row["amounts"]["2027-04-01"] == 0

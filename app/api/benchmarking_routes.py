@@ -1058,19 +1058,27 @@ class RentalPaymentRowBody(BaseModel):
 
 
 class SaveRentalPaymentsBody(BaseModel):
-    fiscal_year: int
+    fiscal_year: int | str
+    month_from: dt.date | None = None
+    month_to: dt.date | None = None
     rows: list[RentalPaymentRowBody] = Field(default_factory=list)
 
 
 @router.get("/rental-agreements")
 def api_rental_agreements_report(
-    fiscal_year: int | None = Query(None),
+    fiscal_year: str | None = Query(None),
+    month_from: dt.date | None = Query(None),
+    month_to: dt.date | None = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_BENCHMARKING)),
 ):
-    fy = fiscal_year if fiscal_year is not None else available_fiscal_years()[0]
+    year, range_from, range_to = _resolve_ration_period(
+        fiscal_year, month_from, month_to
+    )
     try:
-        return build_rental_agreements_report(db, fiscal_year=fy)
+        return build_rental_agreements_report(
+            db, fiscal_year=year, month_from=range_from, month_to=range_to
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1122,9 +1130,14 @@ def api_save_rental_payments(
     user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
 ):
     try:
+        year, range_from, range_to = _resolve_ration_period(
+            body.fiscal_year, body.month_from, body.month_to
+        )
         return save_rental_payments(
             db,
-            fiscal_year=body.fiscal_year,
+            fiscal_year=year,
+            month_from=range_from,
+            month_to=range_to,
             rows=[row.model_dump() for row in body.rows],
             user_id=user.id,
         )

@@ -31,6 +31,8 @@
       font-size: 0.82rem;
     }
     .benchmark-toolbar select { width: 5.5rem; }
+    .benchmark-toolbar #fiscal-year-select { width: 7rem; }
+    .benchmark-toolbar input[type="month"] { width: 9.5rem; }
     .add-land-form {
       display: flex;
       flex-wrap: wrap;
@@ -253,7 +255,8 @@
       background: #fff;
       outline: none;
     }
-    .grid-table input.meta-input { text-align: left; }
+    .grid-table input[data-carried="1"] { color: var(--muted, #666); }
+    .grid-table td.month-col.carried { color: var(--muted, #666); }
     .grid-table input.size-input { text-align: right; }
     .grid-table .row-btn {
       margin: 0;
@@ -392,11 +395,20 @@
   <div class="benchmark-toolbar">
     <label>Fiscal year
       <select id="fiscal-year-select">
+        <option value="any">Any</option>
         {% for fy in fiscal_year_options %}
         <option value="{{ fy }}"{% if loop.first %} selected{% endif %}>{{ fy }}</option>
         {% endfor %}
       </select>
     </label>
+    <span id="date-range-controls" hidden>
+      <label>From
+        <input type="month" id="month-from">
+      </label>
+      <label>To
+        <input type="month" id="month-to">
+      </label>
+    </span>
     <span class="save-status" id="save-status"></span>
   </div>
 
@@ -433,7 +445,7 @@
     <div class="grid-panel-header">
       <h3>Rental schedule</h3>
     </div>
-    <p class="muted" style="margin:0 0 0.45rem">Press <strong>Edit</strong> on a row to change it. Only one row can be edited at a time. Changes autosave. Drag across month cells to see Count, Sum and Average.</p>
+    <p class="muted" style="margin:0 0 0.45rem">Press <strong>Edit</strong> on a row to change it. Only one row can be edited at a time. Changes autosave. Blank cells use the same month last year. Drag across month cells to see Count, Sum and Average.</p>
     <div class="grid-table-wrap">
       <table class="grid-table" id="rents-grid">
         <thead id="rents-grid-head"></thead>
@@ -573,6 +585,92 @@
     return Number.isFinite(num) ? roundMoney(num) : null;
   }
 
+  function isoToMonthInput(iso) {
+    return iso ? String(iso).slice(0, 7) : '';
+  }
+
+  function monthInputToIso(value) {
+    return value ? `${value}-01` : '';
+  }
+
+  function previousYearMonth(iso) {
+    const [year, month] = String(iso).split('-').map(Number);
+    if (!year || !month) return '';
+    return `${year - 1}-${String(month).padStart(2, '0')}-01`;
+  }
+
+  function isAnyYearSelected() {
+    return document.getElementById('fiscal-year-select').value === 'any';
+  }
+
+  function periodQueryParams() {
+    const params = new URLSearchParams();
+    const fy = document.getElementById('fiscal-year-select').value || 'any';
+    params.set('fiscal_year', fy);
+    if (fy === 'any') {
+      const from = monthInputToIso(document.getElementById('month-from').value);
+      const to = monthInputToIso(document.getElementById('month-to').value);
+      if (from) params.set('month_from', from);
+      if (to) params.set('month_to', to);
+    }
+    return params;
+  }
+
+  function periodSaveBody() {
+    const fy = document.getElementById('fiscal-year-select').value;
+    const body = { fiscal_year: fy === 'any' ? 'any' : Number(fy) };
+    if (fy === 'any') {
+      body.month_from = monthInputToIso(document.getElementById('month-from').value) || null;
+      body.month_to = monthInputToIso(document.getElementById('month-to').value) || null;
+    }
+    return body;
+  }
+
+  function syncDateRangeControls(data) {
+    const wrap = document.getElementById('date-range-controls');
+    const anyYear = isAnyYearSelected() || Boolean(data?.any_year);
+    wrap.hidden = !anyYear;
+    if (!anyYear) return;
+    if (data?.month_from) document.getElementById('month-from').value = isoToMonthInput(data.month_from);
+    if (data?.month_to) document.getElementById('month-to').value = isoToMonthInput(data.month_to);
+  }
+
+  function populateFiscalYears(options, selected, anyYear) {
+    const select = document.getElementById('fiscal-year-select');
+    const selectedValue = anyYear || selected == null ? 'any' : String(selected);
+    select.innerHTML = '<option value="any">Any</option>' +
+      (options || []).map(fy => `<option value="${fy}">${fy}</option>`).join('');
+    select.value = selectedValue;
+  }
+
+  function monthDisplay(row, month) {
+    const entered = row.entered_amounts ? row.entered_amounts[month] : row.amounts?.[month];
+    const effective = row.amounts?.[month];
+    const carried = entered == null && effective != null;
+    return {
+      value: entered != null ? entered : effective,
+      carried,
+    };
+  }
+
+  function previousYearAmount(tr, month, agreement) {
+    let cursor = previousYearMonth(month);
+    const seen = new Set();
+    while (cursor && !seen.has(cursor)) {
+      seen.add(cursor);
+      const input = tr.querySelector(`.amount-input[data-month="${cursor}"]`);
+      if (input && input.dataset.carried !== '1') {
+        const parsed = parseAmount(input.value);
+        if (parsed != null) return parsed;
+      } else if (!input) {
+        const stored = agreement?.entered_amounts?.[cursor];
+        if (stored != null) return stored;
+      }
+      cursor = previousYearMonth(cursor);
+    }
+    return null;
+  }
+
   function perAcre(total, farmSize) {
     if (total == null || farmSize == null || !(farmSize > 0)) return null;
     return Math.round((total / farmSize) * 100) / 100;
@@ -623,14 +721,17 @@
       </tr>`;
   }
 
-  function amountCell(agreementId, month, value) {
-    if (!isRowEditing(agreementId)) {
-      return `<td class="month-col">${esc(formatMoney(value))}</td>`;
+  function amountCell(row, month) {
+    const display = monthDisplay(row, month);
+    const carriedClass = display.carried ? ' carried' : '';
+    if (!isRowEditing(row.id)) {
+      return `<td class="month-col${carriedClass}">${esc(formatMoney(display.value))}</td>`;
     }
-    return `<td class="month-col">
+    const carriedAttr = display.carried ? ' data-carried="1"' : '';
+    return `<td class="month-col${carriedClass}">
       <input class="amount-input" type="text" inputmode="decimal"
-        data-agreement-id="${agreementId}" data-month="${esc(month)}"
-        value="${esc(formatAmountInput(value))}" aria-label="Rent amount">
+        data-agreement-id="${row.id}" data-month="${esc(month)}"${carriedAttr}
+        value="${esc(formatAmountInput(display.value))}" aria-label="Rent amount">
     </td>`;
   }
 
@@ -702,7 +803,7 @@
       return;
     }
     body.innerHTML = reportData.agreements.map(row => {
-      const monthCells = months.map(month => amountCell(row.id, month, row.amounts?.[month])).join('');
+      const monthCells = months.map(month => amountCell(row, month)).join('');
       const editingClass = isRowEditing(row.id) ? ' class="row-editing"' : '';
       return `<tr data-agreement-id="${row.id}"${editingClass}>
         ${metaInputs(row)}
@@ -742,18 +843,16 @@
   async function loadReport() {
     document.getElementById('load-error').hidden = true;
     paymentFiltersReady = false;
-    const fy = document.getElementById('fiscal-year-select').value;
     try {
-      const res = await fetch(`/api/benchmarking/rental-agreements?fiscal_year=${encodeURIComponent(fy)}`);
+      const res = await fetch(`/api/benchmarking/rental-agreements?${periodQueryParams()}`);
       if (!res.ok) throw new Error('load failed');
       reportData = await res.json();
-      const select = document.getElementById('fiscal-year-select');
-      const options = reportData.fiscal_year_options || [];
-      if (options.length) {
-        select.innerHTML = options.map(fyOpt =>
-          `<option value="${fyOpt}"${Number(fyOpt) === Number(reportData.fiscal_year) ? ' selected' : ''}>${fyOpt}</option>`
-        ).join('');
-      }
+      populateFiscalYears(
+        reportData.fiscal_year_options || [],
+        reportData.fiscal_year,
+        reportData.any_year
+      );
+      syncDateRangeControls(reportData);
       if (
         editingId != null
         && !(reportData.agreements || []).some(row => Number(row.id) === Number(editingId))
@@ -773,7 +872,7 @@
     )].map(input => ({
       agreement_id: Number(input.dataset.agreementId),
       payment_month: input.dataset.month,
-      amount: parseAmount(input.value),
+      amount: input.dataset.carried === '1' ? null : parseAmount(input.value),
     }));
   }
 
@@ -801,10 +900,23 @@
       let hasAmount = false;
       months.forEach(month => {
         const input = tr.querySelector(`.amount-input[data-month="${month}"]`);
-        const amount = input
-          ? parseAmount(input.value)
-          : (agreement?.amounts?.[month] ?? null);
-        if (agreement) agreement.amounts[month] = amount;
+        let amount;
+        if (input) {
+          amount = input.dataset.carried === '1' || parseAmount(input.value) == null
+            ? previousYearAmount(tr, month, agreement)
+            : parseAmount(input.value);
+        } else {
+          amount = agreement?.amounts?.[month] ?? null;
+        }
+        if (agreement) {
+          agreement.entered_amounts = agreement.entered_amounts || {};
+          if (input && input.dataset.carried !== '1') {
+            agreement.entered_amounts[month] = parseAmount(input.value);
+          } else if (input) {
+            agreement.entered_amounts[month] = null;
+          }
+          agreement.amounts[month] = amount;
+        }
         if (amount != null) {
           total += amount;
           hasAmount = true;
@@ -868,7 +980,7 @@
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fiscal_year: Number(document.getElementById('fiscal-year-select').value),
+          ...periodSaveBody(),
           rows: collectPaymentRows(),
         }),
       });
@@ -1055,8 +1167,19 @@
   }
 
   document.getElementById('fiscal-year-select').addEventListener('change', async () => {
+    document.getElementById('date-range-controls').hidden = !isAnyYearSelected();
     if (editingId != null) await stopEditing();
     setSaveStatus('');
+    await loadReport();
+  });
+  document.getElementById('month-from').addEventListener('change', async () => {
+    if (!isAnyYearSelected()) return;
+    if (editingId != null) await stopEditing();
+    await loadReport();
+  });
+  document.getElementById('month-to').addEventListener('change', async () => {
+    if (!isAnyYearSelected()) return;
+    if (editingId != null) await stopEditing();
     await loadReport();
   });
 
@@ -1065,6 +1188,12 @@
   document.getElementById('rents-grid-body').addEventListener('input', (event) => {
     if (!event.target.matches('.amount-input')) return;
     if (!isRowEditing(event.target.dataset.agreementId)) return;
+    if (event.target.value.trim() === '') {
+      event.target.dataset.carried = '1';
+    } else {
+      delete event.target.dataset.carried;
+    }
+    event.target.closest('td')?.classList.toggle('carried', event.target.dataset.carried === '1');
     scheduleAutosave();
   });
 
@@ -1079,8 +1208,22 @@
   document.getElementById('rents-grid-body').addEventListener('focusout', (event) => {
     if (!event.target.matches('.amount-input')) return;
     if (!isRowEditing(event.target.dataset.agreementId)) return;
-    const amount = parseAmount(event.target.value);
-    event.target.value = formatAmountInput(amount);
+    if (event.target.value.trim() === '' || event.target.dataset.carried === '1') {
+      const tr = event.target.closest('tr');
+      const agreementId = Number(event.target.dataset.agreementId);
+      const agreement = (reportData?.agreements || []).find(row => row.id === agreementId);
+      const prev = previousYearAmount(tr, event.target.dataset.month, agreement);
+      if (prev != null) {
+        event.target.value = formatAmountInput(prev);
+        event.target.dataset.carried = '1';
+        event.target.closest('td')?.classList.add('carried');
+      } else {
+        event.target.value = '';
+      }
+    } else {
+      const amount = parseAmount(event.target.value);
+      event.target.value = formatAmountInput(amount);
+    }
     refreshComputedFromDom();
   });
 

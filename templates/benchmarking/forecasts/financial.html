@@ -348,6 +348,16 @@
     .grid-table tbody tr:nth-child(even) td.month-col { background: #fafbfc; }
     .grid-table tbody td.row-projected { background: #ecfdf5; }
     .grid-table tbody td.row-superseded { background: #fef2f2; color: #7f1d1d; }
+    .grid-table tbody tr.auto-row td.col-heading { background: #eef2ff; color: #3730a3; }
+    .grid-table tbody tr:nth-child(even).auto-row td.col-heading { background: #e7ecff; }
+    .grid-table td.auto-cell,
+    .grid-table tbody td.row-projected.auto-cell,
+    .grid-table tbody td.row-superseded.auto-cell { background: #eef2ff; color: #3730a3; }
+    .grid-table tbody tr:nth-child(even) td.auto-cell { background: #e7ecff; }
+    .grid-table input.auto-input {
+      color: #3730a3;
+      cursor: default;
+    }
     .grid-table input {
       width: 100%;
       min-width: 0;
@@ -366,12 +376,6 @@
     }
     .grid-table input:disabled {
       color: inherit;
-    }
-    .grid-table td.auto-cell { background: #eef2ff; }
-    .grid-table tbody tr:nth-child(even) td.auto-cell { background: #e7ecff; }
-    .grid-table input.auto-input {
-      color: #3730a3;
-      cursor: default;
     }
     .band-tabs, .heading-tabs {
       display: flex;
@@ -1246,6 +1250,14 @@
       return '';
     }
 
+    function rowIsAuto(row) {
+      if (row?.auto) return true;
+      const heading = (row?.heading || '').trim().toLowerCase();
+      return heading === 'budget capital repayment hp'
+        || heading === 'budget capital repayment'
+        || heading === 'hp interest';
+    }
+
     function formatAmountDisplay(value, isCurrency = true) {
       if (value == null || value === '') return '';
       const n = Number(value);
@@ -1584,7 +1596,7 @@
           `<td class="sticky-col col-heading">${esc(row.heading)}</td>`,
         ].join('');
 
-        const isAuto = !!row.auto;
+        const isAuto = rowIsAuto(row);
         const isCurrency = row.item_type !== 'Data';
         let rowTotal = 0;
         const monthCells = row.months.map((month, colIdx) => {
@@ -1615,7 +1627,7 @@
         const totalNeg = rowTotal < 0 ? ' neg' : '';
         const pplNeg = (!isLitresRow && litresTotal && ((rowTotal * 100) / litresTotal) < 0) ? ' neg' : '';
 
-        return `<tr data-mapping-id="${row.mapping_id}" data-row-idx="${rowIdx}">${labelCells}${monthCells}<td class="total-col${totalNeg}">${esc(totalDisplay)}</td><td class="ppl-col${pplNeg}">${esc(pplDisplay)}</td></tr>`;
+        return `<tr class="${isAuto ? 'auto-row' : ''}" data-mapping-id="${row.mapping_id}" data-row-idx="${rowIdx}">${labelCells}${monthCells}<td class="total-col${totalNeg}">${esc(totalDisplay)}</td><td class="ppl-col${pplNeg}">${esc(pplDisplay)}</td></tr>`;
       }).join('');
 
       savedSnapshot = collectForecastRows().map(r => JSON.stringify(r)).join('|');

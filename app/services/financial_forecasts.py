@@ -159,6 +159,8 @@ def seed_financial_forecasts_if_empty(db: Session) -> int:
             changed = True
         if ensure_stock_valuation_change_data_source(db):
             changed = True
+        if ensure_hp_schedule_data_sources(db):
+            changed = True
         if changed:
             db.commit()
         return 0
@@ -183,6 +185,7 @@ def seed_financial_forecasts_if_empty(db: Session) -> int:
     ensure_milk_sales_data_source(db)
     ensure_milk_deductions_data_source(db)
     ensure_stock_valuation_change_data_source(db)
+    ensure_hp_schedule_data_sources(db)
     db.commit()
     return added
 
@@ -190,6 +193,8 @@ def seed_financial_forecasts_if_empty(db: Session) -> int:
 MILK_SALES_SOURCE_KEY = "milk_sales.monthly_revenue"
 MILK_DEDUCTIONS_SOURCE_KEY = "milk_sales.monthly_deductions"
 STOCK_VALUATION_CHANGE_SOURCE_KEY = "stock_valuations.monthly_change"
+HP_CAPITAL_SOURCE_KEY = "hp_schedules.monthly_capital"
+HP_INTEREST_SOURCE_KEY = "hp_schedules.monthly_interest"
 
 
 def list_financial_options(db: Session) -> dict[str, Any]:
@@ -466,6 +471,55 @@ def ensure_stock_valuation_change_data_source(db: Session) -> bool:
     return True
 
 
+def _ensure_empty_mapping_source(
+    db: Session,
+    *,
+    heading: str,
+    band: str,
+    group: str,
+    source_key: str,
+) -> bool:
+    mapping = db.scalars(
+        select(FinancialForecastMapping).where(
+            FinancialForecastMapping.heading == heading,
+            FinancialForecastMapping.band == band,
+            FinancialForecastMapping.group == group,
+        )
+    ).first()
+    if mapping is None:
+        return False
+
+    existing = db.scalars(
+        select(FinancialForecastMappingSource).where(
+            FinancialForecastMappingSource.mapping_id == mapping.id
+        )
+    ).all()
+    if existing:
+        return False
+
+    _set_mapping_sources(db, mapping.id, [source_key])
+    return True
+
+
+def ensure_hp_schedule_data_sources(db: Session) -> bool:
+    """Wire HP capital and interest headings to the HP Schedules page."""
+    capital = _ensure_empty_mapping_source(
+        db,
+        heading="Budget Capital Repayment HP",
+        band="Current Liabilities",
+        group="HP",
+        source_key=HP_CAPITAL_SOURCE_KEY,
+    )
+    interest = _ensure_empty_mapping_source(
+        db,
+        heading="HP Interest",
+        band="Overhead Expenses",
+        group="Finance Costs",
+        source_key=HP_INTEREST_SOURCE_KEY,
+    )
+    return capital or interest
+
+
 def list_financial_mappings(db: Session) -> list[dict[str, Any]]:
     mappings = db.scalars(
         select(FinancialForecastMapping).order_by(
@@ -646,6 +700,8 @@ def list_financial_forecasts(
     month_from: dt.date | None = None,
     month_to: dt.date | None = None,
 ) -> dict[str, Any]:
+    if ensure_hp_schedule_data_sources(db):
+        db.commit()
     months = ration_month_range(
         fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
     )

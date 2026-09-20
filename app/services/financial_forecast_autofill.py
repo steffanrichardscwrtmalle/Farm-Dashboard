@@ -15,6 +15,7 @@ from app.services.benchmarking import ration_month_range
 from app.services.events_common import _fiscal_year_from_date
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
 from app.services.financial_forecasts import (
+    ensure_hp_schedule_data_sources,
     ensure_milk_deductions_data_source,
     ensure_milk_sales_data_source,
     ensure_stock_valuation_change_data_source,
@@ -383,6 +384,7 @@ def fill_financial_forecasts_from_data_sources(
     ensure_milk_sales_data_source(db)
     ensure_milk_deductions_data_source(db)
     ensure_stock_valuation_change_data_source(db)
+    ensure_hp_schedule_data_sources(db)
     mappings = [row for row in list_financial_mappings(db) if row.get("data_sources")]
     if source_prefixes:
         mappings = [

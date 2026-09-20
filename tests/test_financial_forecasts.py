@@ -50,6 +50,23 @@ def test_seed_creates_default_mappings(db: Session) -> None:
     assert stock_valuation_change["data_sources"] == [
         "stock_valuations.monthly_change"
     ]
+    hp_capital = next(
+        m for m in mappings if m["heading"] == "Budget Capital Repayment HP"
+    )
+    assert hp_capital["data_sources"] == ["hp_schedules.monthly_capital"]
+    hp_interest = next(m for m in mappings if m["heading"] == "HP Interest")
+    assert hp_interest["data_sources"] == ["hp_schedules.monthly_interest"]
+
+
+def test_hp_schedule_headings_are_auto_in_monthly_budget(db: Session) -> None:
+    result = list_financial_forecasts(db, fiscal_year=2026)
+    rows = {
+        row["heading"]: row
+        for row in result["grid_rows"]
+        if row["heading"] in {"Budget Capital Repayment HP", "HP Interest"}
+    }
+    assert rows["Budget Capital Repayment HP"]["auto"] is True
+    assert rows["HP Interest"]["auto"] is True
 
 
 def test_ensure_milk_sales_does_not_overwrite_custom_sources(db: Session) -> None:

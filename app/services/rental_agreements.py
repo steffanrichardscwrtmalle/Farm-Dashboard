@@ -11,7 +11,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import HERD_FARM_OPTIONS, RentalAgreement, RentalAgreementPayment
-from app.services.benchmarking import available_fiscal_years, fiscal_year_months
+from app.services.benchmarking import (
+    ration_month_range,
+    ration_period_meta,
+)
 from app.services.events_common import (
     _fiscal_year_calendar_bounds,
     _fiscal_year_from_date,
@@ -77,6 +80,25 @@ def _month_start(value: dt.date) -> dt.date:
     return value.replace(day=1)
 
 
+def _prior_year_month(month: dt.date) -> dt.date:
+    return dt.date(month.year - 1, month.month, 1)
+
+
+def _amount_from_prior_years(
+    stored: dict[dt.date, float], month: dt.date
+) -> float | None:
+    if not stored:
+        return None
+    earliest = min(stored)
+    cursor = _prior_year_month(month)
+    while cursor >= earliest:
+        value = stored.get(cursor)
+        if value is not None:
+            return value
+        cursor = _prior_year_month(cursor)
+    return None
+
+
 def _serialize_agreement(
     agreement: RentalAgreement,
     *,
@@ -84,10 +106,15 @@ def _serialize_agreement(
     amounts_by_month: dict[dt.date, float],
 ) -> dict[str, Any]:
     amounts: dict[str, float | None] = {}
+    entered: dict[str, float | None] = {}
     total = 0.0
     has_amount = False
     for month in months:
-        value = amounts_by_month.get(month)
+        stored = amounts_by_month.get(month)
+        entered[month.isoformat()] = stored
+        value = (
+            stored if stored is not None else _amount_from_prior_years(amounts_by_month, month)
+        )
         amounts[month.isoformat()] = value
         if value is not None:
             total += value
@@ -101,6 +128,7 @@ def _serialize_agreement(
         "payment_day": int(agreement.payment_day or 1),
         "sort_order": agreement.sort_order,
         "amounts": amounts,
+        "entered_amounts": entered,
         "total": year_total,
         "per_acre": _per_acre(year_total, agreement.farm_size),
     }
@@ -282,12 +310,18 @@ def deactivate_rental_agreement(db: Session, *, agreement_id: int) -> None:
 def save_rental_payments(
     db: Session,
     *,
-    fiscal_year: int,
+    fiscal_year: int | None,
     rows: list[dict[str, Any]],
     user_id: int | None = None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[str, int]:
-    """Upsert monthly rent amounts for the given fiscal year."""
-    months = set(fiscal_year_months(fiscal_year))
+    """Upsert monthly rent amounts for the visible fiscal year or date range."""
+    months = set(
+        ration_month_range(
+            fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+        )
+    )
     updated = 0
     cleared = 0
 
@@ -302,8 +336,13 @@ def save_rental_payments(
             payment_month = dt.date.fromisoformat(payment_month)
         payment_month = _month_start(payment_month)
         if payment_month not in months:
+            label = (
+                f"fiscal year {fiscal_year}"
+                if fiscal_year is not None
+                else "the selected date range"
+            )
             raise ValueError(
-                f"Payment month {payment_month.isoformat()} is outside fiscal year {fiscal_year}"
+                f"Payment month {payment_month.isoformat()} is outside {label}"
             )
 
         raw_amount = row.get("amount")
@@ -346,10 +385,13 @@ def save_rental_payments(
 def build_rental_agreements_report(
     db: Session,
     *,
-    fiscal_year: int,
+    fiscal_year: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[str, Any]:
-    months = fiscal_year_months(fiscal_year)
-    month_set = set(months)
+    months = ration_month_range(
+        fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+    )
     agreements = db.scalars(
         select(RentalAgreement)
         .where(RentalAgreement.is_active.is_(True))
@@ -365,17 +407,18 @@ def build_rental_agreements_report(
         agreement_id: {} for agreement_id in agreement_ids
     }
     if agreement_ids:
-        payments = db.scalars(
-            select(RentalAgreementPayment).where(
-                RentalAgreementPayment.agreement_id.in_(agreement_ids),
-                RentalAgreementPayment.payment_month.in_(months),
+        payment_query = select(RentalAgreementPayment).where(
+            RentalAgreementPayment.agreement_id.in_(agreement_ids),
+            RentalAgreementPayment.amount.isnot(None),
+        )
+        if months:
+            payment_query = payment_query.where(
+                RentalAgreementPayment.payment_month <= months[-1]
             )
-        ).all()
+        payments = db.scalars(payment_query).all()
         for payment in payments:
-            if payment.payment_month not in month_set:
-                continue
             payments_by_agreement.setdefault(payment.agreement_id, {})[
-                payment.payment_month
+                _month_start(payment.payment_month)
             ] = float(payment.amount)
 
     serialized = [
@@ -404,8 +447,7 @@ def build_rental_agreements_report(
     )
 
     return {
-        "fiscal_year": fiscal_year,
-        "fiscal_year_options": available_fiscal_years(),
+        **ration_period_meta(months, fiscal_year),
         "months": [month.isoformat() for month in months],
         "month_labels": [month.strftime("%b-%y") for month in months],
         "agreements": serialized,
@@ -416,10 +458,14 @@ def build_rental_agreements_report(
 def build_rental_payment_index(
     db: Session,
     *,
-    fiscal_year: int,
+    fiscal_year: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[tuple[str, dt.date], float]:
     """Monthly rent totals keyed by (business, month) for financial autofill."""
-    report = build_rental_agreements_report(db, fiscal_year=fiscal_year)
+    report = build_rental_agreements_report(
+        db, fiscal_year=fiscal_year, month_from=month_from, month_to=month_to
+    )
     index: dict[tuple[str, dt.date], float] = {}
     for farm in HERD_FARM_OPTIONS:
         amounts = report["business_totals"].get(farm, {}).get("amounts", {})
