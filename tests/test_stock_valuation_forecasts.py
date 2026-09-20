@@ -432,3 +432,50 @@ def test_actual_months_still_fill_when_heads_builder_fails(monkeypatch) -> None:
     index = build_stock_valuation_change_index_from_report(report)
     assert ("CM", dt.date(2026, 8, 1)) in index
     assert ("CM", dt.date(2026, 9, 1)) in index
+
+
+def test_any_year_valuation_spans_this_and_next_fy(monkeypatch) -> None:
+    today = dt.date(2026, 7, 6)
+
+    def fake_valuations(_db, **kwargs):
+        return {"months": []}
+
+    def fake_heads(_db, **kwargs):
+        return {"CM": {}, "GAD": {}}
+
+    monkeypatch.setattr(
+        "app.services.stock_valuation_forecasts.available_fiscal_years",
+        lambda: [2027, 2028],
+    )
+    monkeypatch.setattr(
+        "app.services.stock_forecasts.available_fiscal_years",
+        lambda: [2027, 2028],
+    )
+    monkeypatch.setattr(
+        "app.services.benchmarking.available_fiscal_years",
+        lambda: [2027, 2028],
+    )
+    monkeypatch.setattr(
+        "app.services.stock_valuation_forecasts.build_stock_valuations_report",
+        fake_valuations,
+    )
+    monkeypatch.setattr(
+        "app.services.stock_valuation_forecasts.build_stock_forecast_heads_index",
+        fake_heads,
+    )
+
+    report = build_stock_valuation_forecasts_report(
+        MagicMock(),
+        farms=["CM", "GAD"],
+        fiscal_year=None,
+        today=today,
+    )
+    assert report["any_year"] is True
+    assert report["selected_fiscal_year"] is None
+    assert report["month_from"] == "2026-04-01"
+    assert report["month_to"] == "2028-03-01"
+    assert len(report["rows"]) == 24
+    assert report["rows"][0]["month_start"] == "2026-04-01"
+    assert report["rows"][-1]["month_start"] == "2028-03-01"
+    assert report["date_bounds"]["min"] == "2026-04-01"
+    assert report["date_bounds"]["max"] == "2028-03-31"

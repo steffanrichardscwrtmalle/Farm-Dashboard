@@ -12,12 +12,14 @@ from sqlalchemy.orm import Session
 from app.models import HERD_FARM_OPTIONS
 from app.services.benchmarking import available_fiscal_years
 from app.services.events_common import (
-    _fiscal_year_calendar_bounds,
     _fiscal_year_from_date,
     _iter_month_starts,
     normalize_farms,
 )
-from app.services.stock_forecasts import build_stock_forecast_heads_index
+from app.services.stock_forecasts import (
+    build_stock_forecast_heads_index,
+    resolve_stock_forecast_window,
+)
 from app.services.stock_valuations import build_stock_valuations_report
 
 logger = logging.getLogger(__name__)
@@ -396,6 +398,8 @@ def build_stock_valuation_forecasts_report(
     today: dt.date | None = None,
     shared: Any | None = None,
     forecast_heads: dict[str, dict[str, dict[str, dict[str, int]]]] | None = None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     reference_today = today or dt.date.today()
@@ -403,24 +407,35 @@ def build_stock_valuation_forecasts_report(
     last_actual_month = _subtract_month(current_month)
 
     year_options = available_fiscal_years()
-    year = int(fiscal_year) if fiscal_year is not None else year_options[0]
-
-    fy_start, fy_end = _fiscal_year_calendar_bounds(year)
-    fy_start_month = _month_start(fy_start)
-    fy_end_month = _month_start(fy_end)
-    prev_fy_month = _subtract_month(fy_start_month)
+    if shared is not None:
+        range_start_month = shared.range_start_month
+        range_end_month = shared.range_end_month
+        slider_min = shared.slider_min_month
+        slider_max = shared.slider_max_month
+    else:
+        range_start_month, range_end_month, slider_min, slider_max = (
+            resolve_stock_forecast_window(
+                fiscal_year=fiscal_year,
+                month_from=month_from,
+                month_to=month_to,
+            )
+        )
+    prev_range_month = _subtract_month(range_start_month)
 
     empty: dict[str, Any] = {
         "rows": [],
         "fiscal_year_options": year_options,
-        "selected_fiscal_year": year,
+        "selected_fiscal_year": fiscal_year,
+        "any_year": fiscal_year is None,
+        "month_from": range_start_month.isoformat(),
+        "month_to": range_end_month.isoformat(),
         "actual_cutoff": last_actual_month.isoformat(),
         "projected_from": current_month.isoformat(),
         "fixed_rates": {},
         "fixed_rates_month": None,
         "date_bounds": {
-            "min": fy_start_month.isoformat(),
-            "max": _last_day_of_month(fy_end_month).isoformat(),
+            "min": slider_min.isoformat(),
+            "max": _last_day_of_month(slider_max).isoformat(),
         },
     }
     if not selected_farms:
@@ -429,9 +444,9 @@ def build_stock_valuation_forecasts_report(
     val_report = build_stock_valuations_report(
         db,
         farms=selected_farms,
-        fiscal_year=year,
-        month_from=fy_start_month,
-        month_to=fy_end,
+        fiscal_year="any" if fiscal_year is None else fiscal_year,
+        month_from=range_start_month,
+        month_to=_last_day_of_month(range_end_month),
     )
     val_by_month = {
         month["month_start"]: month for month in val_report.get("months", [])
@@ -439,7 +454,7 @@ def build_stock_valuation_forecasts_report(
     prior_month_totals = _load_prior_month_valuation_totals(
         db,
         farms=selected_farms,
-        prior_month=prev_fy_month,
+        prior_month=prev_range_month,
     )
     last_actual_iso = last_actual_month.isoformat()
     if last_actual_iso in val_by_month:
@@ -468,12 +483,17 @@ def build_stock_valuation_forecasts_report(
             forecast_heads = build_stock_forecast_heads_index(
                 db,
                 farms=selected_farms,
-                fiscal_year=year,
+                fiscal_year=fiscal_year,
                 today=reference_today,
                 shared=shared,
+                month_from=month_from,
+                month_to=month_to,
             )
         except Exception:
-            logger.exception("Stock forecast heads failed for FY %s", year)
+            logger.exception(
+                "Stock forecast heads failed for FY %s",
+                fiscal_year if fiscal_year is not None else "any",
+            )
             forecast_heads = {farm: {} for farm in selected_farms}
 
     rolling_closing: dict[str, dict[str, int]] = {}
@@ -483,8 +503,8 @@ def build_stock_valuation_forecasts_report(
             rolling_closing[farm] = _closing_counts_by_category(seed_totals[farm])
 
     # Next FY must open at the previous FY's projected closing, not last actual.
-    if fy_start_month > current_month:
-        first_iso = fy_start_month.isoformat()
+    if range_start_month > current_month:
+        first_iso = range_start_month.isoformat()
         for farm in selected_farms:
             from_heads = _opening_counts_from_heads(
                 forecast_heads.get(farm, {}), first_iso
@@ -495,7 +515,7 @@ def build_stock_valuation_forecasts_report(
                 rolling_closing[farm] = base
 
     rows: list[dict[str, Any]] = []
-    for month_start in _iter_month_starts(fy_start_month, fy_end_month):
+    for month_start in _iter_month_starts(range_start_month, range_end_month):
         month_iso = month_start.isoformat()
         month_label = month_start.strftime("%b-%y")
         is_projected = month_start >= current_month
@@ -512,7 +532,7 @@ def build_stock_valuation_forecasts_report(
             prev_val_month = val_by_month.get(prev_month.isoformat())
             if prev_val_month is not None:
                 prev_farm_totals = prev_val_month.get("totals", {})
-            elif month_start == fy_start_month:
+            elif month_start == range_start_month:
                 prev_farm_totals = prior_month_totals
             else:
                 prev_farm_totals = {}
@@ -528,7 +548,7 @@ def build_stock_valuation_forecasts_report(
                     opening_counts = _seed_opening_counts_from_prior_month(
                         farm,
                         month_start,
-                        fy_start_month,
+                        range_start_month,
                         val_by_month,
                         prior_month_totals or last_actual_totals,
                     )
@@ -565,13 +585,16 @@ def build_stock_valuation_forecasts_report(
     return {
         "rows": rows,
         "fiscal_year_options": year_options,
-        "selected_fiscal_year": year,
+        "selected_fiscal_year": fiscal_year,
+        "any_year": fiscal_year is None,
+        "month_from": range_start_month.isoformat(),
+        "month_to": range_end_month.isoformat(),
         "actual_cutoff": last_actual_month.isoformat(),
         "projected_from": current_month.isoformat(),
         "fixed_rates": fixed_rates,
         "fixed_rates_month": fixed_rates_month,
         "date_bounds": {
-            "min": fy_start_month.isoformat(),
-            "max": _last_day_of_month(fy_end_month).isoformat(),
+            "min": slider_min.isoformat(),
+            "max": _last_day_of_month(slider_max).isoformat(),
         },
     }

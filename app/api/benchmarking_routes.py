@@ -468,22 +468,22 @@ def api_ration_cost_comparison(
 def api_stock_forecasts_page(
     farm: list[str] | None = Query(None),
     stock_group: str = Query("cows", pattern="^(cows|youngstock|beef)$"),
-    fiscal_year: int | None = Query(None),
+    fiscal_year: str | None = Query(None),
+    month_from: dt.date | None = Query(None),
+    month_to: dt.date | None = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_BENCHMARKING)),
 ):
-    years = available_fiscal_years()
-    year = fiscal_year if fiscal_year is not None else years[0]
-    if year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
+    year, range_from, range_to = _resolve_ration_period(
+        fiscal_year, month_from, month_to
+    )
     return build_stock_forecasts_page_report(
         db,
         farms=farm,
         stock_group=stock_group,
         fiscal_year=year,
+        month_from=range_from,
+        month_to=range_to,
     )
 
 
@@ -491,43 +491,43 @@ def api_stock_forecasts_page(
 def api_stock_forecasts(
     farm: list[str] | None = Query(None),
     stock_group: str = Query("cows", pattern="^(cows|youngstock|beef)$"),
-    fiscal_year: int | None = Query(None),
+    fiscal_year: str | None = Query(None),
+    month_from: dt.date | None = Query(None),
+    month_to: dt.date | None = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_BENCHMARKING)),
 ):
-    years = available_fiscal_years()
-    year = fiscal_year if fiscal_year is not None else years[0]
-    if year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
+    year, range_from, range_to = _resolve_ration_period(
+        fiscal_year, month_from, month_to
+    )
     return build_stock_forecasts_report(
         db,
         farms=farm,
         stock_group=stock_group,
         fiscal_year=year,
+        month_from=range_from,
+        month_to=range_to,
     )
 
 
 @router.get("/stock-valuation-forecasts")
 def api_stock_valuation_forecasts(
     farm: list[str] | None = Query(None),
-    fiscal_year: int | None = Query(None),
+    fiscal_year: str | None = Query(None),
+    month_from: dt.date | None = Query(None),
+    month_to: dt.date | None = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_BENCHMARKING)),
 ):
-    years = available_fiscal_years()
-    year = fiscal_year if fiscal_year is not None else years[0]
-    if year not in years:
-        raise HTTPException(
-            status_code=400,
-            detail=f"fiscal_year must be one of {years}",
-        )
+    year, range_from, range_to = _resolve_ration_period(
+        fiscal_year, month_from, month_to
+    )
     return build_stock_valuation_forecasts_report(
         db,
         farms=farm,
         fiscal_year=year,
+        month_from=range_from,
+        month_to=range_to,
     )
 
 

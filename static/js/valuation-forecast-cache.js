@@ -3,7 +3,7 @@
  * Uses a single combined API to avoid parallel heavy requests (OOM on small instances).
  */
 (function () {
-  const PAGE_STORAGE_KEY = "farm-dashboard:stock-forecasts-page-v2";
+  const PAGE_STORAGE_KEY = "farm-dashboard:stock-forecasts-page-v3";
   const FY_KEY = "farm-dashboard:valuation-forecast-fy";
   const DEFAULT_FARMS = ["CM", "GAD"];
   const DEFAULT_STOCK_GROUP = "cows";
@@ -43,11 +43,26 @@
 
   function rememberFiscalYear(fiscalYear) {
     if (fiscalYear == null) return;
+    const text = String(fiscalYear);
+    if (text === "" || text === "any" || text.startsWith("any:")) return;
     try {
-      sessionStorage.setItem(FY_KEY, String(fiscalYear));
+      sessionStorage.setItem(FY_KEY, text);
     } catch {
       /* ignore */
     }
+  }
+
+  function applyFiscalYearParams(params, fiscalYear) {
+    if (fiscalYear == null || fiscalYear === "") return;
+    const text = String(fiscalYear);
+    if (text.startsWith("any:")) {
+      const parts = text.split(":");
+      params.set("fiscal_year", "any");
+      if (parts[1]) params.set("month_from", parts[1]);
+      if (parts[2]) params.set("month_to", parts[2]);
+      return;
+    }
+    params.set("fiscal_year", text);
   }
 
   function buildPageUrl(fiscalYear, stockGroup, farmList) {
@@ -55,17 +70,27 @@
     const list = farmList && farmList.length ? farmList : farms();
     list.forEach(farm => params.append("farm", farm));
     params.set("stock_group", stockGroup || DEFAULT_STOCK_GROUP);
-    if (fiscalYear) {
-      params.set("fiscal_year", String(fiscalYear));
-    }
+    applyFiscalYearParams(params, fiscalYear);
     return `/api/benchmarking/stock-forecasts-page?${params}`;
+  }
+
+  function cacheYearKey(fiscalYear, stock) {
+    if (fiscalYear != null && String(fiscalYear) !== "") {
+      return String(fiscalYear);
+    }
+    if (stock?.any_year) {
+      return `any:${stock.month_from || ""}:${stock.month_to || ""}`;
+    }
+    return stock?.selected_fiscal_year != null
+      ? String(stock.selected_fiscal_year)
+      : "";
   }
 
   function setPageCache(fiscalYear, stockGroup, farmList, pageData) {
     if (!isCompletePageData(pageData)) return;
     const stock = pageData.stock_forecasts;
-    const year = fiscalYear != null ? fiscalYear : stock?.selected_fiscal_year;
-    if (year == null) return;
+    const year = cacheYearKey(fiscalYear, stock);
+    if (!year) return;
     rememberFiscalYear(year);
     const key = pageCacheKey(year, stockGroup || stock?.stock_group, farmList);
     const store = readJson(PAGE_STORAGE_KEY) || {};
@@ -122,10 +147,11 @@
       const group = stockGroup || DEFAULT_STOCK_GROUP;
       const list = farmList && farmList.length ? farmList : farms();
       const cached = getPageCache(fy, group, list);
+      const cachedKey = cacheYearKey(fy, cached?.stock_forecasts);
       if (
         cached
         && fy != null
-        && String(cached.stock_forecasts?.selected_fiscal_year) === String(fy)
+        && cachedKey === String(fy)
         && cached.stock_forecasts?.stock_group === group
       ) {
         return Promise.resolve(cached);

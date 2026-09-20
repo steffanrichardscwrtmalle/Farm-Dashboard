@@ -305,10 +305,20 @@
         <div class="filter-section">
           <span class="section-label">Fiscal year</span>
           <select id="fiscal-year-select" class="filter-select">
+            <option value="any">Any</option>
             {% for year in fiscal_year_options %}
             <option value="{{ year }}"{% if loop.first %} selected{% endif %}>{{ year }}</option>
             {% endfor %}
           </select>
+        </div>
+        <div class="filter-section" id="date-range-controls" hidden>
+          <span class="section-label">Month range</span>
+          <div class="date-inputs">
+            <label>From <span class="month-label" id="min-date-label">—</span></label>
+            <input type="range" id="min-date-range" min="0" max="0" value="0">
+            <label>To <span class="month-label" id="max-date-label">—</span></label>
+            <input type="range" id="max-date-range" min="0" max="0" value="0">
+          </div>
         </div>
         <div class="filter-section">
           <button type="button" class="small" id="refresh-forecasts-btn" style="width:100%">
@@ -415,6 +425,8 @@
     let cachedCutoff = { actual: null, projected: null };
     let cachedFiscalYear = null;
     let cachedValuationForecast = null;
+    let monthList = [];
+    let loadTimer = null;
 
     function allFarmOptions() {
       return [...document.querySelectorAll(".farm-slicer .slicer-btn")]
@@ -464,19 +476,152 @@
       });
     }
 
+    function isAnyYearSelected() {
+      return document.getElementById("fiscal-year-select").value === "any";
+    }
+
+    function parseIsoDate(iso) {
+      const [y, m, d] = iso.split("-").map(Number);
+      return new Date(y, m - 1, d);
+    }
+
+    function buildMonthList(minIso, maxIso) {
+      const months = [];
+      let d = parseIsoDate(minIso);
+      d = new Date(d.getFullYear(), d.getMonth(), 1);
+      const end = parseIsoDate(maxIso);
+      const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
+      while (d <= endMonth) {
+        months.push(new Date(d));
+        d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+      }
+      return months;
+    }
+
+    function formatSliderMonthLabel(date) {
+      const mon = date.toLocaleDateString("en-GB", { month: "short" });
+      return `${mon}-${String(date.getFullYear()).slice(-2)}`;
+    }
+
+    function toIsoDate(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+
+    function lastDayOfMonth(date) {
+      return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    }
+
+    function fiscalYearsFromSelect() {
+      return [...document.getElementById("fiscal-year-select").options]
+        .map(opt => Number(opt.value))
+        .filter(n => Number.isInteger(n) && n > 0);
+    }
+
+    function defaultSliderBounds() {
+      const years = fiscalYearsFromSelect();
+      if (!years.length) return null;
+      const minY = Math.min(...years);
+      const maxY = Math.max(...years);
+      return {
+        min: `${minY - 1}-04-01`,
+        max: `${maxY}-03-31`,
+      };
+    }
+
+    function updateDateLabels() {
+      const minIdx = parseInt(document.getElementById("min-date-range").value, 10);
+      const maxIdx = parseInt(document.getElementById("max-date-range").value, 10);
+      document.getElementById("min-date-label").textContent =
+        monthList[minIdx] ? formatSliderMonthLabel(monthList[minIdx]) : "—";
+      document.getElementById("max-date-label").textContent =
+        monthList[maxIdx] ? formatSliderMonthLabel(monthList[maxIdx]) : "—";
+    }
+
+    function monthIndexForIso(iso) {
+      if (!iso || !monthList.length) return -1;
+      const target = toIsoDate(parseIsoDate(iso)).slice(0, 7);
+      return monthList.findIndex(month => toIsoDate(month).slice(0, 7) === target);
+    }
+
+    function syncDateBounds(bounds, { selectFullRange = true, monthFrom = null, monthTo = null } = {}) {
+      const minRange = document.getElementById("min-date-range");
+      const maxRange = document.getElementById("max-date-range");
+      if (!bounds?.min || !bounds?.max) {
+        monthList = [];
+        return;
+      }
+      monthList = buildMonthList(bounds.min, bounds.max);
+      const maxIdx = Math.max(0, monthList.length - 1);
+      minRange.min = 0;
+      minRange.max = maxIdx;
+      maxRange.min = 0;
+      maxRange.max = maxIdx;
+      let minIdx = 0;
+      let toIdx = maxIdx;
+      if (!selectFullRange) {
+        const fromIdx = monthIndexForIso(monthFrom);
+        const endIdx = monthIndexForIso(monthTo);
+        if (fromIdx >= 0) minIdx = fromIdx;
+        if (endIdx >= 0) toIdx = endIdx;
+      }
+      if (minIdx > toIdx) toIdx = minIdx;
+      minRange.value = minIdx;
+      maxRange.value = toIdx;
+      updateDateLabels();
+    }
+
+    function syncDateRangeVisibility({ resetToDefault = false } = {}) {
+      const wrap = document.getElementById("date-range-controls");
+      const any = isAnyYearSelected();
+      wrap.hidden = !any;
+      if (!any) return;
+      if (!monthList.length || resetToDefault) {
+        const bounds = defaultSliderBounds();
+        if (bounds) syncDateBounds(bounds, { selectFullRange: true });
+      }
+    }
+
+    function selectedPeriodToken() {
+      const fy = document.getElementById("fiscal-year-select").value || "any";
+      if (fy !== "any") return fy;
+      if (!monthList.length) return "any";
+      const minIdx = parseInt(document.getElementById("min-date-range").value, 10);
+      const maxIdx = parseInt(document.getElementById("max-date-range").value, 10);
+      const from = monthList[minIdx] ? toIsoDate(monthList[minIdx]) : "";
+      const to = monthList[maxIdx] ? toIsoDate(monthList[maxIdx]) : "";
+      return `any:${from}:${to}`;
+    }
+
     function buildParams() {
       const params = new URLSearchParams();
       const farms = selectedFarms();
       farms.forEach(farm => params.append("farm", farm));
       params.set("stock_group", selectedStockGroup());
-      params.set("fiscal_year", document.getElementById("fiscal-year-select").value);
+      const fiscalYear = document.getElementById("fiscal-year-select").value;
+      params.set("fiscal_year", fiscalYear || "any");
+      if (fiscalYear === "any" && monthList.length) {
+        const minIdx = parseInt(document.getElementById("min-date-range").value, 10);
+        const maxIdx = parseInt(document.getElementById("max-date-range").value, 10);
+        params.set("month_from", toIsoDate(monthList[minIdx]));
+        params.set("month_to", toIsoDate(lastDayOfMonth(monthList[maxIdx])));
+      }
       return params;
     }
 
     function buildValuationFetchParams(fiscalYear) {
       const params = new URLSearchParams();
       allFarmOptions().forEach(farm => params.append("farm", farm));
-      params.set("fiscal_year", fiscalYear);
+      if (String(fiscalYear).startsWith("any:")) {
+        const parts = String(fiscalYear).split(":");
+        params.set("fiscal_year", "any");
+        if (parts[1]) params.set("month_from", parts[1]);
+        if (parts[2]) params.set("month_to", parts[2]);
+      } else {
+        params.set("fiscal_year", fiscalYear);
+      }
       return params;
     }
 
@@ -779,8 +924,8 @@
       wrap.style.display = "none";
     }
 
-    function applyValuationForecastData(data, farms) {
-      const fiscalYear = String(data.selected_fiscal_year);
+    function applyValuationForecastData(data, farms, periodToken) {
+      const fiscalYear = periodToken || selectedPeriodToken();
       cachedValuationForecast = { fiscalYear, data };
       if (window.ValuationForecastCache) {
         ValuationForecastCache.set(fiscalYear, data);
@@ -793,7 +938,7 @@
       const empty = document.getElementById("valuations-empty");
       const wrap = document.getElementById("valuations-wrap");
       const farms = selectedFarms();
-      const fiscalYear = document.getElementById("fiscal-year-select").value;
+      const fiscalYear = selectedPeriodToken();
 
       if (!farms.length) {
         note.textContent = "";
@@ -806,7 +951,7 @@
 
       const sessionCached = window.ValuationForecastCache?.get(fiscalYear);
       if (sessionCached) {
-        applyValuationForecastData(sessionCached, farms);
+        applyValuationForecastData(sessionCached, farms, fiscalYear);
         return;
       }
 
@@ -822,8 +967,8 @@
       if (pending) {
         note.textContent = "Loading valuations forecast…";
         const data = await pending;
-        if (data && String(data.selected_fiscal_year) === String(fiscalYear)) {
-          applyValuationForecastData(data, farms);
+        if (data && selectedPeriodToken() === fiscalYear) {
+          applyValuationForecastData(data, farms, fiscalYear);
           return;
         }
       }
@@ -835,7 +980,7 @@
         );
         if (!res.ok) throw new Error("load failed");
         const data = await res.json();
-        applyValuationForecastData(data, farms);
+        applyValuationForecastData(data, farms, fiscalYear);
       } catch {
         cachedValuationForecast = null;
         note.textContent = "";
@@ -846,17 +991,21 @@
       }
     }
 
-    function renderFiscalYearOptions(options, selectedValue) {
+    function renderFiscalYearOptions(options, selectedValue, anyYear) {
       const select = document.getElementById("fiscal-year-select");
       const years = (options || []).filter(year => year != null && String(year) !== "");
+      const current = anyYear
+        ? "any"
+        : (selectedValue != null && selectedValue !== ""
+          ? String(selectedValue)
+          : select.value);
       if (!years.length) {
-        if (selectedValue && [...select.options].some(opt => opt.value === String(selectedValue))) {
-          select.value = String(selectedValue);
+        if (current && [...select.options].some(opt => opt.value === String(current))) {
+          select.value = String(current);
         }
         return;
       }
-      const current = selectedValue || select.value;
-      select.innerHTML = "";
+      select.innerHTML = '<option value="any">Any</option>';
       years.forEach(year => {
         const opt = document.createElement("option");
         opt.value = String(year);
@@ -865,8 +1014,8 @@
       });
       if (current && [...select.options].some(opt => opt.value === String(current))) {
         select.value = String(current);
-      } else if (select.options.length) {
-        select.value = select.options[0].value;
+      } else if (select.options.length > 1) {
+        select.value = select.options[1].value;
       }
     }
 
@@ -1073,28 +1222,46 @@
       return `${mon}-${String(y).slice(-2)}`;
     }
 
-    function buildMetaLine(farms, groupLabel, rowCount, fiscalYear) {
+    function buildMetaLine(farms, groupLabel, rowCount, data) {
       const actualLabel = formatMonthLabelFromIso(cachedCutoff.actual);
       const projectedLabel = formatMonthLabelFromIso(cachedCutoff.projected);
       const cutoffNote = cachedCutoff.actual && cachedCutoff.projected
         ? ` · Actual through ${actualLabel} · Projected from ${projectedLabel}`
         : "";
-      const fyNote = fiscalYear ? ` · FY ${fiscalYear}` : "";
+      const fyNote = data?.any_year
+        ? ` · ${formatMonthLabelFromIso(data.month_from)} – ${formatMonthLabelFromIso(data.month_to)}`
+        : (data?.selected_fiscal_year ? ` · FY ${data.selected_fiscal_year}` : "");
       return `${farms.join(" + ")} · ${groupLabel}: ${rowCount.toLocaleString("en-GB")} months${fyNote}${cutoffNote}`;
     }
 
-    function applyStockForecastData(data, farms) {
-      renderFiscalYearOptions(data.fiscal_year_options || [], data.selected_fiscal_year);
+    function applyStockForecastData(data, farms, periodToken) {
+      renderFiscalYearOptions(
+        data.fiscal_year_options || [],
+        data.selected_fiscal_year,
+        data.any_year
+      );
+      if (data.any_year) {
+        document.getElementById("date-range-controls").hidden = false;
+        if (data.date_bounds) {
+          syncDateBounds(data.date_bounds, {
+            selectFullRange: false,
+            monthFrom: data.month_from,
+            monthTo: data.month_to,
+          });
+        }
+      } else {
+        document.getElementById("date-range-controls").hidden = true;
+      }
       cachedCutoff = {
         actual: data.actual_cutoff || null,
         projected: data.projected_from || null,
       };
-      cachedFiscalYear = data.selected_fiscal_year;
+      cachedFiscalYear = periodToken || selectedPeriodToken();
 
       const rows = data.rows || [];
       const groupLabel = stockGroupLabel(data.stock_group);
       const meta = document.getElementById("meta-line");
-      meta.textContent = buildMetaLine(farms, groupLabel, rows.length, cachedFiscalYear);
+      meta.textContent = buildMetaLine(farms, groupLabel, rows.length, data);
 
       const empty = document.getElementById("empty-state");
       const wrap = document.getElementById("table-wrap");
@@ -1112,7 +1279,7 @@
       }
 
       if (window.StockForecastCache) {
-        StockForecastCache.set(data.selected_fiscal_year, data.stock_group, farms, data);
+        StockForecastCache.set(cachedFiscalYear, data.stock_group, farms, data);
       }
     }
 
@@ -1125,13 +1292,25 @@
       );
     }
 
-    function applyPageData(pageData, farms) {
+    function pageMatchesPeriod(pageData, periodToken) {
+      const stock = pageData?.stock_forecasts;
+      if (!isCompleteStockForecast(stock)) return false;
+      if (String(periodToken).startsWith("any:")) {
+        if (!stock.any_year) return false;
+        const parts = String(periodToken).split(":");
+        return stock.month_from === parts[1] && stock.month_to === parts[2];
+      }
+      return !stock.any_year && String(stock.selected_fiscal_year) === String(periodToken);
+    }
+
+    function applyPageData(pageData, farms, periodToken) {
+      const token = periodToken || selectedPeriodToken();
       if (isCompleteStockForecast(pageData?.stock_forecasts)) {
-        applyStockForecastData(pageData.stock_forecasts, farms);
+        applyStockForecastData(pageData.stock_forecasts, farms, token);
       }
       if (window.StockForecastsPageCache && isCompleteStockForecast(pageData?.stock_forecasts)) {
         StockForecastsPageCache.set(
-          pageData.stock_forecasts.selected_fiscal_year,
+          token,
           pageData.stock_forecasts.stock_group,
           farms,
           pageData
@@ -1139,7 +1318,7 @@
       }
       const valuation = pageData?.valuation_forecasts;
       if (valuation?.rows?.length) {
-        applyValuationForecastData(valuation, farms);
+        applyValuationForecastData(valuation, farms, token);
         return true;
       }
       return false;
@@ -1171,21 +1350,21 @@
 
       const fySelect = document.getElementById("fiscal-year-select");
       if (!fySelect.value && fySelect.options.length) {
-        fySelect.value = fySelect.options[0].value;
+        fySelect.value = fySelect.options[1]?.value || fySelect.options[0].value;
       }
-      const fiscalYear = fySelect.value;
+      const periodToken = selectedPeriodToken();
       const stockGroup = selectedStockGroup();
 
       if (force) {
         window.StockForecastsPageCache?.clear?.();
       } else {
         const sessionCached = window.StockForecastsPageCache?.get(
-          fiscalYear,
+          periodToken,
           stockGroup,
           farms
         );
         if (isCompleteStockForecast(sessionCached?.stock_forecasts)) {
-          await loadValuationsIfMissing(applyPageData(sessionCached, farms));
+          await loadValuationsIfMissing(applyPageData(sessionCached, farms, periodToken));
           return;
         }
 
@@ -1195,15 +1374,14 @@
           meta.textContent = "Loading stock forecasts…";
           const pageData = await pendingPage;
           const stillCurrent =
-            document.getElementById("fiscal-year-select").value === String(fiscalYear)
+            selectedPeriodToken() === periodToken
             && selectedStockGroup() === stockGroup;
           if (
             stillCurrent
-            && isCompleteStockForecast(pageData?.stock_forecasts)
-            && String(pageData.stock_forecasts.selected_fiscal_year) === String(fiscalYear)
+            && pageMatchesPeriod(pageData, periodToken)
             && pageData.stock_forecasts.stock_group === stockGroup
           ) {
-            applyPageData(pageData, farms);
+            applyPageData(pageData, farms, periodToken);
             await loadValuationsIfMissing(
               Boolean(pageData?.valuation_forecasts?.rows?.length)
             );
@@ -1221,10 +1399,10 @@
         if (!res.ok) throw new Error("load failed");
         const pageData = await res.json();
         const stillCurrent =
-          document.getElementById("fiscal-year-select").value === String(fiscalYear)
+          selectedPeriodToken() === periodToken
           && selectedStockGroup() === stockGroup;
         if (!stillCurrent) return;
-        await loadValuationsIfMissing(applyPageData(pageData, farms));
+        await loadValuationsIfMissing(applyPageData(pageData, farms, periodToken));
       } catch {
         meta.textContent = "";
         empty.style.display = "";
@@ -1241,10 +1419,50 @@
       }
     }
 
+    function scheduleLoad() {
+      if (loadTimer) clearTimeout(loadTimer);
+      loadTimer = setTimeout(() => loadReport(), 250);
+    }
+
+    function bindDateInputs() {
+      const minRange = document.getElementById("min-date-range");
+      const maxRange = document.getElementById("max-date-range");
+      function clamp() {
+        if (!monthList.length) return;
+        let minVal = parseInt(minRange.value, 10);
+        let maxVal = parseInt(maxRange.value, 10);
+        if (minVal > maxVal) maxVal = minVal;
+        minRange.value = minVal;
+        maxRange.value = maxVal;
+        updateDateLabels();
+        scheduleLoad();
+      }
+      minRange.addEventListener("input", () => {
+        if (parseInt(minRange.value, 10) > parseInt(maxRange.value, 10)) {
+          maxRange.value = minRange.value;
+        }
+        updateDateLabels();
+        scheduleLoad();
+      });
+      maxRange.addEventListener("input", () => {
+        if (parseInt(maxRange.value, 10) < parseInt(minRange.value, 10)) {
+          minRange.value = maxRange.value;
+        }
+        updateDateLabels();
+        scheduleLoad();
+      });
+      minRange.addEventListener("change", clamp);
+      maxRange.addEventListener("change", clamp);
+    }
+
     bindFarmSlicers();
     bindExclusiveSlicers(".stock-group-slicer");
     bindSalesToggle();
-    document.getElementById("fiscal-year-select").addEventListener("change", () => loadReport());
+    bindDateInputs();
+    document.getElementById("fiscal-year-select").addEventListener("change", () => {
+      syncDateRangeVisibility({ resetToDefault: true });
+      loadReport();
+    });
     document.getElementById("refresh-forecasts-btn")?.addEventListener("click", () => {
       loadReport({ force: true });
     });

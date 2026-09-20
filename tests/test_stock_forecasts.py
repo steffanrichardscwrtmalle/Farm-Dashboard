@@ -479,6 +479,66 @@ def test_next_fy_april_opening_continues_prior_fy_projection(db: Session) -> Non
     assert april["opening"] != 100
 
 
+def test_any_year_defaults_to_this_and_next_fy(db: Session, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.stock_forecasts.available_fiscal_years",
+        lambda: [2027, 2028],
+    )
+    monkeypatch.setattr(
+        "app.services.benchmarking.available_fiscal_years",
+        lambda: [2027, 2028],
+    )
+    _seed_cows_baseline(db)
+    report = build_stock_forecasts_report(
+        db,
+        farms=["CM"],
+        stock_group="cows",
+        fiscal_year=None,
+        today=TODAY,
+    )
+    assert report["any_year"] is True
+    assert report["selected_fiscal_year"] is None
+    assert report["month_from"] == "2026-04-01"
+    assert report["month_to"] == "2028-03-01"
+    rows = report["rows"]
+    assert len(rows) == 24
+    assert rows[0]["month_start"] == "2026-04-01"
+    assert rows[-1]["month_start"] == "2028-03-01"
+    march = next(r for r in rows if r["month_start"] == "2027-03-01")
+    april = next(r for r in rows if r["month_start"] == "2027-04-01")
+    assert april["opening"] == march["closing"]
+
+
+def test_any_year_custom_month_range(db: Session, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.stock_forecasts.available_fiscal_years",
+        lambda: [2027, 2028],
+    )
+    monkeypatch.setattr(
+        "app.services.benchmarking.available_fiscal_years",
+        lambda: [2027, 2028],
+    )
+    _seed_cows_baseline(db)
+    report = build_stock_forecasts_report(
+        db,
+        farms=["CM"],
+        stock_group="cows",
+        fiscal_year=None,
+        month_from=dt.date(2026, 6, 1),
+        month_to=dt.date(2026, 9, 1),
+        today=TODAY,
+    )
+    months = [row["month_start"] for row in report["rows"]]
+    assert months == [
+        "2026-06-01",
+        "2026-07-01",
+        "2026-08-01",
+        "2026-09-01",
+    ]
+    assert report["rows"][0]["source"] == "actual"
+    assert report["rows"][1]["source"] == "projected"
+
+
 def test_stock_forecasts_page_report_combined(db: Session) -> None:
     from app.services.stock_forecasts import build_stock_forecasts_page_report
 

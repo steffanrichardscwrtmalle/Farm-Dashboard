@@ -20,7 +20,7 @@ from app.models import (
     STOCK_GROUP_YOUNGSTOCK,
     BenchmarkForecastLine,
 )
-from app.services.benchmarking import available_fiscal_years
+from app.services.benchmarking import available_fiscal_years, ration_month_range
 from app.services.events_common import (
     SALES_TABLE_REASON_ORDER,
     _fiscal_year_calendar_bounds,
@@ -327,17 +327,77 @@ def _fiscal_year_month_range(fiscal_year: int) -> tuple[dt.date, dt.date]:
     return _month_start(fy_start), _month_start(fy_end)
 
 
+def resolve_stock_forecast_window(
+    *,
+    fiscal_year: int | None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
+) -> tuple[dt.date, dt.date, dt.date, dt.date]:
+    """Selected month range plus slider bounds (this FY through next)."""
+    years = available_fiscal_years()
+    if years:
+        slider_min = _month_start(_fiscal_year_calendar_bounds(min(years))[0])
+        slider_max = _month_start(_fiscal_year_calendar_bounds(max(years))[1])
+    else:
+        slider_min, slider_max = _fiscal_year_month_range(
+            _fiscal_year_from_date(dt.date.today())
+        )
+    months = ration_month_range(
+        fiscal_year=fiscal_year,
+        month_from=month_from,
+        month_to=month_to,
+    )
+    if not months:
+        months = list(_iter_month_starts(slider_min, slider_max))
+    range_start, range_end = months[0], months[-1]
+    if fiscal_year is None:
+        range_start = max(range_start, slider_min)
+        range_end = min(range_end, slider_max)
+        if range_start > range_end:
+            range_start, range_end = slider_min, slider_max
+    return range_start, range_end, slider_min, slider_max
+
+
+def _period_payload(
+    *,
+    year_options: list[int],
+    fiscal_year: int | None,
+    range_start: dt.date,
+    range_end: dt.date,
+    slider_min: dt.date,
+    slider_max: dt.date,
+    last_actual_month: dt.date,
+    current_month: dt.date,
+) -> dict[str, Any]:
+    return {
+        "fiscal_year_options": year_options,
+        "selected_fiscal_year": fiscal_year,
+        "any_year": fiscal_year is None,
+        "month_from": range_start.isoformat(),
+        "month_to": range_end.isoformat(),
+        "date_bounds": {
+            "min": slider_min.isoformat(),
+            "max": _last_day_of_month(slider_max).isoformat(),
+        },
+        "actual_cutoff": last_actual_month.isoformat(),
+        "projected_from": current_month.isoformat(),
+    }
+
+
 @dataclass
 class _ForecastSharedContext:
     current_month: dt.date
     last_actual_month: dt.date
-    fy_start_month: dt.date
-    fy_end_month: dt.date
+    range_start_month: dt.date
+    range_end_month: dt.date
+    slider_min_month: dt.date
+    slider_max_month: dt.date
     projected_month_starts: list[dt.date]
     bridge_month_starts: list[dt.date]
     forecast_index: dict[tuple[str, str, dt.date], int]
     heifers_due_index: dict[tuple[str, dt.date], int]
     today: dt.date
+    fiscal_year: int | None = None
     accrual_seed_cache: dict[tuple[str, str], dict[str, Any]] = field(
         default_factory=dict
     )
@@ -372,23 +432,29 @@ def _build_forecast_shared_context(
     db: Session,
     *,
     farms: list[str],
-    fiscal_year: int,
+    fiscal_year: int | None,
     today: dt.date,
     stock_groups: tuple[str, ...] | None = None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> _ForecastSharedContext:
     groups = stock_groups or STOCK_FORECAST_GROUPS
     current_month = _month_start(today)
     last_actual_month = _subtract_month(current_month)
-    fy_start_month, fy_end_month = _fiscal_year_month_range(fiscal_year)
-    projected_from = max(current_month, fy_start_month)
+    range_start, range_end, slider_min, slider_max = resolve_stock_forecast_window(
+        fiscal_year=fiscal_year,
+        month_from=month_from,
+        month_to=month_to,
+    )
+    projected_from = max(current_month, range_start)
     projected_month_starts = [
         month
-        for month in _iter_month_starts(projected_from, fy_end_month)
+        for month in _iter_month_starts(projected_from, range_end)
         if month >= current_month
     ]
     bridge_month_starts: list[dt.date] = []
-    if fy_start_month > current_month:
-        bridge_end = _subtract_month(fy_start_month)
+    if range_start > current_month:
+        bridge_end = _subtract_month(range_start)
         if current_month <= bridge_end:
             bridge_month_starts = _iter_month_starts(current_month, bridge_end)
     forecast_months = bridge_month_starts + projected_month_starts
@@ -396,8 +462,10 @@ def _build_forecast_shared_context(
     return _ForecastSharedContext(
         current_month=current_month,
         last_actual_month=last_actual_month,
-        fy_start_month=fy_start_month,
-        fy_end_month=fy_end_month,
+        range_start_month=range_start,
+        range_end_month=range_end,
+        slider_min_month=slider_min,
+        slider_max_month=slider_max,
         projected_month_starts=projected_month_starts,
         bridge_month_starts=bridge_month_starts,
         forecast_index=_load_forecast_index(
@@ -414,6 +482,7 @@ def _build_forecast_shared_context(
             else {}
         ),
         today=today,
+        fiscal_year=fiscal_year,
     )
 
 
@@ -422,7 +491,6 @@ def _build_stock_forecast_rows(
     *,
     farms: list[str],
     stock_group: str,
-    fiscal_year: int,
     shared: _ForecastSharedContext,
 ) -> list[dict[str, Any]]:
     group = normalize_stock_group(stock_group)
@@ -438,7 +506,10 @@ def _build_stock_forecast_rows(
         row_month = dt.date.fromisoformat(row["month_start"])
         if row_month >= shared.current_month:
             continue
-        if row_month < shared.fy_start_month or row_month > shared.fy_end_month:
+        if (
+            row_month < shared.range_start_month
+            or row_month > shared.range_end_month
+        ):
             continue
         actual_rows.append({**row, "source": "actual"})
 
@@ -461,13 +532,13 @@ def _build_stock_forecast_rows(
     rolling_opening = opening if opening is not None else 0
     if (
         shared.projected_month_starts
-        and shared.projected_month_starts[0] == shared.fy_start_month
+        and shared.projected_month_starts[0] == shared.range_start_month
     ):
-        prior_fy_month = _subtract_month(shared.fy_start_month)
-        if prior_fy_month <= shared.last_actual_month:
+        prior_month = _subtract_month(shared.range_start_month)
+        if prior_month <= shared.last_actual_month:
             prior_closing = _closing_for_month(
                 seed_report.get("rows", []),
-                prior_fy_month,
+                prior_month,
             )
             if prior_closing is not None:
                 rolling_opening = prior_closing
@@ -504,10 +575,12 @@ def build_stock_forecast_heads_index(
     db: Session,
     *,
     farms: list[str] | None = None,
-    fiscal_year: int,
+    fiscal_year: int | None = None,
     today: dt.date | None = None,
     shared: _ForecastSharedContext | None = None,
     stock_groups: tuple[str, ...] | None = None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[str, dict[str, dict[str, dict[str, int]]]]:
     """Per-farm projected head counts for valuation categories in one pass."""
     selected_farms = normalize_farms(farms)
@@ -523,6 +596,8 @@ def build_stock_forecast_heads_index(
             fiscal_year=fiscal_year,
             today=reference_today,
             stock_groups=groups,
+            month_from=month_from,
+            month_to=month_to,
         )
 
     heads: dict[str, dict[str, dict[str, dict[str, int]]]] = {
@@ -535,7 +610,6 @@ def build_stock_forecast_heads_index(
                 db,
                 farms=[farm],
                 stock_group=stock_group,
-                fiscal_year=fiscal_year,
                 shared=shared,
             )
             for row in rows:
@@ -554,6 +628,8 @@ def build_stock_forecasts_page_report(
     stock_group: str | None = None,
     fiscal_year: int | None = None,
     today: dt.date | None = None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[str, Any]:
     """Stock movements and valuation forecasts in one pass (avoids duplicate work/OOM)."""
     from app.services.stock_valuation_forecasts import (
@@ -564,24 +640,23 @@ def build_stock_forecasts_page_report(
     group = normalize_stock_group(stock_group)
     reference_today = today or dt.date.today()
 
-    year_options = available_fiscal_years()
-    year = fiscal_year if fiscal_year is not None else year_options[0]
-    if year not in year_options:
-        year = year_options[0]
-
     if not selected_farms:
         empty_stock = build_stock_forecasts_report(
             db,
             farms=[],
             stock_group=group,
-            fiscal_year=year,
+            fiscal_year=fiscal_year,
             today=reference_today,
+            month_from=month_from,
+            month_to=month_to,
         )
         empty_valuation = build_stock_valuation_forecasts_report(
             db,
             farms=[],
-            fiscal_year=year,
+            fiscal_year=fiscal_year,
             today=reference_today,
+            month_from=month_from,
+            month_to=month_to,
         )
         return {
             "stock_forecasts": empty_stock,
@@ -591,31 +666,39 @@ def build_stock_forecasts_page_report(
     shared = _build_forecast_shared_context(
         db,
         farms=selected_farms,
-        fiscal_year=year,
+        fiscal_year=fiscal_year,
         today=reference_today,
+        month_from=month_from,
+        month_to=month_to,
     )
     forecast_heads = build_stock_forecast_heads_index(
         db,
         farms=selected_farms,
-        fiscal_year=year,
+        fiscal_year=fiscal_year,
         today=reference_today,
         shared=shared,
+        month_from=month_from,
+        month_to=month_to,
     )
     stock_report = build_stock_forecasts_report(
         db,
         farms=selected_farms,
         stock_group=group,
-        fiscal_year=year,
+        fiscal_year=fiscal_year,
         today=reference_today,
         shared=shared,
+        month_from=month_from,
+        month_to=month_to,
     )
     valuation_report = build_stock_valuation_forecasts_report(
         db,
         farms=selected_farms,
-        fiscal_year=year,
+        fiscal_year=fiscal_year,
         today=reference_today,
         shared=shared,
         forecast_heads=forecast_heads,
+        month_from=month_from,
+        month_to=month_to,
     )
     return {
         "stock_forecasts": stock_report,
@@ -631,6 +714,8 @@ def build_stock_forecasts_report(
     fiscal_year: int | None = None,
     today: dt.date | None = None,
     shared: _ForecastSharedContext | None = None,
+    month_from: dt.date | None = None,
+    month_to: dt.date | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     group = normalize_stock_group(stock_group)
@@ -639,24 +724,26 @@ def build_stock_forecasts_report(
     last_actual_month = _subtract_month(current_month)
 
     year_options = available_fiscal_years()
-    year = fiscal_year if fiscal_year is not None else year_options[0]
-    if year not in year_options:
-        year = year_options[0]
-
-    fy_start_month, fy_end_month = _fiscal_year_month_range(year)
+    range_start, range_end, slider_min, slider_max = resolve_stock_forecast_window(
+        fiscal_year=fiscal_year,
+        month_from=month_from,
+        month_to=month_to,
+    )
 
     empty: dict[str, Any] = {
         "rows": [],
         "sales_reasons": list(SALES_TABLE_REASON_ORDER),
         "stock_group": group,
-        "date_bounds": {
-            "min": fy_start_month.isoformat(),
-            "max": _last_day_of_month(fy_end_month).isoformat(),
-        },
-        "fiscal_year_options": year_options,
-        "selected_fiscal_year": year,
-        "actual_cutoff": last_actual_month.isoformat(),
-        "projected_from": current_month.isoformat(),
+        **_period_payload(
+            year_options=year_options,
+            fiscal_year=fiscal_year,
+            range_start=range_start,
+            range_end=range_end,
+            slider_min=slider_min,
+            slider_max=slider_max,
+            last_actual_month=last_actual_month,
+            current_month=current_month,
+        ),
     }
 
     if not selected_farms:
@@ -666,14 +753,15 @@ def build_stock_forecasts_report(
         shared = _build_forecast_shared_context(
             db,
             farms=selected_farms,
-            fiscal_year=year,
+            fiscal_year=fiscal_year,
             today=reference_today,
+            month_from=month_from,
+            month_to=month_to,
         )
     combined = _build_stock_forecast_rows(
         db,
         farms=selected_farms,
         stock_group=group,
-        fiscal_year=year,
         shared=shared,
     )
 
@@ -681,12 +769,14 @@ def build_stock_forecasts_report(
         "rows": combined,
         "sales_reasons": list(SALES_TABLE_REASON_ORDER),
         "stock_group": group,
-        "date_bounds": {
-            "min": fy_start_month.isoformat(),
-            "max": _last_day_of_month(fy_end_month).isoformat(),
-        },
-        "fiscal_year_options": year_options,
-        "selected_fiscal_year": year,
-        "actual_cutoff": shared.last_actual_month.isoformat(),
-        "projected_from": shared.current_month.isoformat(),
+        **_period_payload(
+            year_options=year_options,
+            fiscal_year=fiscal_year,
+            range_start=shared.range_start_month,
+            range_end=shared.range_end_month,
+            slider_min=shared.slider_min_month,
+            slider_max=shared.slider_max_month,
+            last_actual_month=shared.last_actual_month,
+            current_month=shared.current_month,
+        ),
     }
