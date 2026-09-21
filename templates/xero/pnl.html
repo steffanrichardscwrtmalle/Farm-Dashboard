@@ -291,7 +291,7 @@
       Show forecast
     </label>
     <div class="export-actions">
-      <button type="button" class="secondary" id="export-csv-btn">Export CSV</button>
+      <button type="button" class="secondary" id="export-xlsx-btn">Export XLSX</button>
       <button type="button" class="secondary" id="export-pdf-btn">Export PDF</button>
     </div>
     <div class="range-panel" id="range-panel" hidden>
@@ -1065,103 +1065,533 @@
       return `pnl-${biz}-fy${fy}${suffix}${forecast}`.replace(/\s+/g, "");
     }
 
-    function csvEscape(value) {
-      const s = String(value ?? "");
-      if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-      return s;
+    const XLSX_TEXT = "1F2933";
+    const XLSX_MUTED = "5F6B7A";
+    const XLSX_DANGER = "B42318";
+    const XLSX_BORDER = "D8DEE4";
+    const XLSX_PROFIT_BORDER = "CBD5E1";
+    const XLSX_FONT = "Segoe UI";
+    const XLSX_FMT_GBP = '"£"#,##0;"£"-#,##0';
+    const XLSX_FMT_LITRES = "#,##0;-#,##0";
+    const XLSX_FMT_PPL = "0.00;-0.00";
+    const XLSX_HEADER_FILL = {
+      label: "F8FAFC",
+      monthA: "D9E8F6",
+      monthB: "E5E7EB",
+      monthAForecast: "F0E6D4",
+      monthBForecast: "E8DCC8",
+      total: "FED7AA",
+      ppl: "BBF7D0",
+      budget: "FDE68A",
+      budgetPpl: "99F6E4",
+      diff: "FBCFE8",
+      diffPpl: "F5D0FE",
+    };
+    const XLSX_BODY_FILL = {
+      label: "FFFFFF",
+      dataLabel: "EEF6FF",
+      profitLabel: "F8FAFC",
+      monthA: "E8F1FA",
+      monthB: "F1F3F5",
+      monthAForecast: "FAF3E8",
+      monthBForecast: "F3EBE0",
+      total: "FFEDD5",
+      ppl: "DCFCE7",
+      budget: "FEF3C7",
+      budgetPpl: "CCFBF1",
+      diff: "FCE7F3",
+      diffPpl: "FAE8FF",
+    };
+
+    let excelJsPromise = null;
+
+    function ensureExcelJS() {
+      if (typeof ExcelJS !== "undefined") return Promise.resolve();
+      if (excelJsPromise) return excelJsPromise;
+      excelJsPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
+        script.crossOrigin = "anonymous";
+        script.onload = () => {
+          if (typeof ExcelJS === "undefined") {
+            excelJsPromise = null;
+            reject(new Error("ExcelJS missing"));
+            return;
+          }
+          resolve();
+        };
+        script.onerror = () => {
+          excelJsPromise = null;
+          reject(new Error("ExcelJS failed to load"));
+        };
+        document.head.appendChild(script);
+      });
+      return excelJsPromise;
     }
 
-    function exportCsv() {
+    function xlsxArgb(hex) {
+      return "FF" + hex;
+    }
+
+    function xlsxFill(hex) {
+      const argb = xlsxArgb(hex);
+      return { type: "pattern", pattern: "solid", fgColor: { argb }, bgColor: { argb } };
+    }
+
+    function xlsxFade(hex, opacity) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      const mix = (channel) => Math.round(channel * opacity + 255 * (1 - opacity));
+      return [mix(r), mix(g), mix(b)].map(channel => channel.toString(16).padStart(2, "0")).join("").toUpperCase();
+    }
+
+    function xlsxMaybeFade(hex, faded) {
+      return faded ? xlsxFade(hex, 0.45) : hex;
+    }
+
+    function xlsxBottomBorder(faded) {
+      return {
+        bottom: { style: "thin", color: { argb: xlsxArgb(xlsxMaybeFade(XLSX_BORDER, faded)) } },
+      };
+    }
+
+    function xlsxProfitBorder() {
+      return {
+        top: { style: "thin", color: { argb: xlsxArgb(XLSX_PROFIT_BORDER) } },
+        bottom: { style: "thin", color: { argb: xlsxArgb(XLSX_BORDER) } },
+      };
+    }
+
+    function xlsxMonthFillKey(index, monthIsoValue) {
+      const forecast = isForecastMonth(monthIsoValue);
+      const alt = index % 2 === 0 ? "A" : "B";
+      if (forecast) return alt === "A" ? "monthAForecast" : "monthBForecast";
+      return alt === "A" ? "monthA" : "monthB";
+    }
+
+    function xlsxHeaderFill(col) {
+      if (col.kind === "label") return XLSX_HEADER_FILL.label;
+      if (col.kind === "month") return XLSX_HEADER_FILL[xlsxMonthFillKey(col.index, col.month)];
+      return XLSX_HEADER_FILL[col.kind];
+    }
+
+    function xlsxBodyFill(col, role) {
+      if (col.kind === "label") {
+        if (role === "data") return XLSX_BODY_FILL.dataLabel;
+        if (role === "profit") return XLSX_BODY_FILL.profitLabel;
+        return XLSX_BODY_FILL.label;
+      }
+      if (col.kind === "month") return XLSX_BODY_FILL[xlsxMonthFillKey(col.index, col.month)];
+      return XLSX_BODY_FILL[col.kind];
+    }
+
+    function buildExportColumns(months, includeBudget) {
+      const cols = [
+        { header: "Group", kind: "label" },
+        { header: "Heading", kind: "label" },
+      ];
+      months.forEach((month, index) => {
+        cols.push({
+          header: month.month_label,
+          kind: "month",
+          index,
+          month: month.month,
+          forecast: isForecastMonth(month.month),
+        });
+      });
+      cols.push({ header: "Total", kind: "total" });
+      cols.push({ header: "PPL", kind: "ppl" });
+      if (includeBudget) {
+        cols.push({ header: "Budget", kind: "budget" });
+        cols.push({ header: "Budget PPL", kind: "budgetPpl" });
+        cols.push({ header: "Diff", kind: "diff" });
+        cols.push({ header: "Diff PPL", kind: "diffPpl" });
+      }
+      return cols;
+    }
+
+    function styleXlsxCell(cell, options) {
+      cell.value = options.value;
+      cell.fill = xlsxFill(options.fill);
+      cell.font = {
+        name: XLSX_FONT,
+        size: options.size || 10,
+        bold: !!options.bold,
+        italic: !!options.italic,
+        underline: options.underline ? "single" : false,
+        color: { argb: xlsxArgb(options.fontColor || XLSX_TEXT) },
+      };
+      cell.alignment = {
+        horizontal: options.align || "left",
+        vertical: "middle",
+        wrapText: false,
+      };
+      cell.border = options.border || {};
+      if (options.numFmt) cell.numFmt = options.numFmt;
+    }
+
+    function xlsxAmountFont(value, useGbp, faded) {
+      const color = useGbp && value < 0 ? XLSX_DANGER : XLSX_TEXT;
+      return xlsxMaybeFade(color, faded);
+    }
+
+    function xlsxDiffFont(value, higherIsBetter, faded) {
+      const color = unfavourableDiffClass(value, higherIsBetter) ? XLSX_DANGER : XLSX_TEXT;
+      return xlsxMaybeFade(color, faded);
+    }
+
+    function writeXlsxAmount(cell, value, { useGbp, fill, faded, bold, border }) {
+      const n = Number(value);
+      const safe = Number.isFinite(n) ? n : 0;
+      styleXlsxCell(cell, {
+        value: safe,
+        fill: xlsxMaybeFade(fill, faded),
+        fontColor: xlsxAmountFont(safe, useGbp, faded),
+        bold,
+        align: "right",
+        numFmt: useGbp ? XLSX_FMT_GBP : XLSX_FMT_LITRES,
+        border,
+      });
+    }
+
+    function writeXlsxPpl(cell, amount, litres, { forceDash, fill, faded, bold, border }) {
+      const n = forceDash ? null : pplNumber(amount, litres);
+      styleXlsxCell(cell, {
+        value: n == null ? "—" : n,
+        fill: xlsxMaybeFade(fill, faded),
+        fontColor: xlsxMaybeFade(XLSX_TEXT, faded),
+        bold,
+        align: "right",
+        numFmt: n == null ? "" : XLSX_FMT_PPL,
+        border,
+      });
+    }
+
+    function writeXlsxDiff(cell, value, { useGbp, higherIsBetter, fill, faded, bold, border }) {
+      const n = Number(value);
+      const safe = Number.isFinite(n) ? n : 0;
+      styleXlsxCell(cell, {
+        value: safe,
+        fill: xlsxMaybeFade(fill, faded),
+        fontColor: xlsxDiffFont(safe, higherIsBetter, faded),
+        bold,
+        align: "right",
+        numFmt: useGbp ? XLSX_FMT_GBP : XLSX_FMT_LITRES,
+        border,
+      });
+    }
+
+    function writeXlsxDiffPpl(cell, total, actualLitres, budget, budgetLitres, options) {
+      const actualPpl = options.forceDash ? null : pplNumber(total, actualLitres);
+      const budgetPpl = options.forceDash ? null : pplNumber(budget, budgetLitres);
+      const diffPpl = (actualPpl == null || budgetPpl == null) ? null : actualPpl - budgetPpl;
+      styleXlsxCell(cell, {
+        value: diffPpl == null ? "—" : diffPpl,
+        fill: xlsxMaybeFade(options.fill, options.faded),
+        fontColor: diffPpl == null
+          ? xlsxMaybeFade(XLSX_TEXT, options.faded)
+          : xlsxDiffFont(diffPpl, options.higherIsBetter, options.faded),
+        bold: options.bold,
+        align: "right",
+        numFmt: diffPpl == null ? "" : XLSX_FMT_PPL,
+        border: options.border,
+      });
+    }
+
+    function writeXlsxBudgetCells(ws, excelRow, cols, spec) {
+      const budgetCol = cols.findIndex(col => col.kind === "budget");
+      if (budgetCol < 0) return;
+      const useGbp = spec.isCurrency && !spec.isLitres;
+      const border = spec.border;
+      const base = { faded: spec.faded, bold: spec.bold, border };
+      writeXlsxAmount(ws.getCell(excelRow, budgetCol + 1), spec.budget, {
+        ...base,
+        useGbp,
+        fill: xlsxBodyFill(cols[budgetCol], spec.role),
+      });
+      writeXlsxPpl(ws.getCell(excelRow, budgetCol + 2), spec.budget, spec.budgetLitres, {
+        ...base,
+        forceDash: spec.isLitres,
+        fill: xlsxBodyFill(cols[budgetCol + 1], spec.role),
+      });
+      writeXlsxDiff(ws.getCell(excelRow, budgetCol + 3), spec.total - spec.budget, {
+        ...base,
+        useGbp,
+        higherIsBetter: spec.higherIsBetter,
+        fill: xlsxBodyFill(cols[budgetCol + 2], spec.role),
+      });
+      writeXlsxDiffPpl(ws.getCell(excelRow, budgetCol + 4), spec.total, spec.actualLitres, spec.budget, spec.budgetLitres, {
+        ...base,
+        forceDash: spec.isLitres,
+        higherIsBetter: spec.higherIsBetter,
+        fill: xlsxBodyFill(cols[budgetCol + 3], spec.role),
+      });
+    }
+
+    function excelHeaderEscape(value) {
+      return String(value || "").replace(/&/g, "&&");
+    }
+
+    async function buildPnlXlsx(ctx) {
+      const { months, rows, litres, budgetLitres, summary } = ctx;
+      const includeBudget = showBudget();
+      const cols = buildExportColumns(months, includeBudget);
+      const spans = computeGroupSpans(rows);
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "Farm Dashboard";
+      workbook.created = new Date();
+      const ws = workbook.addWorksheet("P&L", {
+        properties: { defaultRowHeight: 17 },
+        views: [{
+          state: "frozen",
+          xSplit: 2,
+          ySplit: 1,
+          topLeftCell: "C2",
+          activeCell: "C2",
+          showGridLines: false,
+        }],
+        pageSetup: {
+          orientation: "landscape",
+          fitToPage: true,
+          fitToWidth: 1,
+          fitToHeight: 0,
+          paperSize: 9,
+          printTitlesRow: "1:1",
+        },
+      });
+      const meta = document.getElementById("meta-line")?.textContent || "Profit & Loss";
+      ws.headerFooter = {
+        oddHeader: `&L&8&K${XLSX_MUTED}${excelHeaderEscape(meta)}`,
+        oddFooter: "&R&8Page &P of &N",
+      };
+
+      cols.forEach((col, index) => {
+        styleXlsxCell(ws.getCell(1, index + 1), {
+          value: String(col.header || "").toUpperCase(),
+          fill: xlsxHeaderFill(col),
+          fontColor: XLSX_MUTED,
+          italic: !!col.forecast,
+          size: 9,
+          align: col.kind === "label" ? "left" : "right",
+          border: xlsxBottomBorder(false),
+        });
+      });
+      ws.getRow(1).height = 22;
+
+      const merges = [];
+      let excelRow = 2;
+      let lastBand = null;
+      rows.forEach((row, idx) => {
+        const band = row.band || "";
+        if (band !== lastBand) {
+          cols.forEach((col, index) => {
+            const isBandLabel = index === 0;
+            styleXlsxCell(ws.getCell(excelRow, index + 1), {
+              value: isBandLabel ? band : "",
+              fill: xlsxBodyFill(col, "band"),
+              fontColor: XLSX_TEXT,
+              bold: isBandLabel,
+              underline: isBandLabel,
+              size: 10,
+              align: "left",
+              border: {},
+            });
+          });
+          merges.push([excelRow, 1, excelRow, 2]);
+          ws.getRow(excelRow).height = 20;
+          excelRow += 1;
+          lastBand = band;
+        }
+
+        const span = spans[idx];
+        const isCurrency = row.item_type !== "Data";
+        const isLitres = row.item_type === "Data" && (row.heading || "").toLowerCase().includes("litre");
+        const role = row.item_type === "Data" ? "data" : "body";
+        const amounts = amountByMonth(row);
+        const total = rowTotal(row, months);
+        const budget = rowBudgetTotal(row, months);
+        const faded = !isLitres && Math.abs(total) < 0.005 && Math.abs(budget) < 0.005;
+        const border = xlsxBottomBorder(faded);
+        const useGbp = isCurrency && !isLitres;
+        const higherIsBetter = band === "Sales" || band === "Valuation Change" || isLitres;
+
+        cols.forEach((col, index) => {
+          const cell = ws.getCell(excelRow, index + 1);
+          if (col.kind === "label") {
+            const text = index === 0
+              ? (span.showGroup ? (row.group || "") : "")
+              : (row.heading || "");
+            styleXlsxCell(cell, {
+              value: text,
+              fill: xlsxMaybeFade(xlsxBodyFill(col, role), faded),
+              fontColor: xlsxMaybeFade(XLSX_TEXT, faded),
+              align: "left",
+              border,
+            });
+            return;
+          }
+          if (col.kind === "month") {
+            writeXlsxAmount(cell, amounts.get(col.month) || 0, {
+              useGbp,
+              fill: xlsxBodyFill(col, role),
+              faded,
+              border,
+            });
+            return;
+          }
+          if (col.kind === "total") {
+            writeXlsxAmount(cell, total, { useGbp, fill: xlsxBodyFill(col, role), faded, border });
+            return;
+          }
+          if (col.kind === "ppl") {
+            writeXlsxPpl(cell, total, litres, {
+              forceDash: isLitres,
+              fill: xlsxBodyFill(col, role),
+              faded,
+              border,
+            });
+          }
+        });
+        writeXlsxBudgetCells(ws, excelRow, cols, {
+          budget,
+          total,
+          isCurrency,
+          isLitres,
+          actualLitres: litres,
+          budgetLitres,
+          higherIsBetter,
+          role,
+          faded,
+          border,
+        });
+        if (span.showGroup && span.group > 1) {
+          merges.push([excelRow, 1, excelRow + span.group - 1, 1]);
+        }
+        excelRow += 1;
+      });
+
+      summary.rows.forEach(row => {
+        const border = xlsxProfitBorder();
+        const higherIsBetter = true;
+        cols.forEach((col, index) => {
+          const cell = ws.getCell(excelRow, index + 1);
+          if (col.kind === "label") {
+            styleXlsxCell(cell, {
+              value: index === 0 ? row.label : "",
+              fill: xlsxBodyFill(col, "profit"),
+              fontColor: XLSX_TEXT,
+              bold: true,
+              align: "left",
+              border,
+            });
+            return;
+          }
+          if (col.kind === "month") {
+            writeXlsxAmount(cell, row.values[col.index] || 0, {
+              useGbp: true,
+              fill: xlsxBodyFill(col, "profit"),
+              bold: true,
+              border,
+            });
+            return;
+          }
+          if (col.kind === "total") {
+            writeXlsxAmount(cell, row.total, {
+              useGbp: true,
+              fill: xlsxBodyFill(col, "profit"),
+              bold: true,
+              border,
+            });
+            return;
+          }
+          if (col.kind === "ppl") {
+            writeXlsxPpl(cell, row.total, summary.litresYear, {
+              fill: xlsxBodyFill(col, "profit"),
+              bold: true,
+              border,
+            });
+          }
+        });
+        writeXlsxBudgetCells(ws, excelRow, cols, {
+          budget: row.budget,
+          total: row.total,
+          isCurrency: true,
+          isLitres: false,
+          actualLitres: summary.litresYear,
+          budgetLitres: summary.budgetLitresYear,
+          higherIsBetter,
+          role: "profit",
+          faded: false,
+          bold: true,
+          border,
+        });
+        merges.push([excelRow, 1, excelRow, 2]);
+        excelRow += 1;
+      });
+
+      merges.forEach(([r1, c1, r2, c2]) => {
+        if (r1 !== r2 || c1 !== c2) ws.mergeCells(r1, c1, r2, c2);
+      });
+
+      let groupWidth = 16;
+      let headingWidth = 24;
+      rows.forEach(row => {
+        groupWidth = Math.max(groupWidth, (row.group || "").length + 2);
+        headingWidth = Math.max(headingWidth, (row.heading || "").length + 2, (row.band || "").length + 2);
+      });
+      summary.rows.forEach(row => {
+        const need = row.label.length + 2;
+        if (need > groupWidth + headingWidth) headingWidth += need - (groupWidth + headingWidth);
+      });
+      groupWidth = Math.min(groupWidth, 28);
+      headingWidth = Math.min(Math.max(headingWidth, 24), 52);
+      cols.forEach((col, index) => {
+        const column = ws.getColumn(index + 1);
+        if (index === 0) column.width = groupWidth;
+        else if (index === 1) column.width = headingWidth;
+        else if (col.kind === "month") column.width = Math.max(11, String(col.header || "").length + 2);
+        else if (col.kind === "ppl" || col.kind === "budgetPpl" || col.kind === "diffPpl") column.width = 12;
+        else column.width = 14;
+      });
+      return workbook.xlsx.writeBuffer();
+    }
+
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    async function exportXlsx() {
       const ctx = getDisplayContext();
       if (!ctx) {
         alert("Nothing to export yet.");
         return;
       }
-      const { months, rows, litres, budgetLitres, summary } = ctx;
-      const includeBudget = showBudget();
-      const headers = [
-        "Band",
-        "Group",
-        "Heading",
-        ...months.map(m => m.month_label),
-        "Total",
-        "PPL",
-      ];
-      if (includeBudget) headers.push("Budget", "Budget PPL", "Diff", "Diff PPL");
-
-      const lines = [headers.map(csvEscape).join(",")];
-      let lastBand = null;
-      rows.forEach(row => {
-        const band = row.band || "";
-        if (band !== lastBand) {
-          const bandRow = [band, "", "", ...months.map(() => ""), "", ""];
-          if (includeBudget) bandRow.push("", "", "", "");
-          lines.push(bandRow.map(csvEscape).join(","));
-          lastBand = band;
-        }
-        const isLitres = row.item_type === "Data" && (row.heading || "").toLowerCase().includes("litre");
-        const amounts = amountByMonth(row);
-        const total = rowTotal(row, months);
-        const budget = rowBudgetTotal(row, months);
-        const cells = [
-          "",
-          row.group || "",
-          row.heading || "",
-          ...months.map(m => {
-            const n = amounts.get(m.month) || 0;
-            return isLitres ? litresFmt.format(n) : String(Math.round(n));
-          }),
-          isLitres ? litresFmt.format(total) : String(Math.round(total)),
-          isLitres ? "" : formatPpl(total, litres),
-        ];
-        if (includeBudget) {
-          const actualPpl = pplNumber(total, litres);
-          const budgetPpl = pplNumber(budget, budgetLitres);
-          const diff = total - budget;
-          const diffPpl = (actualPpl == null || budgetPpl == null) ? "" : pplFmt.format(actualPpl - budgetPpl);
-          cells.push(
-            isLitres ? litresFmt.format(budget) : String(Math.round(budget)),
-            isLitres ? "" : formatPpl(budget, budgetLitres),
-            isLitres ? litresFmt.format(diff) : String(Math.round(diff)),
-            isLitres ? "" : diffPpl,
-          );
-        }
-        lines.push(cells.map(csvEscape).join(","));
-      });
-
-      summary.rows.forEach(row => {
-        const cells = [
-          "",
-          "",
-          row.label,
-          ...row.values.map(v => String(Math.round(v))),
-          String(Math.round(row.total)),
-          formatPpl(row.total, summary.litresYear),
-        ];
-        if (includeBudget) {
-          const actualPpl = pplNumber(row.total, summary.litresYear);
-          const budgetPpl = pplNumber(row.budget, summary.budgetLitresYear);
-          const diff = row.total - row.budget;
-          const diffPpl = (actualPpl == null || budgetPpl == null) ? "" : pplFmt.format(actualPpl - budgetPpl);
-          cells.push(
-            String(Math.round(row.budget)),
-            formatPpl(row.budget, summary.budgetLitresYear),
-            String(Math.round(diff)),
-            diffPpl,
-          );
-        }
-        lines.push(cells.map(csvEscape).join(","));
-      });
-
-      const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${exportBasename()}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const btn = document.getElementById("export-xlsx-btn");
+      btn.disabled = true;
+      const original = btn.textContent;
+      btn.textContent = "Generating…";
+      try {
+        await ensureExcelJS();
+        const buffer = await buildPnlXlsx(ctx);
+        downloadBlob(
+          new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+          `${exportBasename()}.xlsx`,
+        );
+      } catch (err) {
+        console.error(err);
+        alert("Could not generate the Excel file. Check your connection and try again.");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
     }
 
     function pdfReferenceTableWidth(printArea) {
@@ -1284,7 +1714,7 @@
         pdf.save(`${exportBasename()}.pdf`);
       } catch (err) {
         console.error(err);
-        alert("Could not generate PDF. Try Export CSV, or use the browser Print → Save as PDF.");
+        alert("Could not generate PDF. Try Export XLSX, or use the browser Print → Save as PDF.");
       } finally {
         printArea.classList.remove("pdf-exporting");
         btn.disabled = false;
@@ -1336,7 +1766,7 @@
       updateMetaLine();
       renderPnl();
     });
-    document.getElementById("export-csv-btn").addEventListener("click", exportCsv);
+    document.getElementById("export-xlsx-btn").addEventListener("click", exportXlsx);
     document.getElementById("export-pdf-btn").addEventListener("click", exportPdf);
     loadPnl();
   </script>
