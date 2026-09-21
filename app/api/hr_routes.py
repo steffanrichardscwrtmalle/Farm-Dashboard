@@ -55,6 +55,7 @@ from app.services.hr_service import (
     send_existing_employee,
     set_employee_archived,
     update_employee,
+    update_employee_holiday_hours_per_day,
 )
 from app.services.timesheet_service import (
     TimesheetError,
@@ -84,6 +85,7 @@ class EnrollStaffBody(BaseModel):
     start_date: dt.date
     working_days_per_week: float | None = Field(default=None, ge=0, le=7)
     working_hours_per_day: float | None = Field(default=None, ge=0, le=24)
+    holiday_hours_per_day: float | None = Field(default=8, ge=0, le=24)
     holiday_year_end: dt.date | None = None
     annual_leave_days: float | None = Field(default=28, ge=0, le=366)
     holidays_remaining: float | None = Field(default=None, ge=0, le=366)
@@ -121,6 +123,7 @@ class DraftStaffBody(BaseModel):
     start_date: dt.date
     working_days_per_week: float | None = Field(default=None, ge=0, le=7)
     working_hours_per_day: float | None = Field(default=None, ge=0, le=24)
+    holiday_hours_per_day: float | None = Field(default=8, ge=0, le=24)
     holiday_year_end: dt.date | None = None
     annual_leave_days: float | None = Field(default=28, ge=0, le=366)
     holidays_remaining: float | None = Field(default=None, ge=0, le=366)
@@ -152,6 +155,7 @@ class TimesheetRowBody(BaseModel):
     employee_id: int
     hours_week_1: float | None = None
     hours_week_2: float | None = None
+    holiday_days: float | None = None
     holiday_hours: float | None = None
     dinner_break_hours: float | None = None
     mileage: float | None = None
@@ -350,6 +354,25 @@ def api_update_staff(
         raise HTTPException(status_code=400, detail="Invalid business.")
     try:
         return update_employee(db, employee_id, body.model_dump(), user)
+    except HRServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class HolidayHoursPerDayBody(BaseModel):
+    holiday_hours_per_day: float = Field(ge=0, le=24)
+
+
+@router.patch("/staff/{employee_id}/holiday-hours-per-day")
+def api_update_holiday_hours_per_day(
+    employee_id: int,
+    body: HolidayHoursPerDayBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_HR)),
+):
+    try:
+        return update_employee_holiday_hours_per_day(
+            db, employee_id, body.holiday_hours_per_day
+        )
     except HRServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -24,6 +24,7 @@ from app.models import (
     CONTRACT_STATUS_COMPLETED,
     CONTRACT_STATUS_PENDING,
     DEFAULT_ANNUAL_LEAVE_DAYS,
+    DEFAULT_HOLIDAY_HOURS_PER_DAY,
     DOCUMENT_TYPE_OPTIONS,
     EMPLOYEE_STATUS_ACTIVE,
     EMPLOYEE_STATUS_ARCHIVED,
@@ -256,6 +257,7 @@ def _build_employee(
         working_hours_per_day=payload.get("working_hours_per_day"),
         holiday_year_end=_holiday_year_end_from_payload(payload),
         annual_leave_days=_annual_leave_days(payload),
+        holiday_hours_per_day=_holiday_hours_per_day_value(payload),
         holidays_remaining=_optional_non_negative(payload.get("holidays_remaining")),
         accommodation_deduction=_optional_non_negative(
             payload.get("accommodation_deduction")
@@ -323,6 +325,33 @@ def _annual_leave_days(payload: dict[str, Any]) -> float:
     if days < 0:
         raise HRServiceError("Annual leave days cannot be negative.")
     return days
+
+
+def _holiday_hours_per_day_value(
+    payload: dict[str, Any], *, existing: float | None = None
+) -> float:
+    if "holiday_hours_per_day" not in payload:
+        if existing is not None:
+            return float(existing)
+        return DEFAULT_HOLIDAY_HOURS_PER_DAY
+    value = payload.get("holiday_hours_per_day")
+    if value in (None, ""):
+        return DEFAULT_HOLIDAY_HOURS_PER_DAY
+    try:
+        hours = float(value)
+    except (TypeError, ValueError) as exc:
+        raise HRServiceError("Hours per day holiday must be a number.") from exc
+    if hours < 0:
+        raise HRServiceError("Hours per day holiday cannot be negative.")
+    if hours > 24:
+        raise HRServiceError("Hours per day holiday cannot be more than 24.")
+    return hours
+
+
+def holiday_hours_per_day(employee: Employee) -> float:
+    if employee.holiday_hours_per_day is None:
+        return DEFAULT_HOLIDAY_HOURS_PER_DAY
+    return float(employee.holiday_hours_per_day)
 
 
 def _holiday_year_end_from_payload(payload: dict[str, Any]) -> dt.date | None:
@@ -718,6 +747,10 @@ def update_employee(
         employee.holiday_year_end = _holiday_year_end_from_payload(payload)
     if "annual_leave_days" in payload:
         employee.annual_leave_days = _annual_leave_days(payload)
+    if "holiday_hours_per_day" in payload:
+        employee.holiday_hours_per_day = _holiday_hours_per_day_value(
+            payload, existing=employee.holiday_hours_per_day
+        )
     if "holidays_remaining" in payload:
         employee.holidays_remaining = _optional_non_negative(
             payload.get("holidays_remaining")
@@ -764,6 +797,22 @@ def update_employee(
     db.refresh(employee)
     logger.info("Updated draft employee id=%s", employee.id)
     return {"employee": _employee_detail(employee, include_sensitive=False)}
+
+
+def update_employee_holiday_hours_per_day(
+    db: Session, employee_id: int, hours: float
+) -> dict[str, Any]:
+    employee = db.get(Employee, employee_id)
+    if employee is None:
+        raise HRServiceError("Employee not found.")
+    if is_self_employed(employee.employment_type):
+        raise HRServiceError("Hours per day holiday only applies to employed staff.")
+    employee.holiday_hours_per_day = _holiday_hours_per_day_value(
+        {"holiday_hours_per_day": hours}
+    )
+    db.commit()
+    db.refresh(employee)
+    return {"holiday_hours_per_day": holiday_hours_per_day(employee)}
 
 
 def send_existing_employee(
@@ -1076,6 +1125,7 @@ def _employee_detail(employee: Employee, *, include_sensitive: bool) -> dict[str
             "pay_type": employee.pay_type,
             "working_days_per_week": employee.working_days_per_week,
             "working_hours_per_day": employee.working_hours_per_day,
+            "holiday_hours_per_day": holiday_hours_per_day(employee),
             "holidays_remaining": employee.holidays_remaining,
             "accommodation_deduction": employee.accommodation_deduction,
             "accommodation_cadence": normalize_accommodation_cadence(

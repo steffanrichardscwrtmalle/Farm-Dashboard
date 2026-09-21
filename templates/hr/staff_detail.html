@@ -19,6 +19,10 @@
       letter-spacing: 0.02em;
     }
     .detail-item .value { font-size: 0.95rem; }
+    .detail-item input[type="number"] {
+      width: 6.5rem;
+      margin: 0;
+    }
     .detail-section {
       grid-column: 1 / -1;
       margin: 0.5rem 0 0;
@@ -181,6 +185,51 @@
     return amount + ' / ' + period;
   }
 
+  function holidayHoursPerDayItem(emp) {
+    if (emp.employment_type === 'self_employed') return '';
+    const value = emp.holiday_hours_per_day == null ? 8 : emp.holiday_hours_per_day;
+    return detailItem(
+      'Hours per day holiday',
+      '<input type="number" id="holiday-hours-per-day" min="0" max="24" step="0.25" value="' +
+        escapeHtml(value) + '">'
+    );
+  }
+
+  let holidayHoursTimer = null;
+  function bindHolidayHoursInput() {
+    const input = document.getElementById('holiday-hours-per-day');
+    if (!input) return;
+    input.addEventListener('change', saveHolidayHoursPerDay);
+    input.addEventListener('input', function () {
+      clearTimeout(holidayHoursTimer);
+      holidayHoursTimer = setTimeout(saveHolidayHoursPerDay, 700);
+    });
+  }
+
+  async function saveHolidayHoursPerDay() {
+    const input = document.getElementById('holiday-hours-per-day');
+    if (!input) return;
+    const raw = input.value;
+    const n = raw === '' ? 8 : Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 24) {
+      showMessage('Hours per day holiday must be between 0 and 24.', true);
+      return;
+    }
+    try {
+      const res = await fetch('/api/hr/staff/' + employeeId + '/holiday-hours-per-day', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ holiday_hours_per_day: n })
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.detail || 'Could not save hours per day holiday.');
+      if (data.holiday_hours_per_day != null) input.value = data.holiday_hours_per_day;
+      showMessage('Saved hours per day holiday.', false);
+    } catch (err) {
+      showMessage(err.message, true);
+    }
+  }
+
   function formatDateUk(value) {
     if (!value) return '—';
     const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -279,6 +328,7 @@
       detailItem(payRateLabel(emp), sensitiveValue(emp.pay_rate, emp.has_sensitive_data)) +
       detailItem('Working days/week', escapeHtml(fmtNum(emp.working_days_per_week))) +
       detailItem('Working hours/day', escapeHtml(fmtNum(emp.working_hours_per_day))) +
+      holidayHoursPerDayItem(emp) +
       detailItem('Annual leave year end', escapeHtml(formatDateUk(emp.holiday_year_end))) +
       detailItem('Annual leave days', escapeHtml(fmtNum(emp.annual_leave_days == null ? 28 : emp.annual_leave_days))) +
       detailItem('Holidays remaining', escapeHtml(fmtNum(emp.holidays_remaining))) +
@@ -456,6 +506,7 @@
       }
       const emp = await res.json();
       renderProfile(emp);
+      bindHolidayHoursInput();
       renderContracts(emp.contracts || [], emp.employment_type === 'self_employed');
       renderDocuments(emp.documents || []);
     } catch (err) {

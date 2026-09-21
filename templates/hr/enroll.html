@@ -299,6 +299,11 @@
               Working hours per day
               <input type="number" id="working_hours_per_day" min="0" max="24" step="0.25">
             </label>
+            <label id="holiday-hours-per-day-field">
+              Hours per day holiday
+              <input type="number" id="holiday_hours_per_day" min="0" max="24" step="0.25" value="8">
+              <small class="muted">Used on time sheets: holiday hours = days holiday × this figure.</small>
+            </label>
             <label>
               Annual leave year end
               <input type="date" id="holiday_year_end">
@@ -490,6 +495,8 @@
   function updateEmploymentUI() {
     const selfEmp = isSelfEmployed();
     if (contractSection) contractSection.hidden = selfEmp;
+    const holidayHoursField = document.getElementById('holiday-hours-per-day-field');
+    if (holidayHoursField) holidayHoursField.hidden = selfEmp;
     draftBtn.style.display = selfEmp ? 'none' : '';
     if (selfEmp) {
       submitBtn.textContent = 'Save to directory';
@@ -592,6 +599,7 @@
       pay_rate: val('pay_rate') || null,
       working_days_per_week: numOrNull('working_days_per_week'),
       working_hours_per_day: numOrNull('working_hours_per_day'),
+      holiday_hours_per_day: numOrNull('holiday_hours_per_day'),
       holiday_year_end: val('holiday_year_end') || null,
       annual_leave_days: numOrNull('annual_leave_days'),
       holidays_remaining: numOrNull('holidays_remaining'),
@@ -884,6 +892,7 @@
       updatePayLabel();
       setVal('working_days_per_week', emp.working_days_per_week);
       setVal('working_hours_per_day', emp.working_hours_per_day);
+      setVal('holiday_hours_per_day', emp.holiday_hours_per_day == null ? 8 : emp.holiday_hours_per_day);
       setVal('holiday_year_end', emp.holiday_year_end);
       setVal('annual_leave_days', emp.annual_leave_days == null ? 28 : emp.annual_leave_days);
       setVal('holidays_remaining', emp.holidays_remaining);

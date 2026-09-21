@@ -78,6 +78,7 @@ def test_enroll_self_employed_saves_to_directory_without_contract(db, user):
     assert result["contract"] is None
     assert result["submission_id"] is None
     assert employee["contracts"] == []
+    assert employee["holiday_hours_per_day"] == 8
 
 
 def test_enroll_employed_requires_template(db, user):

@@ -27,6 +27,7 @@ from app.services.crypto_fields import encrypt_field
 from app.services.timesheet_service import (
     TimesheetError,
     build_timesheet_xlsx,
+    current_holiday_year_end,
     current_period_start,
     leave_year_bounds,
     list_periods,
@@ -158,6 +159,9 @@ def test_lists_current_staff_including_onboarding(db):
         "Self-employed",
     ]
     assert sheet["rows"][0]["rate_label"] == "£12.50 / hr"
+    assert sheet["rows"][0]["holiday_days"] == 0
+    assert sheet["rows"][0]["holiday_hours"] == 0
+    assert sheet["rows"][0]["holiday_hours_per_day"] == 8
     assert sheet["cadence"] == "fortnightly"
 
 
@@ -240,13 +244,14 @@ def test_salary_hours_cannot_be_overwritten(db):
             "period_start": dt.date(2026, 9, 7),
             "hours_week_1": 40,
             "hours_week_2": 38,
-            "holiday_hours": 8,
+            "holiday_days": 1,
         },
         include_rate=True,
     )
     assert saved["hours_locked"] is True
     assert saved["hours_week_1"] == 500.0
     assert saved["hours_week_2"] == 500.0
+    assert saved["holiday_days"] == 1
     assert saved["holiday_hours"] == 8
     sheet = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
     assert sheet["rows"][0]["hours_week_1"] == 500.0
@@ -254,7 +259,7 @@ def test_salary_hours_cannot_be_overwritten(db):
 
 
 def test_save_hours_and_holiday_year_total(db):
-    staff = _employee(db)
+    staff = _employee(db, holiday_year_end=dt.date(2027, 3, 31))
     saved = save_timesheet_row(
         db,
         "CM",
@@ -263,7 +268,7 @@ def test_save_hours_and_holiday_year_total(db):
             "period_start": dt.date(2026, 9, 7),
             "hours_week_1": 40,
             "hours_week_2": 32,
-            "holiday_hours": 8,
+            "holiday_days": 1,
             "dinner_break_hours": 5,
             "mileage": 22.5,
             "bonus": 50,
@@ -273,16 +278,18 @@ def test_save_hours_and_holiday_year_total(db):
             "other_remark": "Covered weekend milking",
             "holidays_remaining": 72,
             "holidays_carry_forward": 8,
-            "holiday_year_end": dt.date(2027, 3, 31),
+            "holiday_year_end": dt.date(2028, 1, 1),
         },
         include_rate=True,
     )
     assert saved["hours_week_1"] == 40
     assert saved["hours_week_2"] == 32
+    assert saved["holiday_days"] == 1
     assert saved["holiday_hours"] == 8
-    assert saved["holidays_taken"] == 8
+    assert saved["holidays_taken"] == 1
     assert saved["holidays_remaining"] == 72
     assert saved["other_remark"] == "Covered weekend milking"
+    assert saved["holiday_year_end"] == "2027-03-31"
 
     save_timesheet_row(
         db,
@@ -290,7 +297,7 @@ def test_save_hours_and_holiday_year_total(db):
         {
             "employee_id": staff.id,
             "period_start": dt.date(2026, 9, 21),
-            "holiday_hours": 16,
+            "holiday_days": 2,
             "holiday_year_end": dt.date(2027, 3, 31),
             "holidays_remaining": 56,
             "holidays_carry_forward": 8,
@@ -299,7 +306,9 @@ def test_save_hours_and_holiday_year_total(db):
     sheet = list_timesheet(
         db, "CM", period_start=dt.date(2026, 9, 21), include_rate=False
     )
-    assert sheet["rows"][0]["holidays_taken"] == 24
+    assert sheet["rows"][0]["holidays_taken"] == 3
+    assert sheet["rows"][0]["holiday_days"] == 2
+    assert sheet["rows"][0]["holiday_hours"] == 16
     assert sheet["rows"][0]["rate"] is None
 
 
@@ -363,6 +372,23 @@ def test_leave_year_bounds_from_september_year_end():
     assert end == dt.date(2027, 9, 30)
 
 
+def test_holiday_year_end_moves_forward_one_year_after_it_passes():
+    end = dt.date(2026, 8, 24)
+    assert current_holiday_year_end(end, dt.date(2026, 8, 24)) == dt.date(2026, 8, 24)
+    assert current_holiday_year_end(end, dt.date(2026, 8, 25)) == dt.date(2027, 8, 24)
+    assert current_holiday_year_end(end, dt.date(2028, 9, 1)) == dt.date(2029, 8, 24)
+
+
+def test_timesheet_year_end_comes_from_directory_and_rolls(db):
+    staff = _employee(db, holiday_year_end=dt.date(2026, 9, 20))
+    before = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
+    assert before["rows"][0]["holiday_year_end"] == "2026-09-20"
+    after = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 21))
+    assert after["rows"][0]["holiday_year_end"] == "2027-09-20"
+    db.refresh(staff)
+    assert staff.holiday_year_end == dt.date(2026, 9, 20)
+
+
 def test_remaining_resets_the_day_after_year_end(db):
     staff = _employee(
         db,
@@ -376,7 +402,7 @@ def test_remaining_resets_the_day_after_year_end(db):
         {
             "employee_id": staff.id,
             "period_start": dt.date(2026, 9, 21),
-            "holiday_hours": 4,
+            "holiday_days": 4,
         },
     )
     assert before["remaining_locked"] is False
@@ -389,12 +415,13 @@ def test_remaining_resets_the_day_after_year_end(db):
         {
             "employee_id": staff.id,
             "period_start": dt.date(2026, 10, 5),
-            "holiday_hours": 8,
+            "holiday_days": 8,
         },
     )
     assert after["remaining_locked"] is True
     assert after["holidays_taken"] == 8
     assert after["holidays_remaining"] == 20
+    assert after["holiday_year_end"] == "2027-09-30"
 
 
 def test_imported_remaining_is_kept_after_year_end(db):
@@ -483,6 +510,7 @@ def test_timesheet_xlsx_is_formatted_workbook(db):
             "period_start": dt.date(2026, 9, 7),
             "hours_week_1": 40,
             "hours_week_2": 38,
+            "holiday_days": 1.25,
             "mileage": 12.5,
             "other_remark": "Covered relief",
         },
@@ -507,6 +535,9 @@ def test_timesheet_xlsx_is_formatted_workbook(db):
     ]
     assert "Hours 7-13 Sep 2026" in headers
     assert "Hours 14-20 Sep 2026" in headers
+    days_col = headers.index("Days holiday")
+    hours_col_h = headers.index("Holiday hours")
+    assert days_col == hours_col_h - 1
     assert ws["A1"].font.bold is True
     assert ws["A3"].font.bold is True
     assert ws.freeze_panes == "C4"
@@ -517,6 +548,13 @@ def test_timesheet_xlsx_is_formatted_workbook(db):
     assert ws.cell(row=4, column=hours_col).number_format == "0.00"
     assert ws.cell(row=5, column=hours_col).value == 538.46
     assert ws.cell(row=5, column=hours_col).number_format == "£#,##0.00"
+    days_holiday_col = headers.index("Days holiday") + 1
+    holiday_hours_col = headers.index("Holiday hours") + 1
+    assert days_holiday_col == holiday_hours_col - 1
+    assert ws.cell(row=4, column=days_holiday_col).value == 1.25
+    assert ws.cell(row=4, column=holiday_hours_col).value == 10
+    assert ws.cell(row=4, column=days_holiday_col).number_format == "0.00"
+    assert ws.cell(row=4, column=holiday_hours_col).number_format == "0.00"
     mileage_col = headers.index("Mileage claimed") + 1
     assert ws.cell(row=4, column=mileage_col).value == 12.5
     assert ws.cell(row=4, column=mileage_col).number_format == "£#,##0.00"
@@ -525,4 +563,100 @@ def test_timesheet_xlsx_is_formatted_workbook(db):
     assert salary_fill.endswith("D4EDDA")
     assert contractor_fill.endswith("EFE6F7")
     assert hourly.id and salary.id and contractor.id
+
+
+def test_holiday_hours_equal_days_times_hours_per_day(db):
+    staff = _employee(db)
+    blank = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
+    assert blank["rows"][0]["holiday_days"] == 0
+    assert blank["rows"][0]["holiday_hours"] == 0
+    assert blank["rows"][0]["holiday_hours_per_day"] == 8
+
+    one_day = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "holiday_days": 1,
+        },
+    )
+    assert one_day["holiday_days"] == 1
+    assert one_day["holiday_hours"] == 8
+    assert one_day["holidays_taken"] == 1
+
+    quarter = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "holiday_days": 0.25,
+        },
+    )
+    assert quarter["holiday_days"] == 0.25
+    assert quarter["holiday_hours"] == 2
+
+    rounded = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "holiday_days": 1.3,
+        },
+    )
+    assert rounded["holiday_days"] == 1.25
+    assert rounded["holiday_hours"] == 10
+
+
+def test_custom_holiday_hours_per_day_is_used_on_timesheet(db):
+    staff = _employee(db, holiday_hours_per_day=7.5)
+    saved = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "holiday_days": 1,
+        },
+    )
+    assert saved["holiday_hours_per_day"] == 7.5
+    assert saved["holiday_days"] == 1
+    assert saved["holiday_hours"] == 7.5
+
+
+def test_hours_per_day_holiday_is_editable_for_employed_staff(db):
+    from app.services.hr_service import (
+        HRServiceError,
+        get_staff_detail,
+        update_employee_holiday_hours_per_day,
+    )
+
+    staff = _employee(db)
+    detail = get_staff_detail(db, staff.id)
+    assert detail["holiday_hours_per_day"] == 8
+    updated = update_employee_holiday_hours_per_day(db, staff.id, 6)
+    assert updated["holiday_hours_per_day"] == 6
+    db.refresh(staff)
+    assert staff.holiday_hours_per_day == 6
+    saved = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "holiday_days": 0.5,
+        },
+    )
+    assert saved["holiday_hours"] == 3
+
+    contractor = _employee(
+        db,
+        employee_number="CM099",
+        email="contractor@test.local",
+        employment_type=EMPLOYMENT_TYPE_SELF_EMPLOYED,
+    )
+    with pytest.raises(HRServiceError, match="employed staff"):
+        update_employee_holiday_hours_per_day(db, contractor.id, 8)
 

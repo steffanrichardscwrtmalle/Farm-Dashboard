@@ -2019,6 +2019,7 @@ CM_TIMESHEET_PERIOD_START = datetime.date(2026, 9, 7)
 GAD_TIMESHEET_PERIOD_START = datetime.date(2026, 9, 1)
 TIMESHEET_FORTNIGHT_DAYS = 14
 DEFAULT_ANNUAL_LEAVE_DAYS = 28.0
+DEFAULT_HOLIDAY_HOURS_PER_DAY = 8.0
 ACCOMMODATION_CADENCE_WEEKLY = "weekly"
 ACCOMMODATION_CADENCE_MONTHLY = "monthly"
 ACCOMMODATION_CADENCES: tuple[str, ...] = (
@@ -2126,6 +2127,7 @@ class Employee(Base):
     holiday_year_end: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     annual_leave_restart: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     annual_leave_days: Mapped[float | None] = mapped_column(Float, nullable=True)
+    holiday_hours_per_day: Mapped[float | None] = mapped_column(Float, nullable=True)
     accommodation_deduction: Mapped[float | None] = mapped_column(Float, nullable=True)
     accommodation_cadence: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
@@ -2216,6 +2218,7 @@ class EmployeeTimesheetEntry(Base):
     period_end: Mapped[datetime.date] = mapped_column(Date)
     hours_week_1: Mapped[float | None] = mapped_column(Float, nullable=True)
     hours_week_2: Mapped[float | None] = mapped_column(Float, nullable=True)
+    holiday_days: Mapped[float | None] = mapped_column(Float, nullable=True)
     holiday_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     dinner_break_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     mileage: Mapped[float | None] = mapped_column(Float, nullable=True)

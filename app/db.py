@@ -1323,6 +1323,7 @@ def _migrate_hr_schema() -> None:
             "holiday_year_end": "DATE",
             "annual_leave_restart": "DATE",
             "annual_leave_days": "FLOAT",
+            "holiday_hours_per_day": "FLOAT",
             "accommodation_deduction": "FLOAT",
             "accommodation_cadence": "VARCHAR(16)",
         }
@@ -1343,6 +1344,15 @@ def _migrate_hr_schema() -> None:
         with engine.begin() as conn:
             conn.execute(
                 text(
+                    "UPDATE employees SET holiday_hours_per_day = 8 "
+                    "WHERE holiday_hours_per_day IS NULL "
+                    "AND (employment_type IS NULL OR employment_type = '' "
+                    "OR employment_type = 'employed')"
+                )
+            )
+        with engine.begin() as conn:
+            conn.execute(
+                text(
                     "CREATE UNIQUE INDEX IF NOT EXISTS "
                     "ix_employees_employee_number ON employees (employee_number)"
                 )
@@ -1353,6 +1363,16 @@ def _migrate_hr_schema() -> None:
         from app.models import EmployeeTimesheetEntry
 
         EmployeeTimesheetEntry.__table__.create(bind=engine, checkfirst=True)
+    else:
+        ts_cols = {col["name"] for col in inspector.get_columns("employee_timesheet_entries")}
+        if "holiday_days" not in ts_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE employee_timesheet_entries "
+                        "ADD COLUMN holiday_days FLOAT"
+                    )
+                )
 
     if "contract_templates" not in inspector.get_table_names():
         return

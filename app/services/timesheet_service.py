@@ -19,6 +19,7 @@ from app.models import (
     ACCOMMODATION_CADENCES,
     CM_TIMESHEET_PERIOD_START,
     DEFAULT_ANNUAL_LEAVE_DAYS,
+    DEFAULT_HOLIDAY_HOURS_PER_DAY,
     EMPLOYEE_STATUS_ARCHIVED,
     EMPLOYMENT_TYPE_EMPLOYED,
     EMPLOYMENT_TYPE_LABELS,
@@ -278,7 +279,6 @@ def save_timesheet_row(
     is_salary = (employee.pay_type or PAY_TYPE_HOURLY) == PAY_TYPE_SALARY
     for key in (
         "hours_week_1",
-        "holiday_hours",
         "dinner_break_hours",
         "mileage",
         "bonus",
@@ -295,6 +295,11 @@ def save_timesheet_row(
             entry.hours_week_2 = _optional_float(payload.get("hours_week_2"))
     else:
         entry.hours_week_2 = None
+    if "holiday_days" in payload:
+        days = _quarter_days(_optional_float(payload.get("holiday_days")))
+        entry.holiday_days = days
+        per_day = _holiday_hours_per_day(employee)
+        entry.holiday_hours = round((days or 0) * per_day, 2)
     if "other_remark" in payload:
         remark = payload.get("other_remark")
         entry.other_remark = (
@@ -304,17 +309,6 @@ def save_timesheet_row(
     if "holidays_carry_forward" in payload:
         employee.holidays_carry_forward = _optional_float(
             payload.get("holidays_carry_forward")
-        )
-    if "holiday_year_end" in payload:
-        employee.holiday_year_end = _optional_date(
-            payload.get("holiday_year_end"), field="holiday_year_end"
-        )
-    elif "annual_leave_restart" in payload:
-        restart = _optional_date(
-            payload.get("annual_leave_restart"), field="annual_leave_restart"
-        )
-        employee.holiday_year_end = (
-            restart - dt.timedelta(days=1) if restart else None
         )
     if "holidays_remaining" in payload:
         employee.holidays_remaining = _optional_float(payload.get("holidays_remaining"))
@@ -395,14 +389,18 @@ def _serialize_row(
         if include_rate:
             rate_value, rate_label = amount, label
     year_end = _employee_year_end(employee)
+    hours_per_day = _holiday_hours_per_day(employee)
     holidays_taken = _holidays_taken_in_year(
         holiday_entries,
         year_end,
         as_of=as_of,
+        hours_per_day=hours_per_day,
     )
     remaining, remaining_locked = _holidays_remaining(
         employee, holidays_taken, as_of
     )
+    holiday_days = _holiday_days_for_entry(entry, hours_per_day)
+    holiday_hours = round(holiday_days * hours_per_day, 2) if holiday_days else 0.0
     return {
         "employee_id": employee.id,
         "employee_number": employee.employee_number,
@@ -427,7 +425,9 @@ def _serialize_row(
             if hours_locked
             else _num(entry.hours_week_2 if entry else None)
         ),
-        "holiday_hours": _num(entry.holiday_hours if entry else None),
+        "holiday_days": holiday_days,
+        "holiday_hours": holiday_hours,
+        "holiday_hours_per_day": hours_per_day,
         "dinner_break_hours": _num(entry.dinner_break_hours if entry else None),
         "mileage": _num(entry.mileage if entry else None),
         "bonus": _num(entry.bonus if entry else None),
@@ -441,7 +441,11 @@ def _serialize_row(
         "remaining_locked": remaining_locked,
         "holidays_taken": holidays_taken,
         "holidays_carry_forward": _num(employee.holidays_carry_forward),
-        "holiday_year_end": year_end.isoformat() if year_end else None,
+        "holiday_year_end": (
+            current_holiday_year_end(year_end, as_of).isoformat()
+            if year_end
+            else None
+        ),
         "annual_leave_days": (
             DEFAULT_ANNUAL_LEAVE_DAYS
             if employee.annual_leave_days is None
@@ -452,10 +456,17 @@ def _serialize_row(
 
 def leave_year_bounds(year_end: dt.date, as_of: dt.date) -> tuple[dt.date, dt.date]:
     """Holiday year containing as_of. year_end is the last day holiday can be taken."""
-    this_end = _anniversary_on(as_of.year, year_end)
-    end = this_end if as_of <= this_end else _anniversary_on(as_of.year + 1, year_end)
+    end = current_holiday_year_end(year_end, as_of)
     start = _anniversary_on(end.year - 1, year_end) + dt.timedelta(days=1)
     return start, end
+
+
+def current_holiday_year_end(year_end: dt.date, as_of: dt.date) -> dt.date:
+    """Advance the directory year-end by whole years until as_of is on or before it."""
+    current = year_end
+    while as_of > current:
+        current = _anniversary_on(current.year + 1, current)
+    return current
 
 
 def _anniversary_on(year: int, template: dt.date) -> dt.date:
@@ -512,18 +523,22 @@ def _holidays_taken_in_year(
     year_end: dt.date | None,
     *,
     as_of: dt.date | None = None,
+    hours_per_day: float | None = None,
 ) -> float:
     year_start = None
     end = year_end
     as_of = as_of or dt.date.today()
     if year_end is not None:
         year_start, end = leave_year_bounds(year_end, as_of)
+    divisor = hours_per_day or DEFAULT_HOLIDAY_HOURS_PER_DAY
     total = 0.0
     for entry in entries:
         if year_start and (entry.period_start < year_start or entry.period_start > end):
             continue
-        if entry.holiday_hours:
-            total += float(entry.holiday_hours)
+        if entry.holiday_days is not None:
+            total += float(entry.holiday_days)
+        elif entry.holiday_hours:
+            total += float(entry.holiday_hours) / divisor
     return _num(total) or 0.0
 
 
@@ -577,6 +592,30 @@ def _optional_float(value: Any) -> float | None:
     return number
 
 
+def _quarter_days(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(round(value * 4) / 4.0, 2)
+
+
+def _holiday_hours_per_day(employee: Employee) -> float:
+    if employee.holiday_hours_per_day is None:
+        return DEFAULT_HOLIDAY_HOURS_PER_DAY
+    return float(employee.holiday_hours_per_day)
+
+
+def _holiday_days_for_entry(
+    entry: EmployeeTimesheetEntry | None, hours_per_day: float
+) -> float:
+    if entry is None:
+        return 0.0
+    if entry.holiday_days is not None:
+        return float(entry.holiday_days)
+    if entry.holiday_hours and hours_per_day:
+        return round(float(entry.holiday_hours) / hours_per_day, 2)
+    return 0.0
+
+
 def _num(value: float | None) -> float | None:
     if value is None:
         return None
@@ -625,6 +664,7 @@ def _timesheet_xlsx_headers(period: dict[str, Any]) -> list[str]:
         "Pay type",
         "Rate",
         *hour_labels,
+        "Days holiday",
         "Holiday hours",
         "Dinner break (hrs)",
         "Mileage claimed",
@@ -656,6 +696,7 @@ def _timesheet_xlsx_values(
         row.get("pay_type_label") or "",
         row.get("rate_label") or "",
         *[row.get(col["key"]) for col in hours_columns],
+        row.get("holiday_days"),
         row.get("holiday_hours"),
         row.get("dinner_break_hours"),
         row.get("mileage"),
@@ -693,6 +734,7 @@ def build_timesheet_xlsx(sheet: dict[str, Any]) -> bytes:
         "Accommodation deduction",
     }
     hours_headers = {
+        "Days holiday",
         "Holiday hours",
         "Dinner break (hrs)",
         "Holidays remaining",
@@ -781,7 +823,7 @@ def build_timesheet_xlsx(sheet: dict[str, Any]) -> bytes:
 
     widths = [12, 24, 16, 12, 14]
     widths.extend([14] * len(hours_columns))
-    widths.extend([13, 14, 14, 12, 14, 14, 18, 22, 14, 13, 16, 16])
+    widths.extend([12, 13, 14, 14, 12, 14, 14, 18, 22, 14, 13, 16, 16])
     for index, width in enumerate(widths[: len(headers)], start=1):
         ws.column_dimensions[get_column_letter(index)].width = width
 

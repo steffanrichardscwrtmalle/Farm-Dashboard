@@ -3,49 +3,53 @@
 {% block page_heading %}{{ page_heading }}{% endblock %}
 
 {% block extra_styles %}
-    main { max-width: none; }
+    main { max-width: none; padding: 0.6rem 0.65rem 0.5rem; }
+    .card.ts-controls-card {
+      padding: 0.55rem 0.7rem 0.4rem;
+      margin-bottom: 0.45rem;
+    }
     .ts-toolbar {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.75rem 1rem;
+      gap: 0.4rem 0.75rem;
       align-items: flex-end;
-      margin-bottom: 0.85rem;
+      margin-bottom: 0.35rem;
     }
     .ts-toolbar label {
       margin: 0;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       color: var(--muted);
     }
     .ts-period {
       display: flex;
       align-items: center;
-      gap: 0.35rem;
+      gap: 0.3rem;
     }
     .ts-period select {
-      min-width: 14rem;
+      min-width: 12rem;
       margin: 0;
     }
     .ts-period button {
-      padding: 0.4rem 0.7rem;
+      padding: 0.3rem 0.55rem;
     }
     .ts-actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem;
+      gap: 0.4rem;
       align-items: center;
     }
     .ts-actions button {
       margin: 0;
-      padding: 0.4rem 0.75rem;
+      padding: 0.3rem 0.6rem;
     }
     .ts-meta {
-      margin: 0 0 0.75rem;
+      margin: 0 0 0.2rem;
       color: var(--muted);
-      font-size: 0.875rem;
+      font-size: 0.8rem;
     }
     .ts-status {
       margin-left: auto;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       font-weight: 600;
       color: var(--muted);
     }
@@ -59,8 +63,7 @@
       background: transparent;
     }
     .ts-wrap {
-      overflow: auto;
-      max-height: calc(100vh - 13rem);
+      overflow: visible;
       border: 1px solid #b4b4b4;
       border-radius: 0;
       background: #fff;
@@ -68,20 +71,24 @@
     .ts-table {
       border-collapse: separate;
       border-spacing: 0;
-      width: max-content;
-      font-size: 0.75rem;
+      width: 100%;
+      table-layout: fixed;
+      font-size: 0.65rem;
     }
     .ts-table th,
     .ts-table td {
       box-sizing: border-box;
-      width: 1%;
-      padding: 0.18rem 0.28rem;
+      width: auto;
+      min-width: 0;
+      padding: 0.08rem 0.1rem;
       border-top: 1px solid #d0d0d0;
       border-left: 1px solid #d0d0d0;
       white-space: nowrap;
       vertical-align: middle;
       background: #fff;
-      line-height: 1.2;
+      line-height: 1.15;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .ts-table td:has(input) { padding: 0; }
     .ts-table th:last-child,
@@ -93,13 +100,15 @@
       z-index: 2;
       background: #e7e6e6;
       color: #1f1f1f;
-      font-size: 0.7rem;
+      font-size: 0.6rem;
       font-weight: 600;
       text-align: center;
-      line-height: 1.2;
+      line-height: 1.1;
       white-space: normal;
-      min-width: 0;
-      padding: 0.28rem 0.25rem;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      hyphens: auto;
+      padding: 0.16rem 0.08rem;
       border-top-color: #b4b4b4;
       border-left-color: #b4b4b4;
     }
@@ -127,7 +136,11 @@
       background: #e7e6e6;
     }
     .ts-table th.sticky-name,
-    .ts-table td.sticky-name { left: var(--ts-emp-col, 3.25rem); }
+    .ts-table td.sticky-name { left: var(--ts-emp-col, 2.6rem); }
+    .ts-table th.sticky-col:not(.sticky-name),
+    .ts-table td.sticky-col:not(.sticky-name) { width: 2.6rem; }
+    .ts-table th.sticky-name,
+    .ts-table td.sticky-name { width: 6.4rem; }
     .ts-table td.sticky-col {
       background: #f3f3f3;
     }
@@ -176,19 +189,19 @@
       box-sizing: border-box;
       width: 100%;
       min-width: 0;
-      height: 1.75rem;
+      height: 1.4rem;
       margin: 0;
-      padding: 0.12rem 0.28rem;
-      font-size: 0.75rem;
-      line-height: 1.2;
+      padding: 0.06rem 0.12rem;
+      font-size: 0.65rem;
+      line-height: 1.15;
       border: 0;
       border-radius: 0;
       background: transparent;
       box-shadow: none;
-      field-sizing: content;
+      field-sizing: fixed;
     }
     .ts-table input[type="number"] {
-      min-width: 3.5em;
+      min-width: 0;
       text-align: right;
       appearance: textfield;
       -moz-appearance: textfield;
@@ -198,9 +211,9 @@
       -webkit-appearance: none;
       margin: 0;
     }
-    .ts-table input[type="text"] { min-width: 5em; text-align: left; }
+    .ts-table input[type="text"] { min-width: 0; text-align: left; }
     .ts-table input[type="date"] {
-      min-width: 8em;
+      min-width: 0;
       field-sizing: fixed;
     }
     .ts-table input:focus {
@@ -225,7 +238,7 @@
 {% endblock %}
 
 {% block content %}
-  <div class="card" style="margin-bottom:0.85rem">
+  <div class="card ts-controls-card">
     <div class="ts-toolbar">
       <a href="/hr/timesheets" class="secondary-link">← Farms</a>
       <label>
@@ -275,7 +288,7 @@
   const clearSortBtn = document.getElementById('clear-sort');
   const exportXlsxBtn = document.getElementById('export-xlsx');
   const NUMBER_FIELDS = [
-    'hours_week_1', 'hours_week_2', 'holiday_hours', 'dinner_break_hours',
+    'hours_week_1', 'hours_week_2', 'holiday_days', 'dinner_break_hours',
     'mileage', 'bonus', 'loan_deduction', 'other_deduction', 'accommodation_deduction',
     'holidays_remaining', 'holidays_carry_forward'
   ];
@@ -318,11 +331,25 @@
       key + '" value="' + escapeHtml(shown) + '">';
   }
 
+  function daysInput(row) {
+    const value = row.holiday_days;
+    const shown = value == null || value === '' || Number(value) === 0 ? '' : value;
+    return '<input type="number" min="0" step="0.25" inputmode="decimal" data-field="holiday_days" value="' +
+      escapeHtml(shown) + '">';
+  }
+
   function formatMoney(value) {
     if (value == null || value === '') return '—';
     const n = Number(value);
     if (!Number.isFinite(n)) return '—';
     return '£' + n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function formatDateUk(value) {
+    if (!value) return '—';
+    const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return String(value);
+    return match[3] + '/' + match[2] + '/' + match[1];
   }
 
   function hourCell(row, col) {
@@ -343,7 +370,8 @@
 
   function renderHead() {
     const hourHeads = hoursColumns.map(function (col) {
-      return sortTh(col.label, col.key);
+      const label = String(col.label || '').replace(/^Hours\s+/, '');
+      return sortTh(label, col.key);
     }).join('');
     headEl.innerHTML =
       sortTh('Emp. no.', 'employee_number', 'sticky-col') +
@@ -352,6 +380,7 @@
       sortTh('Pay type', 'pay_type_label') +
       sortTh('Rate', 'rate') +
       hourHeads +
+      sortTh('Days holiday', 'holiday_days') +
       sortTh('Holiday hours', 'holiday_hours') +
       sortTh('Dinner break (hrs)', 'dinner_break_hours') +
       sortTh('Mileage claimed', 'mileage') +
@@ -368,7 +397,7 @@
 
   function renderRows() {
     if (!rows.length) {
-      const cols = 17 + hoursColumns.length;
+      const cols = 18 + hoursColumns.length;
       bodyEl.innerHTML = '<tr><td colspan="' + cols +
         '" class="empty-state">No current employed or self-employed staff for this farm.</td></tr>';
       return;
@@ -387,7 +416,10 @@
         '<td>' + escapeHtml(row.pay_type_label || '') + '</td>' +
         '<td class="readonly">' + escapeHtml(row.rate_label || '—') + '</td>' +
         hourCells +
-        '<td>' + numInput(row, 'holiday_hours', '0.25') + '</td>' +
+        '<td>' + daysInput(row) + '</td>' +
+        '<td class="readonly formula-cell" data-holiday-hours>' +
+          escapeHtml(row.holiday_hours == null || row.holiday_hours === '' ? '0' : row.holiday_hours) +
+        '</td>' +
         '<td>' + numInput(row, 'dinner_break_hours', '0.25') + '</td>' +
         '<td>' + numInput(row, 'mileage', '0.01') + '</td>' +
         '<td>' + numInput(row, 'bonus', '0.01') + '</td>' +
@@ -399,8 +431,7 @@
         remainingCell(row) +
         '<td class="readonly formula-cell" data-taken>' + escapeHtml(row.holidays_taken == null ? '0' : row.holidays_taken) + '</td>' +
         '<td>' + numInput(row, 'holidays_carry_forward', '0.25') + '</td>' +
-        '<td><input type="date" data-field="holiday_year_end" value="' +
-          escapeHtml(row.holiday_year_end || '') + '"></td>' +
+        '<td class="readonly">' + escapeHtml(formatDateUk(row.holiday_year_end)) + '</td>' +
         '</tr>';
     }).join('');
   }
@@ -444,9 +475,6 @@
       if (Object.prototype.hasOwnProperty.call(payload, 'other_remark')) {
         rows[idx].other_remark = payload.other_remark;
       }
-      if (Object.prototype.hasOwnProperty.call(payload, 'holiday_year_end')) {
-        rows[idx].holiday_year_end = payload.holiday_year_end;
-      }
     });
   }
 
@@ -463,7 +491,7 @@
     }
     const value = row[key];
     if (value == null || value === '') return null;
-    if (NUMBER_FIELDS.indexOf(key) !== -1 || key === 'holidays_taken') {
+    if (NUMBER_FIELDS.indexOf(key) !== -1 || key === 'holidays_taken' || key === 'holiday_hours') {
       const n = Number(value);
       return Number.isFinite(n) ? n : null;
     }
@@ -530,8 +558,6 @@
       const key = input.dataset.field;
       if (NUMBER_FIELDS.indexOf(key) !== -1) {
         payload[key] = parseNumber(input.value);
-      } else if (key === 'holiday_year_end') {
-        payload[key] = input.value || null;
       } else {
         payload[key] = input.value;
       }
@@ -558,6 +584,11 @@
       const saved = data.row || {};
       const takenCell = tr.querySelector('[data-taken]');
       if (takenCell) takenCell.textContent = saved.holidays_taken == null ? '0' : saved.holidays_taken;
+      const hoursCell = tr.querySelector('[data-holiday-hours]');
+      if (hoursCell) {
+        hoursCell.textContent = saved.holiday_hours == null || saved.holiday_hours === ''
+          ? '0' : saved.holiday_hours;
+      }
       applyRemainingCell(tr, saved);
       const idx = rows.findIndex(function (row) { return row.employee_id === employeeId; });
       if (idx !== -1) rows[idx] = Object.assign({}, rows[idx], saved);
@@ -730,6 +761,15 @@
     if (!input) return;
     const tr = input.closest('tr[data-id]');
     if (!tr) return;
+    if (input.dataset.field === 'holiday_days') {
+      const id = Number(tr.dataset.id);
+      const row = rows.find(function (item) { return item.employee_id === id; });
+      const rawDays = parseNumber(input.value);
+      const days = rawDays == null ? 0 : Math.round(rawDays * 4) / 4;
+      const perDay = row && row.holiday_hours_per_day != null ? Number(row.holiday_hours_per_day) : 8;
+      const hoursCell = tr.querySelector('[data-holiday-hours]');
+      if (hoursCell) hoursCell.textContent = String(Math.round(days * perDay * 100) / 100);
+    }
     queueSave(tr.dataset.id);
   });
   bodyEl.addEventListener('change', function (ev) {
