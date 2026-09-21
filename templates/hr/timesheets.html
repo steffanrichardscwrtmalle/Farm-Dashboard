@@ -124,6 +124,18 @@
     .ts-table tbody tr:hover td { background: #e7f2ea; }
     .ts-table tbody tr:hover td.sticky-col,
     .ts-table tbody tr:hover td.sticky-name { background: #d9eadf; }
+    .ts-table tbody tr.row-salary td,
+    .ts-table tbody tr.row-salary td.sticky-col,
+    .ts-table tbody tr.row-salary td.sticky-name,
+    .ts-table tbody tr.row-salary td.formula-cell { background: #d4edda; }
+    .ts-table tbody tr.row-salary:nth-child(even) td,
+    .ts-table tbody tr.row-salary:nth-child(even) td.sticky-col,
+    .ts-table tbody tr.row-salary:nth-child(even) td.sticky-name,
+    .ts-table tbody tr.row-salary:nth-child(even) td.formula-cell { background: #c3e6cb; }
+    .ts-table tbody tr.row-salary:hover td,
+    .ts-table tbody tr.row-salary:hover td.sticky-col,
+    .ts-table tbody tr.row-salary:hover td.sticky-name,
+    .ts-table tbody tr.row-salary:hover td.formula-cell { background: #b7dfc4; }
     .ts-table input[type="number"],
     .ts-table input[type="text"],
     .ts-table input[type="date"] {
@@ -266,6 +278,7 @@
     headEl.innerHTML =
       '<th class="sticky-col">Emp. no.</th>' +
       '<th class="sticky-col sticky-name">Name</th>' +
+      '<th>Employment type</th>' +
       '<th>Pay type</th>' +
       '<th>Rate</th>' +
       hourHeads +
@@ -285,7 +298,7 @@
 
   function renderRows() {
     if (!rows.length) {
-      const cols = 15 + hoursColumns.length;
+      const cols = 17 + hoursColumns.length;
       bodyEl.innerHTML = '<tr><td colspan="' + cols +
         '" class="empty-state">No current employed or self-employed staff for this farm.</td></tr>';
       return;
@@ -294,9 +307,11 @@
       const hourCells = hoursColumns.map(function (col) {
         return '<td>' + numInput(row, col.key, '0.25') + '</td>';
       }).join('');
-      return '<tr data-id="' + row.employee_id + '">' +
+      const salaryClass = row.pay_type === 'salary' ? ' class="row-salary"' : '';
+      return '<tr data-id="' + row.employee_id + '"' + salaryClass + '>' +
         '<td class="sticky-col muted-cell">' + escapeHtml(row.employee_number || '—') + '</td>' +
         '<td class="sticky-col sticky-name">' + escapeHtml(row.full_name) + '</td>' +
+        '<td>' + escapeHtml(row.employment_type_label || 'Employed') + '</td>' +
         '<td>' + escapeHtml(row.pay_type_label || '') + '</td>' +
         '<td class="readonly">' + escapeHtml(row.rate_label || '—') + '</td>' +
         hourCells +

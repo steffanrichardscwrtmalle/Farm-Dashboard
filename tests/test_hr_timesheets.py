@@ -140,13 +140,67 @@ def test_lists_current_staff_including_onboarding(db):
     )
     names = [row["full_name"] for row in sheet["rows"]]
     assert names == [
-        "Active Contractor",
         "Active Employed",
         "Onboarding",
         "Pending Signature",
+        "Active Contractor",
     ]
-    assert sheet["rows"][1]["rate_label"] == "£12.50 / hr"
+    assert [row["employment_type_label"] for row in sheet["rows"]] == [
+        "Employed",
+        "Employed",
+        "Employed",
+        "Self-employed",
+    ]
+    assert sheet["rows"][0]["rate_label"] == "£12.50 / hr"
     assert sheet["cadence"] == "fortnightly"
+
+
+def test_sorts_employed_hourly_then_salary_then_self_employed(db):
+    _employee(
+        db,
+        employee_number="CM020",
+        full_name="Zoe Hourly",
+        email="zoe@test.local",
+        pay_type=PAY_TYPE_HOURLY,
+    )
+    _employee(
+        db,
+        employee_number="CM021",
+        full_name="Amy Salary",
+        email="amy@test.local",
+        pay_type=PAY_TYPE_SALARY,
+    )
+    _employee(
+        db,
+        employee_number="CM022",
+        full_name="Ben Hourly",
+        email="ben@test.local",
+        pay_type=PAY_TYPE_HOURLY,
+    )
+    _employee(
+        db,
+        employee_number="CM023",
+        full_name="Ada Contractor",
+        email="ada@test.local",
+        employment_type=EMPLOYMENT_TYPE_SELF_EMPLOYED,
+        pay_type=PAY_TYPE_HOURLY,
+    )
+    _employee(
+        db,
+        employee_number="CM024",
+        full_name="Cal Contractor",
+        email="cal@test.local",
+        employment_type=EMPLOYMENT_TYPE_SELF_EMPLOYED,
+        pay_type=PAY_TYPE_SALARY,
+    )
+    sheet = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
+    assert [row["full_name"] for row in sheet["rows"]] == [
+        "Ben Hourly",
+        "Zoe Hourly",
+        "Amy Salary",
+        "Ada Contractor",
+        "Cal Contractor",
+    ]
 
 
 def test_salary_rate_shown_weekly(db):

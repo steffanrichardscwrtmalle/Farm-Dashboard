@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 from app.models import (
     CM_TIMESHEET_PERIOD_START,
     EMPLOYEE_STATUS_ARCHIVED,
+    EMPLOYMENT_TYPE_EMPLOYED,
+    EMPLOYMENT_TYPE_LABELS,
     GAD_TIMESHEET_PERIOD_START,
     PAY_TYPE_HOURLY,
     PAY_TYPE_LABELS,
@@ -291,16 +293,23 @@ def save_timesheet_row(
 
 def _active_staff_for_farm(db: Session, farm: str) -> list[Employee]:
     business = farm_business(farm)
-    return list(
+    return sorted(
         db.scalars(
-            select(Employee)
-            .where(
+            select(Employee).where(
                 Employee.status != EMPLOYEE_STATUS_ARCHIVED,
                 Employee.business == business,
             )
-            .order_by(Employee.full_name)
-        ).all()
+        ).all(),
+        key=_staff_sort_key,
     )
+
+
+def _staff_sort_key(employee: Employee) -> tuple[int, int, str]:
+    employment = employee.employment_type or EMPLOYMENT_TYPE_EMPLOYED
+    employment_rank = 0 if employment == EMPLOYMENT_TYPE_EMPLOYED else 1
+    pay_type = employee.pay_type or PAY_TYPE_HOURLY
+    pay_rank = 0 if pay_type == PAY_TYPE_HOURLY else 1
+    return (employment_rank, pay_rank, (employee.full_name or "").casefold())
 
 
 def _holiday_hours_by_employee(
@@ -338,7 +347,11 @@ def _serialize_row(
         "employee_id": employee.id,
         "employee_number": employee.employee_number,
         "full_name": employee.full_name,
-        "employment_type": employee.employment_type,
+        "employment_type": employee.employment_type or EMPLOYMENT_TYPE_EMPLOYED,
+        "employment_type_label": EMPLOYMENT_TYPE_LABELS.get(
+            employee.employment_type or EMPLOYMENT_TYPE_EMPLOYED,
+            "Employed",
+        ),
         "pay_type": pay_type,
         "pay_type_label": PAY_TYPE_LABELS.get(pay_type, "Hourly"),
         "rate": rate_value,
