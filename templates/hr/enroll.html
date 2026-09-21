@@ -299,6 +299,15 @@
               Working hours per day
               <input type="number" id="working_hours_per_day" min="0" max="24" step="0.25">
             </label>
+            <label>
+              Annual leave year end
+              <input type="date" id="holiday_year_end">
+              <small class="muted">Last day they can take holiday. Remaining leave resets to a full entitlement the following day.</small>
+            </label>
+            <label>
+              Annual leave days
+              <input type="number" id="annual_leave_days" min="0" max="366" step="0.5" value="28">
+            </label>
           </div>
         </fieldset>
 
@@ -435,6 +444,13 @@
     payRateInput.placeholder = isSalary ? 'e.g. 30000' : 'e.g. 12.50';
   }
   payTypeEl.addEventListener('change', updatePayLabel);
+  const sortCodeEl = document.getElementById('sort_code');
+  if (sortCodeEl) {
+    sortCodeEl.addEventListener('blur', function () {
+      const formatted = formatSortCode(sortCodeEl.value);
+      if (formatted) sortCodeEl.value = formatted;
+    });
+  }
   updatePayLabel();
 
   function isSelfEmployed() {
@@ -529,6 +545,13 @@
     return el ? el.value.trim() : '';
   }
 
+  function formatSortCode(value) {
+    if (value === null || value === undefined || value === '') return value;
+    const digits = String(value).replace(/\D/g, '').slice(0, 6);
+    if (digits.length !== 6) return String(value).trim();
+    return digits.slice(0, 2) + '-' + digits.slice(2, 4) + '-' + digits.slice(4, 6);
+  }
+
   function numOrNull(id) {
     const v = val(id);
     if (v === '') return null;
@@ -553,12 +576,14 @@
       pay_rate: val('pay_rate') || null,
       working_days_per_week: numOrNull('working_days_per_week'),
       working_hours_per_day: numOrNull('working_hours_per_day'),
+      holiday_year_end: val('holiday_year_end') || null,
+      annual_leave_days: numOrNull('annual_leave_days'),
       driving_license_number: val('driving_license_number') || null,
       license_points: val('license_points') || null,
       right_to_work_share_code: val('right_to_work_share_code') || null,
       bank_name: val('bank_name') || null,
       account_holder_name: val('account_holder_name') || null,
-      sort_code: val('sort_code') || null,
+      sort_code: formatSortCode(val('sort_code')) || null,
       account_number: val('account_number') || null,
       next_of_kin_name: val('next_of_kin_name') || null,
       next_of_kin_relationship: val('next_of_kin_relationship') || null,
@@ -808,7 +833,7 @@
     const el = document.getElementById(id);
     if (!el) return;
     if (value !== null && value !== undefined && value !== '') {
-      el.value = value;
+      el.value = id === 'sort_code' ? (formatSortCode(value) || value) : value;
     } else if (hasData && !CAN_VIEW_SENSITIVE) {
       el.placeholder = 'Hidden — leave blank to keep';
     }
@@ -840,6 +865,8 @@
       updatePayLabel();
       setVal('working_days_per_week', emp.working_days_per_week);
       setVal('working_hours_per_day', emp.working_hours_per_day);
+      setVal('holiday_year_end', emp.holiday_year_end);
+      setVal('annual_leave_days', emp.annual_leave_days == null ? 28 : emp.annual_leave_days);
       setVal('license_points', emp.license_points);
       setVal('right_to_work_share_code', emp.right_to_work_share_code);
       setVal('bank_name', emp.bank_name);

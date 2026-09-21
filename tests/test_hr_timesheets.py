@@ -24,6 +24,7 @@ from app.services.crypto_fields import encrypt_field
 from app.services.timesheet_service import (
     TimesheetError,
     current_period_start,
+    leave_year_bounds,
     list_periods,
     list_timesheet,
     period_containing,
@@ -313,3 +314,50 @@ def test_can_save_onboarding_staff_but_not_archived(db):
             "CM",
             {"employee_id": archived.id, "period_start": dt.date(2026, 9, 7)},
         )
+
+
+def test_leave_year_bounds_from_september_year_end():
+    start, end = leave_year_bounds(dt.date(2026, 9, 30), dt.date(2026, 9, 21))
+    assert start == dt.date(2025, 10, 1)
+    assert end == dt.date(2026, 9, 30)
+    start, end = leave_year_bounds(dt.date(2026, 9, 30), dt.date(2026, 9, 30))
+    assert start == dt.date(2025, 10, 1)
+    assert end == dt.date(2026, 9, 30)
+    start, end = leave_year_bounds(dt.date(2026, 9, 30), dt.date(2026, 10, 1))
+    assert start == dt.date(2026, 10, 1)
+    assert end == dt.date(2027, 9, 30)
+
+
+def test_remaining_resets_the_day_after_year_end(db):
+    staff = _employee(
+        db,
+        holiday_year_end=dt.date(2026, 9, 30),
+        annual_leave_days=28,
+        holidays_remaining=5,
+    )
+    before = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 21),
+            "holiday_hours": 4,
+            "holidays_remaining": 5,
+        },
+    )
+    assert before["remaining_locked"] is False
+    assert before["holidays_remaining"] == 5
+    assert before["holiday_year_end"] == "2026-09-30"
+
+    after = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 10, 5),
+            "holiday_hours": 8,
+        },
+    )
+    assert after["remaining_locked"] is True
+    assert after["holidays_taken"] == 8
+    assert after["holidays_remaining"] == 20

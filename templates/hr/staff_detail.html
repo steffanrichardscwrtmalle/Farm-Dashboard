@@ -167,6 +167,20 @@
     return (v === null || v === undefined || v === '') ? '—' : String(v);
   }
 
+  function formatDateUk(value) {
+    if (!value) return '—';
+    const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return String(value);
+    return match[3] + '/' + match[2] + '/' + match[1];
+  }
+
+  function formatSortCode(value) {
+    if (value === null || value === undefined || value === '') return value;
+    const digits = String(value).replace(/\D/g, '').slice(0, 6);
+    if (digits.length !== 6) return String(value).trim();
+    return digits.slice(0, 2) + '-' + digits.slice(2, 4) + '-' + digits.slice(4, 6);
+  }
+
   function payRateLabel(emp) {
     return emp.pay_type === 'salary' ? 'Annual rate' : 'Hourly rate';
   }
@@ -241,16 +255,18 @@
       detailItem('Job title', escapeHtml(emp.role_title || '—')) +
       detailItem('Email', escapeHtml(emp.email || '—')) +
       detailItem('Phone', escapeHtml(emp.phone || '—')) +
-      detailItem('Date of birth', escapeHtml(emp.dob || '—')) +
+      detailItem('Date of birth', escapeHtml(formatDateUk(emp.dob))) +
       detailItem('Address', escapeHtml(emp.address || '—')) +
       detailItem('NI number', sensitiveValue(emp.ni_number, emp.has_sensitive_data)) +
 
       sectionHeading('Work &amp; pay') +
-      detailItem('Start date', escapeHtml(emp.start_date || '—')) +
+      detailItem('Start date', escapeHtml(formatDateUk(emp.start_date))) +
       detailItem('Pay type', escapeHtml(emp.pay_type || '—')) +
       detailItem(payRateLabel(emp), sensitiveValue(emp.pay_rate, emp.has_sensitive_data)) +
       detailItem('Working days/week', escapeHtml(fmtNum(emp.working_days_per_week))) +
       detailItem('Working hours/day', escapeHtml(fmtNum(emp.working_hours_per_day))) +
+      detailItem('Annual leave year end', escapeHtml(formatDateUk(emp.holiday_year_end))) +
+      detailItem('Annual leave days', escapeHtml(fmtNum(emp.annual_leave_days == null ? 28 : emp.annual_leave_days))) +
 
       sectionHeading('Driving &amp; right to work') +
       detailItem('Driving licence', sensitiveValue(emp.driving_license_number, emp.has_sensitive_data)) +
@@ -260,7 +276,7 @@
       sectionHeading('Bank details') +
       detailItem('Bank name', escapeHtml(emp.bank_name || '—')) +
       detailItem('Account holder', escapeHtml(emp.account_holder_name || '—')) +
-      detailItem('Sort code', sensitiveValue(emp.sort_code, emp.has_sensitive_data)) +
+      detailItem('Sort code', sensitiveValue(formatSortCode(emp.sort_code), emp.has_sensitive_data)) +
       detailItem('Account number', sensitiveValue(emp.account_number, emp.has_sensitive_data)) +
 
       sectionHeading('Next of kin') +
@@ -269,7 +285,7 @@
       detailItem('Phone', escapeHtml(emp.next_of_kin_phone || '—')) +
 
       sectionHeading('Record') +
-      detailItem('Created', escapeHtml((emp.created_at || '').slice(0, 10) || '—'));
+      detailItem('Created', escapeHtml(formatDateUk(emp.created_at)));
   }
 
   function sectionHeading(label) {
@@ -300,7 +316,7 @@
       } else {
         download = '<a href="/api/hr/contracts/' + c.id + '/download" target="_blank" rel="noopener">Download PDF</a>';
       }
-      const completed = c.completed_at ? c.completed_at.slice(0, 10) : '—';
+      const completed = formatDateUk(c.completed_at);
       return '<tr>' +
         '<td>' + c.id + '</td>' +
         '<td>' + escapeHtml(String(c.docuseal_submission_id || '')) + '</td>' +
@@ -327,7 +343,7 @@
       const fileLabel = d.label
         ? escapeHtml(d.original_filename) + ' — ' + escapeHtml(d.label)
         : escapeHtml(d.original_filename);
-      const uploaded = d.created_at ? d.created_at.slice(0, 10) : '—';
+      const uploaded = formatDateUk(d.created_at);
       let actions;
       if (canViewSensitive) {
         actions = '<a href="/api/hr/documents/' + d.id + '/download?inline=true" target="_blank" rel="noopener">View</a>' +

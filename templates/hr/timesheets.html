@@ -293,7 +293,7 @@
       '<th>Holidays remaining</th>' +
       '<th>Holidays taken</th>' +
       '<th>Holidays carry forward</th>' +
-      '<th>Holiday year end</th>';
+      '<th>Annual leave year end</th>';
   }
 
   function renderRows() {
@@ -324,13 +324,27 @@
         '<td>' + numInput(row, 'accommodation_deduction', '0.01') + '</td>' +
         '<td><input type="text" data-field="other_remark" maxlength="512" value="' +
           escapeHtml(row.other_remark || '') + '"></td>' +
-        '<td>' + numInput(row, 'holidays_remaining', '0.25') + '</td>' +
+        remainingCell(row) +
         '<td class="readonly formula-cell" data-taken>' + escapeHtml(row.holidays_taken == null ? '0' : row.holidays_taken) + '</td>' +
         '<td>' + numInput(row, 'holidays_carry_forward', '0.25') + '</td>' +
         '<td><input type="date" data-field="holiday_year_end" value="' +
           escapeHtml(row.holiday_year_end || '') + '"></td>' +
         '</tr>';
     }).join('');
+  }
+
+  function remainingCell(row) {
+    if (row.remaining_locked) {
+      return '<td class="readonly formula-cell" data-remaining>' +
+        escapeHtml(row.holidays_remaining == null ? '0' : row.holidays_remaining) + '</td>';
+    }
+    return '<td>' + numInput(row, 'holidays_remaining', '0.25') + '</td>';
+  }
+
+  function applyRemainingCell(tr, saved) {
+    const takenCell = tr.querySelector('[data-taken]');
+    if (!takenCell || !takenCell.previousElementSibling) return;
+    takenCell.previousElementSibling.outerHTML = remainingCell(saved);
   }
 
   function fillPeriodSelect(periods, selected) {
@@ -381,6 +395,7 @@
       const saved = data.row || {};
       const takenCell = tr.querySelector('[data-taken]');
       if (takenCell) takenCell.textContent = saved.holidays_taken == null ? '0' : saved.holidays_taken;
+      applyRemainingCell(tr, saved);
       const idx = rows.findIndex(function (row) { return row.employee_id === employeeId; });
       if (idx !== -1) rows[idx] = Object.assign({}, rows[idx], saved);
       if (!dirtyIds.size) {

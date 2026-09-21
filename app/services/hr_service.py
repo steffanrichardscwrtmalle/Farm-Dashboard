@@ -19,6 +19,7 @@ from app.config import hr_team_emails_for
 from app.models import (
     CONTRACT_STATUS_COMPLETED,
     CONTRACT_STATUS_PENDING,
+    DEFAULT_ANNUAL_LEAVE_DAYS,
     DOCUMENT_TYPE_OPTIONS,
     EMPLOYEE_STATUS_ACTIVE,
     EMPLOYEE_STATUS_ARCHIVED,
@@ -248,12 +249,14 @@ def _build_employee(
         start_date=payload["start_date"],
         working_days_per_week=payload.get("working_days_per_week"),
         working_hours_per_day=payload.get("working_hours_per_day"),
+        holiday_year_end=_holiday_year_end_from_payload(payload),
+        annual_leave_days=_annual_leave_days(payload),
         driving_license_number_enc=encrypt_field(payload.get("driving_license_number")),
         license_points=_clean("license_points"),
         right_to_work_share_code=_clean("right_to_work_share_code"),
         bank_name=_clean("bank_name"),
         account_holder_name=_clean("account_holder_name"),
-        sort_code_enc=encrypt_field(payload.get("sort_code")),
+        sort_code_enc=encrypt_field(format_sort_code(payload.get("sort_code"))),
         account_number_enc=encrypt_field(payload.get("account_number")),
         next_of_kin_name=_clean("next_of_kin_name"),
         next_of_kin_relationship=_clean("next_of_kin_relationship"),
@@ -297,6 +300,49 @@ def _format_date(value: Any) -> str:
     return str(value)
 
 
+def _annual_leave_days(payload: dict[str, Any]) -> float:
+    value = payload.get("annual_leave_days")
+    if value in (None, ""):
+        return DEFAULT_ANNUAL_LEAVE_DAYS
+    try:
+        days = float(value)
+    except (TypeError, ValueError) as exc:
+        raise HRServiceError("Annual leave days must be a number.") from exc
+    if days < 0:
+        raise HRServiceError("Annual leave days cannot be negative.")
+    return days
+
+
+def _holiday_year_end_from_payload(payload: dict[str, Any]) -> dt.date | None:
+    year_end = payload.get("holiday_year_end") or payload.get("annual_leave_year_end")
+    if year_end not in (None, ""):
+        return year_end
+    restart = payload.get("annual_leave_restart")
+    if restart in (None, ""):
+        return None
+    return restart - dt.timedelta(days=1)
+
+
+def _employee_year_end(employee: Employee) -> dt.date | None:
+    if employee.holiday_year_end:
+        return employee.holiday_year_end
+    restart = getattr(employee, "annual_leave_restart", None)
+    if restart:
+        return restart - dt.timedelta(days=1)
+    return None
+
+
+def format_sort_code(value: Any) -> str | None:
+    """Format a UK sort code as 00-00-00."""
+    if value is None:
+        return None
+    digits = "".join(ch for ch in str(value) if ch.isdigit())
+    if len(digits) == 6:
+        return f"{digits[0:2]}-{digits[2:4]}-{digits[4:6]}"
+    text = str(value).strip()
+    return text or None
+
+
 def _build_docuseal_data(
     employee: Employee, sensitive: dict[str, Any]
 ) -> dict[str, Any]:
@@ -337,7 +383,7 @@ def _build_docuseal_data(
         "right_to_work_share_code": (employee.right_to_work_share_code or "").upper(),
         "bank_name": _titlecase(employee.bank_name),
         "account_holder_name": _titlecase(employee.account_holder_name),
-        "sort_code": sensitive.get("sort_code") or "",
+        "sort_code": format_sort_code(sensitive.get("sort_code")) or "",
         "account_number": sensitive.get("account_number") or "",
         "next_of_kin_name": _titlecase(employee.next_of_kin_name),
         "next_of_kin_relationship": _titlecase(employee.next_of_kin_relationship),
@@ -541,6 +587,14 @@ def update_employee(
     employee.start_date = payload["start_date"]
     employee.working_days_per_week = payload.get("working_days_per_week")
     employee.working_hours_per_day = payload.get("working_hours_per_day")
+    if (
+        "holiday_year_end" in payload
+        or "annual_leave_year_end" in payload
+        or "annual_leave_restart" in payload
+    ):
+        employee.holiday_year_end = _holiday_year_end_from_payload(payload)
+    if "annual_leave_days" in payload:
+        employee.annual_leave_days = _annual_leave_days(payload)
     employee.license_points = _clean("license_points")
     employee.right_to_work_share_code = _clean("right_to_work_share_code")
     employee.bank_name = _clean("bank_name")
@@ -552,6 +606,8 @@ def update_employee(
     for form_key, attr in _ENCRYPTED_FIELDS:
         raw = payload.get(form_key)
         if raw is not None and str(raw).strip() != "":
+            if form_key == "sort_code":
+                raw = format_sort_code(raw)
             setattr(employee, attr, encrypt_field(str(raw)))
 
     if payload.get("template_id") is not None:
@@ -606,7 +662,7 @@ def send_existing_employee(
     sensitive = {
         "ni_number": decrypt_field(employee.ni_number_enc),
         "pay_rate": decrypt_field(employee.pay_rate_enc),
-        "sort_code": decrypt_field(employee.sort_code_enc),
+        "sort_code": format_sort_code(decrypt_field(employee.sort_code_enc)),
         "account_number": decrypt_field(employee.account_number_enc),
         "driving_license_number": decrypt_field(employee.driving_license_number_enc),
     }
@@ -867,6 +923,10 @@ def _employee_summary(employee: Employee) -> dict[str, Any]:
         "email": employee.email,
         "role_title": employee.role_title,
         "start_date": employee.start_date.isoformat(),
+        "holiday_year_end": (
+            year_end.isoformat() if (year_end := _employee_year_end(employee)) else None
+        ),
+        "annual_leave_days": employee.annual_leave_days,
         "status": employee.status,
         "phone": employee.phone,
     }
@@ -906,7 +966,7 @@ def _employee_detail(employee: Employee, *, include_sensitive: bool) -> dict[str
         out["ni_number"] = decrypt_field(employee.ni_number_enc)
         out["pay_rate"] = decrypt_field(employee.pay_rate_enc)
         out["driving_license_number"] = decrypt_field(employee.driving_license_number_enc)
-        out["sort_code"] = decrypt_field(employee.sort_code_enc)
+        out["sort_code"] = format_sort_code(decrypt_field(employee.sort_code_enc))
         out["account_number"] = decrypt_field(employee.account_number_enc)
     else:
         for key in (
@@ -949,6 +1009,8 @@ _STAFF_EXPORT_HEADERS = (
     "Email",
     "Phone",
     "Start date",
+    "Leave year end",
+    "Annual leave days",
     "Status",
 )
 
@@ -965,6 +1027,8 @@ def _staff_export_cells(row: dict[str, Any]) -> list[Any]:
         row.get("email") or "",
         row.get("phone") or "",
         row.get("start_date") or "",
+        row.get("holiday_year_end") or "",
+        row.get("annual_leave_days") if row.get("annual_leave_days") is not None else "",
         (row.get("status") or "").replace("_", " "),
     ]
 
@@ -986,7 +1050,7 @@ def build_staff_xlsx(rows: list[dict[str, Any]]) -> bytes:
     for row in rows:
         ws.append(_staff_export_cells(row))
 
-    widths = [14, 8, 22, 20, 14, 18, 28, 16, 12, 16]
+    widths = [14, 8, 22, 20, 14, 18, 28, 16, 12, 14, 16, 16]
     for index, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(index)].width = width
     for cell in ws[1]:

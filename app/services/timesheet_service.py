@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     CM_TIMESHEET_PERIOD_START,
+    DEFAULT_ANNUAL_LEAVE_DAYS,
     EMPLOYEE_STATUS_ARCHIVED,
     EMPLOYMENT_TYPE_EMPLOYED,
     EMPLOYMENT_TYPE_LABELS,
@@ -204,6 +205,7 @@ def list_timesheet(
                 entries.get(employee.id),
                 holiday_hours_by_employee.get(employee.id, []),
                 include_rate=include_rate,
+                as_of=start,
             )
             for employee in staff
         ],
@@ -269,25 +271,30 @@ def save_timesheet_row(
             str(remark).strip() if remark is not None else ""
         ) or None
 
-    if "holidays_remaining" in payload:
-        employee.holidays_remaining = _optional_float(payload.get("holidays_remaining"))
     if "holidays_carry_forward" in payload:
         employee.holidays_carry_forward = _optional_float(
             payload.get("holidays_carry_forward")
         )
     if "holiday_year_end" in payload:
-        raw_year_end = payload.get("holiday_year_end")
-        employee.holiday_year_end = (
-            None
-            if raw_year_end in (None, "")
-            else _parse_date(raw_year_end, field="holiday_year_end")
+        employee.holiday_year_end = _optional_date(
+            payload.get("holiday_year_end"), field="holiday_year_end"
         )
+    elif "annual_leave_restart" in payload:
+        restart = _optional_date(
+            payload.get("annual_leave_restart"), field="annual_leave_restart"
+        )
+        employee.holiday_year_end = (
+            restart - dt.timedelta(days=1) if restart else None
+        )
+    year_end = _employee_year_end(employee)
+    if (year_end is None or start <= year_end) and "holidays_remaining" in payload:
+        employee.holidays_remaining = _optional_float(payload.get("holidays_remaining"))
 
     db.commit()
     db.refresh(employee)
     holiday_hours = _holiday_hours_by_employee(db, [employee.id]).get(employee.id, [])
     return _serialize_row(
-        employee, entry, holiday_hours, include_rate=include_rate
+        employee, entry, holiday_hours, include_rate=include_rate, as_of=start
     )
 
 
@@ -334,14 +341,22 @@ def _serialize_row(
     holiday_entries: list[EmployeeTimesheetEntry],
     *,
     include_rate: bool,
+    as_of: dt.date | None = None,
 ) -> dict[str, Any]:
+    as_of = as_of or dt.date.today()
     pay_type = employee.pay_type or PAY_TYPE_HOURLY
     rate_value = None
     rate_label = None
     if include_rate:
         rate_value, rate_label = _display_rate(pay_type, decrypt_field(employee.pay_rate_enc))
+    year_end = _employee_year_end(employee)
     holidays_taken = _holidays_taken_in_year(
-        holiday_entries, employee.holiday_year_end
+        holiday_entries,
+        year_end,
+        as_of=as_of,
+    )
+    remaining, remaining_locked = _holidays_remaining(
+        employee, holidays_taken, as_of
     )
     return {
         "employee_id": employee.id,
@@ -368,31 +383,76 @@ def _serialize_row(
             entry.accommodation_deduction if entry else None
         ),
         "other_remark": (entry.other_remark if entry else None) or "",
-        "holidays_remaining": _num(employee.holidays_remaining),
+        "holidays_remaining": remaining,
+        "remaining_locked": remaining_locked,
         "holidays_taken": holidays_taken,
         "holidays_carry_forward": _num(employee.holidays_carry_forward),
-        "holiday_year_end": (
-            employee.holiday_year_end.isoformat() if employee.holiday_year_end else None
+        "holiday_year_end": year_end.isoformat() if year_end else None,
+        "annual_leave_days": (
+            DEFAULT_ANNUAL_LEAVE_DAYS
+            if employee.annual_leave_days is None
+            else _num(employee.annual_leave_days)
         ),
     }
+
+
+def leave_year_bounds(year_end: dt.date, as_of: dt.date) -> tuple[dt.date, dt.date]:
+    """Holiday year containing as_of. year_end is the last day holiday can be taken."""
+    this_end = _anniversary_on(as_of.year, year_end)
+    end = this_end if as_of <= this_end else _anniversary_on(as_of.year + 1, year_end)
+    start = _anniversary_on(end.year - 1, year_end) + dt.timedelta(days=1)
+    return start, end
+
+
+def _anniversary_on(year: int, template: dt.date) -> dt.date:
+    try:
+        return dt.date(year, template.month, template.day)
+    except ValueError:
+        last_day = calendar.monthrange(year, template.month)[1]
+        return dt.date(year, template.month, last_day)
+
+
+def _employee_year_end(employee: Employee) -> dt.date | None:
+    if employee.holiday_year_end:
+        return employee.holiday_year_end
+    restart = getattr(employee, "annual_leave_restart", None)
+    if restart:
+        return restart - dt.timedelta(days=1)
+    return None
 
 
 def _holidays_taken_in_year(
     entries: list[EmployeeTimesheetEntry],
     year_end: dt.date | None,
+    *,
+    as_of: dt.date | None = None,
 ) -> float:
     year_start = None
+    end = year_end
+    as_of = as_of or dt.date.today()
     if year_end is not None:
-        year_start = dt.date(year_end.year - 1, year_end.month, year_end.day) + dt.timedelta(
-            days=1
-        )
+        year_start, end = leave_year_bounds(year_end, as_of)
     total = 0.0
     for entry in entries:
-        if year_start and (entry.period_start < year_start or entry.period_start > year_end):
+        if year_start and (entry.period_start < year_start or entry.period_start > end):
             continue
         if entry.holiday_hours:
             total += float(entry.holiday_hours)
     return _num(total) or 0.0
+
+
+def _holidays_remaining(
+    employee: Employee,
+    holidays_taken: float,
+    as_of: dt.date,
+) -> tuple[float | None, bool]:
+    year_end = _employee_year_end(employee)
+    if year_end is not None and as_of > year_end:
+        entitlement = employee.annual_leave_days
+        if entitlement is None:
+            entitlement = DEFAULT_ANNUAL_LEAVE_DAYS
+        return _num(float(entitlement) - float(holidays_taken or 0)), True
+    return _num(employee.holidays_remaining), False
 
 
 def _display_rate(
@@ -446,6 +506,12 @@ def _parse_date(value: dt.date | str | None, *, field: str) -> dt.date:
         return dt.date.fromisoformat(str(value).strip())
     except ValueError as exc:
         raise TimesheetError(f"{field} must be a valid date.") from exc
+
+
+def _optional_date(value: dt.date | str | None, *, field: str) -> dt.date | None:
+    if value in (None, ""):
+        return None
+    return _parse_date(value, field=field)
 
 
 def _format_range(start: dt.date, end: dt.date) -> str:

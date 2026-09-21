@@ -2018,6 +2018,7 @@ TIMESHEET_FARM_BUSINESS: dict[str, str] = {
 CM_TIMESHEET_PERIOD_START = datetime.date(2026, 9, 7)
 GAD_TIMESHEET_PERIOD_START = datetime.date(2026, 9, 1)
 TIMESHEET_FORTNIGHT_DAYS = 14
+DEFAULT_ANNUAL_LEAVE_DAYS = 28.0
 # Personal title options for the new-starter form.
 TITLE_OPTIONS: tuple[str, ...] = ("Mr", "Mrs", "Miss", "Ms", "Dr")
 # Job titles: defaults seeded into AppSetting; manage via Enroll page Settings.
@@ -2112,6 +2113,8 @@ class Employee(Base):
     holidays_remaining: Mapped[float | None] = mapped_column(Float, nullable=True)
     holidays_carry_forward: Mapped[float | None] = mapped_column(Float, nullable=True)
     holiday_year_end: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    annual_leave_restart: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    annual_leave_days: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     template: Mapped[ContractTemplate | None] = relationship(back_populates="employees")
     contracts: Mapped[list[EmployeeContract]] = relationship(

@@ -91,6 +91,14 @@
     .status-archived { background: #fee2e2; color: #b91c1c; }
     tr.staff-row { cursor: pointer; }
     tr.staff-row:hover { background: rgba(0,0,0,0.03); }
+    .staff-table th.col-date,
+    .staff-table td.col-date {
+      white-space: nowrap;
+    }
+    .staff-table td.col-leave-year {
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+    }
     .table-actions {
       display: flex;
       gap: 0.5rem;
@@ -148,12 +156,13 @@
               <th data-sort="employment_type_label">Type</th>
               <th data-sort="role_title">Role</th>
               <th data-sort="email">Email</th>
-              <th data-sort="start_date">Start date</th>
+              <th data-sort="start_date" class="col-date">Start date</th>
+              <th data-sort="holiday_year_end" class="col-date">Leave year end</th>
               <th data-sort="status">Status</th>
             </tr>
           </thead>
           <tbody id="staff-body">
-            <tr><td colspan="8" class="muted">Loading…</td></tr>
+            <tr><td colspan="9" class="muted">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -236,7 +245,7 @@
     updateSortIndicators();
     const rows = sortedRows();
     if (!rows.length) {
-      staffBody.innerHTML = '<tr><td colspan="8" class="muted">No staff found.</td></tr>';
+      staffBody.innerHTML = '<tr><td colspan="9" class="muted">No staff found.</td></tr>';
       return;
     }
     staffBody.innerHTML = rows.map(function (s) {
@@ -247,7 +256,8 @@
         '<td>' + escapeHtml(s.employment_type_label || 'Employed') + '</td>' +
         '<td>' + escapeHtml(s.role_title) + '</td>' +
         '<td>' + escapeHtml(s.email) + '</td>' +
-        '<td>' + escapeHtml(s.start_date || '') + '</td>' +
+        '<td class="col-date">' + escapeHtml(formatDateUk(s.start_date)) + '</td>' +
+        '<td class="col-date col-leave-year">' + escapeHtml(formatDateUk(s.holiday_year_end)) + '</td>' +
         '<td>' + statusBadge(s.status) + '</td>' +
         '</tr>';
     }).join('');
@@ -255,7 +265,7 @@
 
   async function loadStaff() {
     showMessage('');
-    staffBody.innerHTML = '<tr><td colspan="8" class="muted">Loading…</td></tr>';
+    staffBody.innerHTML = '<tr><td colspan="9" class="muted">Loading…</td></tr>';
     try {
       const res = await fetch('/api/hr/staff?' + buildQuery().toString());
       if (!res.ok) {
@@ -267,7 +277,7 @@
       renderTable();
     } catch (err) {
       staffRows = [];
-      staffBody.innerHTML = '<tr><td colspan="8" class="muted">Could not load staff.</td></tr>';
+      staffBody.innerHTML = '<tr><td colspan="9" class="muted">Could not load staff.</td></tr>';
       showMessage(err.message, true);
     }
   }
@@ -289,6 +299,13 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function formatDateUk(value) {
+    if (!value) return '—';
+    const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return String(value);
+    return match[3] + '/' + match[2] + '/' + match[1];
   }
 
   let searchTimer;

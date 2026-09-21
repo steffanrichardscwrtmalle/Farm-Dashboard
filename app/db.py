@@ -1313,6 +1313,8 @@ def _migrate_hr_schema() -> None:
             "holidays_remaining": "FLOAT",
             "holidays_carry_forward": "FLOAT",
             "holiday_year_end": "DATE",
+            "annual_leave_restart": "DATE",
+            "annual_leave_days": "FLOAT",
         }
         missing = {k: v for k, v in new_columns.items() if k not in existing_cols}
         if missing:

@@ -88,3 +88,32 @@ def test_cannot_send_contract_to_self_employed(db, user):
     employee_id = result["employee"]["id"]
     with pytest.raises(HRServiceError, match="do not use employment contracts"):
         send_existing_employee(db, employee_id, None, user)
+
+
+def test_format_sort_code():
+    from app.services.hr_service import format_sort_code
+
+    assert format_sort_code("123456") == "12-34-56"
+    assert format_sort_code("12-34-56") == "12-34-56"
+    assert format_sort_code("12 34 56") == "12-34-56"
+    assert format_sort_code(None) is None
+    assert format_sort_code("") is None
+
+
+def test_enroll_saves_annual_leave_year_end(db, user):
+    result = enroll_employee(
+        db,
+        _payload(
+            holiday_year_end=dt.date(2026, 9, 30),
+            annual_leave_days=28,
+        ),
+        user,
+    )
+    employee = result["employee"]
+    assert employee["holiday_year_end"] == "2026-09-30"
+    assert employee["annual_leave_days"] == 28
+
+
+def test_enroll_defaults_annual_leave_days(db, user):
+    result = enroll_employee(db, _payload(), user)
+    assert result["employee"]["annual_leave_days"] == 28
