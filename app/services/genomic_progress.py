@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import GenomicResult, HerdInventory
+from app.services.custom_indexes import cm_index, load_index_settings
 from app.services.events_common import normalize_farms
 from app.services.genomic_import import normalize_hbn
 
@@ -19,6 +20,7 @@ GENOMIC_TRAITS: tuple[dict[str, str], ...] = (
     {"key": "fat_pct", "label": "Fat %", "field": "fat_pct"},
     {"key": "protein_pct", "label": "Protein %", "field": "protein_pct"},
     {"key": "pli", "label": "PLI", "field": "pli"},
+    {"key": "cm_index", "label": "£CM", "compute": "cm"},
     {"key": "cci", "label": "CCI", "field": "cci"},
     {"key": "fertility_index", "label": "Fertility Index", "field": "fertility_index"},
     {"key": "scc", "label": "SCC", "field": "scc"},
@@ -39,6 +41,22 @@ _TRAIT_BY_KEY = {t["key"]: t for t in GENOMIC_TRAITS}
 
 def list_traits() -> list[dict[str, str]]:
     return [{"key": t["key"], "label": t["label"]} for t in GENOMIC_TRAITS]
+
+
+def _trait_value(
+    genomic: GenomicResult,
+    trait_meta: dict[str, str],
+    settings: dict[str, Any],
+) -> float | None:
+    if trait_meta.get("compute") == "cm":
+        return float(cm_index(genomic, settings))
+    field = trait_meta.get("field")
+    if not field:
+        return None
+    value = getattr(genomic, field, None)
+    if value is None:
+        return None
+    return float(value)
 
 
 def _age_days(bdat: dt.date, today: dt.date) -> int:
@@ -93,14 +111,14 @@ def build_genomic_progress(
         }
 
     today = dt.date.today()
-    field = trait_meta["field"]
+    settings = load_index_settings(db)
     points: dict[str, list[dict[str, Any]]] = {farm: [] for farm in selected_farms}
     y_values: list[float] = []
 
     for farm, etag, bdat, genomic in _inventory_genomic_rows(db, selected_farms):
         if bdat is None:
             continue
-        trait_value = getattr(genomic, field, None)
+        trait_value = _trait_value(genomic, trait_meta, settings)
         if trait_value is None:
             continue
         age_days = _age_days(bdat, today)
@@ -161,15 +179,14 @@ def build_genomic_scatter(
     if not selected_farms:
         return base
 
-    x_field = x_meta["field"]
-    y_field = y_meta["field"]
+    settings = load_index_settings(db)
     points: dict[str, list[dict[str, Any]]] = {farm: [] for farm in selected_farms}
     x_values: list[float] = []
     y_values: list[float] = []
 
     for farm, etag, _bdat, genomic in _inventory_genomic_rows(db, selected_farms):
-        x_value = getattr(genomic, x_field, None)
-        y_value = getattr(genomic, y_field, None)
+        x_value = _trait_value(genomic, x_meta, settings)
+        y_value = _trait_value(genomic, y_meta, settings)
         if x_value is None or y_value is None:
             continue
         points[farm].append(

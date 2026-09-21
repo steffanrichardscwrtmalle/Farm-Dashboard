@@ -295,7 +295,7 @@
       <div class="action-bar">
         <button type="button" class="secondary small" id="refresh-btn">Refresh from AHDB</button>
         <button type="button" class="gear-btn" id="settings-toggle" aria-expanded="false"
-          aria-controls="index-settings-panel" title="Change how £DP and £FW indexes are calculated">
+          aria-controls="index-settings-panel" title="Change how £DP, £FW and £CM indexes are calculated">
           <svg viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">
             <g transform="translate(32 32)">
               <path d="M-2.4-19.5h4.8l1.2 5c1.8.4 3.5 1.2 5 2.3l4.6-2.4 3.4 3.4-2.4 4.6c1.1 1.5 1.9 3.2 2.3 5l5 1.2v4.8l-5 1.2c-.4 1.8-1.2 3.5-2.3 5l2.4 4.6-3.4 3.4-4.6-2.4c-1.5 1.1-3.2 1.9-5 2.3l-1.2 5h-4.8l-1.2-5c-1.8-.4-3.5-1.2-5-2.3l-4.6 2.4-3.4-3.4 2.4-4.6c-1.1-1.5-1.9-3.2-2.3-5l-5-1.2v-4.8l5-1.2c.4-1.8 1.2-3.5 2.3-5l-2.4-4.6 3.4-3.4 4.6 2.4c1.5-1.1 3.2-1.9 5-2.3l1.2-5z"/>
@@ -311,8 +311,8 @@
       </div>
       <div class="settings-panel" id="index-settings-panel">
         <p class="help-text" style="margin-bottom:0.85rem;">
-          These inputs are the same as the breeding spreadsheet. Save to recalculate £DP and £FW for every bull.
-          Mastitis is calculated in the spreadsheet but is not in the total unless you tick it.
+          These inputs are the same as the breeding spreadsheet. Save to recalculate £DP, £FW and £CM for every bull.
+          For £DP and £FW, mastitis is not in the total unless you tick it. £CM uses mastitis instead of SCC.
         </p>
         <form id="index-settings-form">
           <div class="settings-grid">
@@ -326,7 +326,7 @@
                 <label>Mastitis weight <input type="number" step="any" id="idx-mastitis_weight" required></label>
               </div>
               <label class="settings-check">
-                <input type="checkbox" id="idx-include_mastitis"> Include mastitis in both indexes
+                <input type="checkbox" id="idx-include_mastitis"> Include mastitis in £DP and £FW
               </label>
             </div>
             <div class="settings-col">
@@ -357,6 +357,28 @@
               </div>
               <label class="settings-check">
                 <input type="checkbox" id="idx-fw-include_lameness"> Include lameness
+              </label>
+            </div>
+            <div class="settings-col">
+              <h3>£CM Index</h3>
+              <div class="settings-fields">
+                <label>Fat % base <input type="number" step="any" id="idx-cm-fat_pct_base" required></label>
+                <label>Protein % base <input type="number" step="any" id="idx-cm-protein_pct_base" required></label>
+                <label>Milk volume base <input type="number" step="any" id="idx-cm-milk_volume_base" required></label>
+                <label>Fat price <input type="number" step="any" id="idx-cm-fat_price" required></label>
+                <label>Protein price <input type="number" step="any" id="idx-cm-protein_price" required></label>
+                <label>Volume price <input type="number" step="any" id="idx-cm-volume_price" required></label>
+                <label>Lameness weight <input type="number" step="any" id="idx-cm-lameness_weight" required></label>
+                <label>Mastitis weight <input type="number" step="any" id="idx-cm-mastitis_weight" required></label>
+              </div>
+              <label class="settings-check">
+                <input type="checkbox" id="idx-cm-include_lameness"> Include lameness
+              </label>
+              <label class="settings-check">
+                <input type="checkbox" id="idx-cm-include_mastitis"> Include mastitis
+              </label>
+              <label class="settings-check">
+                <input type="checkbox" id="idx-cm-include_scc"> Include SCC
               </label>
             </div>
           </div>
@@ -390,6 +412,7 @@
       { key: "pli", label: "£PLI", type: "num", digits: 0 },
       { key: "dp_index", label: "£DP Index", type: "num", digits: 0 },
       { key: "fw_index", label: "£FW Index", type: "num", digits: 0 },
+      { key: "cm_index", label: "£CM Index", type: "num", digits: 0 },
       { key: "milk_kg", label: "Milk", type: "num", digits: 0 },
       { key: "fat_kg", label: "Fat kg", type: "num", digits: 1 },
       { key: "protein_kg", label: "Prot kg", type: "num", digits: 1 },
@@ -426,6 +449,7 @@
       { key: "pli", label: "£PLI", step: "1" },
       { key: "dp_index", label: "£DP", step: "1" },
       { key: "fw_index", label: "£FW", step: "1" },
+      { key: "cm_index", label: "£CM", step: "1" },
       { key: "milk_kg", label: "Milk", step: "1" },
       { key: "fat_kg", label: "Fat kg", step: "0.1" },
       { key: "protein_kg", label: "Prot kg", step: "0.1" },
@@ -444,10 +468,13 @@
     const SHARED_FIELDS = [
       "ebv_conv", "fertility_weight", "lifespan_weight", "scc_value", "mastitis_weight",
     ];
+    const SCHEMES = ["dp", "fw", "cm"];
     const SCHEME_FIELDS = [
       "fat_pct_base", "protein_pct_base", "milk_volume_base",
       "fat_price", "protein_price", "volume_price", "lameness_weight",
+      "mastitis_weight",
     ];
+    const SCHEME_CHECKS = ["include_lameness", "include_scc", "include_mastitis"];
 
     let rows = [];
     let fetchedAt = null;
@@ -478,14 +505,16 @@
       });
       const mast = document.getElementById("idx-include_mastitis");
       if (mast) mast.checked = !!settings.include_mastitis;
-      ["dp", "fw"].forEach((scheme) => {
+      SCHEMES.forEach((scheme) => {
         const cfg = settings[scheme] || {};
         SCHEME_FIELDS.forEach((key) => {
           const el = document.getElementById("idx-" + scheme + "-" + key);
           if (el && cfg[key] != null) el.value = cfg[key];
         });
-        const lame = document.getElementById("idx-" + scheme + "-include_lameness");
-        if (lame) lame.checked = !!cfg.include_lameness;
+        SCHEME_CHECKS.forEach((key) => {
+          const el = document.getElementById("idx-" + scheme + "-" + key);
+          if (el) el.checked = !!cfg[key];
+        });
       });
     }
 
@@ -494,12 +523,15 @@
       SHARED_FIELDS.forEach((key) => {
         payload[key] = Number(document.getElementById("idx-" + key).value);
       });
-      ["dp", "fw"].forEach((scheme) => {
-        const cfg = {
-          include_lameness: document.getElementById("idx-" + scheme + "-include_lameness").checked,
-        };
+      SCHEMES.forEach((scheme) => {
+        const cfg = {};
         SCHEME_FIELDS.forEach((key) => {
-          cfg[key] = Number(document.getElementById("idx-" + scheme + "-" + key).value);
+          const el = document.getElementById("idx-" + scheme + "-" + key);
+          if (el) cfg[key] = Number(el.value);
+        });
+        SCHEME_CHECKS.forEach((key) => {
+          const el = document.getElementById("idx-" + scheme + "-" + key);
+          if (el) cfg[key] = el.checked;
         });
         payload[scheme] = cfg;
       });
@@ -841,7 +873,7 @@
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.detail || "Could not save index settings");
           applyPayload(data);
-          showMessage("£DP and £FW indexes updated.", "ok");
+          showMessage("£DP, £FW and £CM indexes updated.", "ok");
         } catch (err) {
           showMessage(err.message, "err");
         } finally {
@@ -849,7 +881,7 @@
         }
       });
       document.getElementById("reset-index-btn").addEventListener("click", async () => {
-        if (!window.confirm("Reset £DP and £FW to the original spreadsheet formula?")) return;
+        if (!window.confirm("Reset £DP, £FW and £CM to the original spreadsheet formula?")) return;
         const btn = document.getElementById("reset-index-btn");
         btn.disabled = true;
         showMessage("Resetting index settings…");

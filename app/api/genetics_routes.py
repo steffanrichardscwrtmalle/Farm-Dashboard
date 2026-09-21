@@ -395,6 +395,9 @@ class IndexSchemeBody(BaseModel):
     volume_price: float | None = None
     lameness_weight: float | None = None
     include_lameness: bool | None = None
+    include_scc: bool | None = None
+    include_mastitis: bool | None = None
+    mastitis_weight: float | None = None
 
 
 class IndexSettingsBody(BaseModel):
@@ -406,6 +409,7 @@ class IndexSettingsBody(BaseModel):
     include_mastitis: bool | None = None
     dp: IndexSchemeBody | None = None
     fw: IndexSchemeBody | None = None
+    cm: IndexSchemeBody | None = None
 
 
 @router.put("/bull-search/index-settings")

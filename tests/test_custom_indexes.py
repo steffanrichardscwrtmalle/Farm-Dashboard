@@ -5,6 +5,7 @@ from app.models import Base
 from app.services.custom_indexes import (
     DEFAULT_INDEX_SETTINGS,
     attach_custom_indexes,
+    cm_index,
     dp_index,
     fw_index,
     load_index_settings,
@@ -44,6 +45,28 @@ def test_fw_index_matches_spreadsheet_formula() -> None:
     assert round(fw_index(_JUMPSTART), 4) == round(expected, 4)
 
 
+def test_cm_index_matches_spreadsheet_formula() -> None:
+    milk_pta, fatpct, protpct = 775, 0.28, 0.12
+    milk = milk_pta * 6.2 * 2 / 100
+    fat = (((fatpct + 4) * milk_pta * 2.9) + (13000 * fatpct * 2.9)) / 100 * 2
+    protein = (((protpct + 3.36) * milk_pta * 6.6) + (13000 * protpct * 6.6)) / 100 * 2
+    expected = milk + fat + protein + 5.5 * 6 * 2 + 101 * 0.2 * 2 + (-2) * -4.5 * 2
+    assert round(cm_index(_JUMPSTART), 4) == round(expected, 4)
+
+
+def test_cm_index_accepts_genomic_life_span_field() -> None:
+    row = {key: value for key, value in _JUMPSTART.items() if key != "lifespan_days"}
+    row["life_span"] = 101
+    assert round(cm_index(row), 4) == round(cm_index(_JUMPSTART), 4)
+
+
+def test_cm_uses_mastitis_instead_of_scc() -> None:
+    with_scc = dict(_JUMPSTART, scc=-99, lameness=9.9)
+    assert round(cm_index(with_scc), 4) == round(cm_index(_JUMPSTART), 4)
+    without_mast = dict(_JUMPSTART, mastitis=0)
+    assert round(cm_index(_JUMPSTART) - cm_index(without_mast), 4) == round((-2) * -4.5 * 2, 4)
+
+
 def test_fw_ignores_lameness_and_mastitis_total() -> None:
     with_lame = dict(_JUMPSTART)
     without_lame = dict(_JUMPSTART, lameness=0, mastitis=0)
@@ -54,11 +77,13 @@ def test_attach_custom_indexes_adds_rounded_fields() -> None:
     payload = attach_custom_indexes(dict(_JUMPSTART))
     assert payload["dp_index"] == round(dp_index(_JUMPSTART), 2)
     assert payload["fw_index"] == round(fw_index(_JUMPSTART), 2)
+    assert payload["cm_index"] == round(cm_index(_JUMPSTART), 2)
 
 
 def test_missing_traits_treat_as_zero() -> None:
     assert dp_index({}) == 0
     assert fw_index({}) == 0
+    assert cm_index({}) == 0
 
 
 def test_custom_settings_change_dp_and_fw() -> None:
@@ -85,6 +110,8 @@ def test_index_settings_persist_and_reset() -> None:
     assert saved["dp"]["fat_price"] == 9.9
     assert saved["include_mastitis"] is True
     assert saved["fw"]["volume_price"] == 40.0
+    assert saved["cm"]["mastitis_weight"] == -4.5
+    assert saved["cm"]["include_scc"] is False
     loaded = load_index_settings(db)
     assert loaded["dp"]["fat_price"] == 9.9
     assert loaded["include_mastitis"] is True

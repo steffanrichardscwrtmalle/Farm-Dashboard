@@ -326,6 +326,7 @@ def test_bull_search_page_is_wired() -> None:
     assert '{ key: "proof", label: "Proof"' in page
     assert "£DP Index" in page
     assert "£FW Index" in page
+    assert "£CM Index" in page
     assert "supplier-slicer" in page
     assert "trait-filters" in page
     assert "pli_reliability" not in page

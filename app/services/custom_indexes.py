@@ -1,4 +1,4 @@
-"""Farm-specific £DP and £FW bull indexes (from the breeding spreadsheet)."""
+"""Farm-specific £DP, £FW and £CM bull indexes (from the breeding spreadsheet)."""
 
 from __future__ import annotations
 
@@ -40,6 +40,19 @@ DEFAULT_INDEX_SETTINGS: dict[str, Any] = {
         "lameness_weight": 2.5,
         "include_lameness": False,
     },
+    "cm": {
+        "fat_pct_base": 4.0,
+        "protein_pct_base": 3.36,
+        "milk_volume_base": 13000,
+        "fat_price": 2.9,
+        "protein_price": 6.6,
+        "volume_price": 6.2,
+        "lameness_weight": 2.5,
+        "include_lameness": False,
+        "include_scc": False,
+        "include_mastitis": True,
+        "mastitis_weight": -4.5,
+    },
 }
 
 _SHARED_KEYS = (
@@ -59,7 +72,12 @@ _SCHEME_KEYS = (
     "volume_price",
     "lameness_weight",
     "include_lameness",
+    "include_scc",
+    "include_mastitis",
+    "mastitis_weight",
 )
+_SCHEME_BOOL_KEYS = ("include_lameness", "include_scc", "include_mastitis")
+_SCHEMES = ("dp", "fw", "cm")
 
 
 def _get(row: Any, name: str) -> Any:
@@ -100,17 +118,19 @@ def merge_index_settings(raw: Any = None) -> dict[str, Any]:
             settings[key] = _bool(raw[key], settings[key])
         else:
             settings[key] = _num(raw[key], settings[key])
-    for scheme in ("dp", "fw"):
+    for scheme in _SCHEMES:
         incoming = raw.get(scheme)
         if not isinstance(incoming, dict):
             continue
         for key in _SCHEME_KEYS:
             if key not in incoming:
                 continue
-            if key == "include_lameness":
-                settings[scheme][key] = _bool(incoming[key], settings[scheme][key])
+            if key in _SCHEME_BOOL_KEYS:
+                fallback = settings[scheme].get(key, False)
+                settings[scheme][key] = _bool(incoming[key], fallback)
             else:
-                settings[scheme][key] = _num(incoming[key], settings[scheme][key])
+                fallback = settings[scheme].get(key, 0.0)
+                settings[scheme][key] = _num(incoming[key], fallback)
     return settings
 
 
@@ -194,11 +214,24 @@ def _scheme_index(row: Any, settings: dict[str, Any], scheme: str) -> float:
         ebv_conv=ebv,
     )
     fertility = _num(_get(row, "fertility_index")) * _num(settings["fertility_weight"]) * ebv
-    lifespan = _num(_get(row, "lifespan_days")) * _num(settings["lifespan_weight"]) * ebv
-    scc_index = _num(_get(row, "scc")) * _num(settings["scc_value"])
-    total = milk + protein + fat + fertility + lifespan + scc_index
-    if settings["include_mastitis"]:
-        total += _num(_get(row, "mastitis")) * _num(settings["mastitis_weight"]) * ebv
+    lifespan_pta = _get(row, "lifespan_days")
+    if lifespan_pta is None:
+        lifespan_pta = _get(row, "life_span")
+    lifespan = _num(lifespan_pta) * _num(settings["lifespan_weight"]) * ebv
+    total = milk + protein + fat + fertility + lifespan
+    include_scc = _bool(cfg["include_scc"], True) if "include_scc" in cfg else True
+    if include_scc:
+        total += _num(_get(row, "scc")) * _num(settings["scc_value"])
+    if "include_mastitis" in cfg:
+        include_mastitis = _bool(cfg["include_mastitis"], False)
+    else:
+        include_mastitis = _bool(settings["include_mastitis"], False)
+    if include_mastitis:
+        if "mastitis_weight" in cfg:
+            mast_weight = _num(cfg["mastitis_weight"], settings["mastitis_weight"])
+        else:
+            mast_weight = _num(settings["mastitis_weight"])
+        total += _num(_get(row, "mastitis")) * mast_weight * ebv
     if cfg["include_lameness"]:
         total += _num(_get(row, "lameness")) * _num(cfg["lameness_weight"]) * ebv
     return total
@@ -212,6 +245,10 @@ def fw_index(row: Any, settings: dict[str, Any] | None = None) -> float:
     return _scheme_index(row, merge_index_settings(settings), "fw")
 
 
+def cm_index(row: Any, settings: dict[str, Any] | None = None) -> float:
+    return _scheme_index(row, merge_index_settings(settings), "cm")
+
+
 def attach_custom_indexes(
     payload: dict[str, Any],
     settings: dict[str, Any] | None = None,
@@ -219,4 +256,5 @@ def attach_custom_indexes(
     cfg = merge_index_settings(settings)
     payload["dp_index"] = round(dp_index(payload, cfg), 2)
     payload["fw_index"] = round(fw_index(payload, cfg), 2)
+    payload["cm_index"] = round(cm_index(payload, cfg), 2)
     return payload
