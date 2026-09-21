@@ -151,6 +151,20 @@ def _invoice_section(invoice_type: str, account_class: str | None) -> str:
     return _SECTION_COSTS
 
 
+_CLOSING_STOCK_PNL_NAME = "closing stock p&l"
+
+
+def apply_closing_stock_pnl_sign(amount: float, account_name: str | None) -> float:
+    """Show a Closing Stock P&L gain as positive.
+
+    Xero keeps this account as an expense, so a rise in stock is a credit and
+    arrives as a negative. The dashboard treats that rise as a gain.
+    """
+    if (account_name or "").strip().casefold() == _CLOSING_STOCK_PNL_NAME:
+        return -float(amount or 0.0)
+    return float(amount or 0.0)
+
+
 def _journal_section_and_amount(
     account_class: str | None, line_amount: float
 ) -> tuple[str, float]:
@@ -333,6 +347,9 @@ def list_actuals(
         )
         if invoice_type in CREDIT_NOTE_TYPES:
             amount = -abs(amount)
+        amount = apply_closing_stock_pnl_sign(
+            amount, meta["name"] if meta else None
+        )
         buckets[section][code][month_iso] += amount
 
     for account_code, journal_date, line_amount, _tenant_id in jnl_rows:
@@ -346,6 +363,9 @@ def list_actuals(
         account_class = meta["account_class"] if meta else None
         section, amount = _journal_section_and_amount(
             account_class, float(line_amount or 0.0)
+        )
+        amount = apply_closing_stock_pnl_sign(
+            amount, meta["name"] if meta else None
         )
         buckets[section][code][month_iso] += amount
 
@@ -373,11 +393,15 @@ def list_actuals(
         meta = accounts.get(code) if code != "Uncoded" else None
         account_class = meta["account_class"] if meta else None
         section = _invoice_section(invoice_type, account_class)
-        buckets[section][code][month_iso] += ex_vat_line_amount(
-            line_amount,
-            tax_amount,
-            inclusive=int(bank_pk) in inclusive_banks,
+        amount = apply_closing_stock_pnl_sign(
+            ex_vat_line_amount(
+                line_amount,
+                tax_amount,
+                inclusive=int(bank_pk) in inclusive_banks,
+            ),
+            meta["name"] if meta else None,
         )
+        buckets[section][code][month_iso] += amount
 
     def build_section(section_key: str, label: str, statement: str) -> dict[str, Any]:
         section_rows: list[dict[str, Any]] = []

@@ -35,7 +35,10 @@ from app.services.financial_forecasts import (
     list_band_definitions,
     seed_financial_forecasts_if_empty,
 )
-from app.services.xero_actuals import available_actual_fiscal_years
+from app.services.xero_actuals import (
+    apply_closing_stock_pnl_sign,
+    available_actual_fiscal_years,
+)
 from app.services.xero_amounts import document_is_inclusive, ex_vat_line_amount
 from app.services.xero_bank_transactions import (
     BANK_STATUSES,
@@ -326,6 +329,7 @@ def _lookup_maps(db: Session) -> tuple[
     dict[tuple[str, str], int],
     dict[tuple[str, str], str | None],
     dict[tuple[str, str], str],
+    dict[tuple[str, str], str],
 ]:
     mapping_by_account_id = {
         (row.tenant_id, row.account_id): row.mapping_id
@@ -333,15 +337,22 @@ def _lookup_maps(db: Session) -> tuple[
     }
     account_class_by_id: dict[tuple[str, str], str | None] = {}
     account_id_by_code: dict[tuple[str, str], str] = {}
+    account_name_by_id: dict[tuple[str, str], str] = {}
     for account in db.scalars(select(XeroAccount)).all():
         key = (account.tenant_id, account.account_id)
         account_class_by_id[key] = (
             str(account.account_class).strip().upper() if account.account_class else None
         )
+        account_name_by_id[key] = account.name or ""
         code = (account.code or "").strip()
         if code:
             account_id_by_code[(account.tenant_id, code)] = account.account_id
-    return mapping_by_account_id, account_class_by_id, account_id_by_code
+    return (
+        mapping_by_account_id,
+        account_class_by_id,
+        account_id_by_code,
+        account_name_by_id,
+    )
 
 
 def _resolve_mapping(
@@ -352,17 +363,19 @@ def _resolve_mapping(
     mapping_by_account_id: dict[tuple[str, str], int],
     account_id_by_code: dict[tuple[str, str], str],
     account_class_by_id: dict[tuple[str, str], str | None],
-) -> tuple[int | None, str | None]:
+    account_name_by_id: dict[tuple[str, str], str],
+) -> tuple[int | None, str | None, str | None]:
     aid = (account_id or "").strip() or None
     if not aid:
         code = (account_code or "").strip()
         if code:
             aid = account_id_by_code.get((tenant_id, code))
     if not aid:
-        return None, None
+        return None, None, None
     mapping_id = mapping_by_account_id.get((tenant_id, aid))
     account_class = account_class_by_id.get((tenant_id, aid))
-    return mapping_id, account_class
+    account_name = account_name_by_id.get((tenant_id, aid))
+    return mapping_id, account_class, account_name
 
 
 def _mapping_id_for_heading(db: Session, heading: str) -> int | None:
@@ -389,6 +402,7 @@ def _contact_matched_amounts_by_month(
     mapping_by_account_id: dict[tuple[str, str], int],
     account_id_by_code: dict[tuple[str, str], str],
     account_class_by_id: dict[tuple[str, str], str | None],
+    account_name_by_id: dict[tuple[str, str], str],
 ) -> dict[str, float]:
     """Sum signed P&L amounts for invoice lines matching business + contact."""
     contact_col = func.lower(func.coalesce(XeroInvoice.contact_name, ""))
@@ -459,13 +473,14 @@ def _contact_matched_amounts_by_month(
         month_iso = invoice_date.replace(day=1).isoformat()
         if month_iso not in month_key_set:
             continue
-        mapping_id, account_class = _resolve_mapping(
+        mapping_id, account_class, _account_name = _resolve_mapping(
             tenant_id=str(tenant_id),
             account_id=account_id,
             account_code=account_code,
             mapping_by_account_id=mapping_by_account_id,
             account_id_by_code=account_id_by_code,
             account_class_by_id=account_class_by_id,
+            account_name_by_id=account_name_by_id,
         )
         if mapping_id != target_mapping_id:
             continue
@@ -494,6 +509,7 @@ def _apply_hs_cm_silage_elimination(
     mapping_by_account_id: dict[tuple[str, str], int],
     account_id_by_code: dict[tuple[str, str], str],
     account_class_by_id: dict[tuple[str, str], str | None],
+    account_name_by_id: dict[tuple[str, str], str],
 ) -> dict[str, Any] | None:
     """Net H&S Forage silage sales to CM out of Forage Sales and Bulky Feed."""
     sales_mapping_id = _mapping_id_for_heading(db, _IC_SALES_HEADING)
@@ -515,6 +531,7 @@ def _apply_hs_cm_silage_elimination(
         mapping_by_account_id=mapping_by_account_id,
         account_id_by_code=account_id_by_code,
         account_class_by_id=account_class_by_id,
+        account_name_by_id=account_name_by_id,
     )
     purchases_by_month = _contact_matched_amounts_by_month(
         db,
@@ -529,6 +546,7 @@ def _apply_hs_cm_silage_elimination(
         mapping_by_account_id=mapping_by_account_id,
         account_id_by_code=account_id_by_code,
         account_class_by_id=account_class_by_id,
+        account_name_by_id=account_name_by_id,
     )
 
     eliminated: dict[str, float] = {}
@@ -688,7 +706,12 @@ def list_xero_pnl(
     start, end = months[0], _last_day_of_month(months[-1])
     business_value, businesses = _resolve_businesses(business)
 
-    mapping_by_account_id, account_class_by_id, account_id_by_code = _lookup_maps(db)
+    (
+        mapping_by_account_id,
+        account_class_by_id,
+        account_id_by_code,
+        account_name_by_id,
+    ) = _lookup_maps(db)
     inclusive_invoices = _inclusive_invoice_pks(
         db, start=start, end=end, businesses=businesses
     )
@@ -734,24 +757,28 @@ def list_xero_pnl(
         month_iso = invoice_date.replace(day=1).isoformat()
         if month_iso not in month_key_set:
             continue
-        mapping_id, account_class = _resolve_mapping(
+        mapping_id, account_class, account_name = _resolve_mapping(
             tenant_id=str(tenant_id),
             account_id=account_id,
             account_code=account_code,
             mapping_by_account_id=mapping_by_account_id,
             account_id_by_code=account_id_by_code,
             account_class_by_id=account_class_by_id,
+            account_name_by_id=account_name_by_id,
         )
         net_amount = ex_vat_line_amount(
             line_amount,
             tax_amount,
             inclusive=int(invoice_pk) in inclusive_invoices,
         )
-        signed = _signed_amount(
-            account_class=account_class,
-            invoice_type=invoice_type,
-            line_amount=net_amount,
-            is_journal=False,
+        signed = apply_closing_stock_pnl_sign(
+            _signed_amount(
+                account_class=account_class,
+                invoice_type=invoice_type,
+                line_amount=net_amount,
+                is_journal=False,
+            ),
+            account_name,
         )
         if mapping_id is None:
             unmapped[month_iso] += signed
@@ -781,19 +808,23 @@ def list_xero_pnl(
         month_iso = journal_date.replace(day=1).isoformat()
         if month_iso not in month_key_set:
             continue
-        mapping_id, account_class = _resolve_mapping(
+        mapping_id, account_class, account_name = _resolve_mapping(
             tenant_id=str(tenant_id),
             account_id=account_id,
             account_code=account_code,
             mapping_by_account_id=mapping_by_account_id,
             account_id_by_code=account_id_by_code,
             account_class_by_id=account_class_by_id,
+            account_name_by_id=account_name_by_id,
         )
-        signed = _signed_amount(
-            account_class=account_class,
-            invoice_type=None,
-            line_amount=float(line_amount or 0.0),
-            is_journal=True,
+        signed = apply_closing_stock_pnl_sign(
+            _signed_amount(
+                account_class=account_class,
+                invoice_type=None,
+                line_amount=float(line_amount or 0.0),
+                is_journal=True,
+            ),
+            account_name,
         )
         if mapping_id is None:
             unmapped[month_iso] += signed
@@ -841,24 +872,28 @@ def list_xero_pnl(
         month_iso = transaction_date.replace(day=1).isoformat()
         if month_iso not in month_key_set:
             continue
-        mapping_id, account_class = _resolve_mapping(
+        mapping_id, account_class, account_name = _resolve_mapping(
             tenant_id=str(tenant_id),
             account_id=account_id,
             account_code=account_code,
             mapping_by_account_id=mapping_by_account_id,
             account_id_by_code=account_id_by_code,
             account_class_by_id=account_class_by_id,
+            account_name_by_id=account_name_by_id,
         )
         net_amount = ex_vat_line_amount(
             line_amount,
             tax_amount,
             inclusive=int(bank_pk) in inclusive_banks,
         )
-        signed = _signed_amount(
-            account_class=account_class,
-            invoice_type=invoice_type,
-            line_amount=net_amount,
-            is_journal=False,
+        signed = apply_closing_stock_pnl_sign(
+            _signed_amount(
+                account_class=account_class,
+                invoice_type=invoice_type,
+                line_amount=net_amount,
+                is_journal=False,
+            ),
+            account_name,
         )
         if mapping_id is None:
             unmapped[month_iso] += signed
@@ -876,6 +911,7 @@ def list_xero_pnl(
             mapping_by_account_id=mapping_by_account_id,
             account_id_by_code=account_id_by_code,
             account_class_by_id=account_class_by_id,
+            account_name_by_id=account_name_by_id,
         )
 
     # Milk litres from statements (not Xero).
