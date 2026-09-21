@@ -117,6 +117,9 @@
           </div>
         </div>
         <button type="button" id="refresh-btn" class="secondary">Refresh</button>
+        {% if can_timesheets %}
+        <button type="button" class="secondary" onclick="window.location.href='/hr/timesheets'">Time sheets</button>
+        {% endif %}
         {% if can_enroll %}
         <button type="button" id="enroll-btn" style="margin-left:auto"
           onclick="window.location.href='/hr/enroll'">Enroll new staff</button>

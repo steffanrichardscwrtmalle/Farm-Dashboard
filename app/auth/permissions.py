@@ -88,6 +88,7 @@ ACTION_CATTLE_SALES_IMPORT = "cattle_sales.import"
 ACTION_BENCHMARKING_EDIT = "benchmarking.edit"
 ACTION_HR_ENROLL = "hr.enroll"
 ACTION_HR_VIEW_SENSITIVE = "hr.view_sensitive"
+ACTION_HR_TIMESHEETS = "hr.timesheets"
 ACTION_PARLOUR_IMPORT = "parlour.import"
 ACTION_SENSEHUB_IMPORT = "sensehub.import"
 ACTION_SENSEHUB_CULL = "sensehub.cull"
@@ -110,6 +111,7 @@ ACTION_KEYS: tuple[str, ...] = (
     ACTION_BENCHMARKING_EDIT,
     ACTION_HR_ENROLL,
     ACTION_HR_VIEW_SENSITIVE,
+    ACTION_HR_TIMESHEETS,
     ACTION_PARLOUR_IMPORT,
     ACTION_SENSEHUB_IMPORT,
     ACTION_SENSEHUB_CULL,
@@ -133,6 +135,7 @@ ACTION_LABELS: dict[str, str] = {
     ACTION_BENCHMARKING_EDIT: "Budgeting — edit forecast tables",
     ACTION_HR_ENROLL: "HR — enroll new staff",
     ACTION_HR_VIEW_SENSITIVE: "HR — view sensitive (NI, pay, contracts, documents)",
+    ACTION_HR_TIMESHEETS: "HR — time sheets",
     ACTION_PARLOUR_IMPORT: "Parlour — import milk flow shift reports",
     ACTION_SENSEHUB_IMPORT: "SenseHub — refresh heat / health reports",
     ACTION_SENSEHUB_CULL: "SenseHub — cull Tags To Remove",
@@ -157,6 +160,7 @@ ACTION_PAGES: dict[str, str] = {
     ACTION_BENCHMARKING_EDIT: PAGE_BENCHMARKING,
     ACTION_HR_ENROLL: PAGE_HR,
     ACTION_HR_VIEW_SENSITIVE: PAGE_HR,
+    ACTION_HR_TIMESHEETS: PAGE_HR,
     ACTION_PARLOUR_IMPORT: PAGE_PARLOUR,
     ACTION_SENSEHUB_IMPORT: PAGE_SENSEHUB,
     ACTION_SENSEHUB_CULL: PAGE_SENSEHUB,
@@ -188,12 +192,29 @@ PRESETS: dict[str, dict[str, Any]] = {
     PRESET_STAFF_HR: {
         "label": "Staff / HR",
         "pages": [PAGE_HR],
-        "actions": [ACTION_HR_ENROLL, ACTION_HR_VIEW_SENSITIVE],
+        "actions": [ACTION_HR_ENROLL, ACTION_HR_VIEW_SENSITIVE, ACTION_HR_TIMESHEETS],
     },
     PRESET_OFFICE: {
         "label": "Office",
-        "pages": ALL_PAGES,
-        "actions": ALL_ACTIONS,
+        "pages": [
+            PAGE_WYNNSTAY,
+            PAGE_PROSTOCK,
+            PAGE_STOCK_INVENTORY,
+            PAGE_BCMS,
+            PAGE_FEED_RATE,
+            PAGE_FEED_CONTRACTS,
+            PAGE_OFFICE_ADMIN,
+            PAGE_XERO,
+            PAGE_GENETICS,
+            PAGE_MILK_QUALITY,
+            PAGE_MILK_STATEMENTS,
+            PAGE_CATTLE_SALES,
+            PAGE_BENCHMARKING,
+        ],
+        "actions": [
+            ACTION_OFFICE_ADMIN_SALES_PAYMENT,
+            ACTION_OFFICE_ADMIN_FALLEN_STOCK,
+        ],
     },
 }
 

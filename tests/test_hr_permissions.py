@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from app.auth.permissions import (
     ACTION_HR_ENROLL,
+    ACTION_HR_TIMESHEETS,
     ACTION_HR_VIEW_SENSITIVE,
+    ACTION_OFFICE_ADMIN_FALLEN_STOCK,
+    ACTION_OFFICE_ADMIN_SALES_PAYMENT,
     PAGE_HR,
     PAGE_OFFICE_ADMIN,
+    PAGE_XERO,
+    PRESET_OFFICE,
     PRESET_STAFF_HR,
     has_action,
     has_page,
@@ -62,6 +67,19 @@ def test_staff_hr_preset_excludes_office_admin() -> None:
     assert PAGE_OFFICE_ADMIN not in perms["pages"]
     assert ACTION_HR_ENROLL in perms["actions"]
     assert ACTION_HR_VIEW_SENSITIVE in perms["actions"]
+    assert ACTION_HR_TIMESHEETS in perms["actions"]
+
+
+def test_office_preset_does_not_grant_everything() -> None:
+    perms = preset_permissions(PRESET_OFFICE)
+    assert PAGE_OFFICE_ADMIN in perms["pages"]
+    assert PAGE_XERO in perms["pages"]
+    assert PAGE_HR not in perms["pages"]
+    assert ACTION_HR_TIMESHEETS not in perms["actions"]
+    assert ACTION_HR_ENROLL not in perms["actions"]
+    assert ACTION_HR_VIEW_SENSITIVE not in perms["actions"]
+    assert ACTION_OFFICE_ADMIN_SALES_PAYMENT in perms["actions"]
+    assert ACTION_OFFICE_ADMIN_FALLEN_STOCK in perms["actions"]
 
 
 def test_sensehub_refresh_and_cull_are_separate_actions() -> None:
@@ -92,8 +110,25 @@ def test_admin_catalog_nests_hr_actions_under_hr_page() -> None:
     catalog = permissions_for_admin_ui()
     hr = next(item for item in catalog["pages"] if item["id"] == PAGE_HR)
     action_ids = {item["id"] for item in hr["actions"]}
-    assert action_ids == {ACTION_HR_ENROLL, ACTION_HR_VIEW_SENSITIVE}
+    assert action_ids == {
+        ACTION_HR_ENROLL,
+        ACTION_HR_VIEW_SENSITIVE,
+        ACTION_HR_TIMESHEETS,
+    }
     office = next(item for item in catalog["pages"] if item["id"] == PAGE_OFFICE_ADMIN)
     office_ids = {item["id"] for item in office["actions"]}
     assert ACTION_HR_ENROLL not in office_ids
     assert ACTION_HR_VIEW_SENSITIVE not in office_ids
+    assert ACTION_HR_TIMESHEETS not in office_ids
+
+
+def test_timesheets_is_separate_from_directory_access() -> None:
+    directory_only = _user('{"pages":["hr"],"actions":[]}')
+    assert has_page(directory_only, PAGE_HR)
+    assert not has_action(directory_only, ACTION_HR_TIMESHEETS)
+
+    timesheets_only = _user('{"pages":[],"actions":["hr.timesheets"]}')
+    assert has_page(timesheets_only, PAGE_HR)
+    assert has_action(timesheets_only, ACTION_HR_TIMESHEETS)
+    assert not has_action(timesheets_only, ACTION_HR_ENROLL)
+    assert not has_action(timesheets_only, ACTION_HR_VIEW_SENSITIVE)

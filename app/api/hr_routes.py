@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.auth.deps import get_current_user, require_action, require_page
 from app.auth.permissions import (
     ACTION_HR_ENROLL,
+    ACTION_HR_TIMESHEETS,
     ACTION_HR_VIEW_SENSITIVE,
     PAGE_HR,
     has_action,
@@ -53,6 +54,11 @@ from app.services.hr_service import (
     send_existing_employee,
     set_employee_archived,
     update_employee,
+)
+from app.services.timesheet_service import (
+    TimesheetError,
+    list_timesheet,
+    save_timesheet_row,
 )
 
 router = APIRouter(prefix="/api/hr")
@@ -126,6 +132,24 @@ class SendStaffBody(BaseModel):
 
 class JobTitleBody(BaseModel):
     title: str = Field(min_length=1, max_length=128)
+
+
+class TimesheetRowBody(BaseModel):
+    period_start: dt.date
+    employee_id: int
+    hours_week_1: float | None = None
+    hours_week_2: float | None = None
+    holiday_hours: float | None = None
+    dinner_break_hours: float | None = None
+    mileage: float | None = None
+    bonus: float | None = None
+    loan_deduction: float | None = None
+    other_deduction: float | None = None
+    accommodation_deduction: float | None = None
+    other_remark: str | None = Field(default=None, max_length=512)
+    holidays_remaining: float | None = None
+    holidays_carry_forward: float | None = None
+    holiday_year_end: dt.date | None = None
 
 
 @router.get("/job-titles")
@@ -446,6 +470,46 @@ def api_delete_document(
     try:
         return delete_employee_document(db, document_id, user)
     except HRServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/timesheets/{farm}")
+def api_list_timesheet(
+    farm: str,
+    period_start: dt.date | None = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_HR_TIMESHEETS)),
+):
+    include_rate = has_action(user, ACTION_HR_VIEW_SENSITIVE)
+    try:
+        return list_timesheet(
+            db,
+            farm,
+            period_start=period_start,
+            include_rate=include_rate,
+        )
+    except TimesheetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/timesheets/{farm}")
+def api_save_timesheet_row(
+    farm: str,
+    body: TimesheetRowBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_HR_TIMESHEETS)),
+):
+    include_rate = has_action(user, ACTION_HR_VIEW_SENSITIVE)
+    try:
+        return {
+            "row": save_timesheet_row(
+                db,
+                farm,
+                body.model_dump(exclude_unset=True),
+                include_rate=include_rate,
+            )
+        }
+    except TimesheetError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

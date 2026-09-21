@@ -44,6 +44,7 @@ from app.auth.permissions import (
     ACTION_HERD_IMPORT,
     ACTION_HR_ENROLL,
     ACTION_HR_VIEW_SENSITIVE,
+    ACTION_HR_TIMESHEETS,
     PAGE_EVENTS,
     PAGE_FEED_RATE,
     PAGE_FEED_CONTRACTS,
@@ -221,6 +222,25 @@ def _template_ctx(request: Request, **extra) -> dict:
 def _page_guard(request: Request, page_key: str) -> HTMLResponse | None:
     user = getattr(request.state, "user", None)
     if has_page(user, page_key):
+        return None
+    return templates.TemplateResponse(
+        request,
+        "forbidden.html",
+        _template_ctx(
+            request,
+            title="Access denied",
+            active_nav=None,
+            active_nav_group=None,
+            active_section=None,
+            breadcrumb=None,
+        ),
+        status_code=403,
+    )
+
+
+def _action_guard(request: Request, action_key: str) -> HTMLResponse | None:
+    user = getattr(request.state, "user", None)
+    if has_action(user, action_key):
         return None
     return templates.TemplateResponse(
         request,
@@ -2265,6 +2285,7 @@ def hr_staff_directory_page(request: Request):
             request,
             page_heading="Staff Directory",
             can_enroll=has_action(request.state.user, ACTION_HR_ENROLL),
+            can_timesheets=has_action(request.state.user, ACTION_HR_TIMESHEETS),
             business_options=list(HR_BUSINESS_OPTIONS),
             **_hr_context("Staff Directory", "staff-directory", "Directory"),
         ),
@@ -2373,6 +2394,50 @@ def hr_edit_staff_page(request: Request, employee_id: int):
             edit_employee_id=employee_id,
             can_view_sensitive=has_action(user, ACTION_HR_VIEW_SENSITIVE),
             **_hr_context("Edit Draft Staff", "staff-directory", "Edit"),
+        ),
+    )
+
+
+@app.get("/hr/timesheets", response_class=HTMLResponse)
+def hr_timesheets_hub_page(request: Request):
+    if denied := _page_guard(request, PAGE_HR):
+        return denied
+    if denied := _action_guard(request, ACTION_HR_TIMESHEETS):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "hr/timesheets_hub.html",
+        _template_ctx(
+            request,
+            page_heading="Time Sheets",
+            **_hr_context("Time Sheets", "timesheets", "Time Sheets"),
+        ),
+    )
+
+
+@app.get("/hr/timesheets/{farm}", response_class=HTMLResponse)
+def hr_timesheets_farm_page(request: Request, farm: str):
+    if denied := _page_guard(request, PAGE_HR):
+        return denied
+    if denied := _action_guard(request, ACTION_HR_TIMESHEETS):
+        return denied
+    from app.services.timesheet_service import TimesheetError, farm_label, normalize_farm
+
+    try:
+        farm_key = normalize_farm(farm)
+    except TimesheetError:
+        return RedirectResponse(url="/hr/timesheets", status_code=302)
+    label = farm_label(farm_key)
+    return templates.TemplateResponse(
+        request,
+        "hr/timesheets.html",
+        _template_ctx(
+            request,
+            page_heading=f"Time Sheets · {label}",
+            farm=farm_key,
+            farm_label=label,
+            can_view_rate=has_action(request.state.user, ACTION_HR_VIEW_SENSITIVE),
+            **_hr_context("Time Sheets", "timesheets", f"Time Sheets &rsaquo; {label}"),
         ),
     )
 

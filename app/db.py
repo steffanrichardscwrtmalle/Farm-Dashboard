@@ -1310,6 +1310,9 @@ def _migrate_hr_schema() -> None:
             "next_of_kin_name": "VARCHAR(255)",
             "next_of_kin_relationship": "VARCHAR(64)",
             "next_of_kin_phone": "VARCHAR(64)",
+            "holidays_remaining": "FLOAT",
+            "holidays_carry_forward": "FLOAT",
+            "holiday_year_end": "DATE",
         }
         missing = {k: v for k, v in new_columns.items() if k not in existing_cols}
         if missing:
@@ -1332,6 +1335,12 @@ def _migrate_hr_schema() -> None:
                     "ix_employees_employee_number ON employees (employee_number)"
                 )
             )
+
+    inspector = inspect(engine)
+    if "employee_timesheet_entries" not in inspector.get_table_names():
+        from app.models import EmployeeTimesheetEntry
+
+        EmployeeTimesheetEntry.__table__.create(bind=engine, checkfirst=True)
 
     if "contract_templates" not in inspector.get_table_names():
         return

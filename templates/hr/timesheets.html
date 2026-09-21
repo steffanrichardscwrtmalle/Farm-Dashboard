@@ -1,0 +1,495 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .ts-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1rem;
+      align-items: flex-end;
+      margin-bottom: 0.85rem;
+    }
+    .ts-toolbar label {
+      margin: 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .ts-period {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .ts-period select {
+      min-width: 14rem;
+      margin: 0;
+    }
+    .ts-period button {
+      padding: 0.4rem 0.7rem;
+    }
+    .ts-meta {
+      margin: 0 0 0.75rem;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+    .ts-status {
+      margin-left: auto;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .ts-status.ok { color: #15803d; }
+    .ts-status.busy { color: #1e3a5f; }
+    .ts-status.err { color: var(--danger); }
+    .card.ts-sheet-card {
+      padding: 0;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+    }
+    .ts-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 13rem);
+      border: 1px solid #b4b4b4;
+      border-radius: 0;
+      background: #fff;
+    }
+    .ts-table {
+      border-collapse: separate;
+      border-spacing: 0;
+      min-width: 1080px;
+      width: max-content;
+      font-size: 0.75rem;
+    }
+    .ts-table th,
+    .ts-table td {
+      padding: 0.28rem 0.4rem;
+      border-top: 1px solid #d0d0d0;
+      border-left: 1px solid #d0d0d0;
+      white-space: nowrap;
+      vertical-align: middle;
+      background: #fff;
+      line-height: 1.2;
+    }
+    .ts-table td:has(input) { padding: 0; }
+    .ts-table th:last-child,
+    .ts-table td:last-child { border-right: 1px solid #d0d0d0; }
+    .ts-table tbody tr:last-child td { border-bottom: 1px solid #d0d0d0; }
+    .ts-table th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #e7e6e6;
+      color: #1f1f1f;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-align: center;
+      line-height: 1.25;
+      white-space: normal;
+      min-width: 5.75rem;
+      padding: 0.35rem 0.4rem;
+      border-top-color: #b4b4b4;
+      border-left-color: #b4b4b4;
+    }
+    .ts-table th:last-child { border-right-color: #b4b4b4; }
+    .ts-table th.sticky-col,
+    .ts-table td.sticky-col {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+    }
+    .ts-table th.sticky-col {
+      z-index: 3;
+      background: #e7e6e6;
+    }
+    .ts-table th.sticky-name,
+    .ts-table td.sticky-name { left: 5.75rem; }
+    .ts-table td.sticky-col {
+      min-width: 5.75rem;
+      background: #f3f3f3;
+    }
+    .ts-table td.sticky-name {
+      min-width: 10.5rem;
+      font-weight: 600;
+      background: #f3f3f3;
+    }
+    .ts-table td.readonly,
+    .ts-table td.muted-cell {
+      color: var(--text);
+    }
+    .ts-table tbody tr:nth-child(even) td { background: #f7f7f7; }
+    .ts-table tbody tr:nth-child(even) td.sticky-col,
+    .ts-table tbody tr:nth-child(even) td.sticky-name { background: #ececec; }
+    .ts-table tbody tr:hover td { background: #e7f2ea; }
+    .ts-table tbody tr:hover td.sticky-col,
+    .ts-table tbody tr:hover td.sticky-name { background: #d9eadf; }
+    .ts-table input[type="number"],
+    .ts-table input[type="text"],
+    .ts-table input[type="date"] {
+      display: block;
+      width: 100%;
+      min-width: 5.5rem;
+      height: 1.85rem;
+      margin: 0;
+      padding: 0.15rem 0.35rem;
+      font-size: 0.75rem;
+      line-height: 1.2;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+    .ts-table input[type="number"] {
+      min-width: 4.75rem;
+      text-align: right;
+      appearance: textfield;
+      -moz-appearance: textfield;
+    }
+    .ts-table input[type="number"]::-webkit-inner-spin-button,
+    .ts-table input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .ts-table input[type="text"] { min-width: 8.5rem; text-align: left; }
+    .ts-table input[type="date"] { min-width: 8.6rem; }
+    .ts-table input:focus {
+      outline: 2px solid #217346;
+      outline-offset: -2px;
+      background: #fff;
+    }
+    .ts-table .readonly { color: var(--text); }
+    .ts-table .muted-cell { color: #595959; }
+    .ts-table td.formula-cell {
+      background: #f3f3f3;
+      text-align: right;
+      color: #595959;
+    }
+    .ts-table tbody tr:nth-child(even) td.formula-cell { background: #ececec; }
+    .ts-table tbody tr:hover td.formula-cell { background: #d9eadf; }
+    .empty-state {
+      color: var(--muted);
+      padding: 1rem 0.5rem;
+      font-size: 0.875rem;
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="card" style="margin-bottom:0.85rem">
+    <div class="ts-toolbar">
+      <a href="/hr/timesheets" class="secondary-link">← Farms</a>
+      <label>
+        Pay period
+        <div class="ts-period">
+          <button type="button" class="secondary" id="prev-period" aria-label="Previous period">‹</button>
+          <select id="period-select" aria-label="Pay period"></select>
+          <button type="button" class="secondary" id="next-period" aria-label="Next period">›</button>
+        </div>
+      </label>
+      <span class="ts-status" id="save-status"></span>
+    </div>
+    <p class="ts-meta" id="period-meta">Loading…</p>
+    <div id="timesheet-message" class="message"></div>
+  </div>
+
+  <div class="card ts-sheet-card">
+    <div class="ts-wrap">
+      <table class="ts-table">
+        <thead>
+          <tr id="ts-head"></tr>
+        </thead>
+        <tbody id="ts-body">
+          <tr><td class="empty-state">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/unsaved-guard.js"></script>
+<script>
+(function () {
+  const FARM = {{ farm|tojson }};
+  const bodyEl = document.getElementById('ts-body');
+  const headEl = document.getElementById('ts-head');
+  const periodSelect = document.getElementById('period-select');
+  const periodMeta = document.getElementById('period-meta');
+  const saveStatus = document.getElementById('save-status');
+  const messageEl = document.getElementById('timesheet-message');
+  const NUMBER_FIELDS = [
+    'hours_week_1', 'hours_week_2', 'holiday_hours', 'dinner_break_hours',
+    'mileage', 'bonus', 'loan_deduction', 'other_deduction', 'accommodation_deduction',
+    'holidays_remaining', 'holidays_carry_forward'
+  ];
+
+  let periodStart = new URLSearchParams(window.location.search).get('period') || '';
+  let hoursColumns = [];
+  let rows = [];
+  let saveTimer = null;
+  let saveInFlight = 0;
+  const dirtyIds = new Set();
+
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function showMessage(text, isError) {
+    messageEl.textContent = text || '';
+    messageEl.className = 'message' + (isError ? ' err' : text ? ' ok' : '');
+  }
+
+  function setStatus(text, kind) {
+    saveStatus.textContent = text || '';
+    saveStatus.className = 'ts-status' + (kind ? ' ' + kind : '');
+  }
+
+  function isDirty() {
+    return dirtyIds.size > 0 || saveInFlight > 0 || Boolean(saveTimer);
+  }
+
+  function numInput(row, key, step) {
+    const value = row[key];
+    const shown = value == null || value === '' ? '' : value;
+    return '<input type="number" min="0" step="' + step + '" data-field="' + key +
+      '" value="' + escapeHtml(shown) + '">';
+  }
+
+  function renderHead() {
+    const hourHeads = hoursColumns.map(function (col) {
+      return '<th>' + escapeHtml(col.label) + '</th>';
+    }).join('');
+    headEl.innerHTML =
+      '<th class="sticky-col">Emp. no.</th>' +
+      '<th class="sticky-col sticky-name">Name</th>' +
+      '<th>Pay type</th>' +
+      '<th>Rate</th>' +
+      hourHeads +
+      '<th>Holiday hours</th>' +
+      '<th>Dinner break (hrs)</th>' +
+      '<th>Mileage claimed</th>' +
+      '<th>Bonus</th>' +
+      '<th>Loan deduction</th>' +
+      '<th>Other deduction</th>' +
+      '<th>Accommodation deduction</th>' +
+      '<th>Other</th>' +
+      '<th>Holidays remaining</th>' +
+      '<th>Holidays taken</th>' +
+      '<th>Holidays carry forward</th>' +
+      '<th>Holiday year end</th>';
+  }
+
+  function renderRows() {
+    if (!rows.length) {
+      const cols = 15 + hoursColumns.length;
+      bodyEl.innerHTML = '<tr><td colspan="' + cols +
+        '" class="empty-state">No active employed or self-employed staff for this farm.</td></tr>';
+      return;
+    }
+    bodyEl.innerHTML = rows.map(function (row) {
+      const hourCells = hoursColumns.map(function (col) {
+        return '<td>' + numInput(row, col.key, '0.25') + '</td>';
+      }).join('');
+      return '<tr data-id="' + row.employee_id + '">' +
+        '<td class="sticky-col muted-cell">' + escapeHtml(row.employee_number || '—') + '</td>' +
+        '<td class="sticky-col sticky-name">' + escapeHtml(row.full_name) + '</td>' +
+        '<td>' + escapeHtml(row.pay_type_label || '') + '</td>' +
+        '<td class="readonly">' + escapeHtml(row.rate_label || '—') + '</td>' +
+        hourCells +
+        '<td>' + numInput(row, 'holiday_hours', '0.25') + '</td>' +
+        '<td>' + numInput(row, 'dinner_break_hours', '0.25') + '</td>' +
+        '<td>' + numInput(row, 'mileage', '0.01') + '</td>' +
+        '<td>' + numInput(row, 'bonus', '0.01') + '</td>' +
+        '<td>' + numInput(row, 'loan_deduction', '0.01') + '</td>' +
+        '<td>' + numInput(row, 'other_deduction', '0.01') + '</td>' +
+        '<td>' + numInput(row, 'accommodation_deduction', '0.01') + '</td>' +
+        '<td><input type="text" data-field="other_remark" maxlength="512" value="' +
+          escapeHtml(row.other_remark || '') + '"></td>' +
+        '<td>' + numInput(row, 'holidays_remaining', '0.25') + '</td>' +
+        '<td class="readonly formula-cell" data-taken>' + escapeHtml(row.holidays_taken == null ? '0' : row.holidays_taken) + '</td>' +
+        '<td>' + numInput(row, 'holidays_carry_forward', '0.25') + '</td>' +
+        '<td><input type="date" data-field="holiday_year_end" value="' +
+          escapeHtml(row.holiday_year_end || '') + '"></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function fillPeriodSelect(periods, selected) {
+    periodSelect.innerHTML = periods.map(function (p) {
+      return '<option value="' + escapeHtml(p.start) + '"' +
+        (p.start === selected ? ' selected' : '') + '>' +
+        escapeHtml(p.label) + '</option>';
+    }).join('');
+  }
+
+  function parseNumber(value) {
+    if (value === '' || value == null) return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function rowPayload(tr) {
+    const payload = { employee_id: Number(tr.dataset.id), period_start: periodStart };
+    tr.querySelectorAll('[data-field]').forEach(function (input) {
+      const key = input.dataset.field;
+      if (NUMBER_FIELDS.indexOf(key) !== -1) {
+        payload[key] = parseNumber(input.value);
+      } else if (key === 'holiday_year_end') {
+        payload[key] = input.value || null;
+      } else {
+        payload[key] = input.value;
+      }
+    });
+    return payload;
+  }
+
+  async function saveRow(employeeId) {
+    const tr = bodyEl.querySelector('tr[data-id="' + employeeId + '"]');
+    if (!tr || !periodStart) return true;
+    saveInFlight += 1;
+    setStatus('Saving…', 'busy');
+    try {
+      const res = await fetch('/api/hr/timesheets/' + encodeURIComponent(FARM), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rowPayload(tr))
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) {
+        throw new Error(data.detail || 'Could not save time sheet.');
+      }
+      dirtyIds.delete(employeeId);
+      const saved = data.row || {};
+      const takenCell = tr.querySelector('[data-taken]');
+      if (takenCell) takenCell.textContent = saved.holidays_taken == null ? '0' : saved.holidays_taken;
+      const idx = rows.findIndex(function (row) { return row.employee_id === employeeId; });
+      if (idx !== -1) rows[idx] = Object.assign({}, rows[idx], saved);
+      if (!dirtyIds.size) {
+        setStatus('Saved', 'ok');
+        showMessage('');
+      }
+      return true;
+    } catch (err) {
+      setStatus(err.message || 'Save failed', 'err');
+      showMessage(err.message || 'Save failed', true);
+      return false;
+    } finally {
+      saveInFlight -= 1;
+    }
+  }
+
+  async function flushSaves() {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    const ids = Array.from(dirtyIds);
+    for (let i = 0; i < ids.length; i += 1) {
+      const ok = await saveRow(ids[i]);
+      if (!ok) return false;
+    }
+    return dirtyIds.size === 0;
+  }
+
+  function queueSave(employeeId) {
+    dirtyIds.add(employeeId);
+    setStatus('Editing — changes save automatically', 'busy');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      saveTimer = null;
+      saveRow(employeeId);
+    }, 700);
+  }
+
+  function cadenceCopy(cadence) {
+    if (cadence === 'fortnightly') {
+      return 'Cwrt Malle pays fortnightly. Enter hours for each week; holiday hours are for the whole two-week period.';
+    }
+    return 'Green Acre Dairy pays monthly. Hours and holiday hours are for the selected month.';
+  }
+
+  async function loadSheet() {
+    showMessage('');
+    const params = new URLSearchParams();
+    if (periodStart) params.set('period_start', periodStart);
+    bodyEl.innerHTML = '<tr><td class="empty-state">Loading…</td></tr>';
+    try {
+      const res = await fetch('/api/hr/timesheets/' + encodeURIComponent(FARM) +
+        (params.toString() ? '?' + params.toString() : ''));
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.detail || 'Failed to load time sheets.');
+      hoursColumns = (data.period && data.period.hours_columns) || [];
+      rows = data.rows || [];
+      periodStart = data.period && data.period.start ? data.period.start : periodStart;
+      fillPeriodSelect(data.periods || [], periodStart);
+      const cadence = data.cadence || (data.period && data.period.cadence) || '';
+      const range = data.period ? (data.period.label || '') : '';
+      periodMeta.textContent = range + (range ? ' · ' : '') + cadenceCopy(cadence);
+      renderHead();
+      renderRows();
+      const url = new URL(window.location.href);
+      if (periodStart) url.searchParams.set('period', periodStart);
+      window.history.replaceState({}, '', url);
+      setStatus('');
+    } catch (err) {
+      bodyEl.innerHTML = '<tr><td class="empty-state">Could not load time sheets.</td></tr>';
+      showMessage(err.message, true);
+    }
+  }
+
+  async function changePeriod(nextStart) {
+    if (!nextStart || nextStart === periodStart) return;
+    if (!(await flushSaves())) return;
+    periodStart = nextStart;
+    loadSheet();
+  }
+
+  periodSelect.addEventListener('change', function () {
+    changePeriod(periodSelect.value);
+  });
+  document.getElementById('prev-period').addEventListener('click', function () {
+    const idx = periodSelect.selectedIndex;
+    if (idx > 0) {
+      periodSelect.selectedIndex = idx - 1;
+      changePeriod(periodSelect.value);
+    }
+  });
+  document.getElementById('next-period').addEventListener('click', function () {
+    const idx = periodSelect.selectedIndex;
+    if (idx >= 0 && idx < periodSelect.options.length - 1) {
+      periodSelect.selectedIndex = idx + 1;
+      changePeriod(periodSelect.value);
+    }
+  });
+
+  bodyEl.addEventListener('input', function (ev) {
+    const input = ev.target.closest('[data-field]');
+    if (!input) return;
+    const tr = input.closest('tr[data-id]');
+    if (!tr) return;
+    queueSave(tr.dataset.id);
+  });
+  bodyEl.addEventListener('change', function (ev) {
+    const input = ev.target.closest('[data-field]');
+    if (!input) return;
+    const tr = input.closest('tr[data-id]');
+    if (!tr) return;
+    queueSave(tr.dataset.id);
+  });
+
+  if (window.bindUnsavedGuard) {
+    window.bindUnsavedGuard({
+      isDirty: isDirty,
+      flush: flushSaves,
+      message: 'This time sheet still has unsaved changes. Continue anyway?'
+    });
+  }
+
+  loadSheet();
+})();
+</script>
+{% endblock %}

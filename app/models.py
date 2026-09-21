@@ -1985,6 +1985,10 @@ CONTRACT_STATUSES: tuple[str, ...] = (
 PAY_TYPE_HOURLY = "hourly"
 PAY_TYPE_SALARY = "salary"
 PAY_TYPES: tuple[str, ...] = (PAY_TYPE_HOURLY, PAY_TYPE_SALARY)
+PAY_TYPE_LABELS: dict[str, str] = {
+    PAY_TYPE_HOURLY: "Hourly",
+    PAY_TYPE_SALARY: "Salary",
+}
 
 EMPLOYMENT_TYPE_EMPLOYED = "employed"
 EMPLOYMENT_TYPE_SELF_EMPLOYED = "self_employed"
@@ -1999,6 +2003,21 @@ EMPLOYMENT_TYPE_LABELS: dict[str, str] = {
 
 # Legal entities staff can be employed by (full registered names).
 HR_BUSINESS_OPTIONS: tuple[str, ...] = ("Cwrt Malle Ltd", "Green Acre Dairy Ltd")
+# Time sheets are farm-first (CM fortnightly, GAD monthly).
+TIMESHEET_FARM_CM = "CM"
+TIMESHEET_FARM_GAD = "GAD"
+TIMESHEET_FARM_OPTIONS: tuple[str, ...] = (TIMESHEET_FARM_CM, TIMESHEET_FARM_GAD)
+TIMESHEET_FARM_LABELS: dict[str, str] = {
+    TIMESHEET_FARM_CM: "Cwrt Malle",
+    TIMESHEET_FARM_GAD: "Green Acre Dairy",
+}
+TIMESHEET_FARM_BUSINESS: dict[str, str] = {
+    TIMESHEET_FARM_CM: "Cwrt Malle Ltd",
+    TIMESHEET_FARM_GAD: "Green Acre Dairy Ltd",
+}
+CM_TIMESHEET_PERIOD_START = datetime.date(2026, 9, 7)
+GAD_TIMESHEET_PERIOD_START = datetime.date(2026, 9, 1)
+TIMESHEET_FORTNIGHT_DAYS = 14
 # Personal title options for the new-starter form.
 TITLE_OPTIONS: tuple[str, ...] = ("Mr", "Mrs", "Miss", "Ms", "Dr")
 # Job titles: defaults seeded into AppSetting; manage via Enroll page Settings.
@@ -2090,6 +2109,9 @@ class Employee(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+    holidays_remaining: Mapped[float | None] = mapped_column(Float, nullable=True)
+    holidays_carry_forward: Mapped[float | None] = mapped_column(Float, nullable=True)
+    holiday_year_end: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
 
     template: Mapped[ContractTemplate | None] = relationship(back_populates="employees")
     contracts: Mapped[list[EmployeeContract]] = relationship(
@@ -2098,6 +2120,10 @@ class Employee(Base):
     documents: Mapped[list[EmployeeDocument]] = relationship(
         back_populates="employee",
         order_by="EmployeeDocument.created_at.desc()",
+        cascade="all, delete-orphan",
+    )
+    timesheet_entries: Mapped[list[EmployeeTimesheetEntry]] = relationship(
+        back_populates="employee",
         cascade="all, delete-orphan",
     )
 
@@ -2151,6 +2177,42 @@ class EmployeeDocument(Base):
     )
 
     employee: Mapped[Employee] = relationship(back_populates="documents")
+
+
+class EmployeeTimesheetEntry(Base):
+    """Hours, holidays and pay adjustments for one staff member in one pay period."""
+
+    __tablename__ = "employee_timesheet_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "employee_id",
+            "period_start",
+            name="uq_timesheet_entry_employee_period",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id"), index=True
+    )
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    period_start: Mapped[datetime.date] = mapped_column(Date, index=True)
+    period_end: Mapped[datetime.date] = mapped_column(Date)
+    hours_week_1: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hours_week_2: Mapped[float | None] = mapped_column(Float, nullable=True)
+    holiday_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dinner_break_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mileage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bonus: Mapped[float | None] = mapped_column(Float, nullable=True)
+    loan_deduction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    other_deduction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    accommodation_deduction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    other_remark: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    employee: Mapped[Employee] = relationship(back_populates="timesheet_entries")
 
 
 class CtsSyncRun(Base):
