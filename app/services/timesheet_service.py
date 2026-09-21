@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     CM_TIMESHEET_PERIOD_START,
-    EMPLOYEE_STATUS_ACTIVE,
+    EMPLOYEE_STATUS_ARCHIVED,
     GAD_TIMESHEET_PERIOD_START,
     PAY_TYPE_HOURLY,
     PAY_TYPE_LABELS,
@@ -222,8 +222,8 @@ def save_timesheet_row(
     employee = db.get(Employee, employee_id)
     if employee is None:
         raise TimesheetError("Employee not found.")
-    if employee.status != EMPLOYEE_STATUS_ACTIVE:
-        raise TimesheetError("Only active staff can be added to a time sheet.")
+    if employee.status == EMPLOYEE_STATUS_ARCHIVED:
+        raise TimesheetError("Archived staff cannot be added to a time sheet.")
     if (employee.business or "") != farm_business(farm_key):
         raise TimesheetError("Staff member does not belong to this farm.")
 
@@ -295,7 +295,7 @@ def _active_staff_for_farm(db: Session, farm: str) -> list[Employee]:
         db.scalars(
             select(Employee)
             .where(
-                Employee.status == EMPLOYEE_STATUS_ACTIVE,
+                Employee.status != EMPLOYEE_STATUS_ARCHIVED,
                 Employee.business == business,
             )
             .order_by(Employee.full_name)

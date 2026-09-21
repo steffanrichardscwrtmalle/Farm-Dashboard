@@ -12,6 +12,7 @@ from app.models import (
     EMPLOYEE_STATUS_ACTIVE,
     EMPLOYEE_STATUS_ARCHIVED,
     EMPLOYEE_STATUS_ONBOARDING,
+    EMPLOYEE_STATUS_PENDING_SIGNATURE,
     EMPLOYMENT_TYPE_EMPLOYED,
     EMPLOYMENT_TYPE_SELF_EMPLOYED,
     PAY_TYPE_HOURLY,
@@ -97,7 +98,7 @@ def test_period_lists_include_cycle_starts():
     assert current_period_start("GAD", as_of=as_of) == dt.date(2026, 9, 1)
 
 
-def test_lists_active_employed_and_self_employed_only(db):
+def test_lists_current_staff_including_onboarding(db):
     _employee(db, employee_number="CM001", full_name="Active Employed")
     _employee(
         db,
@@ -112,6 +113,13 @@ def test_lists_active_employed_and_self_employed_only(db):
         full_name="Onboarding",
         email="on@test.local",
         status=EMPLOYEE_STATUS_ONBOARDING,
+    )
+    _employee(
+        db,
+        employee_number="CM005",
+        full_name="Pending Signature",
+        email="pending@test.local",
+        status=EMPLOYEE_STATUS_PENDING_SIGNATURE,
     )
     _employee(
         db,
@@ -131,7 +139,12 @@ def test_lists_active_employed_and_self_employed_only(db):
         db, "CM", period_start=dt.date(2026, 9, 7), include_rate=True
     )
     names = [row["full_name"] for row in sheet["rows"]]
-    assert names == ["Active Contractor", "Active Employed"]
+    assert names == [
+        "Active Contractor",
+        "Active Employed",
+        "Onboarding",
+        "Pending Signature",
+    ]
     assert sheet["rows"][1]["rate_label"] == "£12.50 / hr"
     assert sheet["cadence"] == "fortnightly"
 
@@ -213,4 +226,36 @@ def test_rejects_wrong_farm_and_invalid_period(db):
             db,
             "GAD",
             {"employee_id": staff.id, "period_start": dt.date(2026, 9, 7)},
+        )
+
+
+def test_can_save_onboarding_staff_but_not_archived(db):
+    onboarding = _employee(
+        db,
+        employee_number="CM010",
+        email="new@test.local",
+        status=EMPLOYEE_STATUS_ONBOARDING,
+    )
+    saved = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": onboarding.id,
+            "period_start": dt.date(2026, 9, 7),
+            "hours_week_1": 20,
+        },
+    )
+    assert saved["hours_week_1"] == 20
+
+    archived = _employee(
+        db,
+        employee_number="CM011",
+        email="gone@test.local",
+        status=EMPLOYEE_STATUS_ARCHIVED,
+    )
+    with pytest.raises(TimesheetError, match="Archived"):
+        save_timesheet_row(
+            db,
+            "CM",
+            {"employee_id": archived.id, "period_start": dt.date(2026, 9, 7)},
         )
