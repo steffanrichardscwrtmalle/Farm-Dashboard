@@ -317,6 +317,8 @@ def _format_date(value: Any) -> str:
 def _annual_leave_days(payload: dict[str, Any]) -> float:
     value = payload.get("annual_leave_days")
     if value in (None, ""):
+        if is_self_employed(payload.get("employment_type")):
+            return 0.0
         return DEFAULT_ANNUAL_LEAVE_DAYS
     try:
         days = float(value)

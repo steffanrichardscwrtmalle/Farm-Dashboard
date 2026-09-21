@@ -69,6 +69,10 @@
     }
     .form-grid label { display: block; margin: 0; }
     .form-grid label.full-width { grid-column: 1 / -1; }
+    .required-label {
+      color: #b91c1c;
+      font-weight: 600;
+    }
     .form-grid input,
     .form-grid select,
     .form-grid textarea {
@@ -206,7 +210,7 @@
           <div class="form-grid">
             <label>
               <span class="job-title-field-head">
-                <span>Job title *</span>
+                <span class="required-label">Job title *</span>
                 <button type="button" class="job-title-gear" id="job-title-settings-toggle"
                   aria-expanded="false" aria-controls="job-title-settings-panel"
                   title="Manage job titles">
@@ -242,7 +246,7 @@
               </select>
             </label>
             <label class="full-width">
-              Full name *
+              <span class="required-label">Full name *</span>
               <input type="text" id="full_name" required minlength="2" autocomplete="name">
             </label>
             <label class="full-width">
@@ -254,7 +258,7 @@
               <input type="tel" id="phone" autocomplete="tel">
             </label>
             <label>
-              Email address *
+              <span class="required-label">Email address *</span>
               <input type="email" id="email" required autocomplete="email">
             </label>
             <label>
@@ -272,7 +276,7 @@
           <legend>Work &amp; pay</legend>
           <div class="form-grid">
             <label>
-              Date started work *
+              <span class="required-label">Date started work *</span>
               <input type="date" id="start_date" required>
             </label>
             <label>
@@ -281,7 +285,7 @@
                 placeholder="After first wages paid">
             </label>
             <label>
-              Payment type *
+              <span class="required-label">Payment type *</span>
               <select id="pay_type" required>
                 <option value="hourly">Hourly</option>
                 <option value="salary">Salary</option>
@@ -394,7 +398,7 @@
           <legend>Contract</legend>
           <div class="form-grid">
             <label class="full-width">
-              Contract template <span id="template-required">*</span>
+              <span class="required-label">Contract template <span id="template-required">*</span></span>
               <select id="template_id">
                 <option value="">Loading templates…</option>
               </select>
@@ -479,12 +483,26 @@
   }
 
   function setEmploymentType(type) {
+    const previous = employmentTypeInput.value || 'employed';
     const next = type === 'self_employed' ? 'self_employed' : 'employed';
     employmentTypeInput.value = next;
     document.querySelectorAll('.employment-btn').forEach(function (btn) {
       btn.classList.toggle('selected', btn.dataset.employment === next);
     });
+    syncAnnualLeaveDefault(previous, next);
     updateEmploymentUI();
+  }
+
+  function syncAnnualLeaveDefault(previous, next) {
+    const el = document.getElementById('annual_leave_days');
+    if (!el) return;
+    if (next === 'self_employed') {
+      el.value = '0';
+      return;
+    }
+    if (previous === 'self_employed' && (el.value === '' || Number(el.value) === 0)) {
+      el.value = '28';
+    }
   }
 
   function employedSubmitLabel() {
@@ -895,7 +913,12 @@
       setVal('working_hours_per_day', emp.working_hours_per_day);
       setVal('holiday_hours_per_day', emp.holiday_hours_per_day == null ? 8 : emp.holiday_hours_per_day);
       setVal('holiday_year_end', emp.holiday_year_end);
-      setVal('annual_leave_days', emp.annual_leave_days == null ? 28 : emp.annual_leave_days);
+      setVal(
+        'annual_leave_days',
+        emp.annual_leave_days == null
+          ? (emp.employment_type === 'self_employed' ? 0 : 28)
+          : emp.annual_leave_days
+      );
       setVal('holidays_remaining', emp.holidays_remaining);
       setVal('accommodation_deduction', emp.accommodation_deduction);
       setVal('accommodation_cadence', emp.accommodation_cadence || 'weekly');

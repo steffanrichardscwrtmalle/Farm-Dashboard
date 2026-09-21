@@ -287,7 +287,11 @@
       detailItem('Working hours/day', escapeHtml(fmtNum(emp.working_hours_per_day))) +
       holidayHoursPerDayItem(emp) +
       detailItem('Annual leave year end', escapeHtml(formatDateUk(emp.holiday_year_end))) +
-      detailItem('Annual leave days', escapeHtml(fmtNum(emp.annual_leave_days == null ? 28 : emp.annual_leave_days))) +
+      detailItem('Annual leave days', escapeHtml(fmtNum(
+        emp.annual_leave_days == null
+          ? (emp.employment_type === 'self_employed' ? 0 : 28)
+          : emp.annual_leave_days
+      ))) +
       detailItem('Holidays remaining', escapeHtml(fmtNum(emp.holidays_remaining))) +
       detailItem('Accommodation deduction', escapeHtml(fmtAccommodation(emp))) +
 

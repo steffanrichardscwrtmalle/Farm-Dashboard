@@ -119,6 +119,13 @@ def test_enroll_saves_annual_leave_year_end(db, user):
 
 def test_enroll_defaults_annual_leave_days(db, user):
     result = enroll_employee(db, _payload(), user)
+    assert result["employee"]["annual_leave_days"] == 0
+
+
+def test_enroll_employed_draft_defaults_annual_leave_days(db, user):
+    from app.services.hr_service import save_draft
+
+    result = save_draft(db, _payload(employment_type="employed"), user)
     assert result["employee"]["annual_leave_days"] == 28
 
 

@@ -88,7 +88,7 @@ class EnrollStaffBody(BaseModel):
     working_hours_per_day: float | None = Field(default=None, ge=0, le=24)
     holiday_hours_per_day: float | None = Field(default=8, ge=0, le=24)
     holiday_year_end: dt.date | None = None
-    annual_leave_days: float | None = Field(default=28, ge=0, le=366)
+    annual_leave_days: float | None = Field(default=None, ge=0, le=366)
     holidays_remaining: float | None = Field(default=None, ge=0, le=366)
     accommodation_deduction: float | None = Field(default=None, ge=0)
     accommodation_cadence: str | None = Field(default="weekly", max_length=16)
@@ -126,7 +126,7 @@ class DraftStaffBody(BaseModel):
     working_hours_per_day: float | None = Field(default=None, ge=0, le=24)
     holiday_hours_per_day: float | None = Field(default=8, ge=0, le=24)
     holiday_year_end: dt.date | None = None
-    annual_leave_days: float | None = Field(default=28, ge=0, le=366)
+    annual_leave_days: float | None = Field(default=None, ge=0, le=366)
     holidays_remaining: float | None = Field(default=None, ge=0, le=366)
     accommodation_deduction: float | None = Field(default=None, ge=0)
     accommodation_cadence: str | None = Field(default="weekly", max_length=16)
