@@ -1211,8 +1211,71 @@
       return cols;
     }
 
+    function xlsxColLetter(colNumber) {
+      let n = colNumber;
+      let letters = "";
+      while (n > 0) {
+        const rem = (n - 1) % 26;
+        letters = String.fromCharCode(65 + rem) + letters;
+        n = Math.floor((n - 1) / 26);
+      }
+      return letters;
+    }
+
+    function xlsxBodyRow(rows, rowIndex) {
+      let excelRow = 2;
+      let lastBand = null;
+      for (let idx = 0; idx <= rowIndex; idx += 1) {
+        const band = rows[idx].band || "";
+        if (band !== lastBand) {
+          excelRow += 1;
+          lastBand = band;
+        }
+        if (idx === rowIndex) return excelRow;
+        excelRow += 1;
+      }
+      return null;
+    }
+
+    function xlsxAbsCell(letter, row) {
+      return `$${letter}$${row}`;
+    }
+
+    function xlsxContiguousRefs(letter, rowNumbers) {
+      const rows = [...rowNumbers].sort((a, b) => a - b);
+      const refs = [];
+      let start = null;
+      let prev = null;
+      rows.forEach(row => {
+        if (start == null) {
+          start = prev = row;
+          return;
+        }
+        if (row === prev + 1) {
+          prev = row;
+          return;
+        }
+        refs.push(start === prev ? `${letter}${start}` : `${letter}${start}:${letter}${prev}`);
+        start = prev = row;
+      });
+      if (start != null) {
+        refs.push(start === prev ? `${letter}${start}` : `${letter}${start}:${letter}${prev}`);
+      }
+      return refs;
+    }
+
+    function xlsxPplFormula(amountCell, litresCell) {
+      return `IF(${litresCell}=0,"—",${amountCell}*100/${litresCell})`;
+    }
+
+    function xlsxDiffPplFormula(actualPplCell, budgetPplCell) {
+      return `IF(OR(NOT(ISNUMBER(${actualPplCell})),NOT(ISNUMBER(${budgetPplCell}))),"—",${actualPplCell}-${budgetPplCell})`;
+    }
+
     function styleXlsxCell(cell, options) {
-      cell.value = options.value;
+      cell.value = options.formula
+        ? { formula: options.formula, result: options.value }
+        : options.value;
       cell.fill = xlsxFill(options.fill);
       cell.font = {
         name: XLSX_FONT,
@@ -1241,11 +1304,12 @@
       return xlsxMaybeFade(color, faded);
     }
 
-    function writeXlsxAmount(cell, value, { useGbp, fill, faded, bold, border }) {
+    function writeXlsxAmount(cell, value, { useGbp, fill, faded, bold, border, formula }) {
       const n = Number(value);
       const safe = Number.isFinite(n) ? n : 0;
       styleXlsxCell(cell, {
         value: safe,
+        formula,
         fill: xlsxMaybeFade(fill, faded),
         fontColor: xlsxAmountFont(safe, useGbp, faded),
         bold,
@@ -1255,24 +1319,27 @@
       });
     }
 
-    function writeXlsxPpl(cell, amount, litres, { forceDash, fill, faded, bold, border }) {
+    function writeXlsxPpl(cell, amount, litres, { forceDash, fill, faded, bold, border, formula }) {
       const n = forceDash ? null : pplNumber(amount, litres);
+      const useFormula = !forceDash && !!formula;
       styleXlsxCell(cell, {
         value: n == null ? "—" : n,
+        formula: useFormula ? formula : undefined,
         fill: xlsxMaybeFade(fill, faded),
         fontColor: xlsxMaybeFade(XLSX_TEXT, faded),
         bold,
         align: "right",
-        numFmt: n == null ? "" : XLSX_FMT_PPL,
+        numFmt: useFormula || n != null ? XLSX_FMT_PPL : "",
         border,
       });
     }
 
-    function writeXlsxDiff(cell, value, { useGbp, higherIsBetter, fill, faded, bold, border }) {
+    function writeXlsxDiff(cell, value, { useGbp, higherIsBetter, fill, faded, bold, border, formula }) {
       const n = Number(value);
       const safe = Number.isFinite(n) ? n : 0;
       styleXlsxCell(cell, {
         value: safe,
+        formula,
         fill: xlsxMaybeFade(fill, faded),
         fontColor: xlsxDiffFont(safe, higherIsBetter, faded),
         bold,
@@ -1286,15 +1353,17 @@
       const actualPpl = options.forceDash ? null : pplNumber(total, actualLitres);
       const budgetPpl = options.forceDash ? null : pplNumber(budget, budgetLitres);
       const diffPpl = (actualPpl == null || budgetPpl == null) ? null : actualPpl - budgetPpl;
+      const useFormula = !options.forceDash && !!options.formula;
       styleXlsxCell(cell, {
         value: diffPpl == null ? "—" : diffPpl,
+        formula: useFormula ? options.formula : undefined,
         fill: xlsxMaybeFade(options.fill, options.faded),
         fontColor: diffPpl == null
           ? xlsxMaybeFade(XLSX_TEXT, options.faded)
           : xlsxDiffFont(diffPpl, options.higherIsBetter, options.faded),
         bold: options.bold,
         align: "right",
-        numFmt: diffPpl == null ? "" : XLSX_FMT_PPL,
+        numFmt: useFormula || diffPpl != null ? XLSX_FMT_PPL : "",
         border: options.border,
       });
     }
@@ -1305,6 +1374,10 @@
       const useGbp = spec.isCurrency && !spec.isLitres;
       const border = spec.border;
       const base = { faded: spec.faded, bold: spec.bold, border };
+      const budgetLetter = xlsxColLetter(budgetCol + 1);
+      const budgetPplLetter = xlsxColLetter(budgetCol + 2);
+      const budgetAddr = `${budgetLetter}${excelRow}`;
+      const budgetPplAddr = `${budgetPplLetter}${excelRow}`;
       writeXlsxAmount(ws.getCell(excelRow, budgetCol + 1), spec.budget, {
         ...base,
         useGbp,
@@ -1314,18 +1387,23 @@
         ...base,
         forceDash: spec.isLitres,
         fill: xlsxBodyFill(cols[budgetCol + 1], spec.role),
+        formula: spec.budgetLitresCell
+          ? xlsxPplFormula(budgetAddr, spec.budgetLitresCell)
+          : undefined,
       });
       writeXlsxDiff(ws.getCell(excelRow, budgetCol + 3), spec.total - spec.budget, {
         ...base,
         useGbp,
         higherIsBetter: spec.higherIsBetter,
         fill: xlsxBodyFill(cols[budgetCol + 2], spec.role),
+        formula: `${spec.totalAddr}-${budgetAddr}`,
       });
       writeXlsxDiffPpl(ws.getCell(excelRow, budgetCol + 4), spec.total, spec.actualLitres, spec.budget, spec.budgetLitres, {
         ...base,
         forceDash: spec.isLitres,
         higherIsBetter: spec.higherIsBetter,
         fill: xlsxBodyFill(cols[budgetCol + 3], spec.role),
+        formula: xlsxDiffPplFormula(spec.pplAddr, budgetPplAddr),
       });
     }
 
@@ -1341,6 +1419,23 @@
       const workbook = new ExcelJS.Workbook();
       workbook.creator = "Farm Dashboard";
       workbook.created = new Date();
+      workbook.calcProperties.fullCalcOnLoad = true;
+      const firstMonthLetter = xlsxColLetter(3);
+      const lastMonthLetter = xlsxColLetter(2 + months.length);
+      const totalLetter = xlsxColLetter(3 + months.length);
+      const pplLetter = xlsxColLetter(4 + months.length);
+      const budgetColIndex = cols.findIndex(col => col.kind === "budget");
+      const diffLetter = budgetColIndex >= 0 ? xlsxColLetter(budgetColIndex + 3) : null;
+      const litresSource = milkRow(rows);
+      const litresIdx = litresSource ? rows.indexOf(litresSource) : -1;
+      const litresExcelRow = litresIdx >= 0 ? xlsxBodyRow(rows, litresIdx) : null;
+      const litresTotalCell = litresExcelRow ? xlsxAbsCell(totalLetter, litresExcelRow) : null;
+      const litresBudgetCell = litresExcelRow && budgetColIndex >= 0
+        ? xlsxAbsCell(xlsxColLetter(budgetColIndex + 1), litresExcelRow)
+        : null;
+      const currencyTotalRows = [];
+      const diffBadWhenLow = [];
+      const diffBadWhenHigh = [];
       const ws = workbook.addWorksheet("P&L", {
         properties: { defaultRowHeight: 17 },
         views: [{
@@ -1415,6 +1510,14 @@
         const border = xlsxBottomBorder(faded);
         const useGbp = isCurrency && !isLitres;
         const higherIsBetter = band === "Sales" || band === "Valuation Change" || isLitres;
+        const totalFormula = `SUM(${firstMonthLetter}${excelRow}:${lastMonthLetter}${excelRow})`;
+        const totalAddr = `${totalLetter}${excelRow}`;
+        const pplAddr = `${pplLetter}${excelRow}`;
+        const pplFormula = litresTotalCell ? xlsxPplFormula(totalAddr, litresTotalCell) : undefined;
+        if (useGbp) currencyTotalRows.push(excelRow);
+        if (diffLetter) {
+          (higherIsBetter ? diffBadWhenLow : diffBadWhenHigh).push(excelRow);
+        }
 
         cols.forEach((col, index) => {
           const cell = ws.getCell(excelRow, index + 1);
@@ -1441,7 +1544,13 @@
             return;
           }
           if (col.kind === "total") {
-            writeXlsxAmount(cell, total, { useGbp, fill: xlsxBodyFill(col, role), faded, border });
+            writeXlsxAmount(cell, total, {
+              useGbp,
+              fill: xlsxBodyFill(col, role),
+              faded,
+              border,
+              formula: totalFormula,
+            });
             return;
           }
           if (col.kind === "ppl") {
@@ -1450,16 +1559,20 @@
               fill: xlsxBodyFill(col, role),
               faded,
               border,
+              formula: pplFormula,
             });
           }
         });
         writeXlsxBudgetCells(ws, excelRow, cols, {
           budget,
           total,
+          totalAddr,
+          pplAddr,
           isCurrency,
           isLitres,
           actualLitres: litres,
           budgetLitres,
+          budgetLitresCell: litresBudgetCell,
           higherIsBetter,
           role,
           faded,
@@ -1474,6 +1587,12 @@
       summary.rows.forEach(row => {
         const border = xlsxProfitBorder();
         const higherIsBetter = true;
+        const totalFormula = `SUM(${firstMonthLetter}${excelRow}:${lastMonthLetter}${excelRow})`;
+        const totalAddr = `${totalLetter}${excelRow}`;
+        const pplAddr = `${pplLetter}${excelRow}`;
+        const pplFormula = litresTotalCell ? xlsxPplFormula(totalAddr, litresTotalCell) : undefined;
+        currencyTotalRows.push(excelRow);
+        if (diffLetter) diffBadWhenLow.push(excelRow);
         cols.forEach((col, index) => {
           const cell = ws.getCell(excelRow, index + 1);
           if (col.kind === "label") {
@@ -1502,6 +1621,7 @@
               fill: xlsxBodyFill(col, "profit"),
               bold: true,
               border,
+              formula: totalFormula,
             });
             return;
           }
@@ -1510,16 +1630,20 @@
               fill: xlsxBodyFill(col, "profit"),
               bold: true,
               border,
+              formula: pplFormula,
             });
           }
         });
         writeXlsxBudgetCells(ws, excelRow, cols, {
           budget: row.budget,
           total: row.total,
+          totalAddr,
+          pplAddr,
           isCurrency: true,
           isLitres: false,
           actualLitres: summary.litresYear,
           budgetLitres: summary.budgetLitresYear,
+          budgetLitresCell: litresBudgetCell,
           higherIsBetter,
           role: "profit",
           faded: false,
@@ -1533,6 +1657,43 @@
       merges.forEach(([r1, c1, r2, c2]) => {
         if (r1 !== r2 || c1 !== c2) ws.mergeCells(r1, c1, r2, c2);
       });
+
+      const negFont = { font: { color: { argb: xlsxArgb(XLSX_DANGER) } } };
+      xlsxContiguousRefs(totalLetter, currencyTotalRows).forEach(ref => {
+        ws.addConditionalFormatting({
+          ref,
+          rules: [{
+            type: "cellIs",
+            operator: "lessThan",
+            formulae: ["0"],
+            style: negFont,
+          }],
+        });
+      });
+      if (diffLetter) {
+        xlsxContiguousRefs(diffLetter, diffBadWhenLow).forEach(ref => {
+          ws.addConditionalFormatting({
+            ref,
+            rules: [{
+              type: "cellIs",
+              operator: "lessThan",
+              formulae: ["0"],
+              style: negFont,
+            }],
+          });
+        });
+        xlsxContiguousRefs(diffLetter, diffBadWhenHigh).forEach(ref => {
+          ws.addConditionalFormatting({
+            ref,
+            rules: [{
+              type: "cellIs",
+              operator: "greaterThan",
+              formulae: ["0"],
+              style: negFont,
+            }],
+          });
+        });
+      }
 
       let groupWidth = 16;
       let headingWidth = 24;
