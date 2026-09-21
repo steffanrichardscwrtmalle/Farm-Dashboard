@@ -72,6 +72,14 @@ def init_db() -> None:
     _seed_gad_milk_collections()
     _seed_feed_contracts()
     _seed_feed_usage_ration_assignments()
+    _seed_cwrt_malle_leave_sheet()
+
+
+def _seed_cwrt_malle_leave_sheet() -> None:
+    from app.services.hr_service import apply_cwrt_malle_leave_sheet_if_needed
+
+    with SessionLocal() as db:
+        apply_cwrt_malle_leave_sheet_if_needed(db)
 
 
 def _seed_feed_usage_ration_assignments() -> None:
@@ -1315,6 +1323,8 @@ def _migrate_hr_schema() -> None:
             "holiday_year_end": "DATE",
             "annual_leave_restart": "DATE",
             "annual_leave_days": "FLOAT",
+            "accommodation_deduction": "FLOAT",
+            "accommodation_cadence": "VARCHAR(16)",
         }
         missing = {k: v for k, v in new_columns.items() if k not in existing_cols}
         if missing:

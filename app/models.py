@@ -2019,11 +2019,22 @@ CM_TIMESHEET_PERIOD_START = datetime.date(2026, 9, 7)
 GAD_TIMESHEET_PERIOD_START = datetime.date(2026, 9, 1)
 TIMESHEET_FORTNIGHT_DAYS = 14
 DEFAULT_ANNUAL_LEAVE_DAYS = 28.0
+ACCOMMODATION_CADENCE_WEEKLY = "weekly"
+ACCOMMODATION_CADENCE_MONTHLY = "monthly"
+ACCOMMODATION_CADENCES: tuple[str, ...] = (
+    ACCOMMODATION_CADENCE_WEEKLY,
+    ACCOMMODATION_CADENCE_MONTHLY,
+)
+ACCOMMODATION_CADENCE_LABELS: dict[str, str] = {
+    ACCOMMODATION_CADENCE_WEEKLY: "Weekly",
+    ACCOMMODATION_CADENCE_MONTHLY: "Monthly",
+}
 # Personal title options for the new-starter form.
 TITLE_OPTIONS: tuple[str, ...] = ("Mr", "Mrs", "Miss", "Ms", "Dr")
 # Job titles: defaults seeded into AppSetting; manage via Enroll page Settings.
 JOB_TITLE_OPTIONS: tuple[str, ...] = ("Farm Worker",)
 HR_JOB_TITLES_SETTING_KEY = "hr.job_titles"
+HR_CWRT_MALLE_LEAVE_IMPORT_KEY = "hr.cwrt_malle_leave_sheet_2026_09_weekly"
 # Feed contract lookup lists (manage via Contracts gear).
 FEED_PRODUCT_TYPES_DEFAULT: tuple[str, ...] = ("Cereal", "Fibre", "Protein")
 FEED_PRODUCT_TYPES_SETTING_KEY = "feed.product_types"
@@ -2115,6 +2126,8 @@ class Employee(Base):
     holiday_year_end: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     annual_leave_restart: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     annual_leave_days: Mapped[float | None] = mapped_column(Float, nullable=True)
+    accommodation_deduction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    accommodation_cadence: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     template: Mapped[ContractTemplate | None] = relationship(back_populates="employees")
     contracts: Mapped[list[EmployeeContract]] = relationship(

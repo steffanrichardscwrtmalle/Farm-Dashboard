@@ -91,6 +91,8 @@
     .status-archived { background: #fee2e2; color: #b91c1c; }
     tr.staff-row { cursor: pointer; }
     tr.staff-row:hover { background: rgba(0,0,0,0.03); }
+    tr.staff-row.row-self-employed { background: #efe6f7; }
+    tr.staff-row.row-self-employed:hover { background: #e6d6f0; }
     .staff-table th.col-date,
     .staff-table td.col-date {
       white-space: nowrap;
@@ -249,7 +251,10 @@
       return;
     }
     staffBody.innerHTML = rows.map(function (s) {
-      return '<tr class="staff-row" data-id="' + s.id + '">' +
+      const rowClass = s.employment_type === 'self_employed'
+        ? 'staff-row row-self-employed'
+        : 'staff-row';
+      return '<tr class="' + rowClass + '" data-id="' + s.id + '">' +
         '<td>' + escapeHtml(s.employee_number || '—') + '</td>' +
         '<td>' + escapeHtml(s.full_name) + '</td>' +
         '<td>' + escapeHtml(s.business || '—') + '</td>' +

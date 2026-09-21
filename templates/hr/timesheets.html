@@ -136,6 +136,18 @@
     .ts-table tbody tr.row-salary:hover td.sticky-col,
     .ts-table tbody tr.row-salary:hover td.sticky-name,
     .ts-table tbody tr.row-salary:hover td.formula-cell { background: #b7dfc4; }
+    .ts-table tbody tr.row-self-employed td,
+    .ts-table tbody tr.row-self-employed td.sticky-col,
+    .ts-table tbody tr.row-self-employed td.sticky-name,
+    .ts-table tbody tr.row-self-employed td.formula-cell { background: #efe6f7; }
+    .ts-table tbody tr.row-self-employed:nth-child(even) td,
+    .ts-table tbody tr.row-self-employed:nth-child(even) td.sticky-col,
+    .ts-table tbody tr.row-self-employed:nth-child(even) td.sticky-name,
+    .ts-table tbody tr.row-self-employed:nth-child(even) td.formula-cell { background: #e6d6f0; }
+    .ts-table tbody tr.row-self-employed:hover td,
+    .ts-table tbody tr.row-self-employed:hover td.sticky-col,
+    .ts-table tbody tr.row-self-employed:hover td.sticky-name,
+    .ts-table tbody tr.row-self-employed:hover td.formula-cell { background: #dcc8eb; }
     .ts-table input[type="number"],
     .ts-table input[type="text"],
     .ts-table input[type="date"] {
@@ -307,8 +319,10 @@
       const hourCells = hoursColumns.map(function (col) {
         return '<td>' + numInput(row, col.key, '0.25') + '</td>';
       }).join('');
-      const salaryClass = row.pay_type === 'salary' ? ' class="row-salary"' : '';
-      return '<tr data-id="' + row.employee_id + '"' + salaryClass + '>' +
+      const rowClass = row.employment_type === 'self_employed'
+        ? ' class="row-self-employed"'
+        : (row.pay_type === 'salary' ? ' class="row-salary"' : '');
+      return '<tr data-id="' + row.employee_id + '"' + rowClass + '>' +
         '<td class="sticky-col muted-cell">' + escapeHtml(row.employee_number || '—') + '</td>' +
         '<td class="sticky-col sticky-name">' + escapeHtml(row.full_name) + '</td>' +
         '<td>' + escapeHtml(row.employment_type_label || 'Employed') + '</td>' +

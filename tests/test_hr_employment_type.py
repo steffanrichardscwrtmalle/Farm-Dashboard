@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.models import (
@@ -13,10 +13,12 @@ from app.models import (
     EMPLOYMENT_TYPE_EMPLOYED,
     EMPLOYMENT_TYPE_SELF_EMPLOYED,
     Base,
+    Employee,
     User,
 )
 from app.services.hr_service import (
     HRServiceError,
+    apply_cwrt_malle_leave_sheet,
     enroll_employee,
     normalize_employment_type,
     send_existing_employee,
@@ -117,3 +119,47 @@ def test_enroll_saves_annual_leave_year_end(db, user):
 def test_enroll_defaults_annual_leave_days(db, user):
     result = enroll_employee(db, _payload(), user)
     assert result["employee"]["annual_leave_days"] == 28
+
+
+def test_apply_cwrt_malle_leave_sheet_updates_matching_staff(db, user):
+    enroll_employee(
+        db,
+        _payload(employee_number="A170", email="a170@example.com"),
+        user,
+    )
+    enroll_employee(
+        db,
+        _payload(employee_number="A022", email="a022@example.com"),
+        user,
+    )
+    result = apply_cwrt_malle_leave_sheet(
+        db,
+        [
+            {
+                "employee_number": "A170",
+                "accommodation_deduction": 80,
+                "holidays_remaining": 7,
+                "holiday_year_end": "2026-09-25",
+            },
+            {
+                "employee_number": "A022",
+                "accommodation_deduction": None,
+                "holidays_remaining": 28,
+                "holiday_year_end": "2027-01-21",
+            },
+            {"employee_number": "A999", "holidays_remaining": 4},
+        ],
+    )
+    assert result["updated"] == ["A170", "A022"]
+    assert result["missing"] == ["A999"]
+    staff = {
+        row.employee_number: row
+        for row in db.scalars(select(Employee)).all()
+    }
+    assert staff["A170"].accommodation_deduction == 80
+    assert staff["A170"].accommodation_cadence == "weekly"
+    assert staff["A170"].holidays_remaining == 7
+    assert staff["A170"].holiday_year_end == dt.date(2026, 9, 25)
+    assert staff["A022"].accommodation_deduction is None
+    assert staff["A022"].holidays_remaining == 28
+    assert staff["A022"].holiday_year_end == dt.date(2027, 1, 21)

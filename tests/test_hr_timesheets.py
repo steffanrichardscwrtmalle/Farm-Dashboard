@@ -333,7 +333,7 @@ def test_remaining_resets_the_day_after_year_end(db):
         db,
         holiday_year_end=dt.date(2026, 9, 30),
         annual_leave_days=28,
-        holidays_remaining=5,
+        holidays_remaining=None,
     )
     before = save_timesheet_row(
         db,
@@ -342,11 +342,10 @@ def test_remaining_resets_the_day_after_year_end(db):
             "employee_id": staff.id,
             "period_start": dt.date(2026, 9, 21),
             "holiday_hours": 4,
-            "holidays_remaining": 5,
         },
     )
     assert before["remaining_locked"] is False
-    assert before["holidays_remaining"] == 5
+    assert before["holidays_remaining"] is None
     assert before["holiday_year_end"] == "2026-09-30"
 
     after = save_timesheet_row(
@@ -361,3 +360,53 @@ def test_remaining_resets_the_day_after_year_end(db):
     assert after["remaining_locked"] is True
     assert after["holidays_taken"] == 8
     assert after["holidays_remaining"] == 20
+
+
+def test_imported_remaining_is_kept_after_year_end(db):
+    staff = _employee(
+        db,
+        holiday_year_end=dt.date(2026, 8, 24),
+        annual_leave_days=28,
+        holidays_remaining=19,
+    )
+    saved = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+        },
+    )
+    assert saved["remaining_locked"] is False
+    assert saved["holidays_remaining"] == 19
+
+
+def test_timesheet_uses_staff_accommodation_default(db):
+    staff = _employee(db, accommodation_deduction=80, accommodation_cadence="weekly")
+    sheet = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
+    assert sheet["rows"][0]["employee_id"] == staff.id
+    assert sheet["rows"][0]["accommodation_deduction"] == 160
+
+
+def test_monthly_accommodation_on_fortnight_is_prorated(db):
+    staff = _employee(
+        db,
+        accommodation_deduction=80,
+        accommodation_cadence="monthly",
+    )
+    sheet = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
+    assert sheet["rows"][0]["accommodation_deduction"] == 37.33
+
+
+def test_monthly_accommodation_on_gad_month_is_full_amount(db):
+    staff = _employee(
+        db,
+        business="Green Acre Dairy Ltd",
+        email="gad-acc@test.local",
+        employee_number="GAD001",
+        accommodation_deduction=80,
+        accommodation_cadence="monthly",
+    )
+    sheet = list_timesheet(db, "GAD", period_start=dt.date(2026, 9, 1))
+    assert sheet["rows"][0]["employee_id"] == staff.id
+    assert sheet["rows"][0]["accommodation_deduction"] == 80

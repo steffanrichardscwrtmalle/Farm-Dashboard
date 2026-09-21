@@ -167,6 +167,20 @@
     return (v === null || v === undefined || v === '') ? '—' : String(v);
   }
 
+  function fmtMoney(v) {
+    if (v === null || v === undefined || v === '') return '—';
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '—';
+    return '£' + n.toFixed(2);
+  }
+
+  function fmtAccommodation(emp) {
+    const amount = fmtMoney(emp.accommodation_deduction);
+    if (amount === '—') return '—';
+    const period = (emp.accommodation_cadence_label || emp.accommodation_cadence || 'weekly').toLowerCase();
+    return amount + ' / ' + period;
+  }
+
   function formatDateUk(value) {
     if (!value) return '—';
     const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -267,6 +281,8 @@
       detailItem('Working hours/day', escapeHtml(fmtNum(emp.working_hours_per_day))) +
       detailItem('Annual leave year end', escapeHtml(formatDateUk(emp.holiday_year_end))) +
       detailItem('Annual leave days', escapeHtml(fmtNum(emp.annual_leave_days == null ? 28 : emp.annual_leave_days))) +
+      detailItem('Holidays remaining', escapeHtml(fmtNum(emp.holidays_remaining))) +
+      detailItem('Accommodation deduction', escapeHtml(fmtAccommodation(emp))) +
 
       sectionHeading('Driving &amp; right to work') +
       detailItem('Driving licence', sensitiveValue(emp.driving_license_number, emp.has_sensitive_data)) +

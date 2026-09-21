@@ -308,6 +308,22 @@
               Annual leave days
               <input type="number" id="annual_leave_days" min="0" max="366" step="0.5" value="28">
             </label>
+            <label>
+              Holidays remaining (days)
+              <input type="number" id="holidays_remaining" min="0" max="366" step="0.5">
+            </label>
+            <label>
+              Accommodation deduction (£)
+              <input type="number" id="accommodation_deduction" min="0" step="0.01" placeholder="e.g. 80">
+            </label>
+            <label>
+              Accommodation period
+              <select id="accommodation_cadence">
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+              <small class="muted">How often this amount is deducted. Not shown on the staff directory table.</small>
+            </label>
           </div>
         </fieldset>
 
@@ -578,6 +594,9 @@
       working_hours_per_day: numOrNull('working_hours_per_day'),
       holiday_year_end: val('holiday_year_end') || null,
       annual_leave_days: numOrNull('annual_leave_days'),
+      holidays_remaining: numOrNull('holidays_remaining'),
+      accommodation_deduction: numOrNull('accommodation_deduction'),
+      accommodation_cadence: val('accommodation_cadence') || 'weekly',
       driving_license_number: val('driving_license_number') || null,
       license_points: val('license_points') || null,
       right_to_work_share_code: val('right_to_work_share_code') || null,
@@ -867,6 +886,9 @@
       setVal('working_hours_per_day', emp.working_hours_per_day);
       setVal('holiday_year_end', emp.holiday_year_end);
       setVal('annual_leave_days', emp.annual_leave_days == null ? 28 : emp.annual_leave_days);
+      setVal('holidays_remaining', emp.holidays_remaining);
+      setVal('accommodation_deduction', emp.accommodation_deduction);
+      setVal('accommodation_cadence', emp.accommodation_cadence || 'weekly');
       setVal('license_points', emp.license_points);
       setVal('right_to_work_share_code', emp.right_to_work_share_code);
       setVal('bank_name', emp.bank_name);

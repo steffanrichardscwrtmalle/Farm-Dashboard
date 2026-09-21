@@ -8,15 +8,19 @@ import io
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import hr_team_emails_for
 from app.models import (
+    ACCOMMODATION_CADENCE_LABELS,
+    ACCOMMODATION_CADENCE_WEEKLY,
+    ACCOMMODATION_CADENCES,
     CONTRACT_STATUS_COMPLETED,
     CONTRACT_STATUS_PENDING,
     DEFAULT_ANNUAL_LEAVE_DAYS,
@@ -29,6 +33,7 @@ from app.models import (
     EMPLOYMENT_TYPE_LABELS,
     EMPLOYMENT_TYPE_SELF_EMPLOYED,
     EMPLOYMENT_TYPES,
+    HR_CWRT_MALLE_LEAVE_IMPORT_KEY,
     HR_JOB_TITLES_SETTING_KEY,
     JOB_TITLE_OPTIONS,
     PAY_TYPES,
@@ -251,6 +256,13 @@ def _build_employee(
         working_hours_per_day=payload.get("working_hours_per_day"),
         holiday_year_end=_holiday_year_end_from_payload(payload),
         annual_leave_days=_annual_leave_days(payload),
+        holidays_remaining=_optional_non_negative(payload.get("holidays_remaining")),
+        accommodation_deduction=_optional_non_negative(
+            payload.get("accommodation_deduction")
+        ),
+        accommodation_cadence=normalize_accommodation_cadence(
+            payload.get("accommodation_cadence")
+        ),
         driving_license_number_enc=encrypt_field(payload.get("driving_license_number")),
         license_points=_clean("license_points"),
         right_to_work_share_code=_clean("right_to_work_share_code"),
@@ -323,6 +335,25 @@ def _holiday_year_end_from_payload(payload: dict[str, Any]) -> dt.date | None:
     return restart - dt.timedelta(days=1)
 
 
+def normalize_accommodation_cadence(value: Any) -> str:
+    raw = str(value or ACCOMMODATION_CADENCE_WEEKLY).strip().lower()
+    if raw in ACCOMMODATION_CADENCES:
+        return raw
+    raise HRServiceError("Accommodation period must be weekly or monthly.")
+
+
+def _optional_non_negative(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise HRServiceError("Numeric fields must be numbers.") from exc
+    if number < 0:
+        raise HRServiceError("Numeric fields cannot be negative.")
+    return number
+
+
 def _employee_year_end(employee: Employee) -> dt.date | None:
     if employee.holiday_year_end:
         return employee.holiday_year_end
@@ -330,6 +361,98 @@ def _employee_year_end(employee: Employee) -> dt.date | None:
     if restart:
         return restart - dt.timedelta(days=1)
     return None
+
+
+_CWRT_MALLE_BUSINESS = "Cwrt Malle Ltd"
+_LEAVE_SHEET_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "seeds" / "cwrt_malle_leave.json"
+)
+
+
+def apply_cwrt_malle_leave_sheet_if_needed(db: Session) -> dict[str, Any]:
+    """Apply the Cwrt Malle holiday/accommodation sheet once."""
+    existing = db.scalar(
+        select(AppSetting).where(AppSetting.key == HR_CWRT_MALLE_LEAVE_IMPORT_KEY)
+    )
+    if existing is not None:
+        return {"skipped": True, "updated": [], "missing": []}
+    result = apply_cwrt_malle_leave_sheet(db)
+    if result["updated"]:
+        db.add(
+            AppSetting(
+                key=HR_CWRT_MALLE_LEAVE_IMPORT_KEY,
+                value=json.dumps(
+                    {
+                        "updated": result["updated"],
+                        "missing": result["missing"],
+                    }
+                ),
+            )
+        )
+        db.commit()
+    return result
+
+
+def apply_cwrt_malle_leave_sheet(
+    db: Session,
+    rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Update matching Cwrt Malle staff from the pasted leave sheet."""
+    if rows is None:
+        rows = _load_cwrt_malle_leave_rows()
+    updated: list[str] = []
+    missing: list[str] = []
+    for row in rows:
+        number = str(row.get("employee_number") or "").strip().upper()
+        if not number:
+            continue
+        employee = db.scalar(
+            select(Employee).where(
+                Employee.business == _CWRT_MALLE_BUSINESS,
+                func.upper(func.trim(Employee.employee_number)) == number,
+            )
+        )
+        if employee is None:
+            missing.append(number)
+            continue
+        if "holiday_year_end" in row:
+            raw_end = row.get("holiday_year_end")
+            if raw_end in (None, ""):
+                employee.holiday_year_end = None
+            elif isinstance(raw_end, dt.date):
+                employee.holiday_year_end = raw_end
+            else:
+                employee.holiday_year_end = dt.date.fromisoformat(str(raw_end))
+        if "holidays_remaining" in row:
+            employee.holidays_remaining = _optional_non_negative(
+                row.get("holidays_remaining")
+            )
+        if "accommodation_deduction" in row:
+            employee.accommodation_deduction = _optional_non_negative(
+                row.get("accommodation_deduction")
+            )
+            if employee.accommodation_deduction is not None:
+                employee.accommodation_cadence = normalize_accommodation_cadence(
+                    row.get("accommodation_cadence")
+                )
+        updated.append(number)
+    if updated:
+        db.commit()
+    logger.info(
+        "Applied Cwrt Malle leave sheet: updated=%s missing=%s",
+        updated,
+        missing,
+    )
+    return {"skipped": False, "updated": updated, "missing": missing}
+
+
+def _load_cwrt_malle_leave_rows() -> list[dict[str, Any]]:
+    if not _LEAVE_SHEET_PATH.is_file():
+        return []
+    payload = json.loads(_LEAVE_SHEET_PATH.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        return []
+    return [row for row in payload if isinstance(row, dict)]
 
 
 def format_sort_code(value: Any) -> str | None:
@@ -595,6 +718,18 @@ def update_employee(
         employee.holiday_year_end = _holiday_year_end_from_payload(payload)
     if "annual_leave_days" in payload:
         employee.annual_leave_days = _annual_leave_days(payload)
+    if "holidays_remaining" in payload:
+        employee.holidays_remaining = _optional_non_negative(
+            payload.get("holidays_remaining")
+        )
+    if "accommodation_deduction" in payload:
+        employee.accommodation_deduction = _optional_non_negative(
+            payload.get("accommodation_deduction")
+        )
+    if "accommodation_cadence" in payload:
+        employee.accommodation_cadence = normalize_accommodation_cadence(
+            payload.get("accommodation_cadence")
+        )
     employee.license_points = _clean("license_points")
     employee.right_to_work_share_code = _clean("right_to_work_share_code")
     employee.bank_name = _clean("bank_name")
@@ -941,6 +1076,15 @@ def _employee_detail(employee: Employee, *, include_sensitive: bool) -> dict[str
             "pay_type": employee.pay_type,
             "working_days_per_week": employee.working_days_per_week,
             "working_hours_per_day": employee.working_hours_per_day,
+            "holidays_remaining": employee.holidays_remaining,
+            "accommodation_deduction": employee.accommodation_deduction,
+            "accommodation_cadence": normalize_accommodation_cadence(
+                employee.accommodation_cadence
+            ),
+            "accommodation_cadence_label": ACCOMMODATION_CADENCE_LABELS.get(
+                normalize_accommodation_cadence(employee.accommodation_cadence),
+                "Weekly",
+            ),
             "license_points": employee.license_points,
             "right_to_work_share_code": employee.right_to_work_share_code,
             "bank_name": employee.bank_name,

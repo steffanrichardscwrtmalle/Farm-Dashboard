@@ -10,6 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    ACCOMMODATION_CADENCE_MONTHLY,
+    ACCOMMODATION_CADENCE_WEEKLY,
+    ACCOMMODATION_CADENCES,
     CM_TIMESHEET_PERIOD_START,
     DEFAULT_ANNUAL_LEAVE_DAYS,
     EMPLOYEE_STATUS_ARCHIVED,
@@ -206,6 +209,8 @@ def list_timesheet(
                 holiday_hours_by_employee.get(employee.id, []),
                 include_rate=include_rate,
                 as_of=start,
+                period_start=start,
+                period_end=end,
             )
             for employee in staff
         ],
@@ -286,15 +291,20 @@ def save_timesheet_row(
         employee.holiday_year_end = (
             restart - dt.timedelta(days=1) if restart else None
         )
-    year_end = _employee_year_end(employee)
-    if (year_end is None or start <= year_end) and "holidays_remaining" in payload:
+    if "holidays_remaining" in payload:
         employee.holidays_remaining = _optional_float(payload.get("holidays_remaining"))
 
     db.commit()
     db.refresh(employee)
     holiday_hours = _holiday_hours_by_employee(db, [employee.id]).get(employee.id, [])
     return _serialize_row(
-        employee, entry, holiday_hours, include_rate=include_rate, as_of=start
+        employee,
+        entry,
+        holiday_hours,
+        include_rate=include_rate,
+        as_of=start,
+        period_start=start,
+        period_end=end,
     )
 
 
@@ -342,6 +352,8 @@ def _serialize_row(
     *,
     include_rate: bool,
     as_of: dt.date | None = None,
+    period_start: dt.date | None = None,
+    period_end: dt.date | None = None,
 ) -> dict[str, Any]:
     as_of = as_of or dt.date.today()
     pay_type = employee.pay_type or PAY_TYPE_HOURLY
@@ -379,8 +391,8 @@ def _serialize_row(
         "bonus": _num(entry.bonus if entry else None),
         "loan_deduction": _num(entry.loan_deduction if entry else None),
         "other_deduction": _num(entry.other_deduction if entry else None),
-        "accommodation_deduction": _num(
-            entry.accommodation_deduction if entry else None
+        "accommodation_deduction": _accommodation_amount(
+            employee, entry, period_start or as_of, period_end or as_of
         ),
         "other_remark": (entry.other_remark if entry else None) or "",
         "holidays_remaining": remaining,
@@ -421,6 +433,38 @@ def _employee_year_end(employee: Employee) -> dt.date | None:
     return None
 
 
+def _accommodation_amount(
+    employee: Employee,
+    entry: EmployeeTimesheetEntry | None,
+    period_start: dt.date | None,
+    period_end: dt.date | None,
+) -> float | None:
+    if entry is not None and entry.accommodation_deduction is not None:
+        return _num(entry.accommodation_deduction)
+    amount = employee.accommodation_deduction
+    if amount is None or period_start is None or period_end is None:
+        return _num(amount)
+    cadence = (employee.accommodation_cadence or ACCOMMODATION_CADENCE_WEEKLY).strip().lower()
+    if cadence not in ACCOMMODATION_CADENCES:
+        cadence = ACCOMMODATION_CADENCE_WEEKLY
+    return _num(_accommodation_for_period(float(amount), cadence, period_start, period_end))
+
+
+def _accommodation_for_period(
+    amount: float,
+    cadence: str,
+    start: dt.date,
+    end: dt.date,
+) -> float:
+    days = (end - start).days + 1
+    if cadence == ACCOMMODATION_CADENCE_MONTHLY:
+        month_days = calendar.monthrange(start.year, start.month)[1]
+        if start.day == 1 and end.day == month_days and start.month == end.month:
+            return round(amount, 2)
+        return round(amount * days / month_days, 2)
+    return round(amount * days / 7.0, 2)
+
+
 def _holidays_taken_in_year(
     entries: list[EmployeeTimesheetEntry],
     year_end: dt.date | None,
@@ -446,13 +490,14 @@ def _holidays_remaining(
     holidays_taken: float,
     as_of: dt.date,
 ) -> tuple[float | None, bool]:
+    stored = _num(employee.holidays_remaining)
     year_end = _employee_year_end(employee)
-    if year_end is not None and as_of > year_end:
+    if stored is None and year_end is not None and as_of > year_end:
         entitlement = employee.annual_leave_days
         if entitlement is None:
             entitlement = DEFAULT_ANNUAL_LEAVE_DAYS
         return _num(float(entitlement) - float(holidays_taken or 0)), True
-    return _num(employee.holidays_remaining), False
+    return stored, False
 
 
 def _display_rate(
