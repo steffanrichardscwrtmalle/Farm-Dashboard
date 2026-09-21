@@ -28,6 +28,16 @@
     .ts-period button {
       padding: 0.4rem 0.7rem;
     }
+    .ts-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .ts-actions button {
+      margin: 0;
+      padding: 0.4rem 0.75rem;
+    }
     .ts-meta {
       margin: 0 0 0.75rem;
       color: var(--muted);
@@ -58,13 +68,14 @@
     .ts-table {
       border-collapse: separate;
       border-spacing: 0;
-      min-width: 1080px;
       width: max-content;
       font-size: 0.75rem;
     }
     .ts-table th,
     .ts-table td {
-      padding: 0.28rem 0.4rem;
+      box-sizing: border-box;
+      width: 1%;
+      padding: 0.18rem 0.28rem;
       border-top: 1px solid #d0d0d0;
       border-left: 1px solid #d0d0d0;
       white-space: nowrap;
@@ -85,14 +96,26 @@
       font-size: 0.7rem;
       font-weight: 600;
       text-align: center;
-      line-height: 1.25;
+      line-height: 1.2;
       white-space: normal;
-      min-width: 5.75rem;
-      padding: 0.35rem 0.4rem;
+      min-width: 0;
+      padding: 0.28rem 0.25rem;
       border-top-color: #b4b4b4;
       border-left-color: #b4b4b4;
     }
     .ts-table th:last-child { border-right-color: #b4b4b4; }
+    .ts-table th[data-sort] {
+      cursor: pointer;
+      user-select: none;
+    }
+    .ts-table th[data-sort]:hover { background: #dcdcdc; }
+    .ts-table th.sorted-asc::after,
+    .ts-table th.sorted-desc::after {
+      font-size: 0.65em;
+      margin-left: 0.15rem;
+    }
+    .ts-table th.sorted-asc::after { content: " \25B2"; }
+    .ts-table th.sorted-desc::after { content: " \25BC"; }
     .ts-table th.sticky-col,
     .ts-table td.sticky-col {
       position: sticky;
@@ -104,13 +127,11 @@
       background: #e7e6e6;
     }
     .ts-table th.sticky-name,
-    .ts-table td.sticky-name { left: 5.75rem; }
+    .ts-table td.sticky-name { left: var(--ts-emp-col, 3.25rem); }
     .ts-table td.sticky-col {
-      min-width: 5.75rem;
       background: #f3f3f3;
     }
     .ts-table td.sticky-name {
-      min-width: 10.5rem;
       font-weight: 600;
       background: #f3f3f3;
     }
@@ -152,20 +173,22 @@
     .ts-table input[type="text"],
     .ts-table input[type="date"] {
       display: block;
+      box-sizing: border-box;
       width: 100%;
-      min-width: 5.5rem;
-      height: 1.85rem;
+      min-width: 0;
+      height: 1.75rem;
       margin: 0;
-      padding: 0.15rem 0.35rem;
+      padding: 0.12rem 0.28rem;
       font-size: 0.75rem;
       line-height: 1.2;
       border: 0;
       border-radius: 0;
       background: transparent;
       box-shadow: none;
+      field-sizing: content;
     }
     .ts-table input[type="number"] {
-      min-width: 4.75rem;
+      min-width: 3.5em;
       text-align: right;
       appearance: textfield;
       -moz-appearance: textfield;
@@ -175,8 +198,11 @@
       -webkit-appearance: none;
       margin: 0;
     }
-    .ts-table input[type="text"] { min-width: 8.5rem; text-align: left; }
-    .ts-table input[type="date"] { min-width: 8.6rem; }
+    .ts-table input[type="text"] { min-width: 5em; text-align: left; }
+    .ts-table input[type="date"] {
+      min-width: 8em;
+      field-sizing: fixed;
+    }
     .ts-table input:focus {
       outline: 2px solid #217346;
       outline-offset: -2px;
@@ -210,6 +236,10 @@
           <button type="button" class="secondary" id="next-period" aria-label="Next period">›</button>
         </div>
       </label>
+      <div class="ts-actions">
+        <button type="button" class="secondary" id="clear-sort" disabled>Clear sort</button>
+        <button type="button" class="secondary" id="export-xlsx">Export to XLSX</button>
+      </div>
       <span class="ts-status" id="save-status"></span>
     </div>
     <p class="ts-meta" id="period-meta">Loading…</p>
@@ -237,10 +267,13 @@
   const FARM = {{ farm|tojson }};
   const bodyEl = document.getElementById('ts-body');
   const headEl = document.getElementById('ts-head');
+  const wrapEl = document.querySelector('.ts-wrap');
   const periodSelect = document.getElementById('period-select');
   const periodMeta = document.getElementById('period-meta');
   const saveStatus = document.getElementById('save-status');
   const messageEl = document.getElementById('timesheet-message');
+  const clearSortBtn = document.getElementById('clear-sort');
+  const exportXlsxBtn = document.getElementById('export-xlsx');
   const NUMBER_FIELDS = [
     'hours_week_1', 'hours_week_2', 'holiday_hours', 'dinner_break_hours',
     'mileage', 'bonus', 'loan_deduction', 'other_deduction', 'accommodation_deduction',
@@ -250,6 +283,8 @@
   let periodStart = new URLSearchParams(window.location.search).get('period') || '';
   let hoursColumns = [];
   let rows = [];
+  let defaultOrder = [];
+  let sortState = { key: null, dir: 1 };
   let saveTimer = null;
   let saveInFlight = 0;
   const dirtyIds = new Set();
@@ -279,33 +314,56 @@
   function numInput(row, key, step) {
     const value = row[key];
     const shown = value == null || value === '' ? '' : value;
-    return '<input type="number" min="0" step="' + step + '" data-field="' + key +
-      '" value="' + escapeHtml(shown) + '">';
+    return '<input type="number" min="0" step="' + step + '" inputmode="decimal" data-field="' +
+      key + '" value="' + escapeHtml(shown) + '">';
+  }
+
+  function formatMoney(value) {
+    if (value == null || value === '') return '—';
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '—';
+    return '£' + n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function hourCell(row, col) {
+    if (row.hours_locked || row.pay_type === 'salary') {
+      return '<td class="readonly formula-cell">' + escapeHtml(formatMoney(row[col.key])) + '</td>';
+    }
+    return '<td>' + numInput(row, col.key, '0.25') + '</td>';
+  }
+
+  function sortTh(label, key, extraClass) {
+    const sorted = sortState.key === key
+      ? (sortState.dir === 1 ? 'sorted-asc' : 'sorted-desc')
+      : '';
+    const classes = [extraClass, sorted].filter(Boolean).join(' ');
+    return '<th' + (classes ? ' class="' + classes + '"' : '') +
+      ' data-sort="' + escapeHtml(key) + '">' + escapeHtml(label) + '</th>';
   }
 
   function renderHead() {
     const hourHeads = hoursColumns.map(function (col) {
-      return '<th>' + escapeHtml(col.label) + '</th>';
+      return sortTh(col.label, col.key);
     }).join('');
     headEl.innerHTML =
-      '<th class="sticky-col">Emp. no.</th>' +
-      '<th class="sticky-col sticky-name">Name</th>' +
-      '<th>Employment type</th>' +
-      '<th>Pay type</th>' +
-      '<th>Rate</th>' +
+      sortTh('Emp. no.', 'employee_number', 'sticky-col') +
+      sortTh('Name', 'full_name', 'sticky-col sticky-name') +
+      sortTh('Employment type', 'employment_type_label') +
+      sortTh('Pay type', 'pay_type_label') +
+      sortTh('Rate', 'rate') +
       hourHeads +
-      '<th>Holiday hours</th>' +
-      '<th>Dinner break (hrs)</th>' +
-      '<th>Mileage claimed</th>' +
-      '<th>Bonus</th>' +
-      '<th>Loan deduction</th>' +
-      '<th>Other deduction</th>' +
-      '<th>Accommodation deduction</th>' +
-      '<th>Other</th>' +
-      '<th>Holidays remaining</th>' +
-      '<th>Holidays taken</th>' +
-      '<th>Holidays carry forward</th>' +
-      '<th>Annual leave year end</th>';
+      sortTh('Holiday hours', 'holiday_hours') +
+      sortTh('Dinner break (hrs)', 'dinner_break_hours') +
+      sortTh('Mileage claimed', 'mileage') +
+      sortTh('Bonus', 'bonus') +
+      sortTh('Loan deduction', 'loan_deduction') +
+      sortTh('Other deduction', 'other_deduction') +
+      sortTh('Accommodation deduction', 'accommodation_deduction') +
+      sortTh('Other', 'other_remark') +
+      sortTh('Holidays remaining', 'holidays_remaining') +
+      sortTh('Holidays taken', 'holidays_taken') +
+      sortTh('Holidays carry forward', 'holidays_carry_forward') +
+      sortTh('Annual leave year end', 'holiday_year_end');
   }
 
   function renderRows() {
@@ -317,7 +375,7 @@
     }
     bodyEl.innerHTML = rows.map(function (row) {
       const hourCells = hoursColumns.map(function (col) {
-        return '<td>' + numInput(row, col.key, '0.25') + '</td>';
+        return hourCell(row, col);
       }).join('');
       const rowClass = row.employment_type === 'self_employed'
         ? ' class="row-self-employed"'
@@ -359,6 +417,97 @@
     const takenCell = tr.querySelector('[data-taken]');
     if (!takenCell || !takenCell.previousElementSibling) return;
     takenCell.previousElementSibling.outerHTML = remainingCell(saved);
+  }
+
+  function updateClearSortButton() {
+    clearSortBtn.disabled = !sortState.key;
+  }
+
+  function syncStickyOffsets() {
+    const table = headEl.closest('table');
+    const emp = headEl.querySelector('th.sticky-col:not(.sticky-name)');
+    if (!table || !emp) return;
+    table.style.setProperty('--ts-emp-col', emp.getBoundingClientRect().width + 'px');
+  }
+
+  function syncRowsFromDom() {
+    bodyEl.querySelectorAll('tr[data-id]').forEach(function (tr) {
+      const id = Number(tr.dataset.id);
+      const idx = rows.findIndex(function (row) { return row.employee_id === id; });
+      if (idx === -1) return;
+      const payload = rowPayload(tr);
+      NUMBER_FIELDS.forEach(function (key) {
+        if (Object.prototype.hasOwnProperty.call(payload, key)) {
+          rows[idx][key] = payload[key];
+        }
+      });
+      if (Object.prototype.hasOwnProperty.call(payload, 'other_remark')) {
+        rows[idx].other_remark = payload.other_remark;
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'holiday_year_end')) {
+        rows[idx].holiday_year_end = payload.holiday_year_end;
+      }
+    });
+  }
+
+  function sortValue(row, key) {
+    if (key === 'employee_number') {
+      const raw = String(row.employee_number || '');
+      const digits = raw.replace(/\D/g, '');
+      if (digits) return Number(digits);
+      return raw.toLowerCase();
+    }
+    if (key === 'rate') {
+      if (row.rate != null && row.rate !== '') return Number(row.rate);
+      return String(row.rate_label || '').toLowerCase();
+    }
+    const value = row[key];
+    if (value == null || value === '') return null;
+    if (NUMBER_FIELDS.indexOf(key) !== -1 || key === 'holidays_taken') {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    }
+    return String(value).toLowerCase();
+  }
+
+  function compareRows(a, b) {
+    const av = sortValue(a, sortState.key);
+    const bv = sortValue(b, sortState.key);
+    const aEmpty = av == null || av === '';
+    const bEmpty = bv == null || bv === '';
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;
+    if (bEmpty) return -1;
+    let result;
+    if (typeof av === 'number' && typeof bv === 'number') result = av - bv;
+    else result = String(av).localeCompare(String(bv), 'en', { numeric: true, sensitivity: 'base' });
+    if (result !== 0) return result * sortState.dir;
+    return (defaultOrder.indexOf(a.employee_id) - defaultOrder.indexOf(b.employee_id));
+  }
+
+  function applySort() {
+    if (!sortState.key) {
+      rows.sort(function (a, b) {
+        return defaultOrder.indexOf(a.employee_id) - defaultOrder.indexOf(b.employee_id);
+      });
+      return;
+    }
+    rows.sort(compareRows);
+  }
+
+  function applySortAndRender() {
+    syncRowsFromDom();
+    applySort();
+    renderHead();
+    renderRows();
+    updateClearSortButton();
+    syncStickyOffsets();
+  }
+
+  function clearSort() {
+    if (!sortState.key) return;
+    sortState = { key: null, dir: 1 };
+    applySortAndRender();
   }
 
   function fillPeriodSelect(periods, selected) {
@@ -449,6 +598,49 @@
     }, 700);
   }
 
+  function focusSheetInput(input) {
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    try { input.select(); } catch (err) { /* date inputs may not support select */ }
+    input.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  function isFullySelected(input) {
+    const value = String(input.value || '');
+    if (typeof input.selectionStart !== 'number' || typeof input.selectionEnd !== 'number') {
+      return true;
+    }
+    return input.selectionStart === 0 && input.selectionEnd === value.length;
+  }
+
+  function editableInputs() {
+    return Array.from(bodyEl.querySelectorAll('tr[data-id] [data-field]'));
+  }
+
+  function moveHorizontal(input, delta) {
+    const inputs = editableInputs();
+    const next = inputs[inputs.indexOf(input) + delta];
+    if (next) focusSheetInput(next);
+  }
+
+  function moveVertical(input, delta) {
+    const td = input.closest('td');
+    const tr = input.closest('tr[data-id]');
+    if (!td || !tr) return;
+    const col = Array.from(tr.children).indexOf(td);
+    const sheetRows = Array.from(bodyEl.querySelectorAll('tr[data-id]'));
+    let rowIdx = sheetRows.indexOf(tr) + delta;
+    while (rowIdx >= 0 && rowIdx < sheetRows.length) {
+      const nextTd = sheetRows[rowIdx].children[col];
+      const next = nextTd && nextTd.querySelector('[data-field]');
+      if (next) {
+        focusSheetInput(next);
+        return;
+      }
+      rowIdx += delta;
+    }
+  }
+
   function cadenceCopy(cadence) {
     if (cadence === 'fortnightly') {
       return 'Cwrt Malle pays fortnightly. Enter hours for each week; holiday hours are for the whole two-week period.';
@@ -468,6 +660,8 @@
       if (!res.ok) throw new Error(data.detail || 'Failed to load time sheets.');
       hoursColumns = (data.period && data.period.hours_columns) || [];
       rows = data.rows || [];
+      defaultOrder = rows.map(function (row) { return row.employee_id; });
+      sortState = { key: null, dir: 1 };
       periodStart = data.period && data.period.start ? data.period.start : periodStart;
       fillPeriodSelect(data.periods || [], periodStart);
       const cadence = data.cadence || (data.period && data.period.cadence) || '';
@@ -475,6 +669,8 @@
       periodMeta.textContent = range + (range ? ' · ' : '') + cadenceCopy(cadence);
       renderHead();
       renderRows();
+      updateClearSortButton();
+      syncStickyOffsets();
       const url = new URL(window.location.href);
       if (periodStart) url.searchParams.set('period', periodStart);
       window.history.replaceState({}, '', url);
@@ -510,6 +706,25 @@
     }
   });
 
+  headEl.addEventListener('click', function (ev) {
+    const th = ev.target.closest('th[data-sort]');
+    if (!th) return;
+    const key = th.dataset.sort;
+    if (sortState.key === key) sortState.dir *= -1;
+    else {
+      sortState.key = key;
+      sortState.dir = 1;
+    }
+    applySortAndRender();
+  });
+  clearSortBtn.addEventListener('click', clearSort);
+  exportXlsxBtn.addEventListener('click', async function () {
+    if (!(await flushSaves())) return;
+    if (!periodStart) return;
+    window.location.href = '/api/hr/timesheets/' + encodeURIComponent(FARM) +
+      '/export.xlsx?period_start=' + encodeURIComponent(periodStart);
+  });
+
   bodyEl.addEventListener('input', function (ev) {
     const input = ev.target.closest('[data-field]');
     if (!input) return;
@@ -524,6 +739,36 @@
     if (!tr) return;
     queueSave(tr.dataset.id);
   });
+  bodyEl.addEventListener('keydown', function (ev) {
+    const input = ev.target.closest('[data-field]');
+    if (!input || ev.altKey || ev.ctrlKey || ev.metaKey) return;
+    const key = ev.key;
+    if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'Enter' || key === 'Tab') {
+      ev.preventDefault();
+      if (key === 'Tab') moveHorizontal(input, ev.shiftKey ? -1 : 1);
+      else if (key === 'ArrowUp' || (key === 'Enter' && ev.shiftKey)) moveVertical(input, -1);
+      else moveVertical(input, 1);
+      return;
+    }
+    if ((key === 'ArrowLeft' || key === 'ArrowRight') && (input.type === 'date' || isFullySelected(input))) {
+      ev.preventDefault();
+      moveHorizontal(input, key === 'ArrowLeft' ? -1 : 1);
+    }
+  }, true);
+  bodyEl.addEventListener('wheel', function (ev) {
+    const input = ev.target.closest('input[type="number"], input[type="date"]');
+    if (!input || document.activeElement !== input) return;
+    ev.preventDefault();
+    if (wrapEl) {
+      wrapEl.scrollTop += ev.deltaY;
+      wrapEl.scrollLeft += ev.deltaX;
+    }
+  }, { passive: false, capture: true });
+  bodyEl.addEventListener('focusin', function (ev) {
+    const input = ev.target.closest('[data-field]');
+    if (!input || input.type === 'date') return;
+    try { input.select(); } catch (err) { /* ignore */ }
+  });
 
   if (window.bindUnsavedGuard) {
     window.bindUnsavedGuard({
@@ -534,6 +779,7 @@
   }
 
   loadSheet();
+  window.addEventListener('resize', syncStickyOffsets);
 })();
 </script>
 {% endblock %}

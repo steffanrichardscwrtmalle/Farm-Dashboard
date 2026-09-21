@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -57,8 +58,10 @@ from app.services.hr_service import (
 )
 from app.services.timesheet_service import (
     TimesheetError,
+    build_timesheet_xlsx,
     list_timesheet,
     save_timesheet_row,
+    timesheet_xlsx_filename,
 )
 
 router = APIRouter(prefix="/api/hr")
@@ -500,6 +503,39 @@ def api_list_timesheet(
         )
     except TimesheetError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/timesheets/{farm}/export.xlsx")
+def api_export_timesheet_xlsx(
+    farm: str,
+    period_start: dt.date | None = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_HR_TIMESHEETS)),
+):
+    include_rate = has_action(user, ACTION_HR_VIEW_SENSITIVE)
+    try:
+        sheet = list_timesheet(
+            db,
+            farm,
+            period_start=period_start,
+            include_rate=include_rate,
+        )
+    except TimesheetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    period = sheet.get("period") or {}
+    start = dt.date.fromisoformat(period["start"])
+    end = dt.date.fromisoformat(period["end"])
+    filename = timesheet_xlsx_filename(start, end)
+    return Response(
+        content=build_timesheet_xlsx(sheet),
+        media_type=XLSX_CONTENT_TYPE,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            )
+        },
+    )
 
 
 @router.put("/timesheets/{farm}")

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
+import io
 from typing import Any
 
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,6 +22,7 @@ from app.models import (
     EMPLOYEE_STATUS_ARCHIVED,
     EMPLOYMENT_TYPE_EMPLOYED,
     EMPLOYMENT_TYPE_LABELS,
+    EMPLOYMENT_TYPE_SELF_EMPLOYED,
     GAD_TIMESHEET_PERIOD_START,
     PAY_TYPE_HOURLY,
     PAY_TYPE_LABELS,
@@ -34,6 +39,23 @@ from app.services.crypto_fields import decrypt_field
 
 WEEKS_PER_YEAR = 52
 PERIOD_HORIZON_MONTHS = 12
+_THIN_BORDER = Border(
+    left=Side(style="thin"),
+    right=Side(style="thin"),
+    top=Side(style="thin"),
+    bottom=Side(style="thin"),
+)
+_HEADER_FILL = PatternFill("solid", fgColor="E7E6E6")
+_TITLE_FILL = PatternFill("solid", fgColor="1E3A5F")
+_SUBTITLE_FILL = PatternFill("solid", fgColor="E8EEF5")
+_SALARY_FILL = PatternFill("solid", fgColor="D4EDDA")
+_SELF_EMPLOYED_FILL = PatternFill("solid", fgColor="EFE6F7")
+_TITLE_FONT = Font(bold=True, size=16, color="FFFFFF")
+_SUBTITLE_FONT = Font(bold=True, size=11, color="1E3A5F")
+_HEADER_FONT = Font(bold=True, size=10, color="1F1F1F")
+_MONEY_FORMAT = "£#,##0.00"
+_HOURS_FORMAT = "0.00"
+_DATE_FORMAT = "DD/MM/YYYY"
 
 
 class TimesheetError(Exception):
@@ -253,6 +275,7 @@ def save_timesheet_row(
 
     entry.farm = farm_key
     entry.period_end = end
+    is_salary = (employee.pay_type or PAY_TYPE_HOURLY) == PAY_TYPE_SALARY
     for key in (
         "hours_week_1",
         "holiday_hours",
@@ -263,10 +286,12 @@ def save_timesheet_row(
         "other_deduction",
         "accommodation_deduction",
     ):
+        if is_salary and key == "hours_week_1":
+            continue
         if key in payload:
             setattr(entry, key, _optional_float(payload.get(key)))
     if is_fortnightly(farm_key):
-        if "hours_week_2" in payload:
+        if not is_salary and "hours_week_2" in payload:
             entry.hours_week_2 = _optional_float(payload.get("hours_week_2"))
     else:
         entry.hours_week_2 = None
@@ -357,10 +382,18 @@ def _serialize_row(
 ) -> dict[str, Any]:
     as_of = as_of or dt.date.today()
     pay_type = employee.pay_type or PAY_TYPE_HOURLY
+    hours_locked = pay_type == PAY_TYPE_SALARY
     rate_value = None
     rate_label = None
-    if include_rate:
-        rate_value, rate_label = _display_rate(pay_type, decrypt_field(employee.pay_rate_enc))
+    salary_weekly = None
+    if include_rate or hours_locked:
+        amount, label = _display_rate(pay_type, decrypt_field(employee.pay_rate_enc))
+        if hours_locked:
+            salary_weekly = (
+                round(amount / WEEKS_PER_YEAR, 2) if amount is not None else None
+            )
+        if include_rate:
+            rate_value, rate_label = amount, label
     year_end = _employee_year_end(employee)
     holidays_taken = _holidays_taken_in_year(
         holiday_entries,
@@ -383,8 +416,17 @@ def _serialize_row(
         "pay_type_label": PAY_TYPE_LABELS.get(pay_type, "Hourly"),
         "rate": rate_value,
         "rate_label": rate_label,
-        "hours_week_1": _num(entry.hours_week_1 if entry else None),
-        "hours_week_2": _num(entry.hours_week_2 if entry else None),
+        "hours_locked": hours_locked,
+        "hours_week_1": (
+            salary_weekly
+            if hours_locked
+            else _num(entry.hours_week_1 if entry else None)
+        ),
+        "hours_week_2": (
+            salary_weekly
+            if hours_locked
+            else _num(entry.hours_week_2 if entry else None)
+        ),
         "holiday_hours": _num(entry.holiday_hours if entry else None),
         "dinner_break_hours": _num(entry.dinner_break_hours if entry else None),
         "mileage": _num(entry.mileage if entry else None),
@@ -507,8 +549,7 @@ def _display_rate(
     if amount is None:
         return None, None
     if pay_type == PAY_TYPE_SALARY:
-        weekly = round(amount / WEEKS_PER_YEAR, 2)
-        return weekly, f"£{weekly:,.2f} / wk"
+        return round(amount, 2), f"£{amount:,.2f} / yr"
     return amount, f"£{amount:,.2f} / hr"
 
 
@@ -565,3 +606,196 @@ def _format_range(start: dt.date, end: dt.date) -> str:
     if start.year == end.year:
         return f"{start.day} {start.strftime('%b')} - {end.day} {end.strftime('%b %Y')}"
     return f"{start.day} {start.strftime('%b %Y')} - {end.day} {end.strftime('%b %Y')}"
+
+
+def _uk_date(value: dt.date) -> str:
+    return value.strftime("%d-%m-%Y")
+
+
+def timesheet_xlsx_filename(start: dt.date, end: dt.date) -> str:
+    return f"Time Sheet {_uk_date(start)} to {_uk_date(end)}.xlsx"
+
+
+def _timesheet_xlsx_headers(period: dict[str, Any]) -> list[str]:
+    hour_labels = [col["label"] for col in period.get("hours_columns") or []]
+    return [
+        "Emp. no.",
+        "Name",
+        "Employment type",
+        "Pay type",
+        "Rate",
+        *hour_labels,
+        "Holiday hours",
+        "Dinner break (hrs)",
+        "Mileage claimed",
+        "Bonus",
+        "Loan deduction",
+        "Other deduction",
+        "Accommodation deduction",
+        "Other",
+        "Holidays remaining",
+        "Holidays taken",
+        "Holidays carry forward",
+        "Annual leave year end",
+    ]
+
+
+def _timesheet_xlsx_values(
+    row: dict[str, Any], hours_columns: list[dict[str, Any]]
+) -> list[Any]:
+    year_end = row.get("holiday_year_end")
+    if isinstance(year_end, str) and year_end:
+        try:
+            year_end = dt.date.fromisoformat(year_end)
+        except ValueError:
+            pass
+    return [
+        row.get("employee_number") or "",
+        row.get("full_name") or "",
+        row.get("employment_type_label") or "",
+        row.get("pay_type_label") or "",
+        row.get("rate_label") or "",
+        *[row.get(col["key"]) for col in hours_columns],
+        row.get("holiday_hours"),
+        row.get("dinner_break_hours"),
+        row.get("mileage"),
+        row.get("bonus"),
+        row.get("loan_deduction"),
+        row.get("other_deduction"),
+        row.get("accommodation_deduction"),
+        row.get("other_remark") or "",
+        row.get("holidays_remaining"),
+        row.get("holidays_taken"),
+        row.get("holidays_carry_forward"),
+        year_end or "",
+    ]
+
+
+def _timesheet_row_fill(row: dict[str, Any]) -> PatternFill | None:
+    employment = row.get("employment_type") or EMPLOYMENT_TYPE_EMPLOYED
+    if employment == EMPLOYMENT_TYPE_SELF_EMPLOYED:
+        return _SELF_EMPLOYED_FILL
+    if (row.get("pay_type") or PAY_TYPE_HOURLY) == PAY_TYPE_SALARY:
+        return _SALARY_FILL
+    return None
+
+
+def build_timesheet_xlsx(sheet: dict[str, Any]) -> bytes:
+    period = sheet.get("period") or {}
+    hours_columns = list(period.get("hours_columns") or [])
+    headers = _timesheet_xlsx_headers(period)
+    last_col = get_column_letter(len(headers))
+    money_headers = {
+        "Mileage claimed",
+        "Bonus",
+        "Loan deduction",
+        "Other deduction",
+        "Accommodation deduction",
+    }
+    hours_headers = {
+        "Holiday hours",
+        "Dinner break (hrs)",
+        "Holidays remaining",
+        "Holidays taken",
+        "Holidays carry forward",
+        *[col["label"] for col in hours_columns],
+    }
+    hour_labels = {col["label"] for col in hours_columns}
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Time Sheet"
+
+    start = dt.date.fromisoformat(period["start"]) if period.get("start") else None
+    end = dt.date.fromisoformat(period["end"]) if period.get("end") else None
+    farm_name = sheet.get("farm_label") or sheet.get("business") or ""
+    range_label = ""
+    if start and end:
+        range_label = f"{_uk_date(start)} to {_uk_date(end)}"
+    subtitle = " · ".join(
+        part for part in (farm_name, period.get("label") or "", range_label) if part
+    )
+
+    ws.merge_cells(f"A1:{last_col}1")
+    ws.merge_cells(f"A2:{last_col}2")
+    title_cell = ws["A1"]
+    title_cell.value = "Time Sheet"
+    title_cell.font = _TITLE_FONT
+    title_cell.fill = _TITLE_FILL
+    title_cell.alignment = Alignment(horizontal="left", vertical="center")
+    subtitle_cell = ws["A2"]
+    subtitle_cell.value = subtitle
+    subtitle_cell.font = _SUBTITLE_FONT
+    subtitle_cell.fill = _SUBTITLE_FILL
+    subtitle_cell.alignment = Alignment(horizontal="left", vertical="center")
+    for cell in ws[1] + ws[2]:
+        cell.border = _THIN_BORDER
+        if cell.coordinate == "A1":
+            cell.fill = _TITLE_FILL
+        elif cell.coordinate == "A2":
+            cell.fill = _SUBTITLE_FILL
+        else:
+            cell.fill = _TITLE_FILL if cell.row == 1 else _SUBTITLE_FILL
+
+    ws.append(headers)
+    header_row = ws[3]
+    for cell in header_row:
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
+        cell.alignment = Alignment(
+            horizontal="center", vertical="center", wrap_text=True
+        )
+        cell.border = _THIN_BORDER
+    ws.row_dimensions[1].height = 24
+    ws.row_dimensions[2].height = 18
+    ws.row_dimensions[3].height = 32
+
+    for row in sheet.get("rows") or []:
+        values = _timesheet_xlsx_values(row, hours_columns)
+        ws.append(values)
+        excel_row = ws.max_row
+        fill = _timesheet_row_fill(row)
+        is_salary = (row.get("pay_type") or PAY_TYPE_HOURLY) == PAY_TYPE_SALARY
+        for index, cell in enumerate(ws[excel_row], start=1):
+            header = headers[index - 1]
+            cell.border = _THIN_BORDER
+            cell.alignment = Alignment(vertical="center")
+            if fill is not None:
+                cell.fill = fill
+            if header in money_headers and isinstance(cell.value, (int, float)):
+                cell.number_format = _MONEY_FORMAT
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+            elif (
+                is_salary
+                and header in hour_labels
+                and isinstance(cell.value, (int, float))
+            ):
+                cell.number_format = _MONEY_FORMAT
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+            elif header in hours_headers and isinstance(cell.value, (int, float)):
+                cell.number_format = _HOURS_FORMAT
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+            elif header == "Annual leave year end" and isinstance(cell.value, dt.date):
+                cell.number_format = _DATE_FORMAT
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    widths = [12, 24, 16, 12, 14]
+    widths.extend([14] * len(hours_columns))
+    widths.extend([13, 14, 14, 12, 14, 14, 18, 22, 14, 13, 16, 16])
+    for index, width in enumerate(widths[: len(headers)], start=1):
+        ws.column_dimensions[get_column_letter(index)].width = width
+
+    ws.freeze_panes = "C4"
+    ws.auto_filter.ref = f"A3:{last_col}{max(ws.max_row, 3)}"
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.print_title_rows = "1:3"
+    ws.page_setup.horizontalCentered = True
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+

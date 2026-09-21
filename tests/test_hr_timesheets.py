@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import datetime as dt
 
+from io import BytesIO
+
 import pytest
+from openpyxl import load_workbook
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -23,12 +26,14 @@ from app.models import (
 from app.services.crypto_fields import encrypt_field
 from app.services.timesheet_service import (
     TimesheetError,
+    build_timesheet_xlsx,
     current_period_start,
     leave_year_bounds,
     list_periods,
     list_timesheet,
     period_containing,
     save_timesheet_row,
+    timesheet_xlsx_filename,
 )
 
 
@@ -204,7 +209,7 @@ def test_sorts_employed_hourly_then_salary_then_self_employed(db):
     ]
 
 
-def test_salary_rate_shown_weekly(db):
+def test_salary_rate_shown_annually(db):
     _employee(
         db,
         pay_type=PAY_TYPE_SALARY,
@@ -214,8 +219,38 @@ def test_salary_rate_shown_weekly(db):
         db, "CM", period_start=dt.date(2026, 9, 7), include_rate=True
     )
     assert sheet["rows"][0]["pay_type_label"] == "Salary"
-    assert sheet["rows"][0]["rate"] == 500.0
-    assert sheet["rows"][0]["rate_label"] == "£500.00 / wk"
+    assert sheet["rows"][0]["rate"] == 26000.0
+    assert sheet["rows"][0]["rate_label"] == "£26,000.00 / yr"
+    assert sheet["rows"][0]["hours_locked"] is True
+    assert sheet["rows"][0]["hours_week_1"] == 500.0
+    assert sheet["rows"][0]["hours_week_2"] == 500.0
+
+
+def test_salary_hours_cannot_be_overwritten(db):
+    staff = _employee(
+        db,
+        pay_type=PAY_TYPE_SALARY,
+        pay_rate_enc=encrypt_field("26000"),
+    )
+    saved = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "hours_week_1": 40,
+            "hours_week_2": 38,
+            "holiday_hours": 8,
+        },
+        include_rate=True,
+    )
+    assert saved["hours_locked"] is True
+    assert saved["hours_week_1"] == 500.0
+    assert saved["hours_week_2"] == 500.0
+    assert saved["holiday_hours"] == 8
+    sheet = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
+    assert sheet["rows"][0]["hours_week_1"] == 500.0
+    assert sheet["rows"][0]["hours_week_2"] == 500.0
 
 
 def test_save_hours_and_holiday_year_total(db):
@@ -410,3 +445,84 @@ def test_monthly_accommodation_on_gad_month_is_full_amount(db):
     sheet = list_timesheet(db, "GAD", period_start=dt.date(2026, 9, 1))
     assert sheet["rows"][0]["employee_id"] == staff.id
     assert sheet["rows"][0]["accommodation_deduction"] == 80
+
+
+def test_timesheet_xlsx_filename_uses_uk_date_range():
+    assert (
+        timesheet_xlsx_filename(dt.date(2026, 9, 7), dt.date(2026, 9, 20))
+        == "Time Sheet 07-09-2026 to 20-09-2026.xlsx"
+    )
+    assert (
+        timesheet_xlsx_filename(dt.date(2026, 9, 1), dt.date(2026, 9, 30))
+        == "Time Sheet 01-09-2026 to 30-09-2026.xlsx"
+    )
+
+
+def test_timesheet_xlsx_is_formatted_workbook(db):
+    hourly = _employee(db, employee_number="CM010", full_name="Alex Farmhand")
+    salary = _employee(
+        db,
+        employee_number="CM020",
+        full_name="Sam Salary",
+        email="sam@test.local",
+        pay_type=PAY_TYPE_SALARY,
+        pay_rate_enc=encrypt_field("28000"),
+    )
+    contractor = _employee(
+        db,
+        employee_number="CM030",
+        full_name="Pat Contractor",
+        email="pat@test.local",
+        employment_type=EMPLOYMENT_TYPE_SELF_EMPLOYED,
+    )
+    save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": hourly.id,
+            "period_start": dt.date(2026, 9, 7),
+            "hours_week_1": 40,
+            "hours_week_2": 38,
+            "mileage": 12.5,
+            "other_remark": "Covered relief",
+        },
+    )
+    sheet = list_timesheet(
+        db, "CM", period_start=dt.date(2026, 9, 7), include_rate=True
+    )
+    content = build_timesheet_xlsx(sheet)
+    wb = load_workbook(BytesIO(content))
+    ws = wb.active
+    assert ws.title == "Time Sheet"
+    assert ws["A1"].value == "Time Sheet"
+    assert "07-09-2026 to 20-09-2026" in str(ws["A2"].value)
+    assert "Cwrt Malle" in str(ws["A2"].value)
+    headers = [cell.value for cell in ws[3]]
+    assert headers[:5] == [
+        "Emp. no.",
+        "Name",
+        "Employment type",
+        "Pay type",
+        "Rate",
+    ]
+    assert "Hours 7-13 Sep 2026" in headers
+    assert "Hours 14-20 Sep 2026" in headers
+    assert ws["A1"].font.bold is True
+    assert ws["A3"].font.bold is True
+    assert ws.freeze_panes == "C4"
+    names = [ws.cell(row=index, column=2).value for index in range(4, ws.max_row + 1)]
+    assert names == ["Alex Farmhand", "Sam Salary", "Pat Contractor"]
+    hours_col = headers.index("Hours 7-13 Sep 2026") + 1
+    assert ws.cell(row=4, column=hours_col).value == 40
+    assert ws.cell(row=4, column=hours_col).number_format == "0.00"
+    assert ws.cell(row=5, column=hours_col).value == 538.46
+    assert ws.cell(row=5, column=hours_col).number_format == "£#,##0.00"
+    mileage_col = headers.index("Mileage claimed") + 1
+    assert ws.cell(row=4, column=mileage_col).value == 12.5
+    assert ws.cell(row=4, column=mileage_col).number_format == "£#,##0.00"
+    salary_fill = ws.cell(row=5, column=2).fill.fgColor.rgb
+    contractor_fill = ws.cell(row=6, column=2).fill.fgColor.rgb
+    assert salary_fill.endswith("D4EDDA")
+    assert contractor_fill.endswith("EFE6F7")
+    assert hourly.id and salary.id and contractor.id
+
