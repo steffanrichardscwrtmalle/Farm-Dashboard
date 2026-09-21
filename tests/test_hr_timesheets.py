@@ -29,6 +29,7 @@ from app.services.timesheet_service import (
     build_timesheet_xlsx,
     current_holiday_year_end,
     current_period_start,
+    filter_timesheet_export,
     leave_year_bounds,
     list_periods,
     list_timesheet,
@@ -288,6 +289,7 @@ def test_save_hours_and_holiday_year_total(db):
     assert saved["holiday_hours"] == 8
     assert saved["holidays_taken"] == 1
     assert saved["holidays_remaining"] == 72
+    assert saved["holidays_carry_forward"] == 71
     assert saved["other_remark"] == "Covered weekend milking"
     assert saved["holiday_year_end"] == "2027-03-31"
 
@@ -307,6 +309,9 @@ def test_save_hours_and_holiday_year_total(db):
         db, "CM", period_start=dt.date(2026, 9, 21), include_rate=False
     )
     assert sheet["rows"][0]["holidays_taken"] == 3
+    assert sheet["rows"][0]["holidays_remaining"] == 71
+    assert sheet["rows"][0]["remaining_locked"] is True
+    assert sheet["rows"][0]["holidays_carry_forward"] == 69
     assert sheet["rows"][0]["holiday_days"] == 2
     assert sheet["rows"][0]["holiday_hours"] == 16
     assert sheet["rows"][0]["rate"] is None
@@ -407,6 +412,7 @@ def test_remaining_resets_the_day_after_year_end(db):
     )
     assert before["remaining_locked"] is False
     assert before["holidays_remaining"] is None
+    assert before["holidays_carry_forward"] is None
     assert before["holiday_year_end"] == "2026-09-30"
 
     after = save_timesheet_row(
@@ -420,7 +426,8 @@ def test_remaining_resets_the_day_after_year_end(db):
     )
     assert after["remaining_locked"] is True
     assert after["holidays_taken"] == 8
-    assert after["holidays_remaining"] == 20
+    assert after["holidays_remaining"] == 28
+    assert after["holidays_carry_forward"] == 20
     assert after["holiday_year_end"] == "2027-09-30"
 
 
@@ -441,6 +448,7 @@ def test_imported_remaining_is_kept_after_year_end(db):
     )
     assert saved["remaining_locked"] is False
     assert saved["holidays_remaining"] == 19
+    assert saved["holidays_carry_forward"] == 19
 
 
 def test_timesheet_uses_staff_accommodation_default(db):
@@ -482,6 +490,18 @@ def test_timesheet_xlsx_filename_uses_uk_date_range():
     assert (
         timesheet_xlsx_filename(dt.date(2026, 9, 1), dt.date(2026, 9, 30))
         == "Time Sheet 01-09-2026 to 30-09-2026.xlsx"
+    )
+    assert (
+        timesheet_xlsx_filename(
+            dt.date(2026, 9, 7), dt.date(2026, 9, 20), "employed"
+        )
+        == "Time Sheet 07-09-2026 to 20-09-2026 Employed.xlsx"
+    )
+    assert (
+        timesheet_xlsx_filename(
+            dt.date(2026, 9, 7), dt.date(2026, 9, 20), "self_employed"
+        )
+        == "Time Sheet 07-09-2026 to 20-09-2026 Self-employed.xlsx"
     )
 
 
@@ -563,6 +583,51 @@ def test_timesheet_xlsx_is_formatted_workbook(db):
     assert salary_fill.endswith("D4EDDA")
     assert contractor_fill.endswith("EFE6F7")
     assert hourly.id and salary.id and contractor.id
+
+
+def test_timesheet_xlsx_can_export_employed_or_self_employed(db):
+    hourly = _employee(db, employee_number="CM010", full_name="Alex Farmhand")
+    salary = _employee(
+        db,
+        employee_number="CM020",
+        full_name="Sam Salary",
+        email="sam@test.local",
+        pay_type=PAY_TYPE_SALARY,
+        pay_rate_enc=encrypt_field("28000"),
+    )
+    contractor = _employee(
+        db,
+        employee_number="CM030",
+        full_name="Pat Contractor",
+        email="pat@test.local",
+        employment_type=EMPLOYMENT_TYPE_SELF_EMPLOYED,
+    )
+    sheet = list_timesheet(
+        db, "CM", period_start=dt.date(2026, 9, 7), include_rate=True
+    )
+    employed = filter_timesheet_export(sheet, "employed")
+    content = build_timesheet_xlsx(employed)
+    wb = load_workbook(BytesIO(content))
+    names = [
+        wb.active.cell(row=index, column=2).value
+        for index in range(4, wb.active.max_row + 1)
+    ]
+    assert names == ["Alex Farmhand", "Sam Salary"]
+    assert "Employed" in str(wb.active["A2"].value)
+
+    self_employed = filter_timesheet_export(sheet, "self_employed")
+    content = build_timesheet_xlsx(self_employed)
+    wb = load_workbook(BytesIO(content))
+    names = [
+        wb.active.cell(row=index, column=2).value
+        for index in range(4, wb.active.max_row + 1)
+    ]
+    assert names == ["Pat Contractor"]
+    assert "Self-employed" in str(wb.active["A2"].value)
+    assert hourly.id and salary.id and contractor.id
+
+    with pytest.raises(TimesheetError, match="Employed, Self-employed or All"):
+        filter_timesheet_export(sheet, "contractors")
 
 
 def test_holiday_hours_equal_days_times_hours_per_day(db):
@@ -659,4 +724,58 @@ def test_hours_per_day_holiday_is_editable_for_employed_staff(db):
     )
     with pytest.raises(HRServiceError, match="employed staff"):
         update_employee_holiday_hours_per_day(db, contractor.id, 8)
+
+
+def test_carry_forward_is_remaining_minus_taken(db):
+    staff = _employee(db, holidays_remaining=10)
+    saved = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "holiday_days": 2.5,
+            "holidays_remaining": 10,
+            "holidays_carry_forward": 99,
+        },
+    )
+    assert saved["holidays_remaining"] == 10
+    assert saved["holidays_taken"] == 2.5
+    assert saved["holidays_carry_forward"] == 7.5
+
+
+def test_carry_forward_is_brought_forward_on_next_period(db):
+    staff = _employee(db, holidays_remaining=10)
+    first = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "holiday_days": 2,
+            "holidays_remaining": 10,
+        },
+    )
+    assert first["holidays_remaining"] == 10
+    assert first["remaining_locked"] is False
+    assert first["holidays_carry_forward"] == 8
+
+    second = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 21),
+            "holiday_days": 1,
+            "holidays_remaining": 99,
+        },
+    )
+    assert second["holidays_remaining"] == 8
+    assert second["remaining_locked"] is True
+    assert second["holidays_taken"] == 3
+    assert second["holidays_carry_forward"] == 7
+
+    first_again = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
+    assert first_again["rows"][0]["holidays_remaining"] == 10
+    assert first_again["rows"][0]["holidays_carry_forward"] == 8
 

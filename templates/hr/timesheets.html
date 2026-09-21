@@ -36,7 +36,17 @@
       display: flex;
       flex-wrap: wrap;
       gap: 0.4rem;
-      align-items: center;
+      align-items: flex-end;
+    }
+    .ts-actions label {
+      margin: 0;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .ts-actions select {
+      display: block;
+      margin: 0;
+      min-width: 9rem;
     }
     .ts-actions button {
       margin: 0;
@@ -251,6 +261,14 @@
       </label>
       <div class="ts-actions">
         <button type="button" class="secondary" id="clear-sort" disabled>Clear sort</button>
+        <label>
+          Export
+          <select id="export-employment" aria-label="Export employment type">
+            <option value="all">All</option>
+            <option value="employed">Employed</option>
+            <option value="self_employed">Self-employed</option>
+          </select>
+        </label>
         <button type="button" class="secondary" id="export-xlsx">Export to XLSX</button>
       </div>
       <span class="ts-status" id="save-status"></span>
@@ -287,10 +305,11 @@
   const messageEl = document.getElementById('timesheet-message');
   const clearSortBtn = document.getElementById('clear-sort');
   const exportXlsxBtn = document.getElementById('export-xlsx');
+  const exportEmploymentEl = document.getElementById('export-employment');
   const NUMBER_FIELDS = [
     'hours_week_1', 'hours_week_2', 'holiday_days', 'dinner_break_hours',
     'mileage', 'bonus', 'loan_deduction', 'other_deduction', 'accommodation_deduction',
-    'holidays_remaining', 'holidays_carry_forward'
+    'holidays_remaining'
   ];
 
   let periodStart = new URLSearchParams(window.location.search).get('period') || '';
@@ -430,7 +449,9 @@
           escapeHtml(row.other_remark || '') + '"></td>' +
         remainingCell(row) +
         '<td class="readonly formula-cell" data-taken>' + escapeHtml(row.holidays_taken == null ? '0' : row.holidays_taken) + '</td>' +
-        '<td>' + numInput(row, 'holidays_carry_forward', '0.25') + '</td>' +
+        '<td class="readonly formula-cell" data-carry-forward>' +
+          escapeHtml(row.holidays_carry_forward == null || row.holidays_carry_forward === '' ? '' : row.holidays_carry_forward) +
+        '</td>' +
         '<td class="readonly">' + escapeHtml(formatDateUk(row.holiday_year_end)) + '</td>' +
         '</tr>';
     }).join('');
@@ -444,10 +465,40 @@
     return '<td>' + numInput(row, 'holidays_remaining', '0.25') + '</td>';
   }
 
+  function carryForwardDisplay(remaining, periodDays) {
+    if (remaining == null || remaining === '') return '';
+    const used = periodDays == null || periodDays === '' ? 0 : Number(periodDays);
+    if (!Number.isFinite(Number(remaining)) || !Number.isFinite(used)) return '';
+    return String(Math.round((Number(remaining) - used) * 100) / 100);
+  }
+
+  function thisPeriodDaysFromRow(tr) {
+    const input = tr.querySelector('[data-field="holiday_days"]');
+    if (!input) return 0;
+    const n = parseNumber(input.value);
+    if (n == null) return 0;
+    return Math.round(n * 4) / 4;
+  }
+
+  function remainingValueFromRow(tr) {
+    const remainingInput = tr.querySelector('[data-field="holidays_remaining"]');
+    if (remainingInput) return parseNumber(remainingInput.value);
+    const remainingCell = tr.querySelector('[data-remaining]');
+    if (!remainingCell) return null;
+    const n = Number(remainingCell.textContent);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function updateCarryForwardCell(tr, remaining, periodDays) {
+    const cell = tr.querySelector('[data-carry-forward]');
+    if (cell) cell.textContent = carryForwardDisplay(remaining, periodDays);
+  }
+
   function applyRemainingCell(tr, saved) {
     const takenCell = tr.querySelector('[data-taken]');
     if (!takenCell || !takenCell.previousElementSibling) return;
     takenCell.previousElementSibling.outerHTML = remainingCell(saved);
+    updateCarryForwardCell(tr, saved.holidays_remaining, saved.holiday_days);
   }
 
   function updateClearSortButton() {
@@ -491,7 +542,8 @@
     }
     const value = row[key];
     if (value == null || value === '') return null;
-    if (NUMBER_FIELDS.indexOf(key) !== -1 || key === 'holidays_taken' || key === 'holiday_hours') {
+    if (NUMBER_FIELDS.indexOf(key) !== -1 || key === 'holidays_taken' ||
+        key === 'holiday_hours' || key === 'holidays_carry_forward') {
       const n = Number(value);
       return Number.isFinite(n) ? n : null;
     }
@@ -590,6 +642,7 @@
           ? '0' : saved.holiday_hours;
       }
       applyRemainingCell(tr, saved);
+      updateCarryForwardCell(tr, saved.holidays_remaining, saved.holiday_days);
       const idx = rows.findIndex(function (row) { return row.employee_id === employeeId; });
       if (idx !== -1) rows[idx] = Object.assign({}, rows[idx], saved);
       if (!dirtyIds.size) {
@@ -752,8 +805,12 @@
   exportXlsxBtn.addEventListener('click', async function () {
     if (!(await flushSaves())) return;
     if (!periodStart) return;
+    const employment = exportEmploymentEl && exportEmploymentEl.value
+      ? exportEmploymentEl.value
+      : 'all';
     window.location.href = '/api/hr/timesheets/' + encodeURIComponent(FARM) +
-      '/export.xlsx?period_start=' + encodeURIComponent(periodStart);
+      '/export.xlsx?period_start=' + encodeURIComponent(periodStart) +
+      '&employment=' + encodeURIComponent(employment);
   });
 
   bodyEl.addEventListener('input', function (ev) {
@@ -769,6 +826,10 @@
       const perDay = row && row.holiday_hours_per_day != null ? Number(row.holiday_hours_per_day) : 8;
       const hoursCell = tr.querySelector('[data-holiday-hours]');
       if (hoursCell) hoursCell.textContent = String(Math.round(days * perDay * 100) / 100);
+      updateCarryForwardCell(tr, remainingValueFromRow(tr), days);
+    }
+    if (input.dataset.field === 'holidays_remaining') {
+      updateCarryForwardCell(tr, parseNumber(input.value), thisPeriodDaysFromRow(tr));
     }
     queueSave(tr.dataset.id);
   });

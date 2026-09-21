@@ -685,6 +685,7 @@
         (EDIT_ID ? 'Save changes' : 'Save as draft') + ').', true);
       return;
     }
+    if (!window.confirm('Are you sure you want to email this contract?')) return;
     try {
       if (EDIT_ID) {
         await postStaff('/api/hr/staff/' + EDIT_ID, buildPayload(templateId),

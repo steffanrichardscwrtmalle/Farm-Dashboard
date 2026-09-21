@@ -306,12 +306,22 @@ def save_timesheet_row(
             str(remark).strip() if remark is not None else ""
         ) or None
 
-    if "holidays_carry_forward" in payload:
-        employee.holidays_carry_forward = _optional_float(
-            payload.get("holidays_carry_forward")
-        )
     if "holidays_remaining" in payload:
-        employee.holidays_remaining = _optional_float(payload.get("holidays_remaining"))
+        hours_per_day = _holiday_hours_per_day(employee)
+        holiday_entries = _holiday_hours_by_employee(db, [employee.id]).get(
+            employee.id, []
+        )
+        _, remaining_locked = _opening_remaining(
+            employee,
+            holiday_entries,
+            hours_per_day,
+            as_of=start,
+            period_start=start,
+        )
+        if not remaining_locked:
+            employee.holidays_remaining = _optional_float(
+                payload.get("holidays_remaining")
+            )
 
     db.commit()
     db.refresh(employee)
@@ -396,8 +406,12 @@ def _serialize_row(
         as_of=as_of,
         hours_per_day=hours_per_day,
     )
-    remaining, remaining_locked = _holidays_remaining(
-        employee, holidays_taken, as_of
+    remaining, remaining_locked = _opening_remaining(
+        employee,
+        holiday_entries,
+        hours_per_day,
+        as_of=as_of,
+        period_start=period_start or as_of,
     )
     holiday_days = _holiday_days_for_entry(entry, hours_per_day)
     holiday_hours = round(holiday_days * hours_per_day, 2) if holiday_days else 0.0
@@ -440,7 +454,7 @@ def _serialize_row(
         "holidays_remaining": remaining,
         "remaining_locked": remaining_locked,
         "holidays_taken": holidays_taken,
-        "holidays_carry_forward": _num(employee.holidays_carry_forward),
+        "holidays_carry_forward": _holidays_carry_forward(remaining, holiday_days),
         "holiday_year_end": (
             current_holiday_year_end(year_end, as_of).isoformat()
             if year_end
@@ -542,19 +556,43 @@ def _holidays_taken_in_year(
     return _num(total) or 0.0
 
 
-def _holidays_remaining(
+def _opening_remaining(
     employee: Employee,
-    holidays_taken: float,
+    holiday_entries: list[EmployeeTimesheetEntry],
+    hours_per_day: float,
+    *,
     as_of: dt.date,
+    period_start: dt.date,
 ) -> tuple[float | None, bool]:
-    stored = _num(employee.holidays_remaining)
+    """Remaining brought into this pay period: stored opening minus earlier days."""
     year_end = _employee_year_end(employee)
+    prior_days = 0.0
+    for item in holiday_entries:
+        if item.period_start >= period_start:
+            continue
+        if year_end is not None:
+            year_start, end = leave_year_bounds(year_end, as_of)
+            if item.period_start < year_start or item.period_start > end:
+                continue
+        prior_days += _holiday_days_for_entry(item, hours_per_day)
+
+    stored = _num(employee.holidays_remaining)
     if stored is None and year_end is not None and as_of > year_end:
         entitlement = employee.annual_leave_days
         if entitlement is None:
             entitlement = DEFAULT_ANNUAL_LEAVE_DAYS
-        return _num(float(entitlement) - float(holidays_taken or 0)), True
-    return stored, False
+        return _num(float(entitlement) - prior_days), True
+    if stored is None:
+        return None, False
+    return round(float(stored) - prior_days, 2), prior_days > 0
+
+
+def _holidays_carry_forward(
+    remaining: float | None, period_days: float
+) -> float | None:
+    if remaining is None:
+        return None
+    return round(float(remaining) - float(period_days or 0), 2)
 
 
 def _display_rate(
@@ -651,8 +689,54 @@ def _uk_date(value: dt.date) -> str:
     return value.strftime("%d-%m-%Y")
 
 
-def timesheet_xlsx_filename(start: dt.date, end: dt.date) -> str:
-    return f"Time Sheet {_uk_date(start)} to {_uk_date(end)}.xlsx"
+def timesheet_xlsx_filename(
+    start: dt.date, end: dt.date, employment: str | None = None
+) -> str:
+    base = f"Time Sheet {_uk_date(start)} to {_uk_date(end)}"
+    key = normalize_export_employment(employment)
+    if key == TIMESHEET_EXPORT_ALL:
+        return f"{base}.xlsx"
+    return f"{base} {TIMESHEET_EXPORT_LABELS[key]}.xlsx"
+
+
+TIMESHEET_EXPORT_ALL = "all"
+TIMESHEET_EXPORT_OPTIONS: tuple[str, ...] = (
+    TIMESHEET_EXPORT_ALL,
+    EMPLOYMENT_TYPE_EMPLOYED,
+    EMPLOYMENT_TYPE_SELF_EMPLOYED,
+)
+TIMESHEET_EXPORT_LABELS: dict[str, str] = {
+    TIMESHEET_EXPORT_ALL: "All",
+    EMPLOYMENT_TYPE_EMPLOYED: "Employed",
+    EMPLOYMENT_TYPE_SELF_EMPLOYED: "Self-employed",
+}
+
+
+def normalize_export_employment(value: str | None) -> str:
+    raw = (value or TIMESHEET_EXPORT_ALL).strip().lower().replace("-", "_").replace(" ", "_")
+    if raw in ("", TIMESHEET_EXPORT_ALL):
+        return TIMESHEET_EXPORT_ALL
+    if raw in ("employed", "employee"):
+        return EMPLOYMENT_TYPE_EMPLOYED
+    if raw in ("self_employed", "selfemployed"):
+        return EMPLOYMENT_TYPE_SELF_EMPLOYED
+    raise TimesheetError("Export must be Employed, Self-employed or All.")
+
+
+def filter_timesheet_export(
+    sheet: dict[str, Any], employment: str | None
+) -> dict[str, Any]:
+    key = normalize_export_employment(employment)
+    filtered = dict(sheet)
+    filtered["export_employment"] = key
+    if key == TIMESHEET_EXPORT_ALL:
+        return filtered
+    filtered["rows"] = [
+        row
+        for row in sheet.get("rows") or []
+        if (row.get("employment_type") or EMPLOYMENT_TYPE_EMPLOYED) == key
+    ]
+    return filtered
 
 
 def _timesheet_xlsx_headers(period: dict[str, Any]) -> list[str]:
@@ -755,7 +839,17 @@ def build_timesheet_xlsx(sheet: dict[str, Any]) -> bytes:
     if start and end:
         range_label = f"{_uk_date(start)} to {_uk_date(end)}"
     subtitle = " · ".join(
-        part for part in (farm_name, period.get("label") or "", range_label) if part
+        part
+        for part in (
+            farm_name,
+            period.get("label") or "",
+            range_label,
+            TIMESHEET_EXPORT_LABELS.get(
+                sheet.get("export_employment") or TIMESHEET_EXPORT_ALL,
+                "All",
+            ),
+        )
+        if part
     )
 
     ws.merge_cells(f"A1:{last_col}1")
