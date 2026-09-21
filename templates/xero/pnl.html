@@ -1264,6 +1264,37 @@
       return refs;
     }
 
+    function xlsxSumFormula(letter, rowNumbers) {
+      if (!rowNumbers.length) return "0";
+      return `SUM(${xlsxContiguousRefs(letter, rowNumbers).join(",")})`;
+    }
+
+    function xlsxProfitGroup(row) {
+      if (row.item_type !== "Profit & Loss") return null;
+      const band = row.band || "";
+      const heading = (row.heading || "").toLowerCase();
+      if (band === "Sales") return "sales";
+      if (band === "Valuation Change" || heading.includes("valuation change")) return "valuation";
+      if (heading.includes("depreciation")) return "depreciation";
+      return "cost";
+    }
+
+    function xlsxProfitKind(label) {
+      if (label === "Profit ex Depreciation & Valuation Change") return "exDepExVal";
+      if (label === "Profit ex Depreciation") return "exDep";
+      return "profit";
+    }
+
+    function xlsxProfitLineFormula(kind, letter, groups) {
+      const sales = xlsxSumFormula(letter, groups.sales);
+      const valuation = xlsxSumFormula(letter, groups.valuation);
+      const costs = xlsxSumFormula(letter, groups.costs);
+      const costsExDep = xlsxSumFormula(letter, groups.costsExDep);
+      if (kind === "exDepExVal") return `${sales}-${costsExDep}`;
+      if (kind === "exDep") return `${sales}+${valuation}-${costsExDep}`;
+      return `${sales}+${valuation}-${costs}`;
+    }
+
     function xlsxPplFormula(amountCell, litresCell) {
       return `IF(${litresCell}=0,"—",${amountCell}*100/${litresCell})`;
     }
@@ -1382,6 +1413,7 @@
         ...base,
         useGbp,
         fill: xlsxBodyFill(cols[budgetCol], spec.role),
+        formula: spec.budgetFormula,
       });
       writeXlsxPpl(ws.getCell(excelRow, budgetCol + 2), spec.budget, spec.budgetLitres, {
         ...base,
@@ -1436,6 +1468,7 @@
       const currencyTotalRows = [];
       const diffBadWhenLow = [];
       const diffBadWhenHigh = [];
+      const profitGroups = { sales: [], valuation: [], costs: [], costsExDep: [] };
       const ws = workbook.addWorksheet("P&L", {
         properties: { defaultRowHeight: 17 },
         views: [{
@@ -1518,6 +1551,14 @@
         if (diffLetter) {
           (higherIsBetter ? diffBadWhenLow : diffBadWhenHigh).push(excelRow);
         }
+        const profitGroup = xlsxProfitGroup(row);
+        if (profitGroup === "sales") profitGroups.sales.push(excelRow);
+        else if (profitGroup === "valuation") profitGroups.valuation.push(excelRow);
+        else if (profitGroup === "depreciation") profitGroups.costs.push(excelRow);
+        else if (profitGroup === "cost") {
+          profitGroups.costs.push(excelRow);
+          profitGroups.costsExDep.push(excelRow);
+        }
 
         cols.forEach((col, index) => {
           const cell = ws.getCell(excelRow, index + 1);
@@ -1587,10 +1628,14 @@
       summary.rows.forEach(row => {
         const border = xlsxProfitBorder();
         const higherIsBetter = true;
+        const profitKind = xlsxProfitKind(row.label);
         const totalFormula = `SUM(${firstMonthLetter}${excelRow}:${lastMonthLetter}${excelRow})`;
         const totalAddr = `${totalLetter}${excelRow}`;
         const pplAddr = `${pplLetter}${excelRow}`;
         const pplFormula = litresTotalCell ? xlsxPplFormula(totalAddr, litresTotalCell) : undefined;
+        const budgetFormula = budgetColIndex >= 0
+          ? xlsxProfitLineFormula(profitKind, xlsxColLetter(budgetColIndex + 1), profitGroups)
+          : undefined;
         currencyTotalRows.push(excelRow);
         if (diffLetter) diffBadWhenLow.push(excelRow);
         cols.forEach((col, index) => {
@@ -1612,6 +1657,7 @@
               fill: xlsxBodyFill(col, "profit"),
               bold: true,
               border,
+              formula: xlsxProfitLineFormula(profitKind, xlsxColLetter(index + 1), profitGroups),
             });
             return;
           }
@@ -1644,6 +1690,7 @@
           actualLitres: summary.litresYear,
           budgetLitres: summary.budgetLitresYear,
           budgetLitresCell: litresBudgetCell,
+          budgetFormula,
           higherIsBetter,
           role: "profit",
           faded: false,
