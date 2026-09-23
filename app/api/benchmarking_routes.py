@@ -38,6 +38,13 @@ from app.services.benchmarking_rations import (
     update_ingredient,
 )
 from app.services.cash_requirements import build_cash_requirements_report
+from app.services.cropping_forecasts import (
+    create_crop_type,
+    deactivate_crop_type,
+    get_cropping_forecast,
+    save_cropping_forecast,
+    update_crop_type,
+)
 from app.services.feed_purchase_forecasts import build_feed_purchase_forecasts_report
 from app.services.financial_data_sources import list_financial_data_sources
 from app.services.financial_forecast_autofill import (
@@ -1208,6 +1215,117 @@ def api_deactivate_rental_agreement(
 ):
     try:
         deactivate_rental_agreement(db, agreement_id=agreement_id)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class CreateCropTypeBody(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    is_perennial: bool = False
+
+
+class UpdateCropTypeBody(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    is_perennial: bool = False
+
+
+class CroppingForecastRowBody(BaseModel):
+    crop_type_id: int
+    acres: float | None = None
+    cut_percentages: list[float] | None = None
+    expected_dm_tonnes: float | None = None
+    chemical_cost_per_acre: float | None = None
+    fertiliser_cost_per_acre: float | None = None
+    seed_cost_per_acre: float | None = None
+    harvest_cost_per_acre: float | None = None
+    acres_to_reseed: float | None = None
+
+
+class SaveCroppingForecastBody(BaseModel):
+    fiscal_year: int
+    farm: str
+    rows: list[CroppingForecastRowBody] = Field(default_factory=list)
+
+
+@router.get("/cropping/forecasts")
+def api_get_cropping_forecast(
+    fiscal_year: int = Query(...),
+    farm: str = Query(...),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_BENCHMARKING)),
+):
+    try:
+        return get_cropping_forecast(db, fiscal_year=fiscal_year, farm=farm)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/cropping/forecasts")
+def api_save_cropping_forecast(
+    body: SaveCroppingForecastBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        return save_cropping_forecast(
+            db,
+            fiscal_year=body.fiscal_year,
+            farm=body.farm,
+            rows=[row.model_dump() for row in body.rows],
+            user_id=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/cropping/crops")
+def api_create_crop_type(
+    body: CreateCropTypeBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        return {
+            "crop": create_crop_type(
+                db,
+                name=body.name,
+                is_perennial=body.is_perennial,
+                user_id=user.id,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/cropping/crops/{crop_type_id}")
+def api_update_crop_type(
+    crop_type_id: int,
+    body: UpdateCropTypeBody,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        return {
+            "crop": update_crop_type(
+                db,
+                crop_type_id=crop_type_id,
+                name=body.name,
+                is_perennial=body.is_perennial,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/cropping/crops/{crop_type_id}")
+def api_deactivate_crop_type(
+    crop_type_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_action(ACTION_BENCHMARKING_EDIT)),
+):
+    try:
+        deactivate_crop_type(db, crop_type_id=crop_type_id)
         return {"ok": True}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -1,0 +1,575 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Rations Calculations Explained{% endblock %}
+
+{% block extra_styles %}
+    .explain-doc {
+      max-width: 52rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    .explain-doc h2 {
+      margin: 1.25rem 0 0.4rem;
+      font-size: 1.15rem;
+      scroll-margin-top: 1rem;
+    }
+    .explain-doc h3 {
+      margin: 1rem 0 0.35rem;
+      font-size: 1rem;
+    }
+    .explain-doc p,
+    .explain-doc li {
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+    .explain-doc ul,
+    .explain-doc ol {
+      margin: 0.35rem 0 0.6rem;
+      padding-left: 1.25rem;
+    }
+    .explain-top {
+      font-size: 0.82rem;
+    }
+    .explain-contents {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+    }
+    .explain-contents ol {
+      margin: 0.35rem 0 0;
+      columns: 2;
+      column-gap: 1.5rem;
+    }
+    .explain-contents a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .explain-contents a:hover { text-decoration: underline; }
+    .formula {
+      background: var(--accent-light);
+      border: 1px solid #b7d7c4;
+      border-radius: 6px;
+      padding: 0.65rem 0.85rem;
+      font-family: Consolas, "Segoe UI", monospace;
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+    .explain-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+      margin: 0.4rem 0 0.75rem;
+    }
+    .explain-table th,
+    .explain-table td {
+      border: 1px solid var(--border);
+      padding: 0.3rem 0.5rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    .explain-table th {
+      background: #f8fafc;
+      font-weight: 600;
+    }
+    .explain-table td.num,
+    .explain-table th.num { text-align: right; white-space: nowrap; }
+    .explain-table tr.total td { font-weight: 650; background: #f0fdf4; }
+    .note {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 0;
+    }
+    @media (max-width: 720px) {
+      .explain-contents ol { columns: 1; }
+    }
+{% endblock %}
+
+{% block content %}
+  <div class="explain-doc">
+    <p class="explain-top">
+      <a href="/benchmarking/rations">&larr; Ration Forecasts</a>
+    </p>
+    <p>
+      This page explains how the budget headings <strong>Dairy Concentrates</strong> and
+      <strong>Youngstock Concentrates</strong> are calculated. Both sit under Purchases,
+      Bought Feed, on the financial budget. Each farm (CM and GAD) and each month is
+      calculated on its own. The fiscal year runs from April to March.
+    </p>
+    <p class="note">
+      The September 2026 figures later on this page were read from the live dashboard
+      on 21 September 2026. They are a worked example of that month. Later changes to
+      heads, dry cow percentage, or ingredient prices will change a refill of the budget.
+    </p>
+
+    <nav class="explain-contents" aria-label="Contents">
+      <strong>Contents</strong>
+      <ol>
+        <li><a href="#monthly-amount">Monthly amount</a></li>
+        <li><a href="#rate">Concentrate rate</a></li>
+        <li><a href="#which-rations">Which rations count</a></li>
+        <li><a href="#carry">Kilograms and prices</a></li>
+        <li><a href="#heads">Heads and dry cows</a></li>
+        <li><a href="#dairy">Dairy concentrates</a></li>
+        <li><a href="#youngstock">Youngstock concentrates</a></li>
+        <li><a href="#rounding">Rounding and the budget</a></li>
+        <li><a href="#september">September 2026 example</a></li>
+        <li><a href="#saved">Saved budget on that date</a></li>
+      </ol>
+    </nav>
+
+    <h2 id="monthly-amount">1. Monthly amount</h2>
+    <p>Every line uses the same shape:</p>
+    <p class="formula">£ = average heads × herd factor × concentrate £/head/day × days in the month</p>
+    <p>
+      Dairy concentrate is the milker, far off, and close up lines added together.
+      Youngstock concentrate is the calf, pre-buller, buller, and pregnant heifer lines
+      added together. Each total is rounded to the nearest pound. A line with no ration
+      rate is left out of the sum. The rest of the month is still calculated.
+    </p>
+    <p>
+      The same head factors are used for forage and straw. Those two budget lines store
+      dairy and youngstock as one combined total. Concentrates stay split.
+    </p>
+
+    <h2 id="rate">2. Concentrate rate (£/head/day)</h2>
+    <p>
+      Ingredient prices are entered once, in £ per tonne, on the
+      <a href="/benchmarking/rations/ingredients">Ingredients</a> page. Kilograms per
+      head per day are entered on each farm ration
+      (<a href="/benchmarking/rations/cm">CM</a> and <a href="/benchmarking/rations/gad">GAD</a>).
+    </p>
+    <p>For every concentrate ingredient on the ration:</p>
+    <p class="formula">£/head/day = (kg/head/day ÷ 1,000) × £/tonne</p>
+    <p>
+      Those amounts are added and kept to 4 decimal places. Forage and straw on the
+      same ration are ignored for these two budget lines.
+    </p>
+
+    <h2 id="which-rations">3. Which rations count</h2>
+    <p>
+      The ration name must be the farm code, a space, then an exact group name.
+      The groups used for concentrates are:
+    </p>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Group</th>
+          <th>Accepted names</th>
+          <th>Example</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Milkers</td>
+          <td>Milkers, Milker</td>
+          <td>CM Milkers</td>
+        </tr>
+        <tr>
+          <td>Far off</td>
+          <td>Far Off, FarOff</td>
+          <td>GAD Far Off</td>
+        </tr>
+        <tr>
+          <td>Close up</td>
+          <td>Close Up, CloseUp</td>
+          <td>CM Close Up</td>
+        </tr>
+        <tr>
+          <td>Bullers</td>
+          <td>Bullers, Bulling Heifer, Bulling</td>
+          <td>GAD Bullers</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      Any other name is skipped for this calculation. Calf, pre-buller, and pregnant
+      heifer lines do not have their own rations. They reuse the milkers, bullers, or
+      far off rate, as set out below. If two rations match the same group, the later
+      one is used.
+    </p>
+
+    <h2 id="carry">4. Kilograms and prices</h2>
+    <ul>
+      <li>A blank kilogram cell keeps the last entered kg/head for that ingredient, including from before the fiscal year.</li>
+      <li>The £/tonne has to be entered for that month. A price from another month is not reused.</li>
+      <li>If any concentrate ingredient has kilograms and no price, that ration’s concentrate rate for the month is blank, and that line drops out of the month.</li>
+    </ul>
+
+    <h2 id="heads">5. Heads and dry cows</h2>
+    <p>
+      Heads come from the <a href="/benchmarking/stock-forecasts">stock forecast</a>.
+      Months up to last month use actual herd movements. The current month onwards is
+      projected. Average heads are opening plus closing, divided by two.
+    </p>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Input</th>
+          <th>How it is taken</th>
+          <th>Used for</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Average dairy cows</td>
+          <td>(opening Dairy + closing Dairy) ÷ 2</td>
+          <td>Milkers, far off, close up</td>
+        </tr>
+        <tr>
+          <td>Average youngstock + beef</td>
+          <td>(opening and closing Youngstock, plus opening and closing Beef) ÷ 2</td>
+          <td>Calf, pre-bullers, bullers, pregnant heifers</td>
+        </tr>
+        <tr>
+          <td>Dry cow %</td>
+          <td>Dry Cows (%) on <a href="/benchmarking/forecasts/livestock">Livestock Forecasts</a>, for that farm and month. A missing month is treated as 0%.</td>
+          <td>Split of the dairy herd</td>
+        </tr>
+        <tr>
+          <td>Days</td>
+          <td>Length of the calendar month (28, 29, 30, or 31)</td>
+          <td>Every line</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      Dairy heads are cows with a lactation number above zero. Youngstock are dairy
+      heifers that have not yet calved. Beef is the rest of the herd. There is no
+      separate calf or heifer count inside the concentrate calculation. The youngstock
+      lines are fixed shares of the combined youngstock and beef average.
+    </p>
+
+    <h2 id="dairy">6. Dairy concentrates</h2>
+    <p>
+      Dry cows are split in half between far off and close up. The rest of the average
+      dairy herd is on the milkers ration. At 12% dry, that is 88% milkers, 6% far off,
+      and 6% close up.
+    </p>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Line</th>
+          <th>Heads</th>
+          <th>Factor</th>
+          <th>Rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Milkers</td>
+          <td>Average dairy cows</td>
+          <td>1 − dry %</td>
+          <td>Milkers concentrate</td>
+        </tr>
+        <tr>
+          <td>Far off</td>
+          <td>Average dairy cows</td>
+          <td>dry % × 0.5</td>
+          <td>Far off concentrate</td>
+        </tr>
+        <tr>
+          <td>Close up</td>
+          <td>Average dairy cows</td>
+          <td>dry % × 0.5</td>
+          <td>Close up concentrate</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="formula">Dairy £ = round(milkers + far off + close up)</p>
+
+    <h2 id="youngstock">7. Youngstock concentrates</h2>
+    <p>
+      These lines are fixed shares of the combined youngstock and beef average.
+      Calf and pre-bullers are priced on the milkers concentrate rate. Bullers use
+      the bullers ration. Pregnant heifers use 75% of the far off rate.
+    </p>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Line</th>
+          <th>What the factor means</th>
+          <th class="num">Factor</th>
+          <th>Rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Calf</td>
+          <td>12.5% of heads on the full milkers rate</td>
+          <td class="num">0.125</td>
+          <td>Milkers</td>
+        </tr>
+        <tr>
+          <td>Pre-bullers</td>
+          <td>33.33% of heads, eating 18% of the milkers rate</td>
+          <td class="num">0.0600</td>
+          <td>Milkers</td>
+        </tr>
+        <tr>
+          <td>Bullers</td>
+          <td>15% of heads on the bullers ration</td>
+          <td class="num">0.1500</td>
+          <td>Bullers</td>
+        </tr>
+        <tr>
+          <td>Pregnant heifers</td>
+          <td>15% of heads, eating 75% of the far off rate</td>
+          <td class="num">0.1125</td>
+          <td>Far off</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      Together those factors cover about 44.75% of youngstock and beef head-days.
+      The other 55% has no concentrate cost in this model.
+    </p>
+    <p class="formula">Youngstock £ = round(calf + pre-bullers + bullers + pregnant heifers)</p>
+
+    <h2 id="rounding">8. Rounding and the budget</h2>
+    <p>
+      The budget stores the rounded sum of the unrounded line costs. Half-pounds
+      round to the nearest even pound, so £6,308.50 becomes £6,308. On the
+      <a href="/benchmarking/feed-purchase-forecasts">feed purchase forecast</a>,
+      the line-item columns are rounded one by one after that total is taken, so
+      those columns can differ from the budget figure by £1.
+    </p>
+    <p>
+      Filling the financial budget from data sources writes these pounds onto any
+      heading mapped to dairy concentrates or youngstock concentrates. CM and GAD
+      are stored separately. Replace overwrites a cell that already has a figure.
+      Fill empty leaves a cell that already has a figure. A heading mapped to more
+      than one source adds those amounts and rounds again.
+    </p>
+
+    <h2 id="september">9. September 2026 worked example</h2>
+    <p>
+      September 2026 is a projected month in fiscal year 2027. Actual herd movements
+      run through August, so September opening heads are August’s closing stock, and
+      September closing heads include the forecast movements. Both farms are on
+      <strong>12% dry cows</strong>. September has <strong>30 days</strong>.
+    </p>
+
+    <h3>Animals</h3>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th class="num">CM</th>
+          <th class="num">GAD</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Dairy opening / closing</td><td class="num">2,590 / 2,597</td><td class="num">843 / 860</td></tr>
+        <tr><td>Average dairy cows</td><td class="num">2,593.5</td><td class="num">851.5</td></tr>
+        <tr><td>Milkers (88%)</td><td class="num">2,282.3</td><td class="num">749.3</td></tr>
+        <tr><td>Far off and close up (6% each)</td><td class="num">155.6</td><td class="num">51.1</td></tr>
+        <tr><td>Youngstock opening / closing</td><td class="num">2,213 / 2,268</td><td class="num">927 / 921</td></tr>
+        <tr><td>Beef opening / closing</td><td class="num">603 / 563</td><td class="num">223 / 223</td></tr>
+        <tr class="total"><td>Average youngstock + beef</td><td class="num">2,823.5</td><td class="num">1,147</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Concentrate rates</h3>
+    <p>
+      Milkers, close up, and bullers are the same recipe on both farms in this month.
+      Far off differs: CM includes 1.0 kg SoyPass, GAD includes 1.5 kg rapemeal.
+    </p>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Ration</th>
+          <th class="num">CM £/head/day</th>
+          <th class="num">GAD £/head/day</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Milkers</td><td class="num">5.0260</td><td class="num">5.0260</td></tr>
+        <tr><td>Far off</td><td class="num">0.4553</td><td class="num">0.3898</td></tr>
+        <tr><td>Close up</td><td class="num">2.1054</td><td class="num">2.1054</td></tr>
+        <tr><td>Bullers</td><td class="num">1.0797</td><td class="num">1.0797</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Milkers ingredients (both farms)</h3>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Ingredient</th>
+          <th class="num">kg/head/day</th>
+          <th class="num">£/tonne</th>
+          <th class="num">£/head/day</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Ground wheat</td><td class="num">10.00</td><td class="num">211</td><td class="num">2.1100</td></tr>
+        <tr><td>Rapemeal</td><td class="num">4.50</td><td class="num">209</td><td class="num">0.9405</td></tr>
+        <tr><td>Milkers mineral</td><td class="num">0.55</td><td class="num">1,033</td><td class="num">0.5682</td></tr>
+        <tr><td>SoyPass</td><td class="num">1.30</td><td class="num">379</td><td class="num">0.4927</td></tr>
+        <tr><td>Megalac</td><td class="num">0.40</td><td class="num">1,120</td><td class="num">0.4480</td></tr>
+        <tr><td>Soya hulls</td><td class="num">2.00</td><td class="num">200</td><td class="num">0.4000</td></tr>
+        <tr><td>Rumax</td><td class="num">0.02</td><td class="num">3,330</td><td class="num">0.0666</td></tr>
+        <tr class="total"><td>Milkers concentrate</td><td class="num"></td><td class="num"></td><td class="num">5.0260</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Far off ingredients</h3>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Farm</th>
+          <th>Ingredient</th>
+          <th class="num">kg/head/day</th>
+          <th class="num">£/tonne</th>
+          <th class="num">£/head/day</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>CM</td><td>SoyPass</td><td class="num">1.00</td><td class="num">379</td><td class="num">0.3790</td></tr>
+        <tr><td>CM</td><td>Far off mineral</td><td class="num">0.10</td><td class="num">763</td><td class="num">0.0763</td></tr>
+        <tr class="total"><td>CM</td><td>Far off concentrate</td><td class="num"></td><td class="num"></td><td class="num">0.4553</td></tr>
+        <tr><td>GAD</td><td>Rapemeal</td><td class="num">1.50</td><td class="num">209</td><td class="num">0.3135</td></tr>
+        <tr><td>GAD</td><td>Far off mineral</td><td class="num">0.10</td><td class="num">763</td><td class="num">0.0763</td></tr>
+        <tr class="total"><td>GAD</td><td>Far off concentrate</td><td class="num"></td><td class="num"></td><td class="num">0.3898</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Close up ingredients (both farms)</h3>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Ingredient</th>
+          <th class="num">kg/head/day</th>
+          <th class="num">£/tonne</th>
+          <th class="num">£/head/day</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Close up mineral</td><td class="num">0.65</td><td class="num">1,375</td><td class="num">0.8937</td></tr>
+        <tr><td>SoyPass</td><td class="num">1.00</td><td class="num">379</td><td class="num">0.3790</td></tr>
+        <tr><td>Rapemeal</td><td class="num">1.75</td><td class="num">209</td><td class="num">0.3658</td></tr>
+        <tr><td>Ground wheat</td><td class="num">1.50</td><td class="num">211</td><td class="num">0.3165</td></tr>
+        <tr><td>Ammonium chloride</td><td class="num">0.10</td><td class="num">1,000</td><td class="num">0.1000</td></tr>
+        <tr><td>Limestone flour</td><td class="num">0.35</td><td class="num">144</td><td class="num">0.0504</td></tr>
+        <tr class="total"><td>Close up concentrate</td><td class="num"></td><td class="num"></td><td class="num">2.1054</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Bullers ingredients (both farms)</h3>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Ingredient</th>
+          <th class="num">kg/head/day</th>
+          <th class="num">£/tonne</th>
+          <th class="num">£/head/day</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Ground wheat</td><td class="num">4.00</td><td class="num">211</td><td class="num">0.8440</td></tr>
+        <tr><td>Rapemeal</td><td class="num">1.00</td><td class="num">209</td><td class="num">0.2090</td></tr>
+        <tr><td>Far off mineral</td><td class="num">0.035</td><td class="num">763</td><td class="num">0.0267</td></tr>
+        <tr class="total"><td>Bullers concentrate</td><td class="num"></td><td class="num"></td><td class="num">1.0797</td></tr>
+      </tbody>
+    </table>
+
+    <h3>CM dairy concentrates — £356,076</h3>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Line</th>
+          <th>Calculation</th>
+          <th class="num">£</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Milkers</td><td>2,593.5 × 0.88 × £5.0260 × 30</td><td class="num">344,122.18</td></tr>
+        <tr><td>Far off</td><td>2,593.5 × 0.06 × £0.4553 × 30</td><td class="num">2,125.48</td></tr>
+        <tr><td>Close up</td><td>2,593.5 × 0.06 × £2.1054 × 30</td><td class="num">9,828.64</td></tr>
+        <tr class="total"><td>Rounded total</td><td></td><td class="num">356,076</td></tr>
+      </tbody>
+    </table>
+
+    <h3>CM youngstock concentrates — £96,814</h3>
+    <p class="note">Head-equivalents are 2,823.5 youngstock and beef multiplied by the factor.</p>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Line</th>
+          <th>Calculation</th>
+          <th class="num">Head-equivalents</th>
+          <th class="num">£</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Calf</td><td>2,823.5 × 0.125 × £5.0260 × 30</td><td class="num">352.9</td><td class="num">53,215.92</td></tr>
+        <tr><td>Pre-bullers</td><td>2,823.5 × 0.3333 × 0.18 × £5.0260 × 30</td><td class="num">169.4</td><td class="num">25,541.09</td></tr>
+        <tr><td>Bullers</td><td>2,823.5 × 0.15 × £1.0797 × 30</td><td class="num">423.5</td><td class="num">13,718.40</td></tr>
+        <tr><td>Pregnant heifers</td><td>2,823.5 × 0.1125 × £0.4553 × 30</td><td class="num">317.6</td><td class="num">4,338.64</td></tr>
+        <tr class="total"><td>Rounded total</td><td></td><td class="num"></td><td class="num">96,814</td></tr>
+      </tbody>
+    </table>
+
+    <h3>GAD dairy concentrates — £116,807</h3>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Line</th>
+          <th>Calculation</th>
+          <th class="num">£</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Milkers</td><td>851.5 × 0.88 × £5.0260 × 30</td><td class="num">112,982.47</td></tr>
+        <tr><td>Far off</td><td>851.5 × 0.06 × £0.3898 × 30</td><td class="num">597.45</td></tr>
+        <tr><td>Close up</td><td>851.5 × 0.06 × £2.1054 × 30</td><td class="num">3,226.95</td></tr>
+        <tr class="total"><td>Rounded total</td><td></td><td class="num">116,807</td></tr>
+      </tbody>
+    </table>
+
+    <h3>GAD youngstock concentrates — £39,076</h3>
+    <p class="note">Head-equivalents are 1,147 youngstock and beef multiplied by the factor.</p>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Line</th>
+          <th>Calculation</th>
+          <th class="num">Head-equivalents</th>
+          <th class="num">£</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Calf</td><td>1,147 × 0.125 × £5.0260 × 30</td><td class="num">143.4</td><td class="num">21,618.08</td></tr>
+        <tr><td>Pre-bullers</td><td>1,147 × 0.3333 × 0.18 × £5.0260 × 30</td><td class="num">68.8</td><td class="num">10,375.64</td></tr>
+        <tr><td>Bullers</td><td>1,147 × 0.15 × £1.0797 × 30</td><td class="num">172.1</td><td class="num">5,572.87</td></tr>
+        <tr><td>Pregnant heifers</td><td>1,147 × 0.1125 × £0.3898 × 30</td><td class="num">129.0</td><td class="num">1,508.96</td></tr>
+        <tr class="total"><td>Rounded total</td><td></td><td class="num"></td><td class="num">39,076</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="saved">10. What the budget held on 21 September 2026</h2>
+    <p>
+      The Bought Feed headings were already filled. Those saved September cells were
+      close to a fresh calculation on the same day. Refilling from data sources would
+      replace them with the live totals above.
+    </p>
+    <table class="explain-table">
+      <thead>
+        <tr>
+          <th>Heading</th>
+          <th>Farm</th>
+          <th class="num">Saved on the budget</th>
+          <th class="num">Live calculation</th>
+          <th class="num">Difference</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Dairy Concentrates</td><td>CM</td><td class="num">355,939</td><td class="num">356,076</td><td class="num">137</td></tr>
+        <tr><td>Youngstock Concentrates</td><td>CM</td><td class="num">96,848</td><td class="num">96,814</td><td class="num">−34</td></tr>
+        <tr><td>Dairy Concentrates</td><td>GAD</td><td class="num">116,738</td><td class="num">116,807</td><td class="num">69</td></tr>
+        <tr><td>Youngstock Concentrates</td><td>GAD</td><td class="num">39,093</td><td class="num">39,076</td><td class="num">−17</td></tr>
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

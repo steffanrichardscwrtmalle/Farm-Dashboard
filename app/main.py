@@ -1986,6 +1986,29 @@ def benchmarking_livestock_forecasts_page(request: Request):
     )
 
 
+@app.get("/benchmarking/forecasts/cropping", response_class=HTMLResponse)
+def benchmarking_cropping_forecasts_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    from app.services.benchmarking import available_fiscal_years
+
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/forecasts/cropping.html",
+        _template_ctx(
+            request,
+            page_heading="Cropping Forecasts",
+            can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
+            fiscal_year_options=available_fiscal_years(),
+            **_benchmarking_context(
+                "Cropping Forecasts",
+                "forecasts-cropping",
+                "Cropping Forecasts",
+            ),
+        ),
+    )
+
+
 @app.get("/benchmarking/forecasts/financial", response_class=HTMLResponse)
 def benchmarking_financial_forecasts_page(request: Request):
     if denied := _page_guard(request, PAGE_BENCHMARKING):
@@ -2249,6 +2272,25 @@ def benchmarking_rations_gad_page(request: Request):
             farm_slug="gad",
             can_edit=has_action(request.state.user, ACTION_BENCHMARKING_EDIT),
             **_benchmarking_context("Rations", "rations-gad", "Ration Forecasts &rsaquo; GAD Rations"),
+        ),
+    )
+
+
+@app.get("/benchmarking/rations/calculations-explained", response_class=HTMLResponse)
+def benchmarking_rations_calculations_explained_page(request: Request):
+    if denied := _page_guard(request, PAGE_BENCHMARKING):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "benchmarking/rations/calculations_explained.html",
+        _template_ctx(
+            request,
+            page_heading="Rations Calculations Explained",
+            **_benchmarking_context(
+                "Rations",
+                "rations-explained",
+                "Ration Forecasts &rsaquo; Rations Calculations Explained",
+            ),
         ),
     )
 

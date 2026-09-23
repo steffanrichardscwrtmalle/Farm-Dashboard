@@ -1,0 +1,852 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Cropping Forecasts{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .cropping-page {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      min-height: calc(100vh - 7.5rem);
+    }
+    .cropping-note {
+      margin: 0;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      max-width: 68rem;
+    }
+    .cropping-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 0.75rem;
+      font-size: 0.82rem;
+    }
+    .cropping-toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin: 0;
+    }
+    .cropping-toolbar select,
+    .cropping-toolbar input[type="text"] {
+      margin: 0;
+      padding: 0.2rem 0.35rem;
+      font-size: 0.82rem;
+    }
+    .cropping-toolbar #fiscal-year-select { width: 5.5rem; }
+    .cropping-toolbar #farm-select { width: 11rem; }
+    .cropping-toolbar #crop-name { width: 11rem; }
+    .cropping-toolbar button { padding: 0.25rem 0.55rem; font-size: 0.82rem; }
+    .perennial-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      margin: 0;
+    }
+    .save-status { font-size: 0.8rem; color: var(--muted); }
+    .save-status.ok { color: #15803d; }
+    .save-status.err { color: #b91c1c; }
+    .save-status.unsaved { color: #b45309; }
+    .table-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .crop-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    .crop-table th,
+    .crop-table td {
+      border: 1px solid var(--border);
+      padding: 0.2rem 0.35rem;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+    .crop-table th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f8fafc;
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-align: center;
+    }
+    .crop-table td.num,
+    .crop-table th.num { text-align: right; }
+    .crop-table td.calc {
+      background: #f8fafc;
+      color: #334155;
+      font-variant-numeric: tabular-nums;
+    }
+    .crop-table tfoot td {
+      background: #f1f5f9;
+      font-weight: 600;
+    }
+    .crop-table .sticky-col {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      background: #fff;
+      text-align: left;
+      min-width: 9rem;
+    }
+    .crop-table th.sticky-col { z-index: 3; background: #f8fafc; }
+    .crop-table tfoot .sticky-col { background: #f1f5f9; z-index: 1; }
+    .crop-table input[type="text"],
+    .crop-table input[type="number"] {
+      width: 5.6rem;
+      margin: 0;
+      padding: 0.12rem 0.25rem;
+      font-size: 0.8rem;
+      text-align: right;
+      box-sizing: border-box;
+    }
+    .crop-table input.crop-name {
+      width: 9.5rem;
+      text-align: left;
+    }
+    .crop-table input:disabled {
+      background: #f8fafc;
+      color: var(--muted);
+    }
+    .crop-table .btn-remove {
+      padding: 0.12rem 0.4rem;
+      font-size: 0.75rem;
+      color: #b91c1c;
+      border-color: #fecaca;
+      background: #fef2f2;
+    }
+    .empty-crops {
+      margin: 0;
+      padding: 1rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    .cuts-link {
+      border: 0;
+      background: transparent;
+      padding: 0.12rem 0.2rem;
+      font: inherit;
+      color: #1d4ed8;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer;
+    }
+    .cuts-link:hover { color: #1e3a8a; }
+    .cuts-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 300;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .cuts-modal[hidden] { display: none; }
+    .cuts-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+    }
+    .cuts-modal-body {
+      position: relative;
+      z-index: 1;
+      width: min(28rem, 100%);
+      background: #fff;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.1rem 0.9rem;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
+    }
+    .cuts-modal-body input {
+      background: #fff;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .cuts-modal-body h3 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+    .cuts-modal-note { margin: 0 0 0.75rem; font-size: 0.82rem; line-height: 1.4; }
+    .cuts-count-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.65rem;
+      font-size: 0.82rem;
+    }
+    .cuts-count-row input {
+      width: 4rem;
+      margin: 0;
+      padding: 0.2rem 0.35rem;
+      font-size: 0.82rem;
+    }
+    .cuts-rows { display: flex; flex-direction: column; gap: 0.4rem; }
+    .cuts-row {
+      display: grid;
+      grid-template-columns: 4.5rem 5.5rem auto 1fr;
+      gap: 0.4rem;
+      align-items: center;
+      font-size: 0.82rem;
+    }
+    .cuts-row input {
+      width: 100%;
+      margin: 0;
+      padding: 0.2rem 0.35rem;
+      font-size: 0.82rem;
+      text-align: right;
+      box-sizing: border-box;
+    }
+    .cuts-acres { text-align: right; font-variant-numeric: tabular-nums; }
+    .cuts-average {
+      margin: 0.75rem 0 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .cuts-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-top: 0.85rem;
+    }
+    .cuts-modal-error { color: #b91c1c; font-size: 0.8rem; margin: 0.45rem 0 0; }
+{% endblock %}
+
+{% block content %}
+  <div class="cropping-page">
+    <p class="muted cropping-note">
+      One plan per farm and financial year (April–March). Chemical and fertiliser are costed on the full acreage.
+      Seed is costed on the full acreage for an annual crop, and only on the acres being reseeded for a perennial crop.
+      Average cuts is the sum of each cut’s share of the acreage — one cut of the whole crop is 1, and 100% then 80% then 50% is 2.3.
+      Harvest cost is £ per acre, charged on the acres taken at each cut.
+      Expected dry matter is stored with the plan.
+      Those totals stay on this page for now — they are not copied into Financial Forecasts yet.
+    </p>
+
+    <div class="cropping-toolbar">
+      <label>Year
+        <select id="fiscal-year-select">
+          {% for year in fiscal_year_options %}
+          <option value="{{ year }}">{{ year }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Farm
+        <select id="farm-select">
+          <option value="CM">Cwrt Malle</option>
+          <option value="GAD">Green Acre Dairy</option>
+        </select>
+      </label>
+      {% if can_edit %}
+      <label>New crop
+        <input type="text" id="crop-name" maxlength="128" placeholder="e.g. Wholecrop" autocomplete="off">
+      </label>
+      <label class="perennial-check">
+        <input type="checkbox" id="crop-perennial">
+        Perennial
+      </label>
+      <button type="button" id="add-crop">Add crop</button>
+      {% else %}
+      <span class="muted"><strong>View only</strong></span>
+      {% endif %}
+      <span id="save-status" class="save-status" aria-live="polite"></span>
+    </div>
+
+    <div class="table-wrap">
+      <p id="empty-crops" class="empty-crops" hidden>No crops yet. Add one to start the plan.</p>
+      <table class="crop-table" id="crop-table" hidden>
+        <thead>
+          <tr>
+            <th class="sticky-col">Crop</th>
+            <th>Perennial</th>
+            <th class="num">Acres</th>
+            <th class="num" title="Sum of each cut as a share of the acreage. Click a figure to set the cuts.">Cuts</th>
+            <th class="num" title="Expected total dry matter for this crop, in tonnes.">Expected DM (t)</th>
+            <th class="num">t DM/acre</th>
+            <th class="num">Chemical £/acre</th>
+            <th class="num">Fertiliser £/acre</th>
+            <th class="num">Seed £/acre</th>
+            <th class="num" title="£ per acre, charged on the acres taken at each cut.">Harvest Cost</th>
+            <th class="num" title="Used for perennial crops only. Seed cost is acres to reseed × seed £/acre.">Acres to reseed</th>
+            <th class="num">Chemical £</th>
+            <th class="num">Fertiliser £</th>
+            <th class="num">Seed £</th>
+            <th class="num">Harvest £</th>
+            <th class="num">Total £</th>
+            {% if can_edit %}<th></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody id="crop-body"></tbody>
+        <tfoot>
+          <tr>
+            <td class="sticky-col">Total</td>
+            <td></td>
+            <td class="num" id="total-acres"></td>
+            <td class="num" id="total-cuts" title="Weighted by acres"></td>
+            <td class="num" id="total-dm"></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="num" id="total-chemical"></td>
+            <td class="num" id="total-fertiliser"></td>
+            <td class="num" id="total-seed"></td>
+            <td class="num" id="total-harvest"></td>
+            <td class="num" id="total-variable"></td>
+            {% if can_edit %}<td></td>{% endif %}
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  <div id="cuts-modal" class="cuts-modal" hidden>
+    <div class="cuts-modal-backdrop" data-cuts-close></div>
+    <div class="cuts-modal-body" role="dialog" aria-modal="true" aria-labelledby="cuts-modal-title">
+      <h3 id="cuts-modal-title">Cuts</h3>
+      <p class="muted cuts-modal-note" id="cuts-modal-note"></p>
+      <label class="cuts-count-row">Cuts
+        <input type="number" id="cuts-count" min="1" max="8" step="1">
+      </label>
+      <div class="cuts-rows" id="cuts-rows"></div>
+      <p class="cuts-average" id="cuts-average"></p>
+      <p class="cuts-modal-error" id="cuts-error" hidden></p>
+      <div class="cuts-modal-actions">
+        <button type="button" data-cuts-close>Cancel</button>
+        <button type="button" id="cuts-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+    const yearSelect = document.getElementById('fiscal-year-select');
+    const farmSelect = document.getElementById('farm-select');
+    const statusEl = document.getElementById('save-status');
+    const bodyEl = document.getElementById('crop-body');
+    const tableEl = document.getElementById('crop-table');
+    const emptyEl = document.getElementById('empty-crops');
+
+    let context = { fiscalYear: yearSelect.value, farm: farmSelect.value };
+    let saveTimer = null;
+    let loadToken = 0;
+    let saving = false;
+
+    const storedYear = sessionStorage.getItem('cropping-forecast-year');
+    const storedFarm = sessionStorage.getItem('cropping-forecast-farm');
+    if (storedYear && [...yearSelect.options].some((opt) => opt.value === storedYear)) {
+      yearSelect.value = storedYear;
+    }
+    if (storedFarm === 'CM' || storedFarm === 'GAD') farmSelect.value = storedFarm;
+    context = { fiscalYear: yearSelect.value, farm: farmSelect.value };
+
+    function setStatus(text, kind) {
+      statusEl.textContent = text || '';
+      statusEl.className = 'save-status' + (kind ? ' ' + kind : '');
+    }
+
+    function errorMessage(data, fallback) {
+      const detail = data && data.detail;
+      if (typeof detail === 'string') return detail;
+      if (Array.isArray(detail) && detail[0]) {
+        return detail[0].msg || fallback;
+      }
+      return fallback;
+    }
+
+    function money(value) {
+      return Number(value || 0).toLocaleString('en-GB', {
+        style: 'currency',
+        currency: 'GBP',
+      });
+    }
+
+    function qty(value, digits) {
+      if (value === null || value === undefined || value === '') return '';
+      return Number(value).toLocaleString('en-GB', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: digits,
+      });
+    }
+
+    function inputValue(value) {
+      if (value === null || value === undefined || value === '') return '';
+      return String(value);
+    }
+
+    function esc(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function render(data) {
+      const rows = data.rows || [];
+      emptyEl.hidden = rows.length > 0;
+      tableEl.hidden = rows.length === 0;
+      const disabled = CAN_EDIT ? '' : ' disabled';
+      bodyEl.innerHTML = rows.map((row) => {
+        const reseedDisabled = !CAN_EDIT || !row.is_perennial ? ' disabled' : '';
+        const remove = CAN_EDIT
+          ? `<td><button type="button" class="btn-remove" data-action="remove">Remove</button></td>`
+          : '';
+        return `<tr data-crop-id="${row.crop_type_id}" data-cuts="${esc(JSON.stringify(row.cut_percentages || [100]))}">
+          <td class="sticky-col"><input class="crop-name" type="text" maxlength="128" value="${esc(row.name)}" data-original="${esc(row.name)}"${disabled}></td>
+          <td style="text-align:center"><input type="checkbox" data-field="is_perennial"${row.is_perennial ? ' checked' : ''}${disabled}></td>
+          <td class="num"><input type="number" min="0" step="any" data-field="acres" value="${inputValue(row.acres)}"${disabled}></td>
+          <td class="num"><button type="button" class="cuts-link" data-action="cuts">${qty(row.average_cuts, 2)}</button></td>
+          <td class="num"><input type="number" min="0" step="any" data-field="expected_dm_tonnes" value="${inputValue(row.expected_dm_tonnes)}"${disabled}></td>
+          <td class="num calc" data-calc="dm_per_acre">${qty(row.dm_per_acre, 3)}</td>
+          <td class="num"><input type="number" min="0" step="any" data-field="chemical_cost_per_acre" value="${inputValue(row.chemical_cost_per_acre)}"${disabled}></td>
+          <td class="num"><input type="number" min="0" step="any" data-field="fertiliser_cost_per_acre" value="${inputValue(row.fertiliser_cost_per_acre)}"${disabled}></td>
+          <td class="num"><input type="number" min="0" step="any" data-field="seed_cost_per_acre" value="${inputValue(row.seed_cost_per_acre)}"${disabled}></td>
+          <td class="num"><input type="number" min="0" step="any" data-field="harvest_cost_per_acre" value="${inputValue(row.harvest_cost_per_acre)}" title="£ per acre harvested"${disabled}></td>
+          <td class="num"><input type="number" min="0" step="any" data-field="acres_to_reseed" value="${inputValue(row.acres_to_reseed)}" title="Perennial crops only"${reseedDisabled}></td>
+          <td class="num calc" data-calc="chemical_total">${money(row.chemical_total)}</td>
+          <td class="num calc" data-calc="fertiliser_total">${money(row.fertiliser_total)}</td>
+          <td class="num calc" data-calc="seed_total">${money(row.seed_total)}</td>
+          <td class="num calc" data-calc="harvest_total">${money(row.harvest_total)}</td>
+          <td class="num calc" data-calc="variable_cost_total">${money(row.variable_cost_total)}</td>
+          ${remove}
+        </tr>`;
+      }).join('');
+      applyTotals(data.totals || {});
+    }
+
+    function applyTotals(totals) {
+      document.getElementById('total-acres').textContent = qty(totals.acres || 0, 2);
+      document.getElementById('total-cuts').textContent =
+        totals.average_cuts === null || totals.average_cuts === undefined
+          ? ''
+          : qty(totals.average_cuts, 2);
+      document.getElementById('total-dm').textContent = qty(totals.expected_dm_tonnes || 0, 3);
+      document.getElementById('total-chemical').textContent = money(totals.chemical_total);
+      document.getElementById('total-fertiliser').textContent = money(totals.fertiliser_total);
+      document.getElementById('total-seed').textContent = money(totals.seed_total);
+      document.getElementById('total-harvest').textContent = money(totals.harvest_total);
+      document.getElementById('total-variable').textContent = money(totals.variable_cost_total);
+    }
+
+    function applyCalcs(data) {
+      let replaced = false;
+      for (const row of data.rows || []) {
+        const tr = bodyEl.querySelector(`tr[data-crop-id="${row.crop_type_id}"]`);
+        if (!tr) {
+          replaced = true;
+          break;
+        }
+        tr.dataset.cuts = JSON.stringify(row.cut_percentages || [100]);
+        const cutsButton = tr.querySelector('[data-action="cuts"]');
+        if (cutsButton) cutsButton.textContent = qty(row.average_cuts, 2);
+        tr.querySelector('[data-calc="dm_per_acre"]').textContent = qty(row.dm_per_acre, 3);
+        tr.querySelector('[data-calc="chemical_total"]').textContent = money(row.chemical_total);
+        tr.querySelector('[data-calc="fertiliser_total"]').textContent = money(row.fertiliser_total);
+        tr.querySelector('[data-calc="seed_total"]').textContent = money(row.seed_total);
+        tr.querySelector('[data-calc="harvest_total"]').textContent = money(row.harvest_total);
+        tr.querySelector('[data-calc="variable_cost_total"]').textContent = money(row.variable_cost_total);
+        const reseed = tr.querySelector('[data-field="acres_to_reseed"]');
+        reseed.disabled = !CAN_EDIT || !row.is_perennial;
+      }
+      if (replaced) {
+        render(data);
+        return;
+      }
+      applyTotals(data.totals || {});
+    }
+
+    function numberOrNull(value, label) {
+      const text = String(value ?? '').trim();
+      if (!text) return null;
+      const number = Number(text);
+      if (!Number.isFinite(number) || number < 0) {
+        throw new Error(label + ' must be zero or more');
+      }
+      return number;
+    }
+
+    function cutsFromRow(tr) {
+      try {
+        const parsed = JSON.parse(tr.dataset.cuts || '[100]');
+        if (Array.isArray(parsed) && parsed.length) return parsed.map((value) => Number(value));
+      } catch (err) {
+        /* fall through to the default single cut */
+      }
+      return [100];
+    }
+
+    function collectRows() {
+      return [...bodyEl.querySelectorAll('tr[data-crop-id]')].map((tr) => ({
+        crop_type_id: Number(tr.dataset.cropId),
+        acres: numberOrNull(tr.querySelector('[data-field="acres"]').value, 'Acres'),
+        cut_percentages: cutsFromRow(tr),
+        expected_dm_tonnes: numberOrNull(
+          tr.querySelector('[data-field="expected_dm_tonnes"]').value,
+          'Expected dry matter'
+        ),
+        chemical_cost_per_acre: numberOrNull(
+          tr.querySelector('[data-field="chemical_cost_per_acre"]').value,
+          'Chemical cost per acre'
+        ),
+        fertiliser_cost_per_acre: numberOrNull(
+          tr.querySelector('[data-field="fertiliser_cost_per_acre"]').value,
+          'Fertiliser cost per acre'
+        ),
+        seed_cost_per_acre: numberOrNull(
+          tr.querySelector('[data-field="seed_cost_per_acre"]').value,
+          'Seed cost per acre'
+        ),
+        harvest_cost_per_acre: numberOrNull(
+          tr.querySelector('[data-field="harvest_cost_per_acre"]').value,
+          'Harvest cost'
+        ),
+        acres_to_reseed: numberOrNull(
+          tr.querySelector('[data-field="acres_to_reseed"]').value,
+          'Acres to reseed'
+        ),
+      }));
+    }
+
+    async function load() {
+      const token = ++loadToken;
+      const params = new URLSearchParams({
+        fiscal_year: context.fiscalYear,
+        farm: context.farm,
+      });
+      setStatus('Loading…');
+      const res = await fetch('/api/benchmarking/cropping/forecasts?' + params);
+      const data = await res.json().catch(() => ({}));
+      if (token !== loadToken) return;
+      if (!res.ok) {
+        setStatus(errorMessage(data, 'Could not load the cropping plan'), 'err');
+        return;
+      }
+      render(data);
+      setStatus('');
+    }
+
+    async function save(snapshot) {
+      if (!CAN_EDIT || saving) return;
+      let rows;
+      try {
+        rows = collectRows();
+      } catch (err) {
+        setStatus(err.message, 'err');
+        return;
+      }
+      saving = true;
+      setStatus('Saving…');
+      try {
+        const res = await fetch('/api/benchmarking/cropping/forecasts', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fiscal_year: Number(snapshot.fiscalYear),
+            farm: snapshot.farm,
+            rows,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(errorMessage(data, 'Could not save'));
+        if (snapshot.fiscalYear === context.fiscalYear && snapshot.farm === context.farm) {
+          applyCalcs(data);
+        }
+        setStatus('Saved', 'ok');
+      } catch (err) {
+        setStatus(err.message, 'err');
+      } finally {
+        saving = false;
+      }
+    }
+
+    function scheduleSave() {
+      const snapshot = { fiscalYear: context.fiscalYear, farm: context.farm };
+      setStatus('Unsaved changes', 'unsaved');
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => save(snapshot), 400);
+    }
+
+    async function flushSave() {
+      if (!saveTimer) return;
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      await save({ fiscalYear: context.fiscalYear, farm: context.farm });
+    }
+
+    yearSelect.addEventListener('change', async () => {
+      await flushSave();
+      context.fiscalYear = yearSelect.value;
+      sessionStorage.setItem('cropping-forecast-year', context.fiscalYear);
+      load();
+    });
+    farmSelect.addEventListener('change', async () => {
+      await flushSave();
+      context.farm = farmSelect.value;
+      sessionStorage.setItem('cropping-forecast-farm', context.farm);
+      load();
+    });
+
+    bodyEl.addEventListener('input', (event) => {
+      if (!CAN_EDIT) return;
+      if (event.target.matches('input[data-field]') && event.target.type !== 'checkbox') {
+        scheduleSave();
+      }
+    });
+
+    bodyEl.addEventListener('change', async (event) => {
+      if (!CAN_EDIT) return;
+      const tr = event.target.closest('tr');
+      if (!tr) return;
+      if (event.target.matches('[data-field="is_perennial"]')) {
+        await flushSave();
+        const name = tr.querySelector('.crop-name').value.trim();
+        setStatus('Saving…');
+        const res = await fetch('/api/benchmarking/cropping/crops/' + tr.dataset.cropId, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            is_perennial: event.target.checked,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setStatus(errorMessage(data, 'Could not update crop'), 'err');
+          event.target.checked = !event.target.checked;
+          return;
+        }
+        await load();
+        setStatus('Saved', 'ok');
+      }
+    });
+
+    bodyEl.addEventListener('focusout', async (event) => {
+      if (!CAN_EDIT || !event.target.matches('.crop-name')) return;
+      const input = event.target;
+      const name = input.value.trim();
+      if (!name || name === input.dataset.original) return;
+      const tr = input.closest('tr');
+      const perennial = tr.querySelector('[data-field="is_perennial"]').checked;
+      setStatus('Saving…');
+      const res = await fetch('/api/benchmarking/cropping/crops/' + tr.dataset.cropId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, is_perennial: perennial }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStatus(errorMessage(data, 'Could not rename crop'), 'err');
+        input.value = input.dataset.original;
+        return;
+      }
+      input.dataset.original = name;
+      input.value = name;
+      setStatus('Saved', 'ok');
+    });
+
+    bodyEl.addEventListener('click', async (event) => {
+      const cutsButton = event.target.closest('[data-action="cuts"]');
+      if (cutsButton) {
+        openCutsModal(cutsButton.closest('tr'));
+        return;
+      }
+      const button = event.target.closest('[data-action="remove"]');
+      if (!button || !CAN_EDIT) return;
+      const tr = button.closest('tr');
+      const name = tr.querySelector('.crop-name').value.trim() || 'this crop';
+      if (!window.confirm('Remove ' + name + ' from the cropping plan?')) return;
+      await flushSave();
+      setStatus('Removing…');
+      const res = await fetch('/api/benchmarking/cropping/crops/' + tr.dataset.cropId, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStatus(errorMessage(data, 'Could not remove crop'), 'err');
+        return;
+      }
+      await load();
+      setStatus('Removed', 'ok');
+    });
+
+    const addButton = document.getElementById('add-crop');
+    if (addButton) {
+      addButton.addEventListener('click', async () => {
+        const nameInput = document.getElementById('crop-name');
+        const perennialInput = document.getElementById('crop-perennial');
+        const name = nameInput.value.trim();
+        if (!name) {
+          setStatus('Enter a crop name', 'err');
+          nameInput.focus();
+          return;
+        }
+        setStatus('Adding…');
+        const res = await fetch('/api/benchmarking/cropping/crops', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            is_perennial: perennialInput.checked,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setStatus(errorMessage(data, 'Could not add crop'), 'err');
+          return;
+        }
+        nameInput.value = '';
+        perennialInput.checked = false;
+        await load();
+        setStatus('Added ' + data.crop.name, 'ok');
+      });
+    }
+
+    const MAX_CUTS = 8;
+    const cutsModal = document.getElementById('cuts-modal');
+    const cutsRowsEl = document.getElementById('cuts-rows');
+    const cutsCountInput = document.getElementById('cuts-count');
+    const cutsErrorEl = document.getElementById('cuts-error');
+    let cutsTarget = null;
+    let cutsAcres = null;
+
+    function ordinal(number) {
+      const mod100 = number % 100;
+      if (mod100 >= 11 && mod100 <= 13) return number + 'th';
+      if (number % 10 === 1) return number + 'st';
+      if (number % 10 === 2) return number + 'nd';
+      if (number % 10 === 3) return number + 'rd';
+      return number + 'th';
+    }
+
+    function readCutInputs() {
+      return [...cutsRowsEl.querySelectorAll('[data-cut-percent]')].map((input) => {
+        const text = input.value.trim();
+        return text === '' ? 0 : Number(text);
+      });
+    }
+
+    function cutAcresText(percent) {
+      if (cutsAcres === null || !Number.isFinite(percent)) return '';
+      return qty(cutsAcres * percent / 100, 2) + ' acres';
+    }
+
+    function showCutAverage(percentages) {
+      const average = percentages.reduce((sum, value) => sum + (Number(value) || 0), 0) / 100;
+      document.getElementById('cuts-average').textContent = 'Average cuts ' + qty(average, 2);
+    }
+
+    function renderCutRows(percentages) {
+      const disabled = CAN_EDIT ? '' : ' disabled';
+      cutsRowsEl.innerHTML = percentages.map((percent, index) => {
+        return `<label class="cuts-row">
+          <span>${ordinal(index + 1)} cut</span>
+          <input type="number" min="0" max="100" step="any" data-cut-percent value="${inputValue(percent)}"${disabled}>
+          <span>%</span>
+          <span class="cuts-acres">${cutAcresText(Number(percent) || 0)}</span>
+        </label>`;
+      }).join('');
+      showCutAverage(percentages);
+    }
+
+    function showCutsError(message) {
+      cutsErrorEl.hidden = !message;
+      cutsErrorEl.textContent = message || '';
+    }
+
+    function resizeCuts(count) {
+      const current = readCutInputs();
+      const next = current.slice(0, count);
+      while (next.length < count) next.push(0);
+      renderCutRows(next);
+    }
+
+    function openCutsModal(tr) {
+      cutsTarget = tr;
+      const name = tr.querySelector('.crop-name').value.trim() || 'Crop';
+      const acresText = tr.querySelector('[data-field="acres"]').value.trim();
+      const acres = acresText === '' ? null : Number(acresText);
+      cutsAcres = Number.isFinite(acres) ? acres : null;
+      const percentages = cutsFromRow(tr);
+      document.getElementById('cuts-modal-title').textContent = name;
+      document.getElementById('cuts-modal-note').textContent = cutsAcres === null
+        ? 'Each percentage is the share of this crop’s acres taken at that cut.'
+        : 'Each percentage is the share of ' + qty(cutsAcres, 2) + ' acres taken at that cut.';
+      cutsCountInput.value = String(percentages.length);
+      cutsCountInput.disabled = !CAN_EDIT;
+      document.getElementById('cuts-save').hidden = !CAN_EDIT;
+      showCutsError('');
+      renderCutRows(percentages);
+      cutsModal.hidden = false;
+      const first = cutsRowsEl.querySelector('input');
+      if (first) first.focus();
+    }
+
+    function closeCutsModal() {
+      cutsModal.hidden = true;
+      cutsTarget = null;
+    }
+
+    cutsCountInput.addEventListener('change', () => {
+      const count = Number(cutsCountInput.value);
+      if (!Number.isInteger(count) || count < 1 || count > MAX_CUTS) {
+        showCutsError('Cuts must be a whole number from 1 to ' + MAX_CUTS);
+        return;
+      }
+      showCutsError('');
+      resizeCuts(count);
+    });
+
+    cutsRowsEl.addEventListener('input', () => {
+      const percentages = readCutInputs();
+      if (percentages.some((value) => !Number.isFinite(value) || value < 0 || value > 100)) {
+        showCutsError('Each cut must be from 0 to 100%');
+        return;
+      }
+      showCutsError('');
+      const acreCells = cutsRowsEl.querySelectorAll('.cuts-acres');
+      percentages.forEach((percent, index) => {
+        if (acreCells[index]) acreCells[index].textContent = cutAcresText(percent);
+      });
+      showCutAverage(percentages);
+    });
+
+    document.getElementById('cuts-save').addEventListener('click', () => {
+      if (!cutsTarget || !CAN_EDIT) return;
+      const count = Number(cutsCountInput.value);
+      if (!Number.isInteger(count) || count < 1 || count > MAX_CUTS) {
+        showCutsError('Cuts must be a whole number from 1 to ' + MAX_CUTS);
+        return;
+      }
+      const percentages = readCutInputs();
+      if (percentages.some((value) => !Number.isFinite(value) || value < 0 || value > 100)) {
+        showCutsError('Each cut must be from 0 to 100%');
+        return;
+      }
+      const stored = percentages.slice(0, count);
+      while (stored.length < count) stored.push(0);
+      cutsTarget.dataset.cuts = JSON.stringify(stored);
+      const button = cutsTarget.querySelector('[data-action="cuts"]');
+      const average = stored.reduce((sum, value) => sum + value, 0) / 100;
+      if (button) button.textContent = qty(average, 2);
+      closeCutsModal();
+      scheduleSave();
+    });
+
+    cutsModal.addEventListener('click', (event) => {
+      if (event.target.closest('[data-cuts-close]')) closeCutsModal();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !cutsModal.hidden) closeCutsModal();
+    });
+
+    load();
+  </script>
+{% endblock %}

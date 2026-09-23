@@ -60,6 +60,7 @@ def init_db() -> None:
     _migrate_benchmarking_schema()
     _migrate_financial_forecasts_schema()
     _migrate_rations_schema()
+    _migrate_cropping_schema()
     _migrate_hp_schedules_schema()
     _migrate_standing_orders_schema()
     _migrate_rental_agreements_schema()
@@ -68,6 +69,7 @@ def init_db() -> None:
     _migrate_parlour_schema()
     _migrate_sensehub_calf_assignments_schema()
     _seed_financial_forecasts()
+    _seed_crop_types()
     _seed_hp_schedules()
     _seed_gad_milk_collections()
     _seed_feed_contracts()
@@ -398,6 +400,13 @@ def _seed_financial_forecasts() -> None:
         seed_financial_forecasts_if_empty(db)
 
 
+def _seed_crop_types() -> None:
+    from app.services.cropping_forecasts import seed_crop_types_if_empty
+
+    with SessionLocal() as db:
+        seed_crop_types_if_empty(db)
+
+
 def _seed_hp_schedules() -> None:
     from app.services.hp_schedules import seed_hp_schedules_if_empty
 
@@ -424,6 +433,55 @@ def _migrate_benchmarking_schema() -> None:
                 "ON benchmark_forecast_lines (fiscal_year, metric)"
             )
         )
+
+
+def _migrate_cropping_schema() -> None:
+    """Add cut percentages, and turn an old harvest count into that many full cuts."""
+    import json
+
+    inspector = inspect(engine)
+    if "cropping_forecast_lines" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("cropping_forecast_lines")}
+    column_type = "TEXT" if DATABASE_URL.startswith("sqlite") else "JSON"
+    with engine.begin() as conn:
+        if "cut_percentages" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE cropping_forecast_lines "
+                    f"ADD COLUMN cut_percentages {column_type}"
+                )
+            )
+        if "harvest_cost_per_acre" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE cropping_forecast_lines "
+                    "ADD COLUMN harvest_cost_per_acre FLOAT"
+                )
+            )
+        if "harvest_count" not in columns:
+            return
+        rows = conn.execute(
+            text(
+                "SELECT id, harvest_count FROM cropping_forecast_lines "
+                "WHERE cut_percentages IS NULL AND harvest_count IS NOT NULL "
+                "AND harvest_count > 0"
+            )
+        ).fetchall()
+        assignment = (
+            ":percentages"
+            if DATABASE_URL.startswith("sqlite")
+            else "CAST(:percentages AS JSON)"
+        )
+        for row_id, harvest_count in rows:
+            count = min(int(harvest_count), 8)
+            conn.execute(
+                text(
+                    "UPDATE cropping_forecast_lines "
+                    f"SET cut_percentages = {assignment} WHERE id = :row_id"
+                ),
+                {"percentages": json.dumps([100] * count), "row_id": row_id},
+            )
 
 
 def _migrate_rations_schema() -> None:

@@ -36,11 +36,12 @@
     .forecasts-card.livestock { border-top: 4px solid #2563eb; }
     .forecasts-card.financial { border-top: 4px solid #ea580c; }
     .forecasts-card.rations { border-top: 4px solid #16a34a; }
+    .forecasts-card.cropping { border-top: 4px solid #a16207; }
 {% endblock %}
 
 {% block content %}
   <p class="muted" style="margin-top:0;">
-    Enter monthly budget figures — livestock movements and prices, other farm costs and income, or ration ingredient costs and inclusions.
+    Enter budget figures — livestock movements and prices, other farm costs and income, ration ingredient costs, or the annual cropping plan.
   </p>
 
   <div class="forecasts-hub">
@@ -52,9 +53,13 @@
       <h2>Financial Forecasts</h2>
       <p>Overheads, purchases, sales, cash flow and other costs — mapped by item type, band and group.</p>
     </a>
+    <a href="/benchmarking/forecasts/cropping" class="forecasts-card cropping">
+      <h2>Cropping Forecasts</h2>
+      <p>Acres, cuts, dry matter and chemical, fertiliser and seed costs — by farm and year. Perennial crops include acres to reseed.</p>
+    </a>
     <a href="/benchmarking/rations" class="forecasts-card rations">
       <h2>Ration Forecasts</h2>
-      <p>Ingredient costs and farm rations — ingredients, CM, GAD and cost comparison.</p>
+      <p>Ingredient costs and farm rations — ingredients, CM, GAD, cost comparison, and how the costs are calculated.</p>
     </a>
   </div>
 {% endblock %}

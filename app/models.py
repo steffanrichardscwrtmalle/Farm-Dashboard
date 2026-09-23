@@ -2365,6 +2365,68 @@ class FarmJobOccurrence(Base):
     template: Mapped[FarmJobTemplate] = relationship(back_populates="occurrences")
 
 
+class CropType(Base):
+    """A crop in the cropping forecast catalogue (for example Maize or Grazing)."""
+
+    __tablename__ = "crop_types"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_crop_type_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    is_perennial: Mapped[bool] = mapped_column(Boolean, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+
+class CroppingForecastLine(Base):
+    """Annual cropping plan for one farm, year and crop.
+
+    Stores the inputs only. Chemical, fertiliser and seed totals are calculated
+    from these figures so a later budget link can reuse one formula.
+    """
+
+    __tablename__ = "cropping_forecast_lines"
+    __table_args__ = (
+        UniqueConstraint(
+            "fiscal_year",
+            "farm",
+            "crop_type_id",
+            name="uq_cropping_forecast_line",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fiscal_year: Mapped[int] = mapped_column(Integer, index=True)
+    farm: Mapped[str] = mapped_column(String(8), index=True)
+    crop_type_id: Mapped[int] = mapped_column(
+        ForeignKey("crop_types.id"), index=True
+    )
+    acres: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Share of the crop acreage taken at each cut, in order. 100 means the
+    # whole acreage. Average cuts is the sum of these percentages.
+    cut_percentages: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    expected_dm_tonnes: Mapped[float | None] = mapped_column(Float, nullable=True)
+    chemical_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fertiliser_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
+    seed_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
+    harvest_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
+    acres_to_reseed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+
 def _str_or_none(value: Any) -> str | None:
     if value is None:
         return None
