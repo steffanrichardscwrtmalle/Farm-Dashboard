@@ -993,6 +993,7 @@
             <option value="Combined">Combined</option>
           </select>
         </label>
+        <button type="button" class="small" id="export-budget-xlsx-btn">Export XLSX</button>
         {% if not can_edit %}<span class="muted"><strong>View only</strong></span>{% endif %}
         <span class="muted" id="farm-edit-hint">Tab → next month · Enter ↓ next row</span>
         <span class="muted" id="combined-view-hint" hidden>Combined = CM + GAD (view only)</span>
@@ -3001,6 +3002,7 @@
       });
     }
 
+    document.getElementById('export-budget-xlsx-btn')?.addEventListener('click', exportBudgetXlsx);
     document.getElementById('fiscal-year-select').addEventListener('change', async () => {
       const previous = loadedPeriodBody || periodSaveBody();
       document.getElementById('date-range-controls').hidden = !isAnyYearSelected();
@@ -3086,6 +3088,647 @@
         document.getElementById('month-to').value = to;
         document.getElementById('comparison-month-from').value = from;
         document.getElementById('comparison-month-to').value = to;
+      }
+    }
+
+    const BUDGET_XLSX_GBP = '"£"#,##0.00;"£"-#,##0.00';
+    const BUDGET_XLSX_QTY = '#,##0.00;-#,##0.00';
+    const BUDGET_XLSX_PPL = '0.00"p";-0.00"p"';
+
+    function budgetXlsxColLetter(colNumber) {
+      let n = colNumber;
+      let letters = '';
+      while (n > 0) {
+        const rem = (n - 1) % 26;
+        letters = String.fromCharCode(65 + rem) + letters;
+        n = Math.floor((n - 1) / 26);
+      }
+      return letters;
+    }
+
+    function budgetXlsxRefs(letter, rowNumbers) {
+      const rows = [...rowNumbers].sort((a, b) => a - b);
+      const refs = [];
+      let start = null;
+      let prev = null;
+      rows.forEach(row => {
+        if (start == null) {
+          start = prev = row;
+          return;
+        }
+        if (row === prev + 1) {
+          prev = row;
+          return;
+        }
+        refs.push(start === prev ? `${letter}${start}` : `${letter}${start}:${letter}${prev}`);
+        start = prev = row;
+      });
+      if (start != null) {
+        refs.push(start === prev ? `${letter}${start}` : `${letter}${start}:${letter}${prev}`);
+      }
+      return refs;
+    }
+
+    function budgetXlsxSum(letter, rowNumbers) {
+      if (!rowNumbers.length) return '0';
+      return `SUM(${budgetXlsxRefs(letter, rowNumbers).join(',')})`;
+    }
+
+    function budgetXlsxSumSpan(startLetter, endLetter, rowNumbers) {
+      if (!rowNumbers.length) return '0';
+      const parts = rowNumbers.map(row => (
+        startLetter === endLetter ? `${startLetter}${row}` : `${startLetter}${row}:${endLetter}${row}`
+      ));
+      return `SUM(${parts.join(',')})`;
+    }
+
+    function budgetExportRole(row) {
+      const itemType = row.item_type;
+      const band = row.band;
+      const heading = (row.heading || '').toLowerCase();
+      const isDepreciation = heading.includes('depreciation');
+      const isValuationChange = heading.includes('valuation change') || band === 'Valuation Change';
+      if (itemType === 'Profit & Loss') {
+        if (band === 'Sales') return 'sales';
+        if (isValuationChange) return 'valuation';
+        if (isDepreciation) return 'depreciation';
+        return 'plCost';
+      }
+      if (itemType === 'Cash' && !isDepreciation && !isValuationChange) return 'cash';
+      if (itemType === 'Data' && heading.includes('litre')) return 'litres';
+      return null;
+    }
+
+    function budgetLineFormula(kind, letter, groups) {
+      const sales = budgetXlsxSum(letter, groups.sales);
+      const valuation = budgetXlsxSum(letter, groups.valuation);
+      const costs = budgetXlsxSum(letter, groups.plCost);
+      const depreciation = budgetXlsxSum(letter, groups.depreciation);
+      const cash = budgetXlsxSum(letter, groups.cash);
+      if (kind === 'exDep') return `${sales}+${valuation}-${costs}`;
+      if (kind === 'cashflow') return `${sales}-${costs}-${cash}`;
+      return `${sales}+${valuation}-${costs}-${depreciation}`;
+    }
+
+    function budgetPplFormula(amountRef, litresRef) {
+      return `IF(${litresRef}=0,"—",${amountRef}*100/${litresRef})`;
+    }
+
+    let budgetExcelPromise = null;
+    function ensureBudgetExcelJS() {
+      if (typeof ExcelJS !== 'undefined') return Promise.resolve();
+      if (budgetExcelPromise) return budgetExcelPromise;
+      budgetExcelPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+        script.crossOrigin = 'anonymous';
+        script.onload = () => {
+          if (typeof ExcelJS === 'undefined') {
+            budgetExcelPromise = null;
+            reject(new Error('ExcelJS missing'));
+            return;
+          }
+          resolve();
+        };
+        script.onerror = () => {
+          budgetExcelPromise = null;
+          reject(new Error('ExcelJS failed to load'));
+        };
+        document.head.appendChild(script);
+      });
+      return budgetExcelPromise;
+    }
+
+    function budgetExportBasename() {
+      const farm = String(activeFarm || 'farm').toLowerCase();
+      const fy = document.getElementById('fiscal-year-select')?.value || 'fy';
+      if (fy === 'any') {
+        const from = document.getElementById('month-from')?.value || 'from';
+        const to = document.getElementById('month-to')?.value || 'to';
+        return `monthly-budget-${farm}-${from}-to-${to}`;
+      }
+      return `monthly-budget-${farm}-fy${fy}`;
+    }
+
+    function budgetMonthTone(monthIso) {
+      if (!forecastData || !monthIso) return '';
+      if (forecastData.projected_from && monthIso >= forecastData.projected_from) return 'projected';
+      if (forecastData.actual_cutoff && monthIso <= forecastData.actual_cutoff) return 'superseded';
+      return '';
+    }
+
+    async function buildMonthlyBudgetWorkbook(model) {
+      const months = model.months || [];
+      const rows = model.rows || [];
+      const monthCount = months.length;
+      const firstMonthCol = 5;
+      const lastMonthCol = 4 + monthCount;
+      const totalCol = lastMonthCol + 1;
+      const pplCol = totalCol + 1;
+      const firstLetter = budgetXlsxColLetter(firstMonthCol);
+      const lastLetter = budgetXlsxColLetter(lastMonthCol);
+      const totalLetter = budgetXlsxColLetter(totalCol);
+      const pplLetter = budgetXlsxColLetter(pplCol);
+      const borderColor = { argb: 'FFD8DEE4' };
+      const thin = { style: 'thin', color: borderColor };
+      const box = { top: thin, left: thin, bottom: thin, right: thin };
+      const labelBox = {
+        top: thin,
+        left: thin,
+        bottom: thin,
+        right: { style: 'medium', color: { argb: 'FF94A3B8' } },
+      };
+      const fill = hex => {
+        const argb = 'FF' + hex;
+        return { type: 'pattern', pattern: 'solid', fgColor: { argb }, bgColor: { argb } };
+      };
+      const paint = (cell, options) => {
+        cell.value = options.formula
+          ? { formula: options.formula, result: options.value }
+          : options.value;
+        cell.fill = fill(options.fill);
+        cell.font = {
+          name: 'Segoe UI',
+          size: options.size || 9,
+          bold: !!options.bold,
+          italic: !!options.italic,
+          color: { argb: 'FF' + (options.color || '1F2933') },
+        };
+        cell.alignment = {
+          horizontal: options.align || 'left',
+          vertical: 'middle',
+          wrapText: false,
+        };
+        cell.border = options.border || box;
+        if (options.numFmt) cell.numFmt = options.numFmt;
+      };
+
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'Farm Dashboard';
+      workbook.created = new Date();
+      workbook.calcProperties.fullCalcOnLoad = true;
+      const ws = workbook.addWorksheet('Monthly Budget', {
+        properties: { defaultRowHeight: 16 },
+        views: [{
+          state: 'frozen',
+          xSplit: 4,
+          ySplit: 1,
+          topLeftCell: 'E2',
+          activeCell: 'E2',
+          showGridLines: false,
+        }],
+        pageSetup: {
+          orientation: 'landscape',
+          fitToPage: true,
+          fitToWidth: 1,
+          fitToHeight: 0,
+          paperSize: 9,
+          printTitlesRow: '1:1',
+        },
+      });
+      ws.headerFooter = {
+        oddHeader: `&L&8Monthly Budget · ${model.farm || ''}`,
+        oddFooter: '&R&8Page &P of &N',
+      };
+
+      const headers = ['Item type', 'Band', 'Group', 'Heading']
+        .concat(months.map(month => month.month_label || ''))
+        .concat(['Total', 'PPL']);
+      headers.forEach((header, index) => {
+        paint(ws.getCell(1, index + 1), {
+          value: header,
+          fill: '1E3A5F',
+          color: 'FFFFFF',
+          bold: true,
+          align: 'center',
+          size: 9,
+        });
+      });
+      ws.getRow(1).height = 20;
+
+      const groups = { sales: [], valuation: [], plCost: [], depreciation: [], cash: [], litres: [] };
+      const merges = [];
+      rows.forEach((row, index) => {
+        const excelRow = index + 2;
+        const stripe = index % 2 === 1;
+        const role = budgetExportRole(row);
+        if (role === 'sales') groups.sales.push(excelRow);
+        else if (role === 'valuation') groups.valuation.push(excelRow);
+        else if (role === 'plCost') groups.plCost.push(excelRow);
+        else if (role === 'depreciation') groups.depreciation.push(excelRow);
+        else if (role === 'cash') groups.cash.push(excelRow);
+        else if (role === 'litres') groups.litres.push(excelRow);
+        const isCurrency = row.item_type !== 'Data';
+        const isLitres = role === 'litres';
+        const auto = !!row.auto;
+        const values = row.values || [];
+        const total = values.reduce((sum, value) => sum + (Number(value) || 0), 0);
+        const headingFill = auto ? (stripe ? 'E7ECFF' : 'EEF2FF') : (stripe ? 'FAFBFC' : 'FFFFFF');
+        const headingColor = auto ? '3730A3' : '1F2933';
+        const spanFill = [
+          ['item_type', row.item_type, 'EFF6FF', '1E3A8A', true],
+          ['band', row.band, 'F8FAFC', '334155', false],
+          ['group', row.group, 'F1F5F9', '475569', false],
+        ];
+        spanFill.forEach((spec, colIdx) => {
+          const [key, text, bg, color, bold] = spec;
+          if (!row.spans || !row.spans[key]) return;
+          paint(ws.getCell(excelRow, colIdx + 1), {
+            value: text || '',
+            fill: bg,
+            color,
+            bold,
+            align: 'left',
+          });
+          const span = row.spans[key];
+          if (span > 1) merges.push([excelRow, colIdx + 1, excelRow + span - 1, colIdx + 1]);
+        });
+        paint(ws.getCell(excelRow, 4), {
+          value: row.heading || '',
+          fill: headingFill,
+          color: headingColor,
+          align: 'left',
+          border: labelBox,
+        });
+        months.forEach((month, monthIdx) => {
+          const tone = month.tone || '';
+          let monthFill = stripe ? 'FAFBFC' : 'FFFFFF';
+          let monthColor = '1F2933';
+          if (!stripe && tone === 'projected') monthFill = 'ECFDF5';
+          if (!stripe && tone === 'superseded') {
+            monthFill = 'FEF2F2';
+            monthColor = '7F1D1D';
+          }
+          if (stripe && tone === 'superseded') monthColor = '7F1D1D';
+          if (auto) {
+            monthFill = stripe ? 'E7ECFF' : 'EEF2FF';
+            monthColor = '3730A3';
+          }
+          paint(ws.getCell(excelRow, firstMonthCol + monthIdx), {
+            value: Number(values[monthIdx]) || 0,
+            fill: monthFill,
+            color: monthColor,
+            align: 'right',
+            numFmt: isCurrency ? BUDGET_XLSX_GBP : BUDGET_XLSX_QTY,
+          });
+        });
+        paint(ws.getCell(excelRow, totalCol), {
+          value: total,
+          formula: `SUM(${firstLetter}${excelRow}:${lastLetter}${excelRow})`,
+          fill: stripe ? 'E8EEF5' : 'F1F5F9',
+          color: total < 0 ? 'B91C1C' : '1F2933',
+          bold: true,
+          align: 'right',
+          numFmt: isCurrency ? BUDGET_XLSX_GBP : BUDGET_XLSX_QTY,
+        });
+        const litresYear = model.litresYear || 0;
+        const ppl = (!isLitres && litresYear) ? (total * 100) / litresYear : null;
+        paint(ws.getCell(excelRow, pplCol), {
+          value: isLitres || ppl == null ? '—' : ppl,
+          fill: stripe ? 'E8EEF5' : 'F1F5F9',
+          color: ppl != null && ppl < 0 ? 'B91C1C' : '1F2933',
+          bold: true,
+          align: 'right',
+          numFmt: isLitres ? undefined : BUDGET_XLSX_PPL,
+        });
+      });
+
+      // Assign PPL formulas once. ExcelJS drops a cached result of 0 when a
+      // formula cell is read back and written again, which then fails the export.
+      const yearLitresFormula = budgetXlsxSum(totalLetter, groups.litres);
+      const litresYear = model.litresYear || 0;
+      rows.forEach((row, index) => {
+        if (budgetExportRole(row) === 'litres') return;
+        const excelRow = index + 2;
+        const total = (row.values || []).reduce((sum, value) => sum + (Number(value) || 0), 0);
+        const ppl = litresYear ? (total * 100) / litresYear : null;
+        ws.getCell(excelRow, pplCol).value = {
+          formula: budgetPplFormula(`${totalLetter}${excelRow}`, yearLitresFormula),
+          result: ppl == null ? '—' : ppl,
+        };
+      });
+
+      let cursor = rows.length + 3;
+      const summarySpecs = [
+        {
+          title: `Profit (${model.farm || ''})`,
+          header: '14532D',
+          note: 'Profit ex Depreciation excludes any heading whose name contains “Depreciation”.',
+          lines: [
+            { label: 'Monthly Profit', kind: 'profit', money: true },
+            { label: 'Monthly Profit PPL', kind: 'profit', money: false },
+            { label: 'Cumulative Profit', kind: 'profit', money: true, cumulative: true },
+            { label: 'Cumulative Profit PPL', kind: 'profit', money: false, cumulative: true },
+            { label: 'Monthly Profit ex Depreciation', kind: 'exDep', money: true },
+            { label: 'Monthly Profit ex Depreciation PPL', kind: 'exDep', money: false },
+            { label: 'Cumulative Profit ex Depreciation', kind: 'exDep', money: true, cumulative: true },
+            { label: 'Cumulative Profit ex Depreciation PPL', kind: 'exDep', money: false, cumulative: true },
+          ],
+        },
+        {
+          title: `Cashflow (${model.farm || ''})`,
+          header: '1E3A5F',
+          note: 'Cashflow excludes headings whose names contain “Depreciation” or “Valuation Change”.',
+          lines: [
+            { label: 'Monthly Cashflow', kind: 'cashflow', money: true },
+            { label: 'Monthly Cashflow PPL', kind: 'cashflow', money: false },
+            { label: 'Cumulative Cashflow', kind: 'cashflow', money: true, cumulative: true },
+            { label: 'Cumulative Cashflow PPL', kind: 'cashflow', money: false, cumulative: true },
+          ],
+        },
+      ];
+
+      const moneyByKind = { profit: [], exDep: [], cashflow: [] };
+      summarySpecs.forEach(block => {
+        for (let col = 1; col <= pplCol; col += 1) {
+          paint(ws.getCell(cursor, col), {
+            value: col === 1 ? block.title : '',
+            fill: block.header,
+            color: 'FFFFFF',
+            bold: true,
+            align: col === 1 ? 'left' : 'center',
+          });
+        }
+        merges.push([cursor, 1, cursor, 4]);
+        ws.getRow(cursor).height = 20;
+        cursor += 1;
+        const blockStart = cursor;
+        block.lines.forEach(line => {
+          const excelRow = cursor;
+          const baseFill = line.cumulative ? 'F1F5F9' : 'FFFFFF';
+          const labelFill = line.cumulative ? 'E8EEF5' : 'F8FAFC';
+          const totalFill = line.cumulative ? 'DBE4EE' : 'E8EEF5';
+          const textColor = line.money ? '1F2933' : '475569';
+          paint(ws.getCell(excelRow, 1), {
+            value: line.label,
+            fill: labelFill,
+            color: textColor,
+            bold: true,
+            italic: !line.money,
+            align: 'left',
+            border: labelBox,
+          });
+          for (let col = 2; col <= 4; col += 1) {
+            paint(ws.getCell(excelRow, col), {
+              value: '',
+              fill: labelFill,
+              border: col === 4 ? labelBox : box,
+            });
+          }
+          merges.push([excelRow, 1, excelRow, 4]);
+          months.forEach((month, monthIdx) => {
+            const col = firstMonthCol + monthIdx;
+            const letter = budgetXlsxColLetter(col);
+            const addr = `${letter}${excelRow}`;
+            let formula;
+            let cached = 0;
+            if (line.money && !line.cumulative) {
+              formula = budgetLineFormula(line.kind, letter, groups);
+              cached = model.summary[line.kind][monthIdx];
+              moneyByKind[line.kind][monthIdx] = addr;
+            } else if (line.money && line.cumulative) {
+              const anchor = moneyByKind[line.kind][0];
+              const current = moneyByKind[line.kind][monthIdx];
+              formula = `SUM(${anchor}:${current})`;
+              cached = model.summary[line.kind + 'Cum'][monthIdx];
+            } else if (!line.cumulative) {
+              const amount = moneyByKind[line.kind][monthIdx];
+              const litres = budgetXlsxSum(letter, groups.litres);
+              formula = budgetPplFormula(amount, litres);
+              const den = model.summary.litres[monthIdx];
+              cached = den ? (model.summary[line.kind][monthIdx] * 100) / den : '—';
+            } else {
+              const amount = `SUM(${moneyByKind[line.kind][0]}:${moneyByKind[line.kind][monthIdx]})`;
+              const litres = budgetXlsxSumSpan(firstLetter, letter, groups.litres);
+              formula = budgetPplFormula(`(${amount})`, `(${litres})`);
+              const den = model.summary.litresCum[monthIdx];
+              cached = den ? (model.summary[line.kind + 'Cum'][monthIdx] * 100) / den : '—';
+            }
+            const numeric = typeof cached === 'number' ? cached : null;
+            paint(ws.getCell(excelRow, col), {
+              value: numeric == null ? '—' : numeric,
+              formula,
+              fill: baseFill,
+              color: !line.money ? '475569' : (numeric != null && numeric < 0 ? 'B91C1C' : '1F2933'),
+              italic: !line.money,
+              align: 'right',
+              numFmt: line.money ? BUDGET_XLSX_GBP : BUDGET_XLSX_PPL,
+            });
+          });
+          const totalAddr = `${totalLetter}${excelRow}`;
+          const yearAmount = line.cumulative
+            ? model.summary[line.kind + 'Cum'][monthCount - 1]
+            : model.summary[line.kind].reduce((sum, value) => sum + value, 0);
+          if (line.money && !line.cumulative) {
+            paint(ws.getCell(excelRow, totalCol), {
+              value: yearAmount,
+              formula: `SUM(${firstLetter}${excelRow}:${lastLetter}${excelRow})`,
+              fill: totalFill,
+              color: yearAmount < 0 ? 'B91C1C' : '1F2933',
+              bold: true,
+              align: 'right',
+              numFmt: BUDGET_XLSX_GBP,
+            });
+          } else if (line.money && line.cumulative) {
+            paint(ws.getCell(excelRow, totalCol), {
+              value: yearAmount,
+              formula: `${lastLetter}${excelRow}`,
+              fill: totalFill,
+              color: yearAmount < 0 ? 'B91C1C' : '1F2933',
+              bold: true,
+              align: 'right',
+              numFmt: BUDGET_XLSX_GBP,
+            });
+          } else {
+            paint(ws.getCell(excelRow, totalCol), {
+              value: '—',
+              fill: totalFill,
+              color: '475569',
+              italic: true,
+              bold: true,
+              align: 'right',
+            });
+          }
+          const yearLitres = model.summary.litres.reduce((sum, value) => sum + value, 0);
+          const yearPpl = yearLitres ? (yearAmount * 100) / yearLitres : null;
+          const pplSource = line.money
+            ? budgetPplFormula(totalAddr, yearLitresFormula)
+            : `${pplLetter}${excelRow - 1}`;
+          paint(ws.getCell(excelRow, pplCol), {
+            value: yearPpl == null ? '—' : yearPpl,
+            formula: pplSource,
+            fill: totalFill,
+            color: !line.money ? '475569' : (yearPpl != null && yearPpl < 0 ? 'B91C1C' : '1F2933'),
+            italic: !line.money,
+            bold: true,
+            align: 'right',
+            numFmt: BUDGET_XLSX_PPL,
+          });
+          cursor += 1;
+        });
+        paint(ws.getCell(cursor, 1), {
+          value: block.note,
+          fill: 'FFFFFF',
+          color: '5F6B7A',
+          italic: true,
+          size: 8,
+          align: 'left',
+          border: {},
+        });
+        merges.push([cursor, 1, cursor, Math.min(pplCol, 8)]);
+        cursor += 2;
+      });
+
+      const summaryEnd = cursor - 2;
+      merges.forEach(([r1, c1, r2, c2]) => {
+        if (r1 !== r2 || c1 !== c2) ws.mergeCells(r1, c1, r2, c2);
+      });
+      const negFont = { font: { color: { argb: 'FFB91C1C' } } };
+      const negRule = {
+        type: 'cellIs',
+        operator: 'lessThan',
+        formulae: ['0'],
+        style: negFont,
+      };
+      if (rows.length) {
+        ws.addConditionalFormatting({
+          ref: `${totalLetter}2:${pplLetter}${rows.length + 1}`,
+          rules: [negRule],
+        });
+      }
+      if (summaryEnd > rows.length + 3) {
+        ws.addConditionalFormatting({
+          ref: `${firstLetter}${rows.length + 4}:${pplLetter}${summaryEnd}`,
+          rules: [negRule],
+        });
+      }
+      const widths = [16, 18, 16, 28];
+      rows.forEach(row => {
+        widths[0] = Math.max(widths[0], String(row.item_type || '').length + 2);
+        widths[1] = Math.max(widths[1], String(row.band || '').length + 2);
+        widths[2] = Math.max(widths[2], String(row.group || '').length + 2);
+        widths[3] = Math.max(widths[3], String(row.heading || '').length + 2);
+      });
+      widths[0] = Math.min(widths[0], 22);
+      widths[1] = Math.min(widths[1], 24);
+      widths[2] = Math.min(widths[2], 22);
+      widths[3] = Math.min(widths[3], 42);
+      for (let col = 1; col <= pplCol; col += 1) {
+        const column = ws.getColumn(col);
+        if (col <= 4) column.width = widths[col - 1];
+        else if (col === pplCol) column.width = 12;
+        else if (col === totalCol) column.width = 14;
+        else column.width = 13;
+      }
+      return workbook.xlsx.writeBuffer();
+    }
+
+    function budgetSummaryFromRows(rows) {
+      const n = (rows[0] && rows[0].values || []).length;
+      const blank = () => Array(n).fill(0);
+      const sales = blank();
+      const valuation = blank();
+      const costs = blank();
+      const depreciation = blank();
+      const cash = blank();
+      const litres = blank();
+      rows.forEach(row => {
+        const role = budgetExportRole(row);
+        (row.values || []).forEach((value, index) => {
+          const amount = Number(value) || 0;
+          if (role === 'sales') sales[index] += amount;
+          else if (role === 'valuation') valuation[index] += amount;
+          else if (role === 'plCost') costs[index] += amount;
+          else if (role === 'depreciation') depreciation[index] += amount;
+          else if (role === 'cash') cash[index] += amount;
+          else if (role === 'litres') litres[index] += amount;
+        });
+      });
+      const profit = sales.map((value, index) => value + valuation[index] - costs[index] - depreciation[index]);
+      const exDep = sales.map((value, index) => value + valuation[index] - costs[index]);
+      const cashflow = sales.map((value, index) => value - costs[index] - cash[index]);
+      const running = values => {
+        const out = [];
+        let total = 0;
+        values.forEach(value => {
+          total += value;
+          out.push(total);
+        });
+        return out;
+      };
+      return {
+        profit,
+        exDep,
+        cashflow,
+        profitCum: running(profit),
+        exDepCum: running(exDep),
+        cashflowCum: running(cashflow),
+        litres,
+        litresCum: running(litres),
+      };
+    }
+
+    async function exportBudgetXlsx() {
+      if (!forecastData || !(forecastData.grid_rows || []).length) {
+        alert('Nothing to export yet.');
+        return;
+      }
+      const btn = document.getElementById('export-budget-xlsx-btn');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Generating…';
+      }
+      try {
+        await ensureBudgetExcelJS();
+      const months = (forecastData.month_labels || []).map(month => ({
+        month_label: month.month_label,
+        forecast_month: month.forecast_month,
+        tone: budgetMonthTone(month.forecast_month),
+      }));
+      if (!months.length) {
+        alert('Nothing to export yet.');
+        return;
+      }
+        const spans = computeGridRowSpans(forecastData.grid_rows || []);
+        const rows = (forecastData.grid_rows || []).map((row, index) => ({
+          item_type: row.item_type,
+          band: row.band,
+          group: row.group,
+          heading: row.heading,
+          auto: rowIsAuto(row),
+          values: getRowMonthValues(row),
+          spans: {
+            item_type: spans[index].showItemType ? spans[index].item_type : 0,
+            band: spans[index].showBand ? spans[index].band : 0,
+            group: spans[index].showGroup ? spans[index].group : 0,
+          },
+        }));
+        const summary = budgetSummaryFromRows(rows);
+        const litresYear = summary.litres.reduce((sum, value) => sum + value, 0);
+        const buffer = await buildMonthlyBudgetWorkbook({
+          farm: activeFarm,
+          months,
+          rows,
+          summary,
+          litresYear,
+        });
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${budgetExportBasename()}.xlsx`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error(err);
+        alert('Could not generate the Excel file. Check your connection and try again.');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Export XLSX';
+        }
       }
     }
 
