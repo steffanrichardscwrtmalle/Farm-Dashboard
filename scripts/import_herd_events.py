@@ -30,6 +30,7 @@ from app.services.herd_birth_import import import_herd_births
 from app.services.herd_events_import import import_cow_events
 from app.services.herd_inventory_import import import_herd_inventory
 from app.services.stock_accruals import rebuild_stock_accrual_snapshots
+from app.services.stock_purchase_derivation import rebuild_stock_purchases
 from app.services.stock_valuations import rebuild_stock_valuation_snapshots
 
 
@@ -122,6 +123,14 @@ def main() -> int:
         _log_import_result("inventory rows", inventory)
         if inventory.get("farms_imported"):
             anything_changed = True
+            inventory_purchases = inventory.get("purchase_stats") or {}
+            if inventory_purchases:
+                _log(
+                    "Rebuilt purchases: "
+                    f"{inventory_purchases.get('rows_imported', 0):,} "
+                    f"({inventory_purchases.get('from_inventory', 0):,} inventory-only, "
+                    f"{inventory_purchases.get('excluded_count', 0):,} excluded)"
+                )
         _release_memory(db)
 
         step = "births"
@@ -143,8 +152,20 @@ def main() -> int:
             _log(f"Latest birth date: {births['latest_birth_date']}")
 
         if not anything_changed:
-            _log("All herd sources unchanged; skipping stock snapshot rebuild.")
-            return 0
+            step = "purchases"
+            _log("Step: rebuilding purchases from events and inventory...")
+            purchase_stats = rebuild_stock_purchases(db)
+            if purchase_stats.get("changed"):
+                db.commit()
+                anything_changed = True
+                _log(
+                    "Purchases changed: "
+                    f"{purchase_stats.get('rows_imported', 0):,} "
+                    f"({purchase_stats.get('from_inventory', 0):,} inventory-only)"
+                )
+            else:
+                _log("All herd sources unchanged; skipping stock snapshot rebuild.")
+                return 0
 
         # Valuation rebuild loads all herd events; use a clean session first.
         db.close()

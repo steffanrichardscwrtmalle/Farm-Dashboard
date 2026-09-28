@@ -425,7 +425,7 @@ class StockAccrualSnapshot(Base):
 
 
 class StockPurchaseAnimal(Base):
-    """Purchased animals derived from cow events (EDAT != BDAT), rebuilt on herd import."""
+    """Purchased animals derived from cow events and current inventory (EDAT != BDAT)."""
 
     __tablename__ = "stock_purchase_animals"
     __table_args__ = (

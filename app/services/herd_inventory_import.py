@@ -26,6 +26,7 @@ from app.services.herd_import_utils import (
     store_source_fingerprint,
 )
 from app.services.inventory_processor import load_inventory_csv, process_inventory_file
+from app.services.stock_purchase_derivation import rebuild_stock_purchases
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +211,7 @@ def import_herd_inventory(db: Session, *, force: bool = True) -> dict[str, Any]:
     empty_source_farms: list[str] = []
     rows_imported = 0
     pedigree_synced = 0
+    purchase_stats: dict[str, Any] = {}
 
     for relative_path, farm in _INVENTORY_FILES:
         meta = herd_file_meta(relative_path)
@@ -245,6 +247,7 @@ def import_herd_inventory(db: Session, *, force: bool = True) -> dict[str, Any]:
         farms_imported.append(farm)
 
     if farms_imported:
+        purchase_stats = rebuild_stock_purchases(db)
         db.commit()
 
     farm_counts = dict(
@@ -269,6 +272,7 @@ def import_herd_inventory(db: Session, *, force: bool = True) -> dict[str, Any]:
             "imported_at": None,
             "source_files": source_files,
             "sources": sources,
+            "purchase_stats": {},
         }
 
     return {
@@ -282,4 +286,5 @@ def import_herd_inventory(db: Session, *, force: bool = True) -> dict[str, Any]:
         "imported_at": import_time.isoformat(timespec="seconds"),
         "source_files": source_files,
         "sources": sources,
+        "purchase_stats": purchase_stats,
     }

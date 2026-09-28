@@ -84,6 +84,13 @@
       top: 0;
       z-index: 1;
     }
+    #purchases-table thead th[data-sort] {
+      cursor: pointer;
+      user-select: none;
+    }
+    #purchases-table thead th[data-sort]:hover { background: #274b73; }
+    #purchases-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.65em; }
+    #purchases-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.65em; }
     .empty-state { padding: 1.5rem; color: var(--muted); }
     .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
 {% endblock %}
@@ -141,14 +148,14 @@
         <table id="purchases-table">
           <thead>
             <tr>
-              <th>Farm</th>
-              <th>ETAG</th>
-              <th>EDAT</th>
-              <th>BDAT</th>
-              <th>LACT</th>
-              <th>CBRD</th>
-              <th>GNDR</th>
-              <th>Group</th>
+              <th data-sort="farm">Farm</th>
+              <th data-sort="etag">ETAG</th>
+              <th data-sort="edat">EDAT</th>
+              <th data-sort="bdat">BDAT</th>
+              <th data-sort="lact">LACT</th>
+              <th data-sort="cbrd">CBRD</th>
+              <th data-sort="gndr">GNDR</th>
+              <th data-sort="stock_group">Group</th>
             </tr>
           </thead>
           <tbody id="table-body"></tbody>
@@ -163,9 +170,24 @@
   <script>
     const DEFAULT_MONTH_SPAN = 12;
     const GROUP_LABELS = { cows: "Cows", youngstock: "Youngstock", beef: "Beef" };
+    const SORT_KINDS = {
+      farm: "text",
+      etag: "text",
+      edat: "date",
+      bdat: "date",
+      lact: "number",
+      cbrd: "number",
+      gndr: "text",
+      stock_group: "text",
+    };
     let monthList = [];
     let loadTimer = null;
     let initialBoundsSynced = false;
+    let fiscalYearInitialized = false;
+    let sortKey = "edat";
+    let sortDir = -1;
+    let currentRows = [];
+    let lastMeta = {};
 
     function selectedFarmValues() {
       return [...document.querySelectorAll(".farm-slicer-btn.selected")].map(btn => btn.dataset.value);
@@ -259,18 +281,26 @@
     function renderFiscalYearOptions(options, selectedValue) {
       const select = document.getElementById("fiscal-year-select");
       const current = selectedValue || select.value;
+      const years = options || [];
       select.innerHTML = '<option value="">All</option>';
-      (options || []).forEach(year => {
+      years.forEach(year => {
         const opt = document.createElement("option");
         opt.value = String(year);
         opt.textContent = String(year);
         select.appendChild(opt);
       });
+      if (!fiscalYearInitialized && !current && years.length) {
+        select.value = String(years[0]);
+        fiscalYearInitialized = true;
+        return true;
+      }
+      fiscalYearInitialized = true;
       if (current && [...select.options].some(opt => opt.value === String(current))) {
         select.value = String(current);
       } else {
         select.value = "";
       }
+      return false;
     }
 
     function buildQuery() {
@@ -288,12 +318,54 @@
       return params.toString();
     }
 
+    function sortValue(row, key) {
+      if (key === "stock_group") return GROUP_LABELS[row.stock_group] || row.stock_group || "";
+      return row[key];
+    }
+
+    function compareRows(a, b) {
+      const kind = SORT_KINDS[sortKey] || "text";
+      let av = sortValue(a, sortKey);
+      let bv = sortValue(b, sortKey);
+      const aMissing = av == null || av === "";
+      const bMissing = bv == null || bv === "";
+      if (aMissing && bMissing) return String(a.etag || "").localeCompare(String(b.etag || ""));
+      if (aMissing) return 1;
+      if (bMissing) return -1;
+      if (kind === "number") {
+        av = Number(av);
+        bv = Number(bv);
+      } else if (kind === "date") {
+        av = String(av);
+        bv = String(bv);
+      } else {
+        av = String(av).toLowerCase();
+        bv = String(bv).toLowerCase();
+      }
+      if (av < bv) return -sortDir;
+      if (av > bv) return sortDir;
+      return String(a.etag || "").localeCompare(String(b.etag || ""));
+    }
+
+    function updateSortHeaders() {
+      document.querySelectorAll("#purchases-table thead th[data-sort]").forEach(th => {
+        const active = th.dataset.sort === sortKey;
+        th.classList.toggle("sorted-asc", active && sortDir === 1);
+        th.classList.toggle("sorted-desc", active && sortDir === -1);
+        if (active) th.setAttribute("aria-sort", sortDir === 1 ? "ascending" : "descending");
+        else th.removeAttribute("aria-sort");
+      });
+    }
+
     function renderTable(rows, meta) {
+      currentRows = rows;
+      if (meta) lastMeta = meta;
       const body = document.getElementById("table-body");
       const empty = document.getElementById("empty-state");
       const parts = [`${rows.length.toLocaleString("en-GB")} purchased animals`];
-      if (meta.latest_import) parts.push(`last rebuilt ${meta.latest_import.slice(0, 10)}`);
+      if (lastMeta.latest_import) parts.push(`last rebuilt ${lastMeta.latest_import.slice(0, 10)}`);
       document.getElementById("meta-line").textContent = parts.join(" · ");
+      updateSortHeaders();
 
       if (!rows.length) {
         body.innerHTML = "";
@@ -301,7 +373,8 @@
         return;
       }
       empty.style.display = "none";
-      body.innerHTML = rows.map(row => `
+      const sorted = [...rows].sort(compareRows);
+      body.innerHTML = sorted.map(row => `
         <tr>
           <td>${row.farm}</td>
           <td>${row.etag}</td>
@@ -326,7 +399,14 @@
           return;
         }
         const data = await res.json();
-        renderFiscalYearOptions(data.fiscal_year_options || [], data.selected_fiscal_year);
+        const appliedFiscalDefault = renderFiscalYearOptions(
+          data.fiscal_year_options || [],
+          data.selected_fiscal_year
+        );
+        if (appliedFiscalDefault) {
+          await loadRows();
+          return;
+        }
         if (data.date_bounds && !initialBoundsSynced) {
           syncDateBounds(data.date_bounds);
           initialBoundsSynced = true;
@@ -379,6 +459,17 @@
     document.getElementById("fiscal-year-select").addEventListener("change", () => {
       initialBoundsSynced = false;
       loadRows();
+    });
+    document.querySelectorAll("#purchases-table thead th[data-sort]").forEach(th => {
+      th.addEventListener("click", () => {
+        const key = th.dataset.sort;
+        if (sortKey === key) sortDir *= -1;
+        else {
+          sortKey = key;
+          sortDir = 1;
+        }
+        renderTable(currentRows);
+      });
     });
 
     loadRows();

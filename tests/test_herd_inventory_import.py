@@ -53,6 +53,9 @@ def test_inventory_import_skips_both_when_unchanged() -> None:
         patch(
             "app.services.herd_inventory_import._import_farm_file"
         ) as import_file,
+        patch(
+            "app.services.herd_inventory_import.rebuild_stock_purchases",
+        ) as rebuild,
     ):
         result = import_herd_inventory(db, force=False)
 
@@ -60,6 +63,7 @@ def test_inventory_import_skips_both_when_unchanged() -> None:
     assert result["farms_imported"] == []
     assert result["farms_skipped"] == ["CM", "GAD"]
     import_file.assert_not_called()
+    rebuild.assert_not_called()
     db.commit.assert_not_called()
 
 
@@ -93,6 +97,10 @@ def test_inventory_import_only_changed_farm() -> None:
         patch(
             "app.services.herd_inventory_import._store_farm_fingerprint"
         ) as store_fp,
+        patch(
+            "app.services.herd_inventory_import.rebuild_stock_purchases",
+            return_value={"rows_imported": 4, "from_inventory": 1},
+        ) as rebuild,
     ):
         result = import_herd_inventory(db, force=False)
 
@@ -104,6 +112,8 @@ def test_inventory_import_only_changed_farm() -> None:
     assert import_file.call_args[0][1] == CM_INVENTORY_FILE
     sync_ped.assert_called_once_with(db, farm="CM")
     assert store_fp.call_args[0][1] == "CM"
+    rebuild.assert_called_once_with(db)
+    assert result["purchase_stats"]["from_inventory"] == 1
     db.commit.assert_called_once()
 
 
@@ -133,6 +143,10 @@ def test_inventory_import_force_reloads_both() -> None:
             return_value=2,
         ),
         patch("app.services.herd_inventory_import._store_farm_fingerprint"),
+        patch(
+            "app.services.herd_inventory_import.rebuild_stock_purchases",
+            return_value={"rows_imported": 2},
+        ) as rebuild,
     ):
         result = import_herd_inventory(db, force=True)
 
@@ -141,6 +155,7 @@ def test_inventory_import_force_reloads_both() -> None:
     assert result["farms_skipped"] == []
     assert result["rows_imported"] == 30
     assert import_file.call_count == 2
+    rebuild.assert_called_once_with(db)
 
 
 def test_inventory_import_requires_graph_or_local_dir() -> None:
