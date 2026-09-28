@@ -221,7 +221,7 @@
 {% block content %}
   <div class="cropping-page">
     <p class="muted cropping-note">
-      One plan per farm and financial year (April–March). Chemical and seed are costed on the full acreage.
+      One plan per farm and financial year (April–March). Chemical, seed and sundries are costed on the full acreage.
       Fertiliser and harvest cost are £ per acre, charged on the acres taken at each cut — 2,000 acres cut 3.45 times is 2,000 × 3.45 × the rate.
       Average cuts is the sum of each cut’s share of the acreage — one cut of the whole crop is 1, and 100% then 80% then 50% is 2.3.
       Expected DM (t) is tonnes of dry matter per acre cut. t DM total is acres cut × that figure.
@@ -271,10 +271,12 @@
             <th class="num">Chemical £/acre</th>
             <th class="num" title="£ per acre cut. Charged on acres × average cuts.">Fertiliser £/acre</th>
             <th class="num">Seed £/acre</th>
+            <th class="num" title="£ per acre, charged on the full acreage.">Sundries £/acre</th>
             <th class="num" title="£ per acre, charged on the acres taken at each cut.">Harvest Cost</th>
             <th class="num">Chemical £</th>
             <th class="num">Fertiliser £</th>
             <th class="num">Seed £</th>
+            <th class="num">Sundries £</th>
             <th class="num">Harvest £</th>
             <th class="num">Total £</th>
             {% if can_edit %}<th></th>{% endif %}
@@ -293,9 +295,11 @@
             <td></td>
             <td></td>
             <td></td>
+            <td></td>
             <td class="num" id="total-chemical"></td>
             <td class="num" id="total-fertiliser"></td>
             <td class="num" id="total-seed"></td>
+            <td class="num" id="total-sundries"></td>
             <td class="num" id="total-harvest"></td>
             <td class="num" id="total-variable"></td>
             {% if can_edit %}<td></td>{% endif %}
@@ -405,10 +409,12 @@
           <td class="num"><input type="number" min="0" step="any" data-field="chemical_cost_per_acre" value="${inputValue(row.chemical_cost_per_acre)}"${disabled}></td>
           <td class="num"><input type="number" min="0" step="any" data-field="fertiliser_cost_per_acre" value="${inputValue(row.fertiliser_cost_per_acre)}"${disabled}></td>
           <td class="num"><input type="number" min="0" step="any" data-field="seed_cost_per_acre" value="${inputValue(row.seed_cost_per_acre)}"${disabled}></td>
+          <td class="num"><input type="number" min="0" step="any" data-field="sundries_cost_per_acre" value="${inputValue(row.sundries_cost_per_acre)}" title="£ per acre"${disabled}></td>
           <td class="num"><input type="number" min="0" step="any" data-field="harvest_cost_per_acre" value="${inputValue(row.harvest_cost_per_acre)}" title="£ per acre harvested"${disabled}></td>
           <td class="num calc" data-calc="chemical_total">${money(row.chemical_total)}</td>
           <td class="num calc" data-calc="fertiliser_total">${money(row.fertiliser_total)}</td>
           <td class="num calc" data-calc="seed_total">${money(row.seed_total)}</td>
+          <td class="num calc" data-calc="sundries_total">${money(row.sundries_total)}</td>
           <td class="num calc" data-calc="harvest_total">${money(row.harvest_total)}</td>
           <td class="num calc" data-calc="variable_cost_total">${money(row.variable_cost_total)}</td>
           ${remove}
@@ -427,6 +433,7 @@
       document.getElementById('total-chemical').textContent = money(totals.chemical_total);
       document.getElementById('total-fertiliser').textContent = money(totals.fertiliser_total);
       document.getElementById('total-seed').textContent = money(totals.seed_total);
+      document.getElementById('total-sundries').textContent = money(totals.sundries_total);
       document.getElementById('total-harvest').textContent = money(totals.harvest_total);
       document.getElementById('total-variable').textContent = money(totals.variable_cost_total);
     }
@@ -446,6 +453,7 @@
         tr.querySelector('[data-calc="chemical_total"]').textContent = money(row.chemical_total);
         tr.querySelector('[data-calc="fertiliser_total"]').textContent = money(row.fertiliser_total);
         tr.querySelector('[data-calc="seed_total"]').textContent = money(row.seed_total);
+        tr.querySelector('[data-calc="sundries_total"]').textContent = money(row.sundries_total);
         tr.querySelector('[data-calc="harvest_total"]').textContent = money(row.harvest_total);
         tr.querySelector('[data-calc="variable_cost_total"]').textContent = money(row.variable_cost_total);
       }
@@ -496,6 +504,10 @@
         seed_cost_per_acre: numberOrNull(
           tr.querySelector('[data-field="seed_cost_per_acre"]').value,
           'Seed cost per acre'
+        ),
+        sundries_cost_per_acre: numberOrNull(
+          tr.querySelector('[data-field="sundries_cost_per_acre"]').value,
+          'Sundries cost per acre'
         ),
         harvest_cost_per_acre: numberOrNull(
           tr.querySelector('[data-field="harvest_cost_per_acre"]').value,

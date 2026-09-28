@@ -36,6 +36,7 @@ def test_budget_link_is_prepared_but_not_registered() -> None:
         "cropping.chemical",
         "cropping.fertiliser",
         "cropping.seed",
+        "cropping.sundries",
         "cropping.harvest",
     ]
     assert set(keys).isdisjoint(FINANCIAL_DATA_SOURCE_KEYS)
@@ -67,6 +68,7 @@ def test_fertiliser_follows_acres_cut_and_seed_uses_full_acreage() -> None:
         chemical_cost_per_acre=20,
         fertiliser_cost_per_acre=40,
         seed_cost_per_acre=50,
+        sundries_cost_per_acre=8,
         harvest_cost_per_acre=12,
         cut_percentages=[100],
         expected_dm_tonnes=5,
@@ -74,8 +76,9 @@ def test_fertiliser_follows_acres_cut_and_seed_uses_full_acreage() -> None:
     assert annual["chemical_total"] == 2000
     assert annual["fertiliser_total"] == 4000
     assert annual["seed_total"] == 5000
+    assert annual["sundries_total"] == 800
     assert annual["harvest_total"] == 1200
-    assert annual["variable_cost_total"] == 12200
+    assert annual["variable_cost_total"] == 13000
     assert annual["dm_total"] == 500
 
     grazing = line_costs(
@@ -83,6 +86,7 @@ def test_fertiliser_follows_acres_cut_and_seed_uses_full_acreage() -> None:
         chemical_cost_per_acre=10,
         fertiliser_cost_per_acre=30,
         seed_cost_per_acre=80,
+        sundries_cost_per_acre=None,
         harvest_cost_per_acre=None,
         cut_percentages=[100, 80, 70, 55, 40],
         expected_dm_tonnes=None,
@@ -145,7 +149,7 @@ def test_save_is_per_farm_and_year(db: Session) -> None:
     assert totals["fertiliser"] == saved["totals"]["fertiliser_total"]
     assert totals["seed"] == saved["totals"]["seed_total"]
     assert totals["variable_cost"] == (
-        totals["chemical"] + totals["fertiliser"] + totals["seed"] + totals["harvest"]
+        totals["chemical"] + totals["fertiliser"] + totals["seed"] + totals["sundries"] + totals["harvest"]
     )
 
 

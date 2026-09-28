@@ -2418,6 +2418,7 @@ class CroppingForecastLine(Base):
     chemical_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
     fertiliser_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
     seed_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sundries_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
     harvest_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

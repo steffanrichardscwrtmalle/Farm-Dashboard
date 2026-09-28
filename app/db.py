@@ -459,6 +459,13 @@ def _migrate_cropping_schema() -> None:
                     "ADD COLUMN harvest_cost_per_acre FLOAT"
                 )
             )
+        if "sundries_cost_per_acre" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE cropping_forecast_lines "
+                    "ADD COLUMN sundries_cost_per_acre FLOAT"
+                )
+            )
         if "harvest_count" not in columns:
             return
         rows = conn.execute(

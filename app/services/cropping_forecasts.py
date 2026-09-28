@@ -6,8 +6,7 @@ wired yet: call ``cropping_cost_totals`` when it is. Expected dry matter stays
 on this plan for a future forage link and is not a £ budget figure.
 
 Cost rules used by the totals:
-- Chemical applies to the full acreage.
-- Seed applies to the full acreage.
+- Chemical, seed and sundries apply to the full acreage.
 - Fertiliser and harvest cost are £ per acre, charged on the acres taken at each cut
   (acres × average cuts).
 Each cut stores the percentage of the crop acreage taken at that cut.
@@ -42,6 +41,7 @@ FUTURE_BUDGET_SOURCE_KEYS: tuple[tuple[str, str], ...] = (
     ("cropping.chemical", "Cropping — chemical (£)"),
     ("cropping.fertiliser", "Cropping — fertiliser (£)"),
     ("cropping.seed", "Cropping — seed (£)"),
+    ("cropping.sundries", "Cropping — sundries (£)"),
     ("cropping.harvest", "Cropping — harvest (£)"),
 )
 
@@ -247,6 +247,7 @@ def line_costs(
     chemical_cost_per_acre: float | None,
     fertiliser_cost_per_acre: float | None,
     seed_cost_per_acre: float | None,
+    sundries_cost_per_acre: float | None,
     harvest_cost_per_acre: float | None,
     cut_percentages: list[float] | None,
     expected_dm_tonnes: float | None,
@@ -258,6 +259,7 @@ def line_costs(
     chemical_total = round(area * (chemical_cost_per_acre or 0.0), 2)
     fertiliser_total = round(cut_acres * (fertiliser_cost_per_acre or 0.0), 2)
     seed_total = round(area * (seed_cost_per_acre or 0.0), 2)
+    sundries_total = round(area * (sundries_cost_per_acre or 0.0), 2)
     harvest_total = round(cut_acres * (harvest_cost_per_acre or 0.0), 2)
     dm_total = (
         round(cut_acres * expected_dm_tonnes, 3)
@@ -270,9 +272,11 @@ def line_costs(
         "chemical_total": chemical_total,
         "fertiliser_total": fertiliser_total,
         "seed_total": seed_total,
+        "sundries_total": sundries_total,
         "harvest_total": harvest_total,
         "variable_cost_total": round(
-            chemical_total + fertiliser_total + seed_total + harvest_total, 2
+            chemical_total + fertiliser_total + seed_total + sundries_total + harvest_total,
+            2,
         ),
         "dm_total": dm_total,
     }
@@ -287,12 +291,14 @@ def _line_payload(crop: dict[str, Any], line: CroppingForecastLine | None) -> di
     chemical = line.chemical_cost_per_acre if line else None
     fertiliser = line.fertiliser_cost_per_acre if line else None
     seed = line.seed_cost_per_acre if line else None
+    sundries = line.sundries_cost_per_acre if line else None
     harvest = line.harvest_cost_per_acre if line else None
     costs = line_costs(
         acres=acres,
         chemical_cost_per_acre=chemical,
         fertiliser_cost_per_acre=fertiliser,
         seed_cost_per_acre=seed,
+        sundries_cost_per_acre=sundries,
         harvest_cost_per_acre=harvest,
         cut_percentages=percentages,
         expected_dm_tonnes=expected_dm,
@@ -310,6 +316,7 @@ def _line_payload(crop: dict[str, Any], line: CroppingForecastLine | None) -> di
         "chemical_cost_per_acre": chemical,
         "fertiliser_cost_per_acre": fertiliser,
         "seed_cost_per_acre": seed,
+        "sundries_cost_per_acre": sundries,
         "harvest_cost_per_acre": harvest,
         **costs,
     }
@@ -322,6 +329,7 @@ def _empty_totals() -> dict[str, float]:
         "chemical_total": 0.0,
         "fertiliser_total": 0.0,
         "seed_total": 0.0,
+        "sundries_total": 0.0,
         "harvest_total": 0.0,
         "variable_cost_total": 0.0,
     }
@@ -339,6 +347,9 @@ def _add_totals(totals: dict[str, float], row: dict[str, Any]) -> None:
         totals["fertiliser_total"] + float(row["fertiliser_total"]), 2
     )
     totals["seed_total"] = round(totals["seed_total"] + float(row["seed_total"]), 2)
+    totals["sundries_total"] = round(
+        totals["sundries_total"] + float(row["sundries_total"]), 2
+    )
     totals["harvest_total"] = round(
         totals["harvest_total"] + float(row["harvest_total"]), 2
     )
@@ -396,6 +407,7 @@ def cropping_cost_totals(
         "chemical": totals["chemical_total"],
         "fertiliser": totals["fertiliser_total"],
         "seed": totals["seed_total"],
+        "sundries": totals["sundries_total"],
         "harvest": totals["harvest_total"],
         "variable_cost": totals["variable_cost_total"],
         "expected_dm_tonnes": totals["dm_total"],
@@ -438,6 +450,9 @@ def save_cropping_forecast(
             ),
             "seed_cost_per_acre": _optional_number(
                 raw.get("seed_cost_per_acre"), "Seed cost per acre"
+            ),
+            "sundries_cost_per_acre": _optional_number(
+                raw.get("sundries_cost_per_acre"), "Sundries cost per acre"
             ),
             "harvest_cost_per_acre": _optional_number(
                 raw.get("harvest_cost_per_acre"), "Harvest cost"

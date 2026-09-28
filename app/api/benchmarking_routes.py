@@ -1238,6 +1238,7 @@ class CroppingForecastRowBody(BaseModel):
     chemical_cost_per_acre: float | None = None
     fertiliser_cost_per_acre: float | None = None
     seed_cost_per_acre: float | None = None
+    sundries_cost_per_acre: float | None = None
     harvest_cost_per_acre: float | None = None
 
 
