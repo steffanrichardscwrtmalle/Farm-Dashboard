@@ -826,6 +826,8 @@
       const perDay = row && row.holiday_hours_per_day != null ? Number(row.holiday_hours_per_day) : 8;
       const hoursCell = tr.querySelector('[data-holiday-hours]');
       if (hoursCell) hoursCell.textContent = String(Math.round(days * perDay * 100) / 100);
+      const takenCell = tr.querySelector('[data-taken]');
+      if (takenCell) takenCell.textContent = String(days);
       updateCarryForwardCell(tr, remainingValueFromRow(tr), days);
     }
     if (input.dataset.field === 'holidays_remaining') {

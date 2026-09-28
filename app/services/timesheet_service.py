@@ -400,12 +400,6 @@ def _serialize_row(
             rate_value, rate_label = amount, label
     year_end = _employee_year_end(employee)
     hours_per_day = _holiday_hours_per_day(employee)
-    holidays_taken = _holidays_taken_in_year(
-        holiday_entries,
-        year_end,
-        as_of=as_of,
-        hours_per_day=hours_per_day,
-    )
     remaining, remaining_locked = _opening_remaining(
         employee,
         holiday_entries,
@@ -453,7 +447,7 @@ def _serialize_row(
         "other_remark": (entry.other_remark if entry else None) or "",
         "holidays_remaining": remaining,
         "remaining_locked": remaining_locked,
-        "holidays_taken": holidays_taken,
+        "holidays_taken": holiday_days,
         "holidays_carry_forward": _holidays_carry_forward(remaining, holiday_days),
         "holiday_year_end": (
             current_holiday_year_end(year_end, as_of).isoformat()
@@ -530,30 +524,6 @@ def _accommodation_for_period(
             return round(amount, 2)
         return round(amount * days / month_days, 2)
     return round(amount * days / 7.0, 2)
-
-
-def _holidays_taken_in_year(
-    entries: list[EmployeeTimesheetEntry],
-    year_end: dt.date | None,
-    *,
-    as_of: dt.date | None = None,
-    hours_per_day: float | None = None,
-) -> float:
-    year_start = None
-    end = year_end
-    as_of = as_of or dt.date.today()
-    if year_end is not None:
-        year_start, end = leave_year_bounds(year_end, as_of)
-    divisor = hours_per_day or DEFAULT_HOLIDAY_HOURS_PER_DAY
-    total = 0.0
-    for entry in entries:
-        if year_start and (entry.period_start < year_start or entry.period_start > end):
-            continue
-        if entry.holiday_days is not None:
-            total += float(entry.holiday_days)
-        elif entry.holiday_hours:
-            total += float(entry.holiday_hours) / divisor
-    return _num(total) or 0.0
 
 
 def _opening_remaining(

@@ -308,7 +308,7 @@ def test_save_hours_and_holiday_year_total(db):
     sheet = list_timesheet(
         db, "CM", period_start=dt.date(2026, 9, 21), include_rate=False
     )
-    assert sheet["rows"][0]["holidays_taken"] == 3
+    assert sheet["rows"][0]["holidays_taken"] == 2
     assert sheet["rows"][0]["holidays_remaining"] == 71
     assert sheet["rows"][0]["remaining_locked"] is True
     assert sheet["rows"][0]["holidays_carry_forward"] == 69
@@ -758,6 +758,7 @@ def test_carry_forward_is_brought_forward_on_next_period(db):
     )
     assert first["holidays_remaining"] == 10
     assert first["remaining_locked"] is False
+    assert first["holidays_taken"] == 2
     assert first["holidays_carry_forward"] == 8
 
     second = save_timesheet_row(
@@ -772,7 +773,7 @@ def test_carry_forward_is_brought_forward_on_next_period(db):
     )
     assert second["holidays_remaining"] == 8
     assert second["remaining_locked"] is True
-    assert second["holidays_taken"] == 3
+    assert second["holidays_taken"] == 1
     assert second["holidays_carry_forward"] == 7
 
     first_again = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
