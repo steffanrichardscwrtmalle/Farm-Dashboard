@@ -61,40 +61,37 @@ def test_seed_crop_types_once(db: Session) -> None:
     assert forecast["totals"]["average_cuts"] is None
 
 
-def test_annual_seed_uses_full_acreage_and_perennial_uses_reseed() -> None:
+def test_fertiliser_follows_acres_cut_and_seed_uses_full_acreage() -> None:
     annual = line_costs(
-        is_perennial=False,
         acres=100,
-        acres_to_reseed=10,
         chemical_cost_per_acre=20,
         fertiliser_cost_per_acre=40,
         seed_cost_per_acre=50,
         harvest_cost_per_acre=12,
         cut_percentages=[100],
-        expected_dm_tonnes=500,
+        expected_dm_tonnes=5,
     )
     assert annual["chemical_total"] == 2000
     assert annual["fertiliser_total"] == 4000
     assert annual["seed_total"] == 5000
     assert annual["harvest_total"] == 1200
     assert annual["variable_cost_total"] == 12200
-    assert annual["dm_per_acre"] == 5
+    assert annual["dm_total"] == 500
 
     grazing = line_costs(
-        is_perennial=True,
-        acres=200,
-        acres_to_reseed=25,
+        acres=2000,
         chemical_cost_per_acre=10,
         fertiliser_cost_per_acre=30,
         seed_cost_per_acre=80,
         harvest_cost_per_acre=None,
-        cut_percentages=[100],
+        cut_percentages=[100, 80, 70, 55, 40],
         expected_dm_tonnes=None,
     )
-    assert grazing["chemical_total"] == 2000
-    assert grazing["fertiliser_total"] == 6000
-    assert grazing["seed_total"] == 2000
-    assert grazing["dm_per_acre"] is None
+    assert grazing["harvested_acres"] == 6900
+    assert grazing["fertiliser_total"] == 2000 * 3.45 * 30
+    assert grazing["chemical_total"] == 20000
+    assert grazing["seed_total"] == 160000
+    assert grazing["dm_total"] is None
 
 
 def test_save_is_per_farm_and_year(db: Session) -> None:
@@ -115,7 +112,6 @@ def test_save_is_per_farm_and_year(db: Session) -> None:
                 "chemical_cost_per_acre": 15,
                 "fertiliser_cost_per_acre": 45,
                 "seed_cost_per_acre": 60,
-                "acres_to_reseed": None,
             },
             {
                 "crop_type_id": grazing["crop_type_id"],
@@ -125,18 +121,18 @@ def test_save_is_per_farm_and_year(db: Session) -> None:
                 "chemical_cost_per_acre": 5,
                 "fertiliser_cost_per_acre": 25,
                 "seed_cost_per_acre": 70,
-                "acres_to_reseed": 20,
             },
         ],
         user_id=1,
     )
     by_name = {row["name"]: row for row in saved["rows"]}
     assert by_name["Maize"]["seed_total"] == 4800
-    assert by_name["Grazing"]["seed_total"] == 1400
+    assert by_name["Grazing"]["seed_total"] == 10500
     assert by_name["Grazing"]["chemical_total"] == 750
+    assert by_name["Grazing"]["fertiliser_total"] == 8625
     assert by_name["Grazing"]["average_cuts"] == 2.3
     assert [cut["acres"] for cut in by_name["Grazing"]["cuts"]] == [150, 120, 75]
-    assert saved["totals"]["expected_dm_tonnes"] == 1300
+    assert saved["totals"]["dm_total"] == 342500
     assert saved["totals"]["average_cuts"] == 1.85
 
     other_farm = get_cropping_forecast(db, fiscal_year=2027, farm="GAD")

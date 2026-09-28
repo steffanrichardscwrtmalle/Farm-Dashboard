@@ -6,13 +6,14 @@ wired yet: call ``cropping_cost_totals`` when it is. Expected dry matter stays
 on this plan for a future forage link and is not a £ budget figure.
 
 Cost rules used by the totals:
-- Chemical and fertiliser apply to the full acreage.
-- Seed applies to the full acreage for an annual crop.
-- Seed applies only to acres to reseed for a perennial crop.
-- Harvest cost is £ per acre, charged on the acres taken at each cut.
+- Chemical applies to the full acreage.
+- Seed applies to the full acreage.
+- Fertiliser and harvest cost are £ per acre, charged on the acres taken at each cut
+  (acres × average cuts).
 Each cut stores the percentage of the crop acreage taken at that cut.
 Cuts is the sum of those percentages (100% + 80% + 50% is 2.3).
 A crop with no cuts saved is treated as one cut of the whole acreage.
+Expected dry matter is tonnes per acre cut. Total dry matter is acres cut × that rate.
 """
 
 from __future__ import annotations
@@ -26,8 +27,7 @@ from sqlalchemy.orm import Session
 from app.models import HERD_FARM_OPTIONS, CropType, CroppingForecastLine
 from app.services.farm_schedule import FARM_LABELS
 
-# (name, is_perennial). Grazing is the only perennial in the starter list;
-# any crop can be marked perennial later, which reveals acres to reseed.
+# (name, is_perennial). Grazing is the only perennial in the starter list.
 DEFAULT_CROP_TYPES: tuple[tuple[str, bool], ...] = (
     ("Maize", False),
     ("Spring Barley", False),
@@ -243,9 +243,7 @@ def harvested_acres(acres: float | None, percentages: list[float]) -> float:
 
 def line_costs(
     *,
-    is_perennial: bool,
     acres: float | None,
-    acres_to_reseed: float | None,
     chemical_cost_per_acre: float | None,
     fertiliser_cost_per_acre: float | None,
     seed_cost_per_acre: float | None,
@@ -255,21 +253,19 @@ def line_costs(
 ) -> dict[str, float | None]:
     """£ totals and dry-matter yield for one crop line."""
     area = acres or 0.0
-    reseed = acres_to_reseed or 0.0
-    seed_acres = reseed if is_perennial else area
     percentages = normalize_cut_percentages(cut_percentages)
     cut_acres = harvested_acres(acres, percentages)
     chemical_total = round(area * (chemical_cost_per_acre or 0.0), 2)
-    fertiliser_total = round(area * (fertiliser_cost_per_acre or 0.0), 2)
-    seed_total = round(seed_acres * (seed_cost_per_acre or 0.0), 2)
+    fertiliser_total = round(cut_acres * (fertiliser_cost_per_acre or 0.0), 2)
+    seed_total = round(area * (seed_cost_per_acre or 0.0), 2)
     harvest_total = round(cut_acres * (harvest_cost_per_acre or 0.0), 2)
-    dm_per_acre = (
-        round(expected_dm_tonnes / area, 3)
-        if area and expected_dm_tonnes is not None
+    dm_total = (
+        round(cut_acres * expected_dm_tonnes, 3)
+        if expected_dm_tonnes is not None
         else None
     )
     return {
-        "seed_acres": seed_acres,
+        "seed_acres": area,
         "harvested_acres": cut_acres,
         "chemical_total": chemical_total,
         "fertiliser_total": fertiliser_total,
@@ -278,7 +274,7 @@ def line_costs(
         "variable_cost_total": round(
             chemical_total + fertiliser_total + seed_total + harvest_total, 2
         ),
-        "dm_per_acre": dm_per_acre,
+        "dm_total": dm_total,
     }
 
 
@@ -292,11 +288,8 @@ def _line_payload(crop: dict[str, Any], line: CroppingForecastLine | None) -> di
     fertiliser = line.fertiliser_cost_per_acre if line else None
     seed = line.seed_cost_per_acre if line else None
     harvest = line.harvest_cost_per_acre if line else None
-    reseed = line.acres_to_reseed if line else None
     costs = line_costs(
-        is_perennial=crop["is_perennial"],
         acres=acres,
-        acres_to_reseed=reseed,
         chemical_cost_per_acre=chemical,
         fertiliser_cost_per_acre=fertiliser,
         seed_cost_per_acre=seed,
@@ -318,7 +311,6 @@ def _line_payload(crop: dict[str, Any], line: CroppingForecastLine | None) -> di
         "fertiliser_cost_per_acre": fertiliser,
         "seed_cost_per_acre": seed,
         "harvest_cost_per_acre": harvest,
-        "acres_to_reseed": reseed,
         **costs,
     }
 
@@ -326,7 +318,7 @@ def _line_payload(crop: dict[str, Any], line: CroppingForecastLine | None) -> di
 def _empty_totals() -> dict[str, float]:
     return {
         "acres": 0.0,
-        "expected_dm_tonnes": 0.0,
+        "dm_total": 0.0,
         "chemical_total": 0.0,
         "fertiliser_total": 0.0,
         "seed_total": 0.0,
@@ -337,8 +329,8 @@ def _empty_totals() -> dict[str, float]:
 
 def _add_totals(totals: dict[str, float], row: dict[str, Any]) -> None:
     totals["acres"] = round(totals["acres"] + (row["acres"] or 0.0), 2)
-    totals["expected_dm_tonnes"] = round(
-        totals["expected_dm_tonnes"] + (row["expected_dm_tonnes"] or 0.0), 3
+    totals["dm_total"] = round(
+        totals["dm_total"] + (row["dm_total"] or 0.0), 3
     )
     totals["chemical_total"] = round(
         totals["chemical_total"] + float(row["chemical_total"]), 2
@@ -406,7 +398,7 @@ def cropping_cost_totals(
         "seed": totals["seed_total"],
         "harvest": totals["harvest_total"],
         "variable_cost": totals["variable_cost_total"],
-        "expected_dm_tonnes": totals["expected_dm_tonnes"],
+        "expected_dm_tonnes": totals["dm_total"],
     }
 
 
@@ -436,7 +428,7 @@ def save_cropping_forecast(
             "acres": _optional_number(raw.get("acres"), "Acres"),
             "cut_percentages": normalize_cut_percentages(raw.get("cut_percentages")),
             "expected_dm_tonnes": _optional_number(
-                raw.get("expected_dm_tonnes"), "Expected dry matter"
+                raw.get("expected_dm_tonnes"), "Expected dry matter per acre cut"
             ),
             "chemical_cost_per_acre": _optional_number(
                 raw.get("chemical_cost_per_acre"), "Chemical cost per acre"
@@ -449,9 +441,6 @@ def save_cropping_forecast(
             ),
             "harvest_cost_per_acre": _optional_number(
                 raw.get("harvest_cost_per_acre"), "Harvest cost"
-            ),
-            "acres_to_reseed": _optional_number(
-                raw.get("acres_to_reseed"), "Acres to reseed"
             ),
         }
         line = db.scalar(

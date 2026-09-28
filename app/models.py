@@ -2413,12 +2413,12 @@ class CroppingForecastLine(Base):
     # Share of the crop acreage taken at each cut, in order. 100 means the
     # whole acreage. Average cuts is the sum of these percentages.
     cut_percentages: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Tonnes of dry matter per acre cut. Total DM is acres cut × this rate.
     expected_dm_tonnes: Mapped[float | None] = mapped_column(Float, nullable=True)
     chemical_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
     fertiliser_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
     seed_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
     harvest_cost_per_acre: Mapped[float | None] = mapped_column(Float, nullable=True)
-    acres_to_reseed: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )

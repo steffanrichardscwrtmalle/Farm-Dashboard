@@ -1239,7 +1239,6 @@ class CroppingForecastRowBody(BaseModel):
     fertiliser_cost_per_acre: float | None = None
     seed_cost_per_acre: float | None = None
     harvest_cost_per_acre: float | None = None
-    acres_to_reseed: float | None = None
 
 
 class SaveCroppingForecastBody(BaseModel):

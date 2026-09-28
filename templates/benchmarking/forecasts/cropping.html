@@ -221,11 +221,10 @@
 {% block content %}
   <div class="cropping-page">
     <p class="muted cropping-note">
-      One plan per farm and financial year (April–March). Chemical and fertiliser are costed on the full acreage.
-      Seed is costed on the full acreage for an annual crop, and only on the acres being reseeded for a perennial crop.
+      One plan per farm and financial year (April–March). Chemical and seed are costed on the full acreage.
+      Fertiliser and harvest cost are £ per acre, charged on the acres taken at each cut — 2,000 acres cut 3.45 times is 2,000 × 3.45 × the rate.
       Average cuts is the sum of each cut’s share of the acreage — one cut of the whole crop is 1, and 100% then 80% then 50% is 2.3.
-      Harvest cost is £ per acre, charged on the acres taken at each cut.
-      Expected dry matter is stored with the plan.
+      Expected DM (t) is tonnes of dry matter per acre cut. t DM total is acres cut × that figure.
       Those totals stay on this page for now — they are not copied into Financial Forecasts yet.
     </p>
 
@@ -267,13 +266,12 @@
             <th>Perennial</th>
             <th class="num">Acres</th>
             <th class="num" title="Sum of each cut as a share of the acreage. Click a figure to set the cuts.">Cuts</th>
-            <th class="num" title="Expected total dry matter for this crop, in tonnes.">Expected DM (t)</th>
-            <th class="num">t DM/acre</th>
+            <th class="num" title="Expected tonnes of dry matter per acre cut.">Expected DM (t)</th>
+            <th class="num" title="Acres cut × expected DM per acre cut.">t DM total</th>
             <th class="num">Chemical £/acre</th>
-            <th class="num">Fertiliser £/acre</th>
+            <th class="num" title="£ per acre cut. Charged on acres × average cuts.">Fertiliser £/acre</th>
             <th class="num">Seed £/acre</th>
             <th class="num" title="£ per acre, charged on the acres taken at each cut.">Harvest Cost</th>
-            <th class="num" title="Used for perennial crops only. Seed cost is acres to reseed × seed £/acre.">Acres to reseed</th>
             <th class="num">Chemical £</th>
             <th class="num">Fertiliser £</th>
             <th class="num">Seed £</th>
@@ -290,7 +288,6 @@
             <td class="num" id="total-acres"></td>
             <td class="num" id="total-cuts" title="Weighted by acres"></td>
             <td class="num" id="total-dm"></td>
-            <td></td>
             <td></td>
             <td></td>
             <td></td>
@@ -395,7 +392,6 @@
       tableEl.hidden = rows.length === 0;
       const disabled = CAN_EDIT ? '' : ' disabled';
       bodyEl.innerHTML = rows.map((row) => {
-        const reseedDisabled = !CAN_EDIT || !row.is_perennial ? ' disabled' : '';
         const remove = CAN_EDIT
           ? `<td><button type="button" class="btn-remove" data-action="remove">Remove</button></td>`
           : '';
@@ -405,12 +401,11 @@
           <td class="num"><input type="number" min="0" step="any" data-field="acres" value="${inputValue(row.acres)}"${disabled}></td>
           <td class="num"><button type="button" class="cuts-link" data-action="cuts">${qty(row.average_cuts, 2)}</button></td>
           <td class="num"><input type="number" min="0" step="any" data-field="expected_dm_tonnes" value="${inputValue(row.expected_dm_tonnes)}"${disabled}></td>
-          <td class="num calc" data-calc="dm_per_acre">${qty(row.dm_per_acre, 3)}</td>
+          <td class="num calc" data-calc="dm_total">${qty(row.dm_total, 3)}</td>
           <td class="num"><input type="number" min="0" step="any" data-field="chemical_cost_per_acre" value="${inputValue(row.chemical_cost_per_acre)}"${disabled}></td>
           <td class="num"><input type="number" min="0" step="any" data-field="fertiliser_cost_per_acre" value="${inputValue(row.fertiliser_cost_per_acre)}"${disabled}></td>
           <td class="num"><input type="number" min="0" step="any" data-field="seed_cost_per_acre" value="${inputValue(row.seed_cost_per_acre)}"${disabled}></td>
           <td class="num"><input type="number" min="0" step="any" data-field="harvest_cost_per_acre" value="${inputValue(row.harvest_cost_per_acre)}" title="£ per acre harvested"${disabled}></td>
-          <td class="num"><input type="number" min="0" step="any" data-field="acres_to_reseed" value="${inputValue(row.acres_to_reseed)}" title="Perennial crops only"${reseedDisabled}></td>
           <td class="num calc" data-calc="chemical_total">${money(row.chemical_total)}</td>
           <td class="num calc" data-calc="fertiliser_total">${money(row.fertiliser_total)}</td>
           <td class="num calc" data-calc="seed_total">${money(row.seed_total)}</td>
@@ -428,7 +423,7 @@
         totals.average_cuts === null || totals.average_cuts === undefined
           ? ''
           : qty(totals.average_cuts, 2);
-      document.getElementById('total-dm').textContent = qty(totals.expected_dm_tonnes || 0, 3);
+      document.getElementById('total-dm').textContent = qty(totals.dm_total || 0, 3);
       document.getElementById('total-chemical').textContent = money(totals.chemical_total);
       document.getElementById('total-fertiliser').textContent = money(totals.fertiliser_total);
       document.getElementById('total-seed').textContent = money(totals.seed_total);
@@ -447,14 +442,12 @@
         tr.dataset.cuts = JSON.stringify(row.cut_percentages || [100]);
         const cutsButton = tr.querySelector('[data-action="cuts"]');
         if (cutsButton) cutsButton.textContent = qty(row.average_cuts, 2);
-        tr.querySelector('[data-calc="dm_per_acre"]').textContent = qty(row.dm_per_acre, 3);
+        tr.querySelector('[data-calc="dm_total"]').textContent = qty(row.dm_total, 3);
         tr.querySelector('[data-calc="chemical_total"]').textContent = money(row.chemical_total);
         tr.querySelector('[data-calc="fertiliser_total"]').textContent = money(row.fertiliser_total);
         tr.querySelector('[data-calc="seed_total"]').textContent = money(row.seed_total);
         tr.querySelector('[data-calc="harvest_total"]').textContent = money(row.harvest_total);
         tr.querySelector('[data-calc="variable_cost_total"]').textContent = money(row.variable_cost_total);
-        const reseed = tr.querySelector('[data-field="acres_to_reseed"]');
-        reseed.disabled = !CAN_EDIT || !row.is_perennial;
       }
       if (replaced) {
         render(data);
@@ -490,7 +483,7 @@
         cut_percentages: cutsFromRow(tr),
         expected_dm_tonnes: numberOrNull(
           tr.querySelector('[data-field="expected_dm_tonnes"]').value,
-          'Expected dry matter'
+          'Expected dry matter per acre cut'
         ),
         chemical_cost_per_acre: numberOrNull(
           tr.querySelector('[data-field="chemical_cost_per_acre"]').value,
@@ -507,10 +500,6 @@
         harvest_cost_per_acre: numberOrNull(
           tr.querySelector('[data-field="harvest_cost_per_acre"]').value,
           'Harvest cost'
-        ),
-        acres_to_reseed: numberOrNull(
-          tr.querySelector('[data-field="acres_to_reseed"]').value,
-          'Acres to reseed'
         ),
       }));
     }
