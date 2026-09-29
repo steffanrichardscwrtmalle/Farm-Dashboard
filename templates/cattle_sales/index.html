@@ -119,11 +119,13 @@
       display: flex;
       align-items: center;
       justify-content: flex-end;
+      flex-wrap: wrap;
       gap: 0.75rem;
       margin: 0 0 0.75rem;
     }
     .series-bar .section-label { margin: 0; }
     .series-slicer { width: 12rem; flex-shrink: 0; }
+    .smooth-btn { width: auto; min-width: 5.5rem; padding-left: 0.7rem; padding-right: 0.7rem; }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
     .meta-line.is-loading { font-style: italic; }
     .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
@@ -393,6 +395,7 @@
           <button type="button" class="slicer-btn selected" data-value="farm" aria-pressed="true">Farm</button>
           <button type="button" class="slicer-btn" data-value="supplier" aria-pressed="false">Supplier</button>
         </div>
+        <button type="button" class="slicer-btn smooth-btn" id="smooth-toggle" aria-pressed="false" title="Blend each point with the neighbouring groups">Smooth</button>
       </div>
 
       <div class="charts-grid">
@@ -516,6 +519,7 @@
     };
     const SERIES_PALETTE = ['#64748b', '#c2410c', '#4338ca', '#0e7490', '#a16207', '#9f1239', '#15803d'];
     let chartSeriesBy = 'farm';
+    let chartSmooth = false;
     let buyerSelection = null;
     let openSummaryMetric = null;
     const lastRangeBounds = {};
@@ -1045,6 +1049,23 @@
       return [...new Set(rows.map(seriesLabel))].sort((a, b) => a.localeCompare(b));
     }
 
+    function plottedValues(raw) {
+      const values = raw.map(v => (v == null || Number.isNaN(Number(v)) ? null : Number(v)));
+      if (!chartSmooth) return values;
+      return values.map((y, i) => {
+        if (y == null) return null;
+        let sum = 0;
+        let count = 0;
+        for (let j = i - 1; j <= i + 1; j++) {
+          if (values[j] == null) continue;
+          sum += values[j];
+          count += 1;
+        }
+        if (!count) return null;
+        return Math.round((sum / count) * 100) / 100;
+      });
+    }
+
     function trailingAnimalAverage(rows, series, endDate, yKey) {
       const startDate = isoAddDays(endDate, -(ROLL_WINDOW_DAYS - 1));
       const animals = rows.filter(r =>
@@ -1087,10 +1108,10 @@
         const color = seriesColor(name, index);
         return {
           label: name,
-          data: weekMeta.map(w => {
+          data: plottedValues(weekMeta.map(w => {
             const r = w.bySeries[name];
             return r ? r.y : null;
-          }),
+          })),
           borderColor: color,
           backgroundColor: color,
           spanGaps: true,
@@ -1117,11 +1138,11 @@
                 label: (ctx) => {
                   const w = weekMeta[ctx.dataIndex];
                   const r = w?.bySeries[ctx.dataset.label];
-                  if (r == null || ctx.parsed.y == null) return `${ctx.dataset.label}: —`;
+                  if (r == null) return `${ctx.dataset.label}: —`;
                   const n = r._n > 1
                     ? ` (${r._n} animals in 21 days)`
                     : (r._n === 1 ? ' (1 animal in 21 days)' : '');
-                  return `${ctx.dataset.label}: ${fmtNum(ctx.parsed.y)}${n}`;
+                  return `${ctx.dataset.label}: ${fmtNum(r.y)}${n}`;
                 },
               },
             },
@@ -1177,10 +1198,10 @@
         const color = seriesColor(name, index);
         return {
           label: name,
-          data: bucketMeta.map(b => {
+          data: plottedValues(bucketMeta.map(b => {
             const r = b.bySeries[name];
             return r ? r.y : null;
-          }),
+          })),
           borderColor: color,
           backgroundColor: color,
           spanGaps: true,
@@ -1211,9 +1232,9 @@
                 label: (ctx) => {
                   const b = bucketMeta[ctx.dataIndex];
                   const r = b?.bySeries[ctx.dataset.label];
-                  if (r == null || ctx.parsed.y == null) return `${ctx.dataset.label}: —`;
+                  if (r == null) return `${ctx.dataset.label}: —`;
                   const n = r._n > 1 ? ` (${r._n} animals)` : (r._n === 1 ? ' (1 animal)' : '');
-                  return `${ctx.dataset.label}: ${fmtNum(ctx.parsed.y)}${n}`;
+                  return `${ctx.dataset.label}: ${fmtNum(r.y)}${n}`;
                 },
               },
             },
@@ -1268,10 +1289,10 @@
         const color = seriesColor(name, index);
         return {
           label: name,
-          data: bucketMeta.map(b => {
+          data: plottedValues(bucketMeta.map(b => {
             const r = b.bySeries[name];
             return r ? r.y : null;
-          }),
+          })),
           borderColor: color,
           backgroundColor: color,
           spanGaps: true,
@@ -1302,9 +1323,9 @@
                 label: (ctx) => {
                   const b = bucketMeta[ctx.dataIndex];
                   const r = b?.bySeries[ctx.dataset.label];
-                  if (r == null || ctx.parsed.y == null) return `${ctx.dataset.label}: —`;
+                  if (r == null) return `${ctx.dataset.label}: —`;
                   const n = r._n > 1 ? ` (${r._n} animals)` : (r._n === 1 ? ' (1 animal)' : '');
-                  return `${ctx.dataset.label}: £${fmtNum(ctx.parsed.y)}${n}`;
+                  return `${ctx.dataset.label}: £${fmtNum(r.y)}${n}`;
                 },
               },
             },
@@ -1620,6 +1641,13 @@
     });
     bindExclusiveSlicer('.series-slicer', (value) => {
       chartSeriesBy = value === 'supplier' ? 'supplier' : 'farm';
+      renderCharts(displayedRows());
+    });
+    document.getElementById('smooth-toggle').addEventListener('click', () => {
+      const btn = document.getElementById('smooth-toggle');
+      chartSmooth = !chartSmooth;
+      btn.classList.toggle('selected', chartSmooth);
+      btn.setAttribute('aria-pressed', chartSmooth ? 'true' : 'false');
       renderCharts(displayedRows());
     });
     bindChartUI();
