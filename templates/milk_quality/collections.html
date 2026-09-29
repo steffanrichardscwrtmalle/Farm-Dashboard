@@ -283,45 +283,13 @@
     .import-log { margin-top: 0.5rem; max-height: 14rem; overflow: auto; font-size: 0.8125rem; }
     .import-log ul { margin: 0; padding-left: 1.1rem; }
     .content-panel { min-width: 0; }
-    .page-filters { min-width: 0; }
-    .page-filters > .mobile-filters-toggle { display: none; list-style: none; }
-    .mobile-filters-toggle::-webkit-details-marker { display: none; }
-    .mobile-filters-toggle::marker { content: ""; }
-    .mobile-sort { display: none; }
     .hint-phone { display: none; }
-    @media (min-width: 769px) {
-      .page-filters:not([open]) > .sidebar-column { display: flex !important; }
-    }
     @media (max-width: 768px) {
       .page-layout { gap: 0.75rem; }
-      .page-layout, .content-panel, .charts-grid, .chart-card, .chart-toolbar, .table-wrap, .action-bar, .mobile-sort, .summary-cards {
+      .page-layout, .content-panel, .charts-grid, .chart-card, .chart-toolbar, .table-wrap, .action-bar, .summary-cards {
         max-width: 100%;
         min-width: 0;
       }
-      .page-filters > .mobile-filters-toggle {
-        display: flex;
-        align-items: center;
-        width: 100%;
-        min-height: 2.75rem;
-        margin: 0 0 0.65rem;
-        padding: 0.55rem 0.85rem;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: var(--card);
-        color: #1e3a5f;
-        font-size: 0.95rem;
-        font-weight: 700;
-        cursor: pointer;
-      }
-      .mobile-filters-toggle::after {
-        content: "Show";
-        margin-left: auto;
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: var(--muted);
-      }
-      .page-filters[open] > .mobile-filters-toggle::after { content: "Hide"; }
-      .page-filters:not([open]) > .sidebar-column { display: none; }
       .summary-cards { grid-template-columns: 1fr 1fr; }
       .summary-card .value { font-size: 1.15rem; word-break: break-word; }
       button.summary-card { min-height: 4.5rem; }
@@ -380,79 +348,12 @@
       .chart-modal-head { flex-wrap: wrap; }
       .chart-modal-actions { width: 100%; }
       .chart-modal-actions button { flex: 1; min-height: 2.75rem; }
-      .mobile-sort {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin: 0 0 0.65rem;
-      }
-      .mobile-sort label {
-        display: flex;
-        align-items: center;
-        gap: 0.45rem;
-        flex: 1;
-        margin: 0;
-        min-width: 0;
-      }
-      .mobile-sort select { flex: 1; min-width: 0; min-height: 2.75rem; margin: 0; font-size: 16px; }
-      .mobile-sort button { min-width: 2.75rem; min-height: 2.75rem; margin: 0; padding: 0; }
-      .table-wrap { overflow: visible; max-height: none; border: 0; background: transparent; }
-      #coll-table thead, #unmatched-table thead { display: none; }
-      #coll-table, #coll-table tbody, #unmatched-table, #unmatched-table tbody { display: block; }
-      #coll-table tr, #unmatched-table tr {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 0.45rem 0.75rem;
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 0.75rem;
-        margin: 0 0 0.65rem;
-      }
-      #coll-table tr.fail, #unmatched-table tr.fail { background: #fff1f2; }
-      #coll-table tr.duplicate { background: #fee2e2; }
-      #coll-table tr.fail.duplicate { background: #fecaca; }
-      #coll-table td, #unmatched-table td,
-      #coll-table td.num, #unmatched-table td.num {
-        display: flex;
-        flex-direction: column;
-        gap: 0.05rem;
-        min-width: 0;
-        padding: 0;
-        border: 0;
-        text-align: left;
-        white-space: normal;
-        overflow-wrap: anywhere;
-        background: transparent;
-        color: inherit;
-        font-weight: inherit;
-      }
-      #coll-table td::before, #unmatched-table td::before {
-        content: attr(data-label);
-        font-size: 0.68rem;
-        font-weight: 700;
-        letter-spacing: 0.03em;
-        text-transform: uppercase;
-        color: var(--muted);
-      }
-      #coll-table td:not([data-label]), #unmatched-table td:not([data-label]),
-      #coll-table td:nth-child(1), #coll-table td:nth-child(2), #coll-table td:nth-child(8),
-      #unmatched-table td:nth-child(1), #unmatched-table td:nth-child(2) { grid-column: 1 / -1; }
-      #coll-table td:not([data-label])::before, #unmatched-table td:not([data-label])::before { content: none; }
-      #coll-table td:nth-child(1), #unmatched-table td:nth-child(1) { font-size: 1.02rem; font-weight: 700; }
-      #coll-table td:last-child:empty { display: none; }
+      .table-wrap { -webkit-overflow-scrolling: touch; max-width: 100%; }
     }
 {% endblock %}
 
 {% block content %}
   <div class="page-layout">
-    <details class="page-filters" open>
-      <summary class="mobile-filters-toggle">Filters</summary>
-      <script>
-        if (window.matchMedia("(max-width: 768px)").matches) {
-          document.currentScript.parentElement.removeAttribute("open");
-        }
-      </script>
     <div class="sidebar-column">
       <aside class="filter-panel">
         <h2>Filters</h2>
@@ -483,7 +384,6 @@
         </p>
       </aside>
     </div>
-    </details>
 
     <section class="content-panel">
       <div id="status-message" class="message"></div>
@@ -656,23 +556,6 @@
         {% endif %}
       </div>
 
-      <div class="mobile-sort">
-        <label>Sort
-          <select id="mobile-sort-key" aria-label="Sort collections by">
-            <option value="collection_date" selected>Date</option>
-            <option value="farm">Farm</option>
-            <option value="sample_id">Sample</option>
-            <option value="driver">Driver</option>
-            <option value="volume_litres">Volume</option>
-            <option value="temp_c">Temperature</option>
-            <option value="butterfat_pct">Butterfat</option>
-            <option value="protein_pct">Protein</option>
-            <option value="scc">SCC</option>
-            <option value="bactoscan">BactoScan</option>
-          </select>
-        </label>
-        <button type="button" id="mobile-sort-dir" aria-label="Reverse sort order">↓</button>
-      </div>
       <div class="table-wrap">
         <table id="coll-table">
           <thead>
@@ -2002,32 +1885,11 @@
       window.location.href = '/api/haulier/collections/export.xlsx?' + buildQuery();
     });
 
-    function syncMobileSort() {
-      const keySel = document.getElementById('mobile-sort-key');
-      const dirBtn = document.getElementById('mobile-sort-dir');
-      if (!keySel || !dirBtn) return;
-      if ([...keySel.options].some(option => option.value === sortKey)) keySel.value = sortKey;
-      dirBtn.textContent = sortDir < 0 ? '↓' : '↑';
-    }
-
-    document.getElementById('mobile-sort-key').addEventListener('change', () => {
-      sortKey = document.getElementById('mobile-sort-key').value;
-      sortDir = -1;
-      syncMobileSort();
-      renderTable();
-    });
-    document.getElementById('mobile-sort-dir').addEventListener('click', () => {
-      sortDir *= -1;
-      syncMobileSort();
-      renderTable();
-    });
-
     document.querySelectorAll('#coll-table thead th[data-sort]').forEach(th => {
       th.addEventListener('click', () => {
         const key = th.dataset.sort;
         if (sortKey === key) sortDir *= -1;
         else { sortKey = key; sortDir = 1; }
-        syncMobileSort();
         renderTable();
       });
     });

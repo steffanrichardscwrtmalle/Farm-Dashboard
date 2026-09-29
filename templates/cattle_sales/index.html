@@ -243,6 +243,15 @@
     .chart-modal-head h3 { margin: 0; font-size: 1.1rem; }
     .chart-modal-actions { display: flex; gap: 0.5rem; }
     .chart-modal-canvas { position: relative; flex: 1 1 auto; min-height: 0; }
+    .chart-modal-formula { margin: 0 0 0.65rem; font-size: 0.85rem; line-height: 1.4; }
+    .chart-modal-formula[hidden] { display: none; }
+    .chart-modal-formula p { margin: 0.15rem 0; }
+    .chart-modal-formula-eq, .chart-modal-formula-note { color: var(--muted); }
+    .chart-modal-formula-note { font-size: 0.75rem; }
+    .trend-swatch {
+      display: inline-block; width: 0.85rem; height: 0.18rem; margin-right: 0.4rem;
+      border-radius: 2px; vertical-align: middle; background: #111;
+    }
     .table-wrap { overflow: auto; max-height: calc(100vh - 14rem); border: 1px solid var(--border); border-radius: 8px; }
     #cattle-sales-table { width: 100%; border-collapse: collapse; }
     #cattle-sales-table th, #cattle-sales-table td {
@@ -286,45 +295,13 @@
     }
     #import-message .message-close:hover { background: #f5d9ad; }
     .import-log { margin-top: 0.5rem; max-height: 12rem; overflow: auto; font-size: 0.8rem; }
-    .page-filters { min-width: 0; }
-    .page-filters > .mobile-filters-toggle { display: none; list-style: none; }
-    .mobile-filters-toggle::-webkit-details-marker { display: none; }
-    .mobile-filters-toggle::marker { content: ""; }
-    .mobile-sort { display: none; }
     .hint-phone { display: none; }
-    @media (min-width: 769px) {
-      .page-filters:not([open]) > .sidebar-column { display: flex !important; }
-    }
     @media (max-width: 768px) {
       .page-layout { gap: 0.75rem; }
-      .page-layout, .content-panel, .charts-grid, .chart-card, .table-wrap, .action-bar, .mobile-sort, .summary-cards {
+      .page-layout, .content-panel, .charts-grid, .chart-card, .table-wrap, .action-bar, .summary-cards {
         max-width: 100%;
         min-width: 0;
       }
-      .page-filters > .mobile-filters-toggle {
-        display: flex;
-        align-items: center;
-        width: 100%;
-        min-height: 2.75rem;
-        margin: 0 0 0.65rem;
-        padding: 0.55rem 0.85rem;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: var(--card);
-        color: #1e3a5f;
-        font-size: 0.95rem;
-        font-weight: 700;
-        cursor: pointer;
-      }
-      .mobile-filters-toggle::after {
-        content: "Show";
-        margin-left: auto;
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: var(--muted);
-      }
-      .page-filters[open] > .mobile-filters-toggle::after { content: "Hide"; }
-      .page-filters:not([open]) > .sidebar-column { display: none; }
       .slicer-btn { white-space: normal; line-height: 1.15; text-align: center; }
       .category-slicer .slicer-btn { font-size: 0.72rem; padding: 0.4rem 0.2rem; }
       .summary-cards { grid-template-columns: 1fr 1fr; }
@@ -356,69 +333,12 @@
       .chart-modal-head, .summary-popover-head { flex-wrap: wrap; }
       .chart-modal-actions { width: 100%; }
       .chart-modal-actions button { flex: 1; min-height: 2.75rem; }
-      .mobile-sort {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin: 0 0 0.65rem;
-      }
-      .mobile-sort label {
-        display: flex;
-        align-items: center;
-        gap: 0.45rem;
-        flex: 1;
-        margin: 0;
-        min-width: 0;
-      }
-      .mobile-sort select { flex: 1; min-width: 0; min-height: 2.75rem; margin: 0; font-size: 16px; }
-      .mobile-sort button { min-width: 2.75rem; min-height: 2.75rem; margin: 0; padding: 0; }
-      .table-wrap { overflow: visible; max-height: none; border: 0; background: transparent; }
-      #cattle-sales-table thead { display: none; }
-      #cattle-sales-table, #cattle-sales-table tbody { display: block; }
-      #cattle-sales-table tr {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 0.45rem 0.75rem;
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 0.75rem;
-        margin: 0 0 0.65rem;
-      }
-      #cattle-sales-table tr.unmatched { background: #fff8ef; }
-      #cattle-sales-table td {
-        display: flex;
-        flex-direction: column;
-        gap: 0.05rem;
-        padding: 0;
-        border: 0;
-        text-align: left;
-        white-space: normal;
-        background: transparent;
-      }
-      #cattle-sales-table td::before {
-        content: attr(data-label);
-        font-size: 0.68rem;
-        font-weight: 700;
-        letter-spacing: 0.03em;
-        text-transform: uppercase;
-        color: var(--muted);
-      }
-      #cattle-sales-table td:nth-child(1),
-      #cattle-sales-table td:nth-child(9) { grid-column: 1 / -1; }
-      #cattle-sales-table td:nth-child(1) { font-size: 1.05rem; font-weight: 700; }
+      .table-wrap { -webkit-overflow-scrolling: touch; max-width: 100%; }
     }
 {% endblock %}
 
 {% block content %}
   <div class="page-layout">
-    <details class="page-filters" open>
-      <summary class="mobile-filters-toggle">Filters</summary>
-      <script>
-        if (window.matchMedia("(max-width: 768px)").matches) {
-          document.currentScript.parentElement.removeAttribute("open");
-        }
-      </script>
     <div class="sidebar-column">
       <aside class="filter-panel">
         <h2>Filters</h2>
@@ -512,7 +432,6 @@
         </div>
       </aside>
     </div>
-    </details>
 
     <section class="content-panel">
       {% if can_import %}
@@ -633,26 +552,11 @@
               <button type="button" class="secondary small" data-close="1">Close</button>
             </div>
           </div>
+          <div id="chart-modal-formula" class="chart-modal-formula" hidden></div>
           <div class="chart-modal-canvas"><canvas id="chart-modal-canvas"></canvas></div>
         </div>
       </div>
 
-      <div class="mobile-sort">
-        <label>Sort
-          <select id="mobile-sort-key" aria-label="Sort sales by">
-            <option value="sale_date" selected>Sale date</option>
-            <option value="cow_id">ID</option>
-            <option value="etag">ETAG</option>
-            <option value="lact">Lact</option>
-            <option value="age_days">Age</option>
-            <option value="dim">DIM</option>
-            <option value="cold_weight_kg">Cold weight</option>
-            <option value="amount_gbp">Amount</option>
-            <option value="price_per_kg">£/kg</option>
-          </select>
-        </label>
-        <button type="button" id="mobile-sort-dir" aria-label="Reverse sort order">↓</button>
-      </div>
       <div class="table-wrap">
         <table id="cattle-sales-table">
           <thead>
@@ -1405,6 +1309,64 @@
       return Math.floor(d / DIM_BUCKET_SIZE) * DIM_BUCKET_SIZE + DIM_BUCKET_SIZE / 2;
     }
 
+    function weightedLineFit(points) {
+      let sw = 0;
+      let swx = 0;
+      let swy = 0;
+      let swxx = 0;
+      let swxy = 0;
+      points.forEach(p => {
+        const w = p.w > 0 ? p.w : 1;
+        sw += w;
+        swx += w * p.x;
+        swy += w * p.y;
+        swxx += w * p.x * p.x;
+        swxy += w * p.x * p.y;
+      });
+      const denom = sw * swxx - swx * swx;
+      if (points.length < 2 || denom === 0) return null;
+      const slope = (sw * swxy - swx * swy) / denom;
+      const intercept = (swy - slope * swx) / sw;
+      return { slope, intercept };
+    }
+
+    function dimWeightTrendLines(series, bucketMeta) {
+      return series.map((name, index) => {
+        const points = [];
+        bucketMeta.forEach(b => {
+          const r = b.bySeries[name];
+          if (!r) return;
+          points.push({ x: b.mid, y: r.y, w: r._n });
+        });
+        return { name, color: seriesColor(name, index), points, fit: weightedLineFit(points) };
+      });
+    }
+
+    function dimWeightFormulaHtml(trendLines) {
+      const fitted = (trendLines || []).filter(t => t.fit);
+      if (!fitted.length) {
+        return '<p class="chart-modal-formula-note">Not enough groups to fit a straight line.</p>';
+      }
+      const items = fitted.map(t => {
+        const per10 = t.fit.slope * 10;
+        const abs = Math.abs(per10);
+        const amount = fmtNum(abs, abs >= 1 ? 1 : 2);
+        let change = 'cold weight stays about the same';
+        if (abs >= 0.05) {
+          change = per10 > 0
+            ? `cold weight increases by ${amount} kg`
+            : `cold weight decreases by ${amount} kg`;
+        }
+        const sign = t.fit.slope < 0 ? '−' : '+';
+        const equation = `weight = ${fmtNum(t.fit.intercept, 1)} ${sign} ${fmtNum(Math.abs(t.fit.slope), 2)} × DIM`;
+        return '<p><span class="trend-swatch" style="background:' + t.color + '"></span>' +
+          '<strong>' + escapeHtml(t.name) + ':</strong> as DIM increases by 10, ' + change + '. ' +
+          '<span class="chart-modal-formula-eq">' + equation + '</span></p>';
+      }).join('');
+      return items +
+        '<p class="chart-modal-formula-note">The dashed line is a straight fit through the group averages, weighted by how many animals are in each group.</p>';
+    }
+
     function dimBinnedLineSpec(rows, yKey, yTitle, excludeRejected) {
       const filtered = rows.filter(r => r.dim != null && r[yKey] != null && (!excludeRejected || !r.is_rejected));
       const series = seriesNames(filtered);
@@ -1413,6 +1375,7 @@
           type: 'line',
           data: { labels: [], datasets: [] },
           options: { responsive: true, maintainAspectRatio: false },
+          trendLines: yKey === 'cold_weight_kg' ? [] : null,
         };
       }
 
@@ -1486,6 +1449,7 @@
             y: { title: { display: true, text: yTitle } },
           },
         },
+        trendLines: yKey === 'cold_weight_kg' ? dimWeightTrendLines(series, bucketMeta) : null,
       };
     }
 
@@ -1645,9 +1609,56 @@
 
     function renderModalChart(canvasId) {
       const spec = chartSpecs[canvasId];
+      const formulaEl = document.getElementById('chart-modal-formula');
       if (!spec || typeof Chart === 'undefined') return;
       if (modalChart) { modalChart.destroy(); modalChart = null; }
-      modalChart = new Chart(document.getElementById('chart-modal-canvas'), configWithZoom(spec, true));
+      const config = configWithZoom(spec, true);
+      if (canvasId === 'chart-weight-dim' && spec.trendLines) {
+        const labels = spec.data.labels || [];
+        const trendDatasets = spec.trendLines.filter(t => t.fit).map(t => {
+          const xs = t.points.map(p => p.x);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          return {
+            label: t.name + ' trend',
+            trend: true,
+            data: labels.map(label => {
+              const x = Number(label);
+              if (!Number.isFinite(x) || x < minX || x > maxX) return null;
+              return Math.round((t.fit.intercept + t.fit.slope * x) * 100) / 100;
+            }),
+            borderColor: t.color,
+            backgroundColor: t.color,
+            borderDash: [6, 4],
+            borderWidth: 2,
+            spanGaps: true,
+            tension: 0,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+          };
+        });
+        config.data = {
+          labels: spec.data.labels,
+          datasets: (spec.data.datasets || []).concat(trendDatasets),
+        };
+        const legend = config.options.plugins.legend || {};
+        const legendLabels = Object.assign({}, legend.labels || {});
+        legendLabels.filter = (item, data) => {
+          const datasets = data?.datasets || data?.data?.datasets || [];
+          return !datasets[item.datasetIndex]?.trend;
+        };
+        config.options.plugins.legend = Object.assign({}, legend, { labels: legendLabels });
+        const tooltip = config.options.plugins.tooltip || {};
+        config.options.plugins.tooltip = Object.assign({}, tooltip, {
+          filter: (item) => !item.dataset?.trend,
+        });
+        formulaEl.hidden = false;
+        formulaEl.innerHTML = dimWeightFormulaHtml(spec.trendLines);
+      } else if (formulaEl) {
+        formulaEl.hidden = true;
+        formulaEl.innerHTML = '';
+      }
+      modalChart = new Chart(document.getElementById('chart-modal-canvas'), config);
     }
 
     function openChartModal(canvasId, title) {
@@ -1659,6 +1670,11 @@
 
     function closeChartModal() {
       document.getElementById('chart-modal').hidden = true;
+      const formulaEl = document.getElementById('chart-modal-formula');
+      if (formulaEl) {
+        formulaEl.hidden = true;
+        formulaEl.innerHTML = '';
+      }
       if (modalChart) { modalChart.destroy(); modalChart = null; }
       openModalCanvasId = null;
     }
@@ -1795,32 +1811,11 @@
     });
     {% endif %}
 
-    function syncMobileSort() {
-      const keySel = document.getElementById('mobile-sort-key');
-      const dirBtn = document.getElementById('mobile-sort-dir');
-      if (!keySel || !dirBtn) return;
-      if ([...keySel.options].some(option => option.value === sortKey)) keySel.value = sortKey;
-      dirBtn.textContent = sortDir < 0 ? '↓' : '↑';
-    }
-
-    document.getElementById('mobile-sort-key').addEventListener('change', () => {
-      sortKey = document.getElementById('mobile-sort-key').value;
-      sortDir = -1;
-      syncMobileSort();
-      renderTable(displayedRows());
-    });
-    document.getElementById('mobile-sort-dir').addEventListener('click', () => {
-      sortDir *= -1;
-      syncMobileSort();
-      renderTable(displayedRows());
-    });
-
     document.querySelectorAll('#cattle-sales-table thead th').forEach(th => {
       th.addEventListener('click', () => {
         const key = th.dataset.sort;
         if (sortKey === key) sortDir *= -1;
         else { sortKey = key; sortDir = 1; }
-        syncMobileSort();
         renderTable(displayedRows());
       });
     });
