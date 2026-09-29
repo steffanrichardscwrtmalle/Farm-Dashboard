@@ -18,11 +18,13 @@ from app.services.graph_onedrive import (
     download_herd_file,
     find_newest_herd_file_meta,
     graph_is_configured,
+    upload_herd_file,
 )
 
 # Newest .xlsx in this folder is used (filename varies between exports).
 GENOMIC_FOLDER = "Genomic Results"
 GENOMIC_SHEET = "Herd GBR Females"
+ANIMAL_DATA_CSV_NAME = "animal_data.csv"
 GENOMIC_SOURCE_SETTING_KEY = "genomic_results.source_fingerprint"
 
 # Excel column name -> GenomicResult field
@@ -121,7 +123,8 @@ def import_genomic_results(db: Session, *, force: bool = False) -> dict[str, Any
 
     Skips download/replace when the newest file path and last-modified timestamp
     match the fingerprint stored from the previous successful import, unless
-    ``force=True``.
+    ``force=True``. When the source file is new or changed, also writes
+    ``animal_data.csv`` into the same folder.
     """
     if not graph_is_configured():
         raise ValueError(
@@ -132,6 +135,7 @@ def import_genomic_results(db: Session, *, force: bool = False) -> dict[str, Any
     source_file = meta["relative_path"]
     last_modified = meta.get("last_modified") or ""
     fingerprint = _fingerprint(source_file, last_modified)
+    source_changed = _load_stored_fingerprint(db) != fingerprint
 
     if not force and last_modified:
         stored = _load_stored_fingerprint(db)
@@ -145,6 +149,7 @@ def import_genomic_results(db: Session, *, force: bool = False) -> dict[str, Any
                 "source_file": source_file,
                 "last_modified": last_modified,
                 "sheet": GENOMIC_SHEET,
+                "animal_data_csv": None,
             }
 
     file_bytes = download_herd_file(source_file)
@@ -164,6 +169,12 @@ def import_genomic_results(db: Session, *, force: bool = False) -> dict[str, Any
         del mappings, batch
     del df
     gc.collect()
+
+    animal_data_csv = None
+    if source_changed:
+        db.flush()
+        animal_data_csv = _export_animal_data_csv(db)
+
     _store_fingerprint(db, fingerprint)
     db.commit()
 
@@ -174,4 +185,18 @@ def import_genomic_results(db: Session, *, force: bool = False) -> dict[str, Any
         "source_file": source_file,
         "last_modified": last_modified,
         "sheet": GENOMIC_SHEET,
+        "animal_data_csv": animal_data_csv,
     }
+
+
+def _export_animal_data_csv(db: Session) -> str:
+    """Write the Animal Data report next to the genomic results workbook."""
+    from app.services.animal_genetics import (
+        build_animal_genetics_csv,
+        list_animal_genetics,
+    )
+
+    rows = list_animal_genetics(db)["rows"]
+    relative_path = f"{GENOMIC_FOLDER}/{ANIMAL_DATA_CSV_NAME}"
+    upload_herd_file(relative_path, build_animal_genetics_csv(rows))
+    return relative_path

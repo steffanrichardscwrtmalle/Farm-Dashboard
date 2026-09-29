@@ -256,3 +256,35 @@ def download_herd_file(relative_path: str) -> bytes:
             raise FileNotFoundError(f"OneDrive file not found: {full_path}")
         response.raise_for_status()
         return response.content
+
+
+def upload_herd_file(relative_path: str, content: bytes, *, content_type: str = "text/csv") -> None:
+    """Write a file under the herd export folder (local dir or OneDrive).
+
+    ``relative_path`` is the same style as ``download_herd_file``, for example
+    ``Genomic Results/animal_data.csv``.
+    """
+    if LOCAL_HERD_EXPORT_DIR:
+        local_path = Path(LOCAL_HERD_EXPORT_DIR).joinpath(*relative_path.split("/"))
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_bytes(content)
+        return
+
+    _require_graph_config()
+    full_path = herd_file_relative_path(relative_path)
+    encoded_path = quote(full_path, safe="/")
+    url = (
+        f"https://graph.microsoft.com/v1.0/users/{GRAPH_DRIVE_USER_EMAIL}"
+        f"/drive/root:/{encoded_path}:/content"
+    )
+    token = get_access_token()
+    with httpx.Client(timeout=120.0, follow_redirects=True) as client:
+        response = client.put(
+            url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": content_type,
+            },
+            content=content,
+        )
+        response.raise_for_status()

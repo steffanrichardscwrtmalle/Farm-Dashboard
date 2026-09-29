@@ -1,4 +1,4 @@
-"""Combined CM and GAD inventory table for Genetics — Animal Data."""
+"""Combined CM and GAD inventory table for Genetics — Reports for Mating Guide."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import GenomicResult, HerdInventory
+from app.services.custom_indexes import cm_index, load_index_settings, merge_index_settings
 from app.services.events_common import normalize_farms
 from app.services.genomic_import import normalize_hbn
 
@@ -33,7 +34,7 @@ COLUMNS: tuple[tuple[str, str], ...] = (
     ("etag", "ETAG"),
     ("bdat", "BDAT"),
     ("lact", "LACT"),
-    ("cci", "CCI"),
+    ("cm", "£CM"),
     ("dreg", "DREG"),
     ("sreg", "SREG"),
     ("mgreg", "MGREG"),
@@ -50,6 +51,8 @@ COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 _DATE_KEYS = {"bdat", "fdat", "due", "hdat"}
+_SORT_KEYS = {key for key, _label in COLUMNS}
+_NUMERIC_SORT_KEYS = {"lact", "cm", "cbrd", "dim", "tbrd", "dcc"}
 _XLSX_WIDTHS = (
     12, 20, 12, 8, 10, 18, 18, 18, 18, 12, 12, 12, 10, 8, 8, 8, 8, 14,
 )
@@ -73,12 +76,16 @@ def list_animal_data(
     *,
     farms: list[str] | None = None,
     groups: list[str] | None = None,
+    page: int | None = None,
+    page_size: int = 150,
+    sort: str = "cm",
+    direction: str = "desc",
 ) -> dict[str, Any]:
     """Dairy animals from both herd files, excluding bulls, males, and beef.
 
     Excludes RPRO BULL, RC 8, and CBRD above 101. Farm Group is CM/GAD Cows
     or CM/GAD YS from the source file, lactation, and days carried calf.
-    CCI comes from genomic results, matched on ear-tag digits.
+    £CM is calculated from genomic results, matched on ear-tag digits.
     """
     selected_farms = normalize_farms(farms)
     selected_groups = normalize_farm_groups(groups)
@@ -121,7 +128,8 @@ def list_animal_data(
         )
     )
 
-    cci_by_tag = _genomic_cci_by_ear_tag(db)
+    genomic_by_tag = _genomic_by_ear_tag(db)
+    index_settings = merge_index_settings(load_index_settings(db))
 
     rows: list[dict[str, Any]] = []
     for record in db.execute(query).all():
@@ -153,7 +161,7 @@ def list_animal_data(
                 "etag": (etag or "").strip(),
                 "bdat": _date_text(bdat),
                 "lact": _number(lact),
-                "cci": _cci_for_etag(cci_by_tag, etag),
+                "cm": _cm_for_etag(genomic_by_tag, index_settings, etag),
                 "dreg": (dreg or "").strip(),
                 "sreg": (sreg or "").strip(),
                 "mgreg": (mgreg or "").strip(),
@@ -170,8 +178,22 @@ def list_animal_data(
             }
         )
 
-    rows.sort(key=lambda row: (row["farm_group"], _id_sort_key(row["id"]), row["etag"]))
-    return {"rows": rows, "total": len(rows)}
+    sort_key = sort if sort in _SORT_KEYS else "cm"
+    sort_direction = "asc" if direction == "asc" else "desc"
+    rows = _sort_rows(rows, sort_key, sort_direction)
+    total = len(rows)
+    if page is None:
+        return {"rows": rows, "total": total}
+
+    page_index = max(page, 0)
+    size = max(page_size, 1)
+    start = page_index * size
+    return {
+        "rows": rows[start : start + size],
+        "total": total,
+        "page": page_index,
+        "page_size": size,
+    }
 
 
 def build_animal_data_csv(rows: list[dict[str, Any]]) -> bytes:
@@ -186,7 +208,7 @@ def build_animal_data_csv(rows: list[dict[str, Any]]) -> bytes:
 def build_animal_data_xlsx(rows: list[dict[str, Any]]) -> bytes:
     wb = Workbook()
     ws = wb.active
-    ws.title = "Animal Data"
+    ws.title = "Reports for Mating Guide"
     ws.append([label for _key, label in COLUMNS])
     for row in rows:
         ws.append([_xlsx_value(key, row.get(key)) for key, _label in COLUMNS])
@@ -201,28 +223,29 @@ def build_animal_data_xlsx(rows: list[dict[str, Any]]) -> bytes:
     return buffer.getvalue()
 
 
-def _genomic_cci_by_ear_tag(db: Session) -> dict[str, int | float]:
-    """Map ear-tag digits to genomic CCI. Ear tag is preferred over HBN."""
-    lookup: dict[str, int | float] = {}
-    rows = db.execute(
-        select(GenomicResult.eartag, GenomicResult.hbn, GenomicResult.cci)
-    ).all()
-    for eartag, hbn, cci in rows:
-        value = _number(cci)
-        if value is None:
-            continue
-        for raw in (eartag, hbn):
+def _genomic_by_ear_tag(db: Session) -> dict[str, GenomicResult]:
+    """Map ear-tag digits to a genomic result. Ear tag is preferred over HBN."""
+    lookup: dict[str, GenomicResult] = {}
+    for row in db.scalars(select(GenomicResult)).all():
+        for raw in (row.eartag, row.hbn):
             key = normalize_hbn(raw)
             if key and key not in lookup:
-                lookup[key] = value
+                lookup[key] = row
     return lookup
 
 
-def _cci_for_etag(lookup: dict[str, int | float], etag: str | None) -> int | float | None:
+def _cm_for_etag(
+    lookup: dict[str, GenomicResult],
+    settings: dict[str, Any],
+    etag: str | None,
+) -> int | float | None:
     key = normalize_hbn(etag)
     if not key:
         return None
-    return lookup.get(key)
+    genomic = lookup.get(key)
+    if genomic is None:
+        return None
+    return int(round(cm_index(genomic, settings, merged=True)))
 
 
 def _is_youngstock(lact: Any, dcc: Any) -> bool:
@@ -266,6 +289,26 @@ def _xlsx_value(key: str, value: Any) -> Any:
         except ValueError:
             return value
     return value
+
+
+def _sort_rows(rows: list[dict[str, Any]], sort_key: str, direction: str) -> list[dict[str, Any]]:
+    """Sort the full report. Empty values stay last; ties follow ID."""
+
+    def empty(row: dict[str, Any]) -> bool:
+        value = row.get(sort_key)
+        return value is None or value == ""
+
+    def value_key(row: dict[str, Any]) -> float | str:
+        value = row.get(sort_key)
+        if sort_key in _NUMERIC_SORT_KEYS:
+            return float(value)
+        return str(value).casefold()
+
+    ordered = sorted(rows, key=lambda row: (_id_sort_key(row["id"]), row.get("etag") or ""))
+    present = [row for row in ordered if not empty(row)]
+    missing = [row for row in ordered if empty(row)]
+    present.sort(key=value_key, reverse=direction == "desc")
+    return present + missing
 
 
 def _id_sort_key(cow_id: str) -> tuple[int, int | str]:

@@ -245,8 +245,14 @@ def fw_index(row: Any, settings: dict[str, Any] | None = None) -> float:
     return _scheme_index(row, merge_index_settings(settings), "fw")
 
 
-def cm_index(row: Any, settings: dict[str, Any] | None = None) -> float:
-    return _scheme_index(row, merge_index_settings(settings), "cm")
+def cm_index(
+    row: Any,
+    settings: dict[str, Any] | None = None,
+    *,
+    merged: bool = False,
+) -> float:
+    cfg = settings if merged else merge_index_settings(settings)
+    return _scheme_index(row, cfg, "cm")
 
 
 def attach_custom_indexes(

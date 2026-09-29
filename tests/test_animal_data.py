@@ -1,4 +1,4 @@
-"""Genetics Animal Data table: farm groups, exclusions, and exports."""
+"""Genetics Reports for Mating Guide: farm groups, exclusions, and exports."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Base, GenomicResult, HerdInventory
+from app.services.custom_indexes import cm_index
 from app.services.animal_data import (
     COLUMNS,
     build_animal_data_csv,
@@ -51,6 +52,21 @@ def _animal(**overrides) -> HerdInventory:
     return HerdInventory(**values)
 
 
+def _genomic(**overrides) -> GenomicResult:
+    values = dict(
+        hbn="740651300100",
+        eartag="UK740651300100",
+        milk_kg=775,
+        fat_pct=0.28,
+        protein_pct=0.12,
+        fertility_index=5.5,
+        life_span=101,
+        mastitis=-2,
+    )
+    values.update(overrides)
+    return GenomicResult(**values)
+
+
 def test_farm_group_uses_lactation_and_dcc() -> None:
     assert farm_group_label("CM", 0, 0) == "CM YS"
     assert farm_group_label("GAD", 0, 99) == "GAD YS"
@@ -61,9 +77,7 @@ def test_farm_group_uses_lactation_and_dcc() -> None:
 
 def test_list_assigns_groups_and_keeps_requested_columns() -> None:
     session = _session()
-    session.add(
-        GenomicResult(hbn="740651300100", eartag="UK740651300100", cci=120.5)
-    )
+    session.add(_genomic())
     session.add(_animal(cow_id="10", lact=0, dcc=20))
     session.add(_animal(farm="GAD", cow_id="20", etag="UK740651300200", lact=0, dcc=0))
     session.add(_animal(cow_id="30", etag="UK740651300300", lact=2, dcc=80))
@@ -77,12 +91,16 @@ def test_list_assigns_groups_and_keeps_requested_columns() -> None:
     assert by_id["20"]["farm_group"] == "GAD YS"
     assert by_id["30"]["farm_group"] == "CM Cows"
     assert by_id["40"]["farm_group"] == "GAD Cows"
-    assert by_id["10"]["cci"] == 120.5
-    assert by_id["20"]["cci"] is None
+    assert by_id["10"]["cm"] == int(round(cm_index(_genomic())))
+    assert by_id["20"]["cm"] is None
     assert by_id["10"]["mgreg"] == "UK333333333333"
     assert by_id["10"]["ggreg"] == "UK444444444444"
     assert by_id["10"]["bdat"] == "2024-03-02"
-    assert [row["id"] for row in result["rows"]] == ["30", "10", "40", "20"]
+    assert [row["id"] for row in result["rows"]] == ["10", "20", "30", "40"]
+
+    first_page = list_animal_data(session, page=0, page_size=1)
+    assert first_page["total"] == 4
+    assert [row["id"] for row in first_page["rows"]] == ["10"]
     session.close()
 
 
@@ -117,25 +135,25 @@ def test_list_filters_farm_and_group() -> None:
     session.close()
 
 
-def test_cci_matches_genomic_ear_tag_digits() -> None:
+def test_cm_matches_genomic_ear_tag_digits() -> None:
     session = _session()
+    genomic = _genomic(hbn="999", eartag="UK 740651 300100")
     session.add(_animal(cow_id="spaced", etag=" UK740651300100 "))
-    session.add(
-        GenomicResult(hbn="999", eartag="UK 740651 300100", cci=88)
-    )
+    session.add(genomic)
     session.add(_animal(cow_id="other", etag="UK740651399999"))
     session.commit()
 
     result = list_animal_data(session, farms=["CM"])
     by_id = {row["id"]: row for row in result["rows"]}
-    assert by_id["spaced"]["cci"] == 88
-    assert by_id["other"]["cci"] is None
+    assert by_id["spaced"]["cm"] == int(round(cm_index(genomic)))
+    assert by_id["other"]["cm"] is None
     session.close()
 
 
 def test_exports_include_headers_and_values() -> None:
     session = _session()
-    session.add(GenomicResult(hbn="740651300100", eartag="UK740651300100", cci=120.5))
+    genomic = _genomic()
+    session.add(genomic)
     session.add(_animal())
     session.commit()
     rows = list_animal_data(session)["rows"]
@@ -145,11 +163,12 @@ def test_exports_include_headers_and_values() -> None:
     assert csv_text.splitlines()[0] == header
     assert "UK333333333333" in csv_text
     assert "CM YS" in csv_text
+    assert "£CM" in csv_text
 
     workbook = load_workbook(io.BytesIO(build_animal_data_xlsx(rows)))
     sheet = workbook.active
     assert [cell.value for cell in sheet[1]] == [label for _key, label in COLUMNS]
-    assert sheet["E2"].value == 120.5
+    assert sheet["E2"].value == int(round(cm_index(genomic)))
     assert sheet["C2"].value.date() == dt.date(2024, 3, 2)
     assert sheet["R2"].value == "CM YS"
     session.close()
@@ -162,18 +181,23 @@ def test_animal_data_page_is_wired() -> None:
     page = (root / "templates" / "genetics" / "animal_data.html").read_text(encoding="utf-8")
     routes = (root / "app" / "api" / "genetics_routes.py").read_text(encoding="utf-8")
 
-    assert '@app.get("/genetics/animal-data"' in main
-    assert 'href="/genetics/animal-data"' in nav
-    assert "Animal Data" in nav
+    assert '@app.get("/genetics/reports-for-mating-guide"' in main
+    assert 'href="/genetics/reports-for-mating-guide"' in nav
+    assert "Reports for Mating Guide" in nav
     pedigree_idx = nav.find("Pedigree Registrations")
-    animal_idx = nav.find("Animal Data")
+    animal_idx = nav.find("Reports for Mating Guide")
     bull_idx = nav.find("Bull Search")
     assert pedigree_idx < animal_idx < bull_idx
     assert 'id="animal-data-table"' in page
+    assert 'id="page-next"' in page
+    assert "PAGE_SIZE" in page
+    assert 'let sortKey = "cm"' in page
+    assert 'let sortDir = "desc"' in page
+    assert 'sortDir = "desc"' in page
     assert 'id="download-csv-btn"' in page
     assert 'id="download-xlsx-btn"' in page
-    for label in ("ID", "ETAG", "BDAT", "LACT", "CCI", "MGREG", "GGREG", "Farm Group"):
+    for label in ("ID", "ETAG", "BDAT", "LACT", "£CM", "MGREG", "GGREG", "Farm Group"):
         assert f">{label}<" in page
-    assert '@router.get("/animal-data")' in routes
-    assert '@router.get("/animal-data/export.csv")' in routes
-    assert '@router.get("/animal-data/export.xlsx")' in routes
+    assert '@router.get("/reports-for-mating-guide")' in routes
+    assert '@router.get("/reports-for-mating-guide/export.csv")' in routes
+    assert '@router.get("/reports-for-mating-guide/export.xlsx")' in routes

@@ -1589,8 +1589,8 @@ def genetics_pending_results_page(request: Request):
     )
 
 
-@app.get("/genetics/animal-data", response_class=HTMLResponse)
-def genetics_animal_data_page(request: Request):
+@app.get("/genetics/reports-for-mating-guide", response_class=HTMLResponse)
+def genetics_reports_for_mating_guide_page(request: Request):
     if denied := _page_guard(request, PAGE_GENETICS):
         return denied
     from app.models import HERD_FARM_OPTIONS
@@ -1601,9 +1601,31 @@ def genetics_animal_data_page(request: Request):
         "genetics/animal_data.html",
         _template_ctx(
             request,
-            page_heading="Animal Data",
+            page_heading="Reports for Mating Guide",
             farm_options=list(HERD_FARM_OPTIONS),
             farm_groups=list(FARM_GROUPS),
+            **_genetics_context(
+                "Reports for Mating Guide",
+                "reports-for-mating-guide",
+                "Reports for Mating Guide",
+            ),
+        ),
+    )
+
+
+@app.get("/genetics/animal-data", response_class=HTMLResponse)
+def genetics_animal_genetics_page(request: Request):
+    if denied := _page_guard(request, PAGE_GENETICS):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+
+    return templates.TemplateResponse(
+        request,
+        "genetics/animal_genetics.html",
+        _template_ctx(
+            request,
+            page_heading="Animal Data",
+            farm_options=list(HERD_FARM_OPTIONS),
             **_genetics_context("Animal Data", "animal-data", "Animal Data"),
         ),
     )

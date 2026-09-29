@@ -19,8 +19,6 @@
       padding: 1rem;
     }
     .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
-    .filter-section { margin-bottom: 1rem; }
-    .filter-section:last-of-type { margin-bottom: 0; }
     .filter-section .section-label {
       display: block;
       font-size: 0.875rem;
@@ -31,10 +29,8 @@
     .slicer-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
     .slicer-btn {
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 0.3rem;
       min-height: 3rem;
       padding: 0.5rem 0.4rem;
       border: 2px solid var(--border);
@@ -45,12 +41,8 @@
       font-weight: 600;
       cursor: pointer;
     }
-    .slicer-btn[data-value="CM"].selected,
-    .slicer-btn[data-value="CM Cows"].selected,
-    .slicer-btn[data-value="CM YS"].selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
-    .slicer-btn[data-value="GAD"].selected,
-    .slicer-btn[data-value="GAD Cows"].selected,
-    .slicer-btn[data-value="GAD YS"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
+    .slicer-btn[data-value="CM"].selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
     .action-bar, .pager {
       display: flex;
@@ -66,15 +58,21 @@
       border: 1px solid var(--border);
       border-radius: 8px;
     }
-    #animal-data-table { width: 100%; border-collapse: collapse; }
-    #animal-data-table th, #animal-data-table td {
+    #animal-genetics-table { width: 100%; border-collapse: collapse; }
+    #animal-genetics-table th, #animal-genetics-table td {
       padding: 0.45rem 0.55rem;
       text-align: left;
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
     }
-    #animal-data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-    #animal-data-table thead th {
+    #animal-genetics-table td:not(:last-child) {
+      border-right: 1px solid var(--border);
+    }
+    #animal-genetics-table th:not(:last-child) {
+      border-right: 1px solid rgba(255, 255, 255, 0.28);
+    }
+    #animal-genetics-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    #animal-genetics-table thead th {
       background: #1e3a5f;
       color: #fff;
       font-weight: 600;
@@ -82,10 +80,10 @@
       top: 0;
       z-index: 1;
     }
-    #animal-data-table thead th[data-sort] { cursor: pointer; user-select: none; }
-    #animal-data-table thead th[data-sort]:hover { background: #274b73; }
-    #animal-data-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
-    #animal-data-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
+    #animal-genetics-table thead th[data-sort] { cursor: pointer; user-select: none; }
+    #animal-genetics-table thead th[data-sort]:hover { background: #274b73; }
+    #animal-genetics-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
+    #animal-genetics-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
     .empty-state { padding: 1.5rem; color: var(--muted); }
     .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
     .message { margin-bottom: 0.75rem; }
@@ -105,24 +103,15 @@
             {% endfor %}
           </div>
         </div>
-        <div class="filter-section">
-          <span class="section-label">Farm Group</span>
-          <div class="slicer-group group-slicer">
-            {% for group in farm_groups %}
-            <button type="button" class="slicer-btn selected" data-value="{{ group }}" aria-pressed="true">{{ group }}</button>
-            {% endfor %}
-          </div>
-        </div>
       </aside>
       <aside class="filter-panel">
         <h2>About</h2>
         <p class="help-text">
-          Combined CM and GAD inventory. Lactation 0 animals with fewer than 100 days
-          carried calf are youngstock (CM YS or GAD YS). Every other animal is
-          CM Cows or GAD Cows, from the farm file they came from.
-          Bulls (RPRO BULL), males (RC 8), and beef (CBRD above 101) are left out.
-          £CM is the custom index calculated from genomic results, matched on ear tag.
-          Click a column heading to sort.
+          ID, ETAG, LACT, and Age come from herd inventory. Age is in months.
+          SREG, £CM, and the other traits come from genomic results, matched on ear tag.
+          Only animals with a genomic result are listed. £CM is rounded to a whole
+          number. The table opens sorted by £CM, highest first.
+          Click a column heading to sort high to low.
         </p>
       </aside>
     </div>
@@ -142,27 +131,27 @@
       </div>
 
       <div class="table-wrap">
-        <table id="animal-data-table">
+        <table id="animal-genetics-table">
           <thead>
             <tr>
               <th data-sort="id">ID</th>
               <th data-sort="etag">ETAG</th>
-              <th data-sort="bdat">BDAT</th>
-              <th data-sort="lact">LACT</th>
-              <th data-sort="cm">£CM</th>
-              <th data-sort="dreg">DREG</th>
               <th data-sort="sreg">SREG</th>
-              <th data-sort="mgreg">MGREG</th>
-              <th data-sort="ggreg">GGREG</th>
-              <th data-sort="fdat">FDAT</th>
-              <th data-sort="due">DUE</th>
-              <th data-sort="hdat">HDAT</th>
-              <th data-sort="rpro">RPRO</th>
-              <th data-sort="cbrd">CBRD</th>
-              <th data-sort="dim">DIM</th>
-              <th data-sort="tbrd">TBRD</th>
-              <th data-sort="dcc">DCC</th>
-              <th data-sort="farm_group">Farm Group</th>
+              <th data-sort="lact">LACT</th>
+              <th data-sort="age">Age</th>
+              <th data-sort="cm">£CM</th>
+              <th data-sort="pli">PLI</th>
+              <th data-sort="milk_kg">Milk Kg</th>
+              <th data-sort="fat_kg">Fat Kg</th>
+              <th data-sort="protein_kg">Protein kg</th>
+              <th data-sort="fat_pct">Fat %</th>
+              <th data-sort="protein_pct">Protein %</th>
+              <th data-sort="fertility_index">Fertility Index</th>
+              <th data-sort="scc">SCC</th>
+              <th data-sort="life_span">Lifespan</th>
+              <th data-sort="mastitis">Mastitis</th>
+              <th data-sort="stature">Stature</th>
+              <th data-sort="chest_width">Chest Width</th>
             </tr>
           </thead>
           <tbody id="table-body">
@@ -176,15 +165,19 @@
 
 {% block scripts %}
   <script>
-    const NUM_COLS = new Set(["lact", "cm", "cbrd", "dim", "tbrd", "dcc"]);
-    const DATE_COLS = new Set(["bdat", "fdat", "due", "hdat"]);
+    const NUM_COLS = new Set([
+      "lact", "age", "cm", "pli", "milk_kg", "fat_kg", "protein_kg",
+      "fat_pct", "protein_pct", "fertility_index", "scc", "life_span",
+      "mastitis", "stature", "chest_width"
+    ]);
     const COLUMNS = [
-      "id", "etag", "bdat", "lact", "cm", "dreg", "sreg", "mgreg", "ggreg",
-      "fdat", "due", "hdat", "rpro", "cbrd", "dim", "tbrd", "dcc", "farm_group"
+      "id", "etag", "sreg", "lact", "age", "cm", "pli", "milk_kg", "fat_kg", "protein_kg",
+      "fat_pct", "protein_pct", "fertility_index", "scc", "life_span", "mastitis",
+      "stature", "chest_width"
     ];
     const PAGE_SIZE = 150;
     let rows = [];
-    let total = 0;
+    let sorted = [];
     let page = 0;
     let sortKey = "cm";
     let sortDir = "desc";
@@ -195,20 +188,20 @@
       el.className = "message" + (isError ? " err" : "");
     }
 
-    function selectedValues(selector) {
-      return [...document.querySelectorAll(selector + " .slicer-btn.selected")]
+    function selectedFarms() {
+      return [...document.querySelectorAll(".farm-slicer .slicer-btn.selected")]
         .map(btn => btn.dataset.value);
     }
 
-    function bindSlicers(selector, reload) {
-      document.querySelectorAll(selector + " .slicer-btn").forEach(btn => {
+    function bindFarmSlicers() {
+      document.querySelectorAll(".farm-slicer .slicer-btn").forEach(btn => {
         btn.addEventListener("click", () => {
           const selected = btn.classList.contains("selected");
-          const count = document.querySelectorAll(selector + " .slicer-btn.selected").length;
+          const count = document.querySelectorAll(".farm-slicer .slicer-btn.selected").length;
           if (selected && count <= 1) return;
           btn.classList.toggle("selected", !selected);
           btn.setAttribute("aria-pressed", btn.classList.contains("selected"));
-          reload();
+          loadRows();
         });
       });
     }
@@ -221,34 +214,48 @@
         .replace(/"/g, "&quot;");
     }
 
-    function formatDate(value) {
-      const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (!match) return value || "";
-      return match[3] + "/" + match[2] + "/" + match[1];
-    }
-
-    function displayValue(row, key) {
-      const value = row[key];
-      if (value === null || value === undefined || value === "") return "";
-      if (DATE_COLS.has(key)) return formatDate(value);
-      return value;
-    }
-
-    function buildQuery(forExport) {
+    function buildQuery() {
       const params = new URLSearchParams();
-      selectedValues(".farm-slicer").forEach(farm => params.append("farm", farm));
-      selectedValues(".group-slicer").forEach(group => params.append("group", group));
-      if (!forExport) {
-        params.set("page", String(page));
-        params.set("page_size", String(PAGE_SIZE));
-        params.set("sort", sortKey);
-        params.set("direction", sortDir);
-      }
+      selectedFarms().forEach(farm => params.append("farm", farm));
       return params.toString();
     }
 
+    function sortValue(row, key) {
+      const value = row[key];
+      if (value === null || value === undefined || value === "") return null;
+      if (NUM_COLS.has(key)) {
+        const num = Number(value);
+        return Number.isNaN(num) ? value : num;
+      }
+      return value;
+    }
+
+    function compareBy(a, b, key, direction) {
+      const av = sortValue(a, key);
+      const bv = sortValue(b, key);
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;
+      if (bv === null) return -1;
+      let result;
+      if (typeof av === "number" && typeof bv === "number") {
+        result = av - bv;
+      } else {
+        result = String(av).localeCompare(String(bv), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }
+      return direction === "asc" ? result : -result;
+    }
+
+    function compareRows(a, b) {
+      const primary = compareBy(a, b, sortKey, sortDir);
+      if (primary !== 0) return primary;
+      return compareBy(a, b, "id", "asc");
+    }
+
     function markSortHeaders() {
-      document.querySelectorAll("#animal-data-table thead th[data-sort]").forEach((th) => {
+      document.querySelectorAll("#animal-genetics-table thead th[data-sort]").forEach((th) => {
         th.classList.remove("sorted-asc", "sorted-desc");
         if (th.dataset.sort === sortKey) {
           th.classList.add(sortDir === "asc" ? "sorted-asc" : "sorted-desc");
@@ -256,45 +263,55 @@
       });
     }
 
+    function renderTable() {
+      sorted = rows.slice().sort(compareRows);
+      const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+      if (page > pages - 1) page = pages - 1;
+      if (page < 0) page = 0;
+      paintPage();
+    }
+
     function paintPage() {
       const tbody = document.getElementById("table-body");
       const pager = document.getElementById("pager");
       markSortHeaders();
-      if (!rows.length) {
+      if (!sorted.length) {
         pager.hidden = true;
         tbody.innerHTML = '<tr><td colspan="18" class="empty-state">No animals for the current filters.</td></tr>';
         return;
       }
       const start = page * PAGE_SIZE;
-      tbody.innerHTML = rows.map(function (row) {
+      const slice = sorted.slice(start, start + PAGE_SIZE);
+      tbody.innerHTML = slice.map(function (row) {
         return "<tr>" + COLUMNS.map(function (key) {
+          const value = row[key];
+          const text = (value === null || value === undefined) ? "" : value;
           const cls = NUM_COLS.has(key) ? ' class="num"' : "";
-          return "<td" + cls + ">" + escapeHtml(displayValue(row, key)) + "</td>";
+          return "<td" + cls + ">" + escapeHtml(text) + "</td>";
         }).join("") + "</tr>";
       }).join("");
-      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-      pager.hidden = total <= PAGE_SIZE;
+      const pages = Math.ceil(sorted.length / PAGE_SIZE);
+      pager.hidden = pages <= 1;
       document.getElementById("page-label").textContent =
-        (start + 1) + "–" + (start + rows.length) + " of " + total;
+        (start + 1) + "–" + (start + slice.length) + " of " + sorted.length;
       document.getElementById("page-prev").disabled = page === 0;
       document.getElementById("page-next").disabled = page >= pages - 1;
       const wrap = document.querySelector(".table-wrap");
       if (wrap) wrap.scrollTop = 0;
     }
 
-    async function loadRows(resetPage) {
-      if (resetPage) page = 0;
+    async function loadRows() {
       showMessage("");
       document.getElementById("meta-line").textContent = "Loading…";
       try {
-        const res = await fetch("/api/genetics/reports-for-mating-guide?" + buildQuery(false));
-        if (!res.ok) throw new Error("Failed to load reports");
+        const res = await fetch("/api/genetics/animal-data?" + buildQuery());
+        if (!res.ok) throw new Error("Failed to load animal data");
         const data = await res.json();
         rows = data.rows || [];
-        total = data.total || 0;
+        page = 0;
         document.getElementById("meta-line").textContent =
-          total + " animal" + (total === 1 ? "" : "s");
-        paintPage();
+          rows.length + " animal" + (rows.length === 1 ? "" : "s");
+        renderTable();
       } catch (err) {
         document.getElementById("meta-line").textContent = "";
         showMessage(err.message, true);
@@ -302,14 +319,14 @@
     }
 
     document.getElementById("download-csv-btn").addEventListener("click", function () {
-      window.location.href = "/api/genetics/reports-for-mating-guide/export.csv?" + buildQuery(true);
+      window.location.href = "/api/genetics/animal-data/export.csv?" + buildQuery();
     });
 
     document.getElementById("download-xlsx-btn").addEventListener("click", function () {
-      window.location.href = "/api/genetics/reports-for-mating-guide/export.xlsx?" + buildQuery(true);
+      window.location.href = "/api/genetics/animal-data/export.xlsx?" + buildQuery();
     });
 
-    document.querySelector("#animal-data-table thead").addEventListener("click", function (event) {
+    document.querySelector("#animal-genetics-table thead").addEventListener("click", function (event) {
       const th = event.target.closest("th[data-sort]");
       if (!th) return;
       const key = th.dataset.sort;
@@ -320,24 +337,23 @@
         sortDir = "desc";
       }
       page = 0;
-      loadRows(false);
+      renderTable();
     });
 
     document.getElementById("page-prev").addEventListener("click", function () {
       if (page === 0) return;
       page -= 1;
-      loadRows(false);
+      paintPage();
     });
 
     document.getElementById("page-next").addEventListener("click", function () {
-      const pages = Math.ceil(total / PAGE_SIZE);
+      const pages = Math.ceil(sorted.length / PAGE_SIZE);
       if (page >= pages - 1) return;
       page += 1;
-      loadRows(false);
+      paintPage();
     });
 
-    bindSlicers(".farm-slicer", function () { loadRows(true); });
-    bindSlicers(".group-slicer", function () { loadRows(true); });
-    loadRows(true);
+    bindFarmSlicers();
+    loadRows();
   </script>
 {% endblock %}

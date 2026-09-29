@@ -38,6 +38,12 @@ from app.services.animal_data import (
     build_animal_data_xlsx,
     list_animal_data,
 )
+from app.services.animal_genetics import (
+    XLSX_CONTENT_TYPE as ANIMAL_GENETICS_XLSX_CONTENT_TYPE,
+    build_animal_genetics_csv,
+    build_animal_genetics_xlsx,
+    list_animal_genetics,
+)
 from app.services.ahdb_bulls import AhdbBullsError, ensure_imported, list_bulls, refresh_bulls
 from app.services.custom_indexes import reset_index_settings, save_index_settings
 from app.services.animals_to_test import (
@@ -275,18 +281,30 @@ def api_sire_conflicts_export_csv(
     )
 
 
-@router.get("/animal-data")
-def api_animal_data(
+@router.get("/reports-for-mating-guide")
+def api_reports_for_mating_guide(
     farm: list[str] | None = Query(None),
     group: list[str] | None = Query(None),
+    page: int = Query(0, ge=0),
+    page_size: int = Query(150, ge=1, le=500),
+    sort: str = Query("cm"),
+    direction: str = Query("desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
     _user: User = Depends(require_page(PAGE_GENETICS)),
 ):
-    return list_animal_data(db, farms=farm, groups=group)
+    return list_animal_data(
+        db,
+        farms=farm,
+        groups=group,
+        page=page,
+        page_size=page_size,
+        sort=sort,
+        direction=direction,
+    )
 
 
-@router.get("/animal-data/export.csv")
-def api_animal_data_export_csv(
+@router.get("/reports-for-mating-guide/export.csv")
+def api_reports_for_mating_guide_export_csv(
     farm: list[str] | None = Query(None),
     group: list[str] | None = Query(None),
     db: Session = Depends(get_db),
@@ -297,12 +315,14 @@ def api_animal_data_export_csv(
     return Response(
         content=content,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="animal_data.csv"'},
+        headers={
+            "Content-Disposition": 'attachment; filename="reports_for_mating_guide.csv"'
+        },
     )
 
 
-@router.get("/animal-data/export.xlsx")
-def api_animal_data_export_xlsx(
+@router.get("/reports-for-mating-guide/export.xlsx")
+def api_reports_for_mating_guide_export_xlsx(
     farm: list[str] | None = Query(None),
     group: list[str] | None = Query(None),
     db: Session = Depends(get_db),
@@ -313,6 +333,47 @@ def api_animal_data_export_xlsx(
     return Response(
         content=content,
         media_type=ANIMAL_DATA_XLSX_CONTENT_TYPE,
+        headers={
+            "Content-Disposition": 'attachment; filename="reports_for_mating_guide.xlsx"'
+        },
+    )
+
+
+@router.get("/animal-data")
+def api_animal_genetics(
+    farm: list[str] | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_GENETICS)),
+):
+    return list_animal_genetics(db, farms=farm)
+
+
+@router.get("/animal-data/export.csv")
+def api_animal_genetics_export_csv(
+    farm: list[str] | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_GENETICS)),
+):
+    result = list_animal_genetics(db, farms=farm)
+    content = build_animal_genetics_csv(result["rows"])
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="animal_data.csv"'},
+    )
+
+
+@router.get("/animal-data/export.xlsx")
+def api_animal_genetics_export_xlsx(
+    farm: list[str] | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_GENETICS)),
+):
+    result = list_animal_genetics(db, farms=farm)
+    content = build_animal_genetics_xlsx(result["rows"])
+    return Response(
+        content=content,
+        media_type=ANIMAL_GENETICS_XLSX_CONTENT_TYPE,
         headers={"Content-Disposition": 'attachment; filename="animal_data.xlsx"'},
     )
 

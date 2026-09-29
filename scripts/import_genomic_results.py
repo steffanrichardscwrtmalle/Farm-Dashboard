@@ -71,6 +71,11 @@ def main() -> int:
                 f"from {result.get('source_file')}",
                 flush=True,
             )
+            if result.get("animal_data_csv"):
+                print(
+                    f"Exported {result['animal_data_csv']}",
+                    flush=True,
+                )
         return 0
     except Exception as exc:  # noqa: BLE001
         db.rollback()
