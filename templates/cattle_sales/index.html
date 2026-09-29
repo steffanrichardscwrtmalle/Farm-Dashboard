@@ -434,6 +434,15 @@
         </div>
         <div class="chart-card">
           <div class="chart-head">
+            <h3>Avg cold weight vs DIM</h3>
+            <div class="chart-actions">
+              <button type="button" class="chart-expand" data-canvas="chart-weight-dim" data-title="Avg cold weight vs DIM" title="View larger">⤢</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-weight-dim"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head">
             <h3>Avg £/kg vs cold weight</h3>
             <div class="chart-actions">
               <button type="button" class="chart-expand" data-canvas="chart-price-weight" data-title="Avg £/kg vs cold weight" title="View larger">⤢</button>
@@ -451,7 +460,7 @@
           <div class="chart-wrap"><canvas id="chart-amount-weight"></canvas></div>
         </div>
       </div>
-      <p class="chart-hint">Date charts: weekly average per animal over trailing 21 days. Amount vs DIM: average amount in 30-day DIM groups. £/kg and amount vs cold weight: averages in 25 kg weight groups. Graph lines switches each chart between one line per farm and one line per supplier. Open Buyer and tick the buyers to compare. Click ⤢ to enlarge. In the enlarged view: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset.</p>
+      <p class="chart-hint">Date charts: weekly average per animal over trailing 21 days. Amount and cold weight vs DIM: averages in 30-day DIM groups. £/kg and amount vs cold weight: averages in 25 kg weight groups. Graph lines switches each chart between one line per farm and one line per supplier. Open Buyer and tick the buyers to compare. Click ⤢ to enlarge. In the enlarged view: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset.</p>
 
       <div id="chart-modal" class="chart-modal" hidden>
         <div class="chart-modal-backdrop" data-close="1"></div>
@@ -533,7 +542,7 @@
     let modalChart = null;
     let openModalCanvasId = null;
     const ROLL_WINDOW_DAYS = 21;
-    const CHART_IDS = ['chart-weight', 'chart-amount-date', 'chart-price-kg', 'chart-amount-dim', 'chart-price-weight', 'chart-amount-weight'];
+    const CHART_IDS = ['chart-weight', 'chart-amount-date', 'chart-price-kg', 'chart-amount-dim', 'chart-weight-dim', 'chart-price-weight', 'chart-amount-weight'];
 
     function selectedValues(selector) {
       return [...document.querySelectorAll(`${selector} .slicer-btn.selected`)].map(btn => btn.dataset.value);
@@ -1136,8 +1145,8 @@
       return Math.floor(d / DIM_BUCKET_SIZE) * DIM_BUCKET_SIZE + DIM_BUCKET_SIZE / 2;
     }
 
-    function amountVsDimBinnedLineSpec(rows) {
-      const filtered = rows.filter(r => r.dim != null && r.amount_gbp != null && !r.is_rejected);
+    function dimBinnedLineSpec(rows, yKey, yTitle, excludeRejected) {
+      const filtered = rows.filter(r => r.dim != null && r[yKey] != null && (!excludeRejected || !r.is_rejected));
       const series = seriesNames(filtered);
       if (!filtered.length) {
         return {
@@ -1158,7 +1167,7 @@
             bySeries[name] = null;
             return;
           }
-          const avg = animals.reduce((s, r) => s + Number(r.amount_gbp), 0) / animals.length;
+          const avg = animals.reduce((s, r) => s + Number(r[yKey]), 0) / animals.length;
           bySeries[name] = { y: Math.round(avg * 100) / 100, _n: animals.length };
         });
         return { mid, lo, hi, bySeries };
@@ -1214,7 +1223,7 @@
               title: { display: true, text: 'DIM (30-day groups)' },
               ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 },
             },
-            y: { title: { display: true, text: 'Avg amount (£)' } },
+            y: { title: { display: true, text: yTitle } },
           },
         },
       };
@@ -1352,7 +1361,8 @@
         'chart-weight': weeklyTrailingLineSpec(rows, 'cold_weight_kg', 'Avg cold weight (kg)'),
         'chart-amount-date': weeklyTrailingLineSpec(payable, 'amount_gbp', 'Avg amount (£)'),
         'chart-price-kg': weeklyTrailingLineSpec(payable, 'price_per_kg', 'Avg £/kg'),
-        'chart-amount-dim': amountVsDimBinnedLineSpec(rows),
+        'chart-amount-dim': dimBinnedLineSpec(rows, 'amount_gbp', 'Avg amount (£)', true),
+        'chart-weight-dim': dimBinnedLineSpec(rows, 'cold_weight_kg', 'Avg cold weight (kg)', false),
         'chart-price-weight': weightBinnedLineSpec(rows, 'price_per_kg', 'Avg £/kg'),
         'chart-amount-weight': weightBinnedLineSpec(rows, 'amount_gbp', 'Avg amount (£)'),
       };
