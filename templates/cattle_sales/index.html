@@ -115,17 +115,26 @@
       border-bottom: 1px solid var(--border);
     }
     .buyer-empty { margin: 0; padding: 0.35rem 0.65rem; font-size: 0.8rem; color: var(--muted); font-weight: 500; }
-    .series-bar {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-      margin: 0 0 0.75rem;
+    .series-slicer { width: 100%; }
+    .smooth-row { display: flex; justify-content: flex-start; margin: 0 0 0.75rem; }
+    button.smooth-switch {
+      display: inline-flex; align-items: center; gap: 0.75rem;
+      margin: 0; padding: 0.15rem 0; border: 0; background: transparent;
+      color: var(--text); font-size: 1rem; font-weight: 600; cursor: pointer;
     }
-    .series-bar .section-label { margin: 0; }
-    .series-slicer { width: 12rem; flex-shrink: 0; }
-    .smooth-btn { width: auto; min-width: 5.5rem; padding-left: 0.7rem; padding-right: 0.7rem; }
+    button.smooth-switch:hover { background: transparent; color: var(--text); }
+    .smooth-switch-track {
+      position: relative; width: 3.1rem; height: 1.7rem; border-radius: 999px;
+      background: #d1d5db; flex-shrink: 0; transition: background 0.15s ease;
+    }
+    .smooth-switch-knob {
+      position: absolute; top: 0.18rem; left: 0.18rem;
+      width: 1.34rem; height: 1.34rem; border-radius: 50%;
+      background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.22);
+      transition: transform 0.15s ease;
+    }
+    button.smooth-switch[aria-pressed="true"] .smooth-switch-track { background: #14b8a6; }
+    button.smooth-switch[aria-pressed="true"] .smooth-switch-knob { transform: translateX(1.4rem); }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
     .meta-line.is-loading { font-style: italic; }
     .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
@@ -169,9 +178,13 @@
     .summary-popover[hidden] { display: none; }
     .summary-popover-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.35); }
     .summary-popover-card {
-      position: relative; width: min(92vw, 420px); max-height: min(70vh, 480px);
+      position: relative; width: min(92vw, 440px); max-height: min(80vh, 640px);
       overflow: auto; background: var(--card); border-radius: 10px;
       box-shadow: 0 12px 40px rgba(0,0,0,0.28); padding: 1rem;
+    }
+    .summary-popover-card.is-wide {
+      width: min(96vw, 1100px);
+      max-height: min(88vh, 820px);
     }
     .summary-popover-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.75rem; }
     .summary-popover-head h3 { margin: 0; font-size: 1rem; }
@@ -180,16 +193,26 @@
       background: transparent; color: var(--muted); font-size: 1.3rem; line-height: 1; cursor: pointer;
     }
     button.summary-popover-close:hover { background: #f3f4f6; color: var(--text); }
-    .summary-breakdown { width: 100%; border-collapse: collapse; }
+    .summary-breakdown { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; }
     .summary-breakdown th, .summary-breakdown td {
-      padding: 0.4rem 0.35rem; border-bottom: 1px solid var(--border);
-      text-align: right; font-size: 0.85rem;
+      padding: 0.4rem 0.55rem; border-bottom: 1px solid var(--border);
+      text-align: right; font-size: 0.85rem; white-space: nowrap;
     }
     .summary-breakdown th:first-child, .summary-breakdown td:first-child { text-align: left; }
     .summary-breakdown thead th {
-      color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em;
+      position: sticky; top: 0; z-index: 2;
+      background: #1e3a5f; color: #fff;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em;
     }
-    .summary-breakdown td:last-child, .summary-breakdown th:last-child { color: var(--muted); }
+    .summary-breakdown tbody td:first-child {
+      position: sticky; left: 0; z-index: 1; background: var(--card);
+    }
+    .summary-breakdown thead th:first-child {
+      position: sticky; top: 0; left: 0; z-index: 3; background: #1e3a5f;
+    }
+    .summary-breakdown.simple td:last-child { color: var(--muted); }
+    .summary-breakdown .cell-n { display: block; margin-top: 0.1rem; font-size: 0.68rem; font-weight: 500; color: var(--muted); }
+    .summary-note { margin: 0 0 0.65rem; font-size: 0.75rem; color: var(--muted); }
     .summary-empty { margin: 0; color: var(--muted); font-size: 0.875rem; }
     .amount-rejected { color: #dc2626; font-weight: 700; }
     .action-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
@@ -294,6 +317,13 @@
           </div>
         </div>
         <div class="filter-section">
+          <span class="section-label">Graph lines</span>
+          <div class="slicer-group series-slicer" role="group" aria-label="Graph lines">
+            <button type="button" class="slicer-btn selected" data-value="farm" aria-pressed="true">Farm</button>
+            <button type="button" class="slicer-btn" data-value="supplier" aria-pressed="false">Supplier</button>
+          </div>
+        </div>
+        <div class="filter-section">
           <span class="section-label">Buyer</span>
           <div class="buyer-dropdown" id="buyer-filter">
             <button type="button" class="buyer-trigger" id="buyer-trigger" aria-expanded="false" aria-haspopup="listbox" aria-controls="buyer-panel">
@@ -389,13 +419,11 @@
         </div>
       </div>
 
-      <div class="series-bar">
-        <span class="section-label">Graph lines</span>
-        <div class="slicer-group series-slicer" role="group" aria-label="Graph lines">
-          <button type="button" class="slicer-btn selected" data-value="farm" aria-pressed="true">Farm</button>
-          <button type="button" class="slicer-btn" data-value="supplier" aria-pressed="false">Supplier</button>
-        </div>
-        <button type="button" class="slicer-btn smooth-btn" id="smooth-toggle" aria-pressed="false" title="Blend each point with the neighbouring groups">Smooth</button>
+      <div class="smooth-row">
+        <button type="button" class="smooth-switch" id="smooth-toggle" aria-pressed="false" title="Blend each point with the neighbouring groups">
+          <span class="smooth-switch-label">Smooth</span>
+          <span class="smooth-switch-track" aria-hidden="true"><span class="smooth-switch-knob"></span></span>
+        </button>
       </div>
 
       <div class="charts-grid">
@@ -897,13 +925,13 @@
       const avgPriceKg = avgMetric(payable, 'price_per_kg', 2);
       const avgDim = avgMetric(rows, 'dim', 0);
       const cards = [
-        { metric: 'weight', label: 'Avg weight (kg)', value: avgWeight != null ? fmtNum(avgWeight, 1) : '—' },
-        { metric: 'amount', label: 'Avg amount (£)', value: avgAmount != null ? fmtNum(avgAmount, 2) : '—' },
-        { metric: 'price', label: 'Avg £/kg', value: avgPriceKg != null ? fmtNum(avgPriceKg, 2) : '—' },
-        { metric: 'dim', label: 'Avg DIM', value: avgDim != null ? String(Math.round(avgDim)) : '—' },
+        { metric: 'weight', label: 'Avg weight (kg)', hint: 'Show average weight by supplier', value: avgWeight != null ? fmtNum(avgWeight, 1) : '—' },
+        { metric: 'amount', label: 'Avg amount (£)', hint: 'Show average amount by supplier', value: avgAmount != null ? fmtNum(avgAmount, 2) : '—' },
+        { metric: 'price', label: 'Avg £/kg', hint: 'Show average £/kg by weight class and supplier', value: avgPriceKg != null ? fmtNum(avgPriceKg, 2) : '—' },
+        { metric: 'dim', label: 'Avg DIM', hint: 'Show average amount by DIM group and buyer', value: avgDim != null ? String(Math.round(avgDim)) : '—' },
       ];
       document.getElementById('summary-cards').innerHTML = cards.map(c =>
-        `<button type="button" class="summary-card" data-metric="${c.metric}" title="Show supplier breakdown">` +
+        `<button type="button" class="summary-card" data-metric="${c.metric}" title="${escapeHtml(c.hint)}">` +
         `<div class="label">${escapeHtml(c.label)}</div>` +
         `<div class="value">${escapeHtml(c.value)}</div></button>`
       ).join('');
@@ -939,7 +967,14 @@
       const spec = SUMMARY_SPECS[metric];
       const title = document.getElementById('summary-popover-title');
       const body = document.getElementById('summary-popover-body');
+      const card = document.querySelector('.summary-popover-card');
       if (!spec || !title || !body) return;
+      if (metric === 'price' || metric === 'dim') {
+        if (card) card.classList.add('is-wide');
+        fillGroupedPopover(rows, metric);
+        return;
+      }
+      if (card) card.classList.remove('is-wide');
       title.textContent = spec.title;
       const lines = supplierBreakdown(rows, spec);
       if (!lines.length) {
@@ -947,11 +982,69 @@
         return;
       }
       body.innerHTML =
-        '<table class="summary-breakdown"><thead><tr>' +
+        '<table class="summary-breakdown simple"><thead><tr>' +
         '<th>Supplier</th><th>' + escapeHtml(spec.column) + '</th><th>Animals</th>' +
         '</tr></thead><tbody>' +
         lines.map(line =>
           `<tr><td>${escapeHtml(line.name)}</td><td>${escapeHtml(formatBreakdownValue(line.avg, spec))}</td><td>${line.n}</td></tr>`
+        ).join('') +
+        '</tbody></table>';
+    }
+
+    function groupedAverageCell(vals, spec) {
+      if (!vals || !vals.length) return '—';
+      const avg = vals.reduce((sum, value) => sum + value, 0) / vals.length;
+      return `${escapeHtml(formatBreakdownValue(avg, spec))}<span class="cell-n">${vals.length}</span>`;
+    }
+
+    function fillGroupedPopover(rows, metric) {
+      const title = document.getElementById('summary-popover-title');
+      const body = document.getElementById('summary-popover-body');
+      const isPrice = metric === 'price';
+      const spec = isPrice
+        ? { dp: 2, money: true }
+        : { dp: 2, money: true };
+      const field = isPrice ? 'price_per_kg' : 'amount_gbp';
+      const bucketOf = isPrice
+        ? (row => weightBucketStart(row.cold_weight_kg))
+        : (row => dimBucketMid(row.dim));
+      const labelOf = isPrice
+        ? (start => `${start}–${start + WEIGHT_BUCKET_SIZE - 1} kg`)
+        : (mid => {
+            const lo = mid - DIM_BUCKET_SIZE / 2;
+            const hi = lo + DIM_BUCKET_SIZE - 1;
+            return `${lo}–${hi}`;
+          });
+      title.textContent = isPrice ? 'Avg £/kg by weight and supplier' : 'Avg amount by DIM and buyer';
+      const source = payableRows(rows).filter(row => {
+        const bucket = bucketOf(row);
+        const value = row[field];
+        return bucket != null && value != null && Number.isFinite(Number(value));
+      });
+      if (!source.length) {
+        body.innerHTML = '<p class="summary-empty">No sales to break down for the current filters.</p>';
+        return;
+      }
+      const buyers = [...new Set(source.map(row => row.buyer || 'Unknown'))].sort((a, b) => a.localeCompare(b));
+      const groups = new Map();
+      source.forEach(row => {
+        const key = bucketOf(row);
+        if (!groups.has(key)) groups.set(key, { key, cells: {} });
+        const name = row.buyer || 'Unknown';
+        if (!groups.get(key).cells[name]) groups.get(key).cells[name] = [];
+        groups.get(key).cells[name].push(Number(row[field]));
+      });
+      const lines = [...groups.values()].sort((a, b) => a.key - b.key);
+      const rowHeader = isPrice ? 'Cold weight' : 'DIM';
+      body.innerHTML =
+        '<p class="summary-note">Each figure is the average. The small number is how many animals.</p>' +
+        '<table class="summary-breakdown"><thead><tr><th>' + escapeHtml(rowHeader) + '</th>' +
+        buyers.map(name => `<th>${escapeHtml(name)}</th>`).join('') +
+        '</tr></thead><tbody>' +
+        lines.map(line =>
+          `<tr><td>${escapeHtml(labelOf(line.key))}</td>` +
+          buyers.map(name => `<td>${groupedAverageCell(line.cells[name], spec)}</td>`).join('') +
+          '</tr>'
         ).join('') +
         '</tbody></table>';
     }
