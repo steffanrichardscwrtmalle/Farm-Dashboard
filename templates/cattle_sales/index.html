@@ -45,6 +45,7 @@
       font-weight: 600;
       cursor: pointer;
     }
+    .slicer-btn.selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
     .slicer-btn[data-value="CM"].selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
     .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
     .slicer-btn[data-value="Dairy"].selected { background: #dbeafe; border-color: #3b82f6; color: #1e40af; }
@@ -55,7 +56,74 @@
     .date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
     .date-row label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
     .date-row select, .date-row input { margin: 0; width: 100%; }
-    #buyer-filter { width: 100%; margin: 0; }
+    .buyer-dropdown { position: relative; width: 100%; }
+    .buyer-trigger {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem;
+      margin: 0;
+      padding: 0.4rem 0.55rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-align: left;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .buyer-trigger:hover { background: #f3f4f6; color: var(--text); }
+    .buyer-trigger-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .buyer-chevron { flex-shrink: 0; font-size: 0.7rem; opacity: 0.7; }
+    .buyer-panel {
+      position: absolute;
+      z-index: 40;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 14rem;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+      padding: 0.35rem 0;
+    }
+    .buyer-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.45rem;
+      margin: 0;
+      padding: 0.3rem 0.65rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .buyer-option:hover { background: rgba(0, 0, 0, 0.04); }
+    .buyer-option input { margin: 0.1rem 0 0; flex-shrink: 0; accent-color: #1e3a5f; }
+    .buyer-option-all {
+      padding-bottom: 0.45rem;
+      margin-bottom: 0.2rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .buyer-empty { margin: 0; padding: 0.35rem 0.65rem; font-size: 0.8rem; color: var(--muted); font-weight: 500; }
+    .series-bar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.75rem;
+      margin: 0 0 0.75rem;
+    }
+    .series-bar .section-label { margin: 0; }
+    .series-slicer { width: 12rem; flex-shrink: 0; }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
     .meta-line.is-loading { font-style: italic; }
     .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
@@ -173,9 +241,13 @@
         </div>
         <div class="filter-section">
           <span class="section-label">Buyer</span>
-          <select id="buyer-filter" title="Filter by cattle buyer">
-            <option value="" selected>Any</option>
-          </select>
+          <div class="buyer-dropdown" id="buyer-filter">
+            <button type="button" class="buyer-trigger" id="buyer-trigger" aria-expanded="false" aria-haspopup="listbox" aria-controls="buyer-panel">
+              <span class="buyer-trigger-label" id="buyer-trigger-label">All</span>
+              <span class="buyer-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="buyer-panel" id="buyer-panel" role="group" aria-label="Buyer" hidden></div>
+          </div>
         </div>
         <div class="filter-section">
           <span class="section-label">Sale date range</span>
@@ -211,6 +283,14 @@
       <p class="meta-line" id="meta-line">Loading cattle sales…</p>
 
       <div class="summary-cards" id="summary-cards"></div>
+
+      <div class="series-bar">
+        <span class="section-label">Graph lines</span>
+        <div class="slicer-group series-slicer" role="group" aria-label="Graph lines">
+          <button type="button" class="slicer-btn selected" data-value="farm" aria-pressed="true">Farm</button>
+          <button type="button" class="slicer-btn" data-value="supplier" aria-pressed="false">Supplier</button>
+        </div>
+      </div>
 
       <div class="charts-grid">
         <div class="chart-card">
@@ -250,7 +330,7 @@
           <div class="chart-wrap"><canvas id="chart-amount-dim"></canvas></div>
         </div>
       </div>
-      <p class="chart-hint">Date charts: weekly average per animal over trailing 21 days. Amount vs DIM: average amount in 30-day DIM groups. Click ⤢ to enlarge. In the enlarged view: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset.</p>
+      <p class="chart-hint">Date charts: weekly average per animal over trailing 21 days. Amount vs DIM: average amount in 30-day DIM groups. Graph lines switches each chart between one line per farm and one line per supplier. Open Buyer and tick the buyers to compare. Click ⤢ to enlarge. In the enlarged view: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset.</p>
 
       <div id="chart-modal" class="chart-modal" hidden>
         <div class="chart-modal-backdrop" data-close="1"></div>
@@ -297,6 +377,16 @@
   <script>
     const CAN_IMPORT = {{ 'true' if can_import else 'false' }};
     const FARM_COLORS = { CM: '#1e3a5f', GAD: '#b45309' };
+    const SUPPLIER_COLORS = {
+      'Euro Farm Wales': '#0f766e',
+      Pathway: '#7c3aed',
+      Buitelaar: '#be123c',
+      'Game Changer': '#0369a1',
+      Pickstock: '#4d7c0f',
+    };
+    const SERIES_PALETTE = ['#64748b', '#c2410c', '#4338ca', '#0e7490', '#a16207', '#9f1239', '#15803d'];
+    let chartSeriesBy = 'farm';
+    let buyerSelection = null;
     let allRows = [];
     let sortKey = 'sale_date';
     let sortDir = -1;
@@ -324,6 +414,20 @@
           btn.setAttribute('aria-pressed', btn.classList.contains('selected') ? 'true' : 'false');
           if (selector === '.farm-slicer' || selector === '.category-slicer' || selector === '.gender-slicer') fetchData();
           else refreshView();
+        });
+      });
+    }
+
+    function bindExclusiveSlicer(selector, onChange) {
+      document.querySelectorAll(`${selector} .slicer-btn`).forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (btn.classList.contains('selected')) return;
+          document.querySelectorAll(`${selector} .slicer-btn`).forEach(other => {
+            const on = other === btn;
+            other.classList.toggle('selected', on);
+            other.setAttribute('aria-pressed', on ? 'true' : 'false');
+          });
+          onChange(btn.dataset.value);
         });
       });
     }
@@ -432,27 +536,63 @@
       return [...new Set((rows || []).map(r => r.buyer).filter(Boolean))].sort();
     }
 
-    function populateBuyerFilter(buyers) {
-      const sel = document.getElementById('buyer-filter');
-      if (!sel) return;
-      const current = sel.value || '';
-      const options = ['<option value="">Any</option>'].concat(
-        (buyers || []).map(b =>
-          `<option value="${escapeHtml(b)}"${b === current ? ' selected' : ''}>${escapeHtml(b)}</option>`
-        )
-      );
-      sel.innerHTML = options.join('');
-      if (current && [...sel.options].some(o => o.value === current)) {
-        sel.value = current;
-      } else {
-        sel.value = '';
+    function effectiveBuyerSelection(available) {
+      if (buyerSelection === null) return null;
+      if (buyerSelection.size === 0) return new Set();
+      const kept = available.filter(name => buyerSelection.has(name));
+      if (!kept.length || kept.length === available.length) return null;
+      return new Set(kept);
+    }
+
+    function buyerTriggerLabel(available, selected) {
+      if (!available.length) return 'No buyers';
+      if (selected === null) return 'All';
+      if (!selected.size) return 'None selected';
+      if (selected.size === 1) return [...selected][0];
+      return `${selected.size} selected`;
+    }
+
+    function renderBuyerFilter() {
+      const panel = document.getElementById('buyer-panel');
+      const label = document.getElementById('buyer-trigger-label');
+      if (!panel || !label) return;
+      const available = buyersFromRows(filteredRows());
+      const selected = effectiveBuyerSelection(available);
+      buyerSelection = selected;
+      label.textContent = buyerTriggerLabel(available, selected);
+      if (!available.length) {
+        panel.innerHTML = '<p class="buyer-empty">No buyers in this range.</p>';
+        return;
       }
+      const allOn = selected === null;
+      const options = available.map(name => {
+        const checked = allOn || selected.has(name);
+        return `<label class="buyer-option"><input type="checkbox" class="buyer-cb" value="${escapeHtml(name)}"${checked ? ' checked' : ''}><span>${escapeHtml(name)}</span></label>`;
+      }).join('');
+      panel.innerHTML =
+        `<label class="buyer-option buyer-option-all"><input type="checkbox" id="buyer-all"${allOn ? ' checked' : ''}><span>All</span></label>` +
+        options;
+      const allBox = document.getElementById('buyer-all');
+      if (allBox) {
+        allBox.indeterminate = !allOn && selected.size > 0 && selected.size < available.length;
+      }
+    }
+
+    function setBuyerDropdownOpen(open) {
+      const trigger = document.getElementById('buyer-trigger');
+      const panel = document.getElementById('buyer-panel');
+      if (!trigger || !panel) return;
+      panel.hidden = !open;
+      trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
 
     function displayedRows() {
       const dated = filteredRows();
-      const buyer = document.getElementById('buyer-filter')?.value || '';
-      return buyer ? dated.filter(r => r.buyer === buyer) : dated;
+      const available = buyersFromRows(dated);
+      const selected = effectiveBuyerSelection(available);
+      if (selected === null) return dated;
+      if (!selected.size) return [];
+      return dated.filter(r => selected.has(r.buyer));
     }
 
     function fmtNum(v, dp = 2) {
@@ -589,10 +729,26 @@
       return anchors;
     }
 
-    function trailingAnimalAverage(rows, farm, endDate, yKey) {
+    function seriesLabel(row) {
+      if (chartSeriesBy === 'supplier') return row.buyer || 'Unknown';
+      return row.farm || 'Unknown';
+    }
+
+    function seriesColor(label, index) {
+      if (chartSeriesBy === 'supplier') {
+        return SUPPLIER_COLORS[label] || SERIES_PALETTE[index % SERIES_PALETTE.length];
+      }
+      return FARM_COLORS[label] || SERIES_PALETTE[index % SERIES_PALETTE.length];
+    }
+
+    function seriesNames(rows) {
+      return [...new Set(rows.map(seriesLabel))].sort((a, b) => a.localeCompare(b));
+    }
+
+    function trailingAnimalAverage(rows, series, endDate, yKey) {
       const startDate = isoAddDays(endDate, -(ROLL_WINDOW_DAYS - 1));
       const animals = rows.filter(r =>
-        r.farm === farm &&
+        seriesLabel(r) === series &&
         r[yKey] != null &&
         r.sale_date >= startDate &&
         r.sale_date <= endDate
@@ -606,7 +762,7 @@
     }
 
     function weeklyTrailingLineSpec(rows, yKey, yTitle) {
-      const farms = [...new Set(rows.map(r => r.farm))].sort();
+      const series = seriesNames(rows);
       const saleDates = rows.map(r => r.sale_date).filter(Boolean);
       if (!saleDates.length) {
         return {
@@ -618,21 +774,21 @@
       const minDate = saleDates.reduce((a, b) => (a < b ? a : b));
       const maxDate = saleDates.reduce((a, b) => (a > b ? a : b));
       const anchors = strictWeekEndAnchors(minDate, maxDate).filter(endDate =>
-        farms.some(farm => trailingAnimalAverage(rows, farm, endDate, yKey))
+        series.some(name => trailingAnimalAverage(rows, name, endDate, yKey))
       );
       const weekMeta = anchors.map(endDate => {
-        const byFarm = {};
-        farms.forEach(farm => {
-          byFarm[farm] = trailingAnimalAverage(rows, farm, endDate, yKey);
+        const bySeries = {};
+        series.forEach(name => {
+          bySeries[name] = trailingAnimalAverage(rows, name, endDate, yKey);
         });
-        return { endDate, byFarm };
+        return { endDate, bySeries };
       });
-      const datasets = farms.map(farm => {
-        const color = FARM_COLORS[farm] || '#64748b';
+      const datasets = series.map((name, index) => {
+        const color = seriesColor(name, index);
         return {
-          label: farm,
+          label: name,
           data: weekMeta.map(w => {
-            const r = w.byFarm[farm];
+            const r = w.bySeries[name];
             return r ? r.y : null;
           }),
           borderColor: color,
@@ -660,7 +816,7 @@
                 },
                 label: (ctx) => {
                   const w = weekMeta[ctx.dataIndex];
-                  const r = w?.byFarm[ctx.dataset.label];
+                  const r = w?.bySeries[ctx.dataset.label];
                   if (r == null || ctx.parsed.y == null) return `${ctx.dataset.label}: —`;
                   const n = r._n > 1
                     ? ` (${r._n} animals in 21 days)`
@@ -690,8 +846,8 @@
     }
 
     function amountVsDimBinnedLineSpec(rows) {
-      const farms = [...new Set(rows.map(r => r.farm))].sort();
       const filtered = rows.filter(r => r.dim != null && r.amount_gbp != null && !r.is_rejected);
+      const series = seriesNames(filtered);
       if (!filtered.length) {
         return {
           type: 'line',
@@ -704,25 +860,25 @@
       const bucketMeta = mids.map(mid => {
         const lo = mid - DIM_BUCKET_SIZE / 2;
         const hi = lo + DIM_BUCKET_SIZE - 1;
-        const byFarm = {};
-        farms.forEach(farm => {
-          const animals = filtered.filter(r => r.farm === farm && dimBucketMid(r.dim) === mid);
+        const bySeries = {};
+        series.forEach(name => {
+          const animals = filtered.filter(r => seriesLabel(r) === name && dimBucketMid(r.dim) === mid);
           if (!animals.length) {
-            byFarm[farm] = null;
+            bySeries[name] = null;
             return;
           }
           const avg = animals.reduce((s, r) => s + Number(r.amount_gbp), 0) / animals.length;
-          byFarm[farm] = { y: Math.round(avg * 100) / 100, _n: animals.length };
+          bySeries[name] = { y: Math.round(avg * 100) / 100, _n: animals.length };
         });
-        return { mid, lo, hi, byFarm };
+        return { mid, lo, hi, bySeries };
       });
 
-      const datasets = farms.map(farm => {
-        const color = FARM_COLORS[farm] || '#64748b';
+      const datasets = series.map((name, index) => {
+        const color = seriesColor(name, index);
         return {
-          label: farm,
+          label: name,
           data: bucketMeta.map(b => {
-            const r = b.byFarm[farm];
+            const r = b.bySeries[name];
             return r ? r.y : null;
           }),
           borderColor: color,
@@ -754,7 +910,7 @@
                 },
                 label: (ctx) => {
                   const b = bucketMeta[ctx.dataIndex];
-                  const r = b?.byFarm[ctx.dataset.label];
+                  const r = b?.bySeries[ctx.dataset.label];
                   if (r == null || ctx.parsed.y == null) return `${ctx.dataset.label}: —`;
                   const n = r._n > 1 ? ` (${r._n} animals)` : (r._n === 1 ? ' (1 animal)' : '');
                   return `${ctx.dataset.label}: ${fmtNum(ctx.parsed.y)}${n}`;
@@ -869,7 +1025,7 @@
     }
 
     function refreshView() {
-      populateBuyerFilter(buyersFromRows(filteredRows()));
+      renderBuyerFilter();
       const rows = displayedRows();
       const unmatched = rows.filter(r => !r.event_matched).length;
       let meta = `${rows.length} sale line(s)`;
@@ -995,7 +1151,29 @@
 
     document.getElementById('date-from').addEventListener('change', refreshView);
     document.getElementById('date-to').addEventListener('change', refreshView);
-    document.getElementById('buyer-filter')?.addEventListener('change', refreshView);
+    document.getElementById('buyer-trigger').addEventListener('click', () => {
+      const panel = document.getElementById('buyer-panel');
+      setBuyerDropdownOpen(panel.hidden);
+    });
+    document.getElementById('buyer-filter').addEventListener('change', (e) => {
+      const input = e.target;
+      if (!(input instanceof HTMLInputElement) || input.type !== 'checkbox') return;
+      const available = buyersFromRows(filteredRows());
+      if (input.id === 'buyer-all') {
+        buyerSelection = input.checked ? null : new Set();
+      } else {
+        const checked = [...document.querySelectorAll('#buyer-panel .buyer-cb:checked')].map(cb => cb.value);
+        buyerSelection = checked.length && checked.length < available.length ? new Set(checked) : (checked.length ? null : new Set());
+      }
+      refreshView();
+    });
+    document.addEventListener('click', (event) => {
+      const dropdown = document.getElementById('buyer-filter');
+      if (dropdown && !dropdown.contains(event.target)) setBuyerDropdownOpen(false);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') setBuyerDropdownOpen(false);
+    });
     ['age-min', 'age-max'].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -1008,6 +1186,10 @@
     bindSlicers('.farm-slicer');
     bindSlicers('.category-slicer');
     bindSlicers('.gender-slicer');
+    bindExclusiveSlicer('.series-slicer', (value) => {
+      chartSeriesBy = value === 'supplier' ? 'supplier' : 'farm';
+      renderCharts(displayedRows());
+    });
     bindChartUI();
     fetchData();
   </script>
