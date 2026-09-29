@@ -86,6 +86,12 @@ def test_missing_traits_treat_as_zero() -> None:
     assert cm_index({}) == 0
 
 
+def test_nan_traits_treat_as_zero() -> None:
+    blank = dict(_JUMPSTART, milk_kg=0, fat_pct=0)
+    row = dict(_JUMPSTART, milk_kg=float("nan"), fat_pct=float("nan"))
+    assert cm_index(row) == cm_index(blank)
+
+
 def test_custom_settings_change_dp_and_fw() -> None:
     custom = merge_index_settings(
         {

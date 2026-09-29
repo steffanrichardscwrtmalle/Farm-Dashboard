@@ -6,6 +6,7 @@ import datetime as dt
 import gc
 import io
 import json
+import math
 import re
 from typing import Any
 
@@ -115,7 +116,18 @@ def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[d
     frame = pd.DataFrame(out)
     frame = frame[frame["hbn"].notna() & (frame["hbn"] != "")]
     frame = frame.drop_duplicates(subset=["hbn"], keep="last")
-    return frame.to_dict(orient="records")
+    return [_without_nan(record) for record in frame.to_dict(orient="records")]
+
+
+def _without_nan(record: dict[str, Any]) -> dict[str, Any]:
+    """Store blank workbook cells as NULL. Pandas leaves them as NaN."""
+    cleaned: dict[str, Any] = {}
+    for key, value in record.items():
+        if isinstance(value, float) and not math.isfinite(value):
+            cleaned[key] = None
+        else:
+            cleaned[key] = value
+    return cleaned
 
 
 def import_genomic_results(db: Session, *, force: bool = False) -> dict[str, Any]:

@@ -116,6 +116,17 @@ def test_list_joins_inventory_and_genomic_by_ear_tag() -> None:
     session.close()
 
 
+def test_blank_genomic_traits_still_produce_a_whole_cm() -> None:
+    session = _session()
+    session.add(_animal())
+    session.add(_genomic(milk_kg=float("nan"), fat_pct=float("nan")))
+    session.commit()
+
+    result = list_animal_genetics(session, farms=["CM"])
+    assert isinstance(result["rows"][0]["cm"], int)
+    session.close()
+
+
 def test_exports_use_animal_data_headers() -> None:
     session = _session()
     session.add(_genomic())

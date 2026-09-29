@@ -195,3 +195,23 @@ def test_changed_genomic_file_exports_animal_data_csv(monkeypatch) -> None:
     assert "UK999" in text
     assert "REG1" in text
     session.close()
+
+
+def test_blank_trait_cells_are_stored_as_null() -> None:
+    import datetime as dt
+
+    import pandas as pd
+
+    from app.services.genomic_import import _dataframe_to_mappings
+
+    frame = pd.DataFrame(
+        {
+            "HBN": [999],
+            "EarTag Number": ["UK999"],
+            "Milk": [float("nan")],
+            "PLI": [250.0],
+        }
+    )
+    rows = _dataframe_to_mappings(frame, dt.datetime(2026, 9, 29))
+    assert rows[0]["milk_kg"] is None
+    assert rows[0]["pli"] == 250.0
