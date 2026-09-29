@@ -144,6 +144,15 @@
     button.filter-funnel:hover { background: #e5e7eb; color: var(--text); }
     button.filter-funnel.is-active { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
     button.filter-funnel svg { display: block; }
+    .filter-actions { display: flex; align-items: center; gap: 0.5rem; }
+    button.filter-clear {
+      margin: 0; padding: 0 0.75rem; height: 2.25rem;
+      border: 1px solid var(--border); border-radius: 6px;
+      background: #fff; color: #1e3a5f;
+      font-size: 0.8rem; font-weight: 600; cursor: pointer;
+    }
+    button.filter-clear:hover { background: #f3f4f6; }
+    button.filter-clear:disabled { opacity: 0.45; cursor: default; background: #f3f4f6; color: var(--muted); }
     .range-filter-panel {
       margin-top: 0.65rem; padding: 0.75rem;
       border: 1px solid var(--border); border-radius: 8px; background: #f8fafc;
@@ -300,11 +309,14 @@
           </div>
         </div>
         <div class="filter-section" id="range-filter">
-          <button type="button" class="filter-funnel" id="range-filter-btn" aria-expanded="false" aria-controls="range-filter-panel" aria-label="Age, lactation, DIM and cold weight filters" title="Age, lactation, DIM and cold weight">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z"/>
-            </svg>
-          </button>
+          <div class="filter-actions">
+            <button type="button" class="filter-funnel" id="range-filter-btn" aria-expanded="false" aria-controls="range-filter-panel" aria-label="Age, lactation, DIM and cold weight filters" title="Age, lactation, DIM and cold weight">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z"/>
+              </svg>
+            </button>
+            <button type="button" class="filter-clear" id="range-filter-clear" disabled>Clear</button>
+          </div>
           <div id="range-filter-panel" class="range-filter-panel" hidden>
             <p class="range-note">Min and max start at the lowest and highest values in the current sales.</p>
             <div class="range-block">
@@ -420,8 +432,26 @@
           </div>
           <div class="chart-wrap"><canvas id="chart-amount-dim"></canvas></div>
         </div>
+        <div class="chart-card">
+          <div class="chart-head">
+            <h3>Avg £/kg vs cold weight</h3>
+            <div class="chart-actions">
+              <button type="button" class="chart-expand" data-canvas="chart-price-weight" data-title="Avg £/kg vs cold weight" title="View larger">⤢</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-price-weight"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head">
+            <h3>Avg amount vs cold weight</h3>
+            <div class="chart-actions">
+              <button type="button" class="chart-expand" data-canvas="chart-amount-weight" data-title="Avg amount vs cold weight" title="View larger">⤢</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-amount-weight"></canvas></div>
+        </div>
       </div>
-      <p class="chart-hint">Date charts: weekly average per animal over trailing 21 days. Amount vs DIM: average amount in 30-day DIM groups. Graph lines switches each chart between one line per farm and one line per supplier. Open Buyer and tick the buyers to compare. Click ⤢ to enlarge. In the enlarged view: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset.</p>
+      <p class="chart-hint">Date charts: weekly average per animal over trailing 21 days. Amount vs DIM: average amount in 30-day DIM groups. £/kg and amount vs cold weight: averages in 25 kg weight groups. Graph lines switches each chart between one line per farm and one line per supplier. Open Buyer and tick the buyers to compare. Click ⤢ to enlarge. In the enlarged view: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset.</p>
 
       <div id="chart-modal" class="chart-modal" hidden>
         <div class="chart-modal-backdrop" data-close="1"></div>
@@ -503,7 +533,7 @@
     let modalChart = null;
     let openModalCanvasId = null;
     const ROLL_WINDOW_DAYS = 21;
-    const CHART_IDS = ['chart-weight', 'chart-amount-date', 'chart-price-kg', 'chart-amount-dim'];
+    const CHART_IDS = ['chart-weight', 'chart-amount-date', 'chart-price-kg', 'chart-amount-dim', 'chart-price-weight', 'chart-amount-weight'];
 
     function selectedValues(selector) {
       return [...document.querySelectorAll(`${selector} .slicer-btn.selected`)].map(btn => btn.dataset.value);
@@ -724,6 +754,10 @@
       return [Math.min(...vals), Math.max(...vals)];
     }
 
+    function clearRangeFilters() {
+      Object.keys(RANGE_FIELDS).forEach(key => { lastRangeBounds[key] = null; });
+    }
+
     function syncRangeInputs(rows) {
       let narrowed = false;
       Object.entries(RANGE_FIELDS).forEach(([key, spec]) => {
@@ -765,6 +799,8 @@
       });
       const funnel = document.getElementById('range-filter-btn');
       if (funnel) funnel.classList.toggle('is-active', narrowed);
+      const clearBtn = document.getElementById('range-filter-clear');
+      if (clearBtn) clearBtn.disabled = !narrowed;
     }
 
     function rowPassesRanges(row) {
@@ -1184,6 +1220,97 @@
       };
     }
 
+    const WEIGHT_BUCKET_SIZE = 25;
+
+    function weightBucketStart(kg) {
+      const w = Number(kg);
+      if (!Number.isFinite(w)) return null;
+      return Math.floor(w / WEIGHT_BUCKET_SIZE) * WEIGHT_BUCKET_SIZE;
+    }
+
+    function weightBinnedLineSpec(rows, yKey, yTitle) {
+      const filtered = rows.filter(r => r.cold_weight_kg != null && r[yKey] != null && !r.is_rejected);
+      const series = seriesNames(filtered);
+      if (!filtered.length) {
+        return {
+          type: 'line',
+          data: { labels: [], datasets: [] },
+          options: { responsive: true, maintainAspectRatio: false },
+        };
+      }
+
+      const starts = [...new Set(filtered.map(r => weightBucketStart(r.cold_weight_kg)).filter(s => s != null))].sort((a, b) => a - b);
+      const bucketMeta = starts.map(lo => {
+        const hi = lo + WEIGHT_BUCKET_SIZE - 1;
+        const bySeries = {};
+        series.forEach(name => {
+          const animals = filtered.filter(r => seriesLabel(r) === name && weightBucketStart(r.cold_weight_kg) === lo);
+          if (!animals.length) {
+            bySeries[name] = null;
+            return;
+          }
+          const avg = animals.reduce((s, r) => s + Number(r[yKey]), 0) / animals.length;
+          bySeries[name] = { y: Math.round(avg * 100) / 100, _n: animals.length };
+        });
+        return { lo, hi, bySeries };
+      });
+
+      const datasets = series.map((name, index) => {
+        const color = seriesColor(name, index);
+        return {
+          label: name,
+          data: bucketMeta.map(b => {
+            const r = b.bySeries[name];
+            return r ? r.y : null;
+          }),
+          borderColor: color,
+          backgroundColor: color,
+          spanGaps: true,
+          tension: 0.35,
+          pointRadius: 0,
+          pointHoverRadius: 6,
+        };
+      });
+
+      return {
+        type: 'line',
+        data: {
+          labels: bucketMeta.map(b => String(b.lo)),
+          datasets,
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                title: (items) => {
+                  const b = bucketMeta[items[0]?.dataIndex];
+                  return b ? `${b.lo}–${b.hi} kg` : '';
+                },
+                label: (ctx) => {
+                  const b = bucketMeta[ctx.dataIndex];
+                  const r = b?.bySeries[ctx.dataset.label];
+                  if (r == null || ctx.parsed.y == null) return `${ctx.dataset.label}: —`;
+                  const n = r._n > 1 ? ` (${r._n} animals)` : (r._n === 1 ? ' (1 animal)' : '');
+                  return `${ctx.dataset.label}: £${fmtNum(ctx.parsed.y)}${n}`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'Cold weight (25 kg groups)' },
+              ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 },
+            },
+            y: { title: { display: true, text: yTitle } },
+          },
+        },
+      };
+    }
+
     function zoomPluginOptions(enableZoom) {
       if (!enableZoom) {
         return {
@@ -1226,6 +1353,8 @@
         'chart-amount-date': weeklyTrailingLineSpec(payable, 'amount_gbp', 'Avg amount (£)'),
         'chart-price-kg': weeklyTrailingLineSpec(payable, 'price_per_kg', 'Avg £/kg'),
         'chart-amount-dim': amountVsDimBinnedLineSpec(rows),
+        'chart-price-weight': weightBinnedLineSpec(rows, 'price_per_kg', 'Avg £/kg'),
+        'chart-amount-weight': weightBinnedLineSpec(rows, 'amount_gbp', 'Avg amount (£)'),
       };
       let chartError = '';
       CHART_IDS.forEach(id => {
@@ -1442,6 +1571,10 @@
       panel.hidden = !open;
       document.getElementById('range-filter-btn').setAttribute('aria-expanded', open ? 'true' : 'false');
     });
+    document.getElementById('range-filter-clear').addEventListener('click', () => {
+      clearRangeFilters();
+      refreshView();
+    });
     document.addEventListener('click', (event) => {
       const box = document.getElementById('range-filter');
       if (box && !box.contains(event.target)) {
@@ -1471,7 +1604,10 @@
 
     bindSlicers('.farm-slicer');
     bindSlicers('.gender-slicer');
-    bindExclusiveSlicer('.category-slicer', () => fetchData());
+    bindExclusiveSlicer('.category-slicer', () => {
+      clearRangeFilters();
+      fetchData();
+    });
     bindExclusiveSlicer('.series-slicer', (value) => {
       chartSeriesBy = value === 'supplier' ? 'supplier' : 'farm';
       renderCharts(displayedRows());
