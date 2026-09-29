@@ -42,6 +42,8 @@ COLUMNS: tuple[tuple[str, str], ...] = (
     ("chest_width", "Chest Width"),
 )
 
+EXPORT_COLUMNS: tuple[tuple[str, str], ...] = COLUMNS + (("gyon", "GYON"),)
+
 _GENOMIC_FIELDS = (
     "pli",
     "milk_kg",
@@ -58,7 +60,7 @@ _GENOMIC_FIELDS = (
 )
 
 _XLSX_WIDTHS = (
-    12, 20, 18, 8, 8, 10, 10, 12, 12, 14, 10, 12, 16, 10, 12, 12, 12, 14,
+    12, 20, 18, 8, 8, 10, 10, 12, 12, 14, 10, 12, 16, 10, 12, 12, 12, 14, 8,
 )
 
 
@@ -115,9 +117,9 @@ def list_animal_genetics(
 def build_animal_genetics_csv(rows: list[dict[str, Any]]) -> bytes:
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow([label for _key, label in COLUMNS])
+    writer.writerow([label for _key, label in EXPORT_COLUMNS])
     for row in rows:
-        writer.writerow(["" if row.get(key) is None else row.get(key) for key, _label in COLUMNS])
+        writer.writerow([_export_cell(key, row.get(key)) for key, _label in EXPORT_COLUMNS])
     return buffer.getvalue().encode("utf-8-sig")
 
 
@@ -125,9 +127,13 @@ def build_animal_genetics_xlsx(rows: list[dict[str, Any]]) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Animal Data"
-    ws.append([label for _key, label in COLUMNS])
+    ws.append([label for _key, label in EXPORT_COLUMNS])
     for row in rows:
-        ws.append([row.get(key) for key, _label in COLUMNS])
+        ws.append(
+            [_export_cell(key, row.get(key), blank=None) for key, _label in EXPORT_COLUMNS]
+        )
+    for cell in ws["C"][1:]:
+        cell.number_format = "@"
 
     for index, width in enumerate(_XLSX_WIDTHS, start=1):
         ws.column_dimensions[get_column_letter(index)].width = width
@@ -146,6 +152,24 @@ def _display_sreg(value: str | None) -> str:
     if compact.startswith("UUUU"):
         return "BULLHO"
     return text
+
+
+def _export_sreg(value: Any) -> str:
+    """Registration exports keep digits only. HO840… becomes 840…."""
+    text = "" if value is None else str(value).strip()
+    if text == "BULLHO":
+        return text
+    return "".join(character for character in text if character.isdigit())
+
+
+def _export_cell(key: str, value: Any, *, blank: Any = "") -> Any:
+    if key == "sreg":
+        return _export_sreg(value)
+    if key == "gyon":
+        return 1
+    if value is None:
+        return blank
+    return value
 
 
 def _age_months(months_old: Any, aged: Any) -> int | None:

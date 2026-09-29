@@ -173,7 +173,7 @@ def test_changed_genomic_file_exports_animal_data_csv(monkeypatch) -> None:
                 "HBN": [999],
                 "EarTag Number": ["UK999"],
                 "Sire": ["SireA"],
-                "Sire Reg No ID": ["REG1"],
+                "Sire Reg No ID": ["HO840003244009239"],
                 "PLI": [250.0],
             }
         ),
@@ -193,7 +193,7 @@ def test_changed_genomic_file_exports_animal_data_csv(monkeypatch) -> None:
     text = uploaded[0][1].decode("utf-8-sig")
     assert text.splitlines()[0].startswith("ID,ETAG,SREG")
     assert "UK999" in text
-    assert "REG1" in text
+    assert "840003244009239" in text
     session.close()
 
 

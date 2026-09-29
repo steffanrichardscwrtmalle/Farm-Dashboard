@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models import Base, GenomicResult, HerdInventory
 from app.services.animal_genetics import (
-    COLUMNS,
+    EXPORT_COLUMNS,
     build_animal_genetics_csv,
     build_animal_genetics_xlsx,
     list_animal_genetics,
@@ -127,6 +127,28 @@ def test_blank_genomic_traits_still_produce_a_whole_cm() -> None:
     session.close()
 
 
+def test_export_sreg_is_digits_only() -> None:
+    rows = [
+        {"sreg": "HO840003244009239"},
+        {"sreg": "HOCAN000011591480"},
+        {"sreg": "BULLHO"},
+    ]
+    lines = build_animal_genetics_csv(rows).decode("utf-8-sig").splitlines()
+    assert [line.split(",")[2] for line in lines[1:]] == [
+        "840003244009239",
+        "000011591480",
+        "BULLHO",
+    ]
+
+    sheet = load_workbook(io.BytesIO(build_animal_genetics_xlsx(rows))).active
+    assert [sheet["C2"].value, sheet["C3"].value, sheet["C4"].value] == [
+        "840003244009239",
+        "000011591480",
+        "BULLHO",
+    ]
+    assert sheet["C2"].number_format == "@"
+
+
 def test_exports_use_animal_data_headers() -> None:
     session = _session()
     session.add(_genomic())
@@ -135,13 +157,15 @@ def test_exports_use_animal_data_headers() -> None:
     rows = list_animal_genetics(session)["rows"]
 
     csv_text = build_animal_genetics_csv(rows).decode("utf-8-sig")
-    assert csv_text.splitlines()[0] == ",".join(label for _key, label in COLUMNS)
+    assert csv_text.splitlines()[0] == ",".join(label for _key, label in EXPORT_COLUMNS)
+    assert csv_text.splitlines()[1].endswith(",1")
 
     workbook = load_workbook(io.BytesIO(build_animal_genetics_xlsx(rows)))
     sheet = workbook.active
     assert sheet.title == "Animal Data"
-    assert [cell.value for cell in sheet[1]] == [label for _key, label in COLUMNS]
-    assert sheet["C2"].value == "UK333333333333"
+    assert [cell.value for cell in sheet[1]] == [label for _key, label in EXPORT_COLUMNS]
+    assert sheet.cell(2, len(EXPORT_COLUMNS)).value == 1
+    assert sheet["C2"].value == "333333333333"
     assert sheet["E2"].value == 28
     assert sheet["F2"].value == int(round(cm_index(_genomic())))
     session.close()
@@ -188,4 +212,5 @@ def test_animal_genetics_page_is_wired() -> None:
         "Chest Width",
     ):
         assert f">{label}<" in page
+    assert ">GYON<" not in page
     assert '@router.get("/animal-data")' in routes
