@@ -134,10 +134,97 @@
     }
     .import-log ul { margin: 0; padding-left: 1.1rem; }
     .import-log li { margin: 0.15rem 0; }
+    .page-filters { min-width: 0; }
+    .page-filters > .mobile-filters-toggle { display: none; list-style: none; }
+    .mobile-filters-toggle::-webkit-details-marker { display: none; }
+    .mobile-filters-toggle::marker { content: ""; }
+    @media (min-width: 769px) {
+      .page-filters:not([open]) > .sidebar-column { display: flex !important; }
+    }
+    @media (max-width: 768px) {
+      .page-layout { gap: 0.75rem; }
+      .page-layout, .content-panel, .table-wrap, .action-bar {
+        max-width: 100%;
+        min-width: 0;
+      }
+      .page-filters > .mobile-filters-toggle {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        min-height: 2.75rem;
+        margin: 0 0 0.65rem;
+        padding: 0.55rem 0.85rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--card);
+        color: #1e3a5f;
+        font-size: 0.95rem;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .mobile-filters-toggle::after {
+        content: "Show";
+        margin-left: auto;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      .page-filters[open] > .mobile-filters-toggle::after { content: "Hide"; }
+      .page-filters:not([open]) > .sidebar-column { display: none; }
+      .action-bar { flex-direction: column; align-items: stretch; }
+      .action-bar > button, .action-bar .slicer-btn { width: 100%; min-height: 2.75rem; }
+      .import-scope { width: 100%; min-height: 2.75rem; justify-content: space-between; }
+      .import-scope select, .filter-section select { width: 100%; min-height: 2.75rem; font-size: 16px; }
+      .table-wrap { overflow: visible; border: 0; background: transparent; }
+      #stmt-table thead { display: none; }
+      #stmt-table, #stmt-table tbody { display: block; }
+      #stmt-table tr {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.45rem 0.75rem;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.75rem;
+        margin: 0 0 0.65rem;
+      }
+      #stmt-table tr.total-row { border: 2px solid #1e3a5f; background: #f0f4f8; }
+      #stmt-table tr.empty-month { background: #f8fafc; }
+      #stmt-table td {
+        display: flex;
+        flex-direction: column;
+        gap: 0.05rem;
+        padding: 0;
+        border: 0;
+        text-align: left;
+        white-space: normal;
+        background: transparent;
+      }
+      #stmt-table td::before {
+        content: attr(data-label);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      #stmt-table td:nth-child(1),
+      #stmt-table td:not([data-label]) { grid-column: 1 / -1; }
+      #stmt-table td:nth-child(1) { font-size: 1.05rem; font-weight: 700; }
+      #stmt-table td:not([data-label])::before { content: none; }
+      #stmt-table:not(.show-ly) td.ly-col { display: none; }
+    }
 {% endblock %}
 
 {% block content %}
   <div class="page-layout">
+    <details class="page-filters" open>
+      <summary class="mobile-filters-toggle">Filters</summary>
+      <script>
+        if (window.matchMedia("(max-width: 768px)").matches) {
+          document.currentScript.parentElement.removeAttribute("open");
+        }
+      </script>
     <div class="sidebar-column">
       <aside class="filter-panel">
         <h2>Filters</h2>
@@ -165,6 +252,7 @@
         </p>
       </aside>
     </div>
+    </details>
 
     <section class="content-panel">
       <div id="status-message" class="message"></div>
@@ -341,19 +429,19 @@
 
   function rowCells(row) {
     return `
-      <td>${row.month_label || "—"}</td>
-      <td class="${cmpClass(row.litres_sold, row.prior_litres_sold)}">${fmtInt(row.litres_sold)}</td>
-      <td class="ly-col">${fmtInt(row.prior_litres_sold)}</td>
-      <td class="${cmpClass(row.milk_price_ppl, row.prior_milk_price_ppl)}">${fmtNum(row.milk_price_ppl, 2)}</td>
-      <td class="ly-col">${fmtNum(row.prior_milk_price_ppl, 2)}</td>
-      <td class="${cmpClass(row.butterfat_pct, row.prior_butterfat_pct)}">${fmtNum(row.butterfat_pct, 2)}</td>
-      <td class="ly-col">${fmtNum(row.prior_butterfat_pct, 2)}</td>
-      <td class="${cmpClass(row.protein_pct, row.prior_protein_pct)}">${fmtNum(row.protein_pct, 2)}</td>
-      <td class="ly-col">${fmtNum(row.prior_protein_pct, 2)}</td>
-      <td>${fmtInt(row.scc)}</td>
-      <td>${fmtInt(row.bactoscan)}</td>
-      <td>${fmtInt(row.thermoduric)}</td>
-      <td>${fmtInt(row.fpd)}</td>
+      <td data-label="Month">${row.month_label || "—"}</td>
+      <td data-label="Litres" class="${cmpClass(row.litres_sold, row.prior_litres_sold)}">${fmtInt(row.litres_sold)}</td>
+      <td data-label="Last year litres" class="ly-col">${fmtInt(row.prior_litres_sold)}</td>
+      <td data-label="Price" class="${cmpClass(row.milk_price_ppl, row.prior_milk_price_ppl)}">${fmtNum(row.milk_price_ppl, 2)}</td>
+      <td data-label="Last year price" class="ly-col">${fmtNum(row.prior_milk_price_ppl, 2)}</td>
+      <td data-label="Fat %" class="${cmpClass(row.butterfat_pct, row.prior_butterfat_pct)}">${fmtNum(row.butterfat_pct, 2)}</td>
+      <td data-label="Last year fat %" class="ly-col">${fmtNum(row.prior_butterfat_pct, 2)}</td>
+      <td data-label="Protein %" class="${cmpClass(row.protein_pct, row.prior_protein_pct)}">${fmtNum(row.protein_pct, 2)}</td>
+      <td data-label="Last year protein %" class="ly-col">${fmtNum(row.prior_protein_pct, 2)}</td>
+      <td data-label="SCC">${fmtInt(row.scc)}</td>
+      <td data-label="Bacto">${fmtInt(row.bactoscan)}</td>
+      <td data-label="Thermo">${fmtInt(row.thermoduric)}</td>
+      <td data-label="FPD">${fmtInt(row.fpd)}</td>
     `;
   }
 

@@ -218,7 +218,7 @@
     .action-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
     .import-scope { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 0.8rem; color: var(--muted); }
     .import-scope select { margin: 0; padding: 0.25rem 0.4rem; font-size: 0.8rem; }
-    .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 0.75rem; }
+    .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1rem; margin-bottom: 0.75rem; }
     .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
     .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
     .chart-card h3 { margin: 0; font-size: 0.95rem; }
@@ -286,10 +286,139 @@
     }
     #import-message .message-close:hover { background: #f5d9ad; }
     .import-log { margin-top: 0.5rem; max-height: 12rem; overflow: auto; font-size: 0.8rem; }
+    .page-filters { min-width: 0; }
+    .page-filters > .mobile-filters-toggle { display: none; list-style: none; }
+    .mobile-filters-toggle::-webkit-details-marker { display: none; }
+    .mobile-filters-toggle::marker { content: ""; }
+    .mobile-sort { display: none; }
+    .hint-phone { display: none; }
+    @media (min-width: 769px) {
+      .page-filters:not([open]) > .sidebar-column { display: flex !important; }
+    }
+    @media (max-width: 768px) {
+      .page-layout { gap: 0.75rem; }
+      .page-layout, .content-panel, .charts-grid, .chart-card, .table-wrap, .action-bar, .mobile-sort, .summary-cards {
+        max-width: 100%;
+        min-width: 0;
+      }
+      .page-filters > .mobile-filters-toggle {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        min-height: 2.75rem;
+        margin: 0 0 0.65rem;
+        padding: 0.55rem 0.85rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--card);
+        color: #1e3a5f;
+        font-size: 0.95rem;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .mobile-filters-toggle::after {
+        content: "Show";
+        margin-left: auto;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      .page-filters[open] > .mobile-filters-toggle::after { content: "Hide"; }
+      .page-filters:not([open]) > .sidebar-column { display: none; }
+      .slicer-btn { white-space: normal; line-height: 1.15; text-align: center; }
+      .category-slicer .slicer-btn { font-size: 0.72rem; padding: 0.4rem 0.2rem; }
+      .summary-cards { grid-template-columns: 1fr 1fr; }
+      .summary-card .value { font-size: 1.15rem; word-break: break-word; }
+      button.summary-card { min-height: 4.5rem; }
+      .charts-grid { grid-template-columns: 1fr; }
+      .chart-card { min-width: 0; }
+      .chart-card h3 { min-width: 0; flex: 1; line-height: 1.25; }
+      .chart-wrap { height: 210px; }
+      .chart-btn, .chart-expand, button.filter-funnel { width: 2.75rem; height: 2.75rem; }
+      button.filter-clear { min-height: 2.75rem; padding: 0 0.9rem; }
+      .action-bar { flex-direction: column; align-items: stretch; }
+      .action-bar > button { width: 100%; min-height: 2.75rem; justify-content: center; }
+      .import-scope { width: 100%; min-height: 2.75rem; justify-content: space-between; }
+      .import-scope select, .date-row select, .date-row input, .buyer-trigger { font-size: 16px; min-height: 2.75rem; }
+      .hint-desktop { display: none; }
+      .hint-phone { display: inline; }
+      .chart-modal, .summary-popover { padding: 0; align-items: stretch; }
+      .chart-modal-body, .summary-popover-card, .summary-popover-card.is-wide {
+        width: 100%;
+        height: 100%;
+        max-width: none;
+        max-height: none;
+        border-radius: 0;
+        padding: 0.75rem;
+        padding-top: max(0.75rem, env(safe-area-inset-top));
+        padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+      }
+      .chart-modal-head, .summary-popover-head { flex-wrap: wrap; }
+      .chart-modal-actions { width: 100%; }
+      .chart-modal-actions button { flex: 1; min-height: 2.75rem; }
+      .mobile-sort {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0 0 0.65rem;
+      }
+      .mobile-sort label {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        flex: 1;
+        margin: 0;
+        min-width: 0;
+      }
+      .mobile-sort select { flex: 1; min-width: 0; min-height: 2.75rem; margin: 0; font-size: 16px; }
+      .mobile-sort button { min-width: 2.75rem; min-height: 2.75rem; margin: 0; padding: 0; }
+      .table-wrap { overflow: visible; max-height: none; border: 0; background: transparent; }
+      #cattle-sales-table thead { display: none; }
+      #cattle-sales-table, #cattle-sales-table tbody { display: block; }
+      #cattle-sales-table tr {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.45rem 0.75rem;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.75rem;
+        margin: 0 0 0.65rem;
+      }
+      #cattle-sales-table tr.unmatched { background: #fff8ef; }
+      #cattle-sales-table td {
+        display: flex;
+        flex-direction: column;
+        gap: 0.05rem;
+        padding: 0;
+        border: 0;
+        text-align: left;
+        white-space: normal;
+        background: transparent;
+      }
+      #cattle-sales-table td::before {
+        content: attr(data-label);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      #cattle-sales-table td:nth-child(1),
+      #cattle-sales-table td:nth-child(9) { grid-column: 1 / -1; }
+      #cattle-sales-table td:nth-child(1) { font-size: 1.05rem; font-weight: 700; }
+    }
 {% endblock %}
 
 {% block content %}
   <div class="page-layout">
+    <details class="page-filters" open>
+      <summary class="mobile-filters-toggle">Filters</summary>
+      <script>
+        if (window.matchMedia("(max-width: 768px)").matches) {
+          document.currentScript.parentElement.removeAttribute("open");
+        }
+      </script>
     <div class="sidebar-column">
       <aside class="filter-panel">
         <h2>Filters</h2>
@@ -383,6 +512,7 @@
         </div>
       </aside>
     </div>
+    </details>
 
     <section class="content-panel">
       {% if can_import %}
@@ -491,7 +621,7 @@
           <div class="chart-wrap"><canvas id="chart-amount-weight"></canvas></div>
         </div>
       </div>
-      <p class="chart-hint">Date charts: weekly average per animal over trailing 21 days. Amount and cold weight vs DIM: averages in 30-day DIM groups. £/kg and amount vs cold weight: averages in 25 kg weight groups. Graph lines switches each chart between one line per farm and one line per supplier. Open Buyer and tick the buyers to compare. Click ⤢ to enlarge. In the enlarged view: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset.</p>
+      <p class="chart-hint"><span class="hint-desktop">Date charts: weekly average per animal over trailing 21 days. Amount and cold weight vs DIM: averages in 30-day DIM groups. £/kg and amount vs cold weight: averages in 25 kg weight groups. Graph lines switches each chart between one line per farm and one line per supplier. Open Buyer and tick the buyers to compare. Click ⤢ to enlarge. In the enlarged view: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset.</span><span class="hint-phone">Date charts use a 21-day average. DIM charts use 30-day groups. Weight charts use 25 kg groups. Tap ⤢ to open a chart larger.</span></p>
 
       <div id="chart-modal" class="chart-modal" hidden>
         <div class="chart-modal-backdrop" data-close="1"></div>
@@ -507,6 +637,22 @@
         </div>
       </div>
 
+      <div class="mobile-sort">
+        <label>Sort
+          <select id="mobile-sort-key" aria-label="Sort sales by">
+            <option value="sale_date" selected>Sale date</option>
+            <option value="cow_id">ID</option>
+            <option value="etag">ETAG</option>
+            <option value="lact">Lact</option>
+            <option value="age_days">Age</option>
+            <option value="dim">DIM</option>
+            <option value="cold_weight_kg">Cold weight</option>
+            <option value="amount_gbp">Amount</option>
+            <option value="price_per_kg">£/kg</option>
+          </select>
+        </label>
+        <button type="button" id="mobile-sort-dir" aria-label="Reverse sort order">↓</button>
+      </div>
       <div class="table-wrap">
         <table id="cattle-sales-table">
           <thead>
@@ -1096,15 +1242,15 @@
         const tr = document.createElement('tr');
         if (!row.event_matched) tr.classList.add('unmatched');
         tr.innerHTML = `
-          <td>${row.cow_id || '—'}${!row.event_matched ? ' <span title="No matching sale exit event (SOLD/GAME/PATH)" style="color:#b45309">⚠</span>' : ''}</td>
-          <td>${row.etag || '—'}</td>
-          <td>${row.lact != null ? row.lact : '—'}</td>
-          <td>${row.age || '—'}</td>
-          <td>${row.dim != null ? row.dim : '—'}</td>
-          <td>${fmtNum(row.cold_weight_kg)}</td>
-          <td>${salesPaymentAmountCell(row)}</td>
-          <td>${fmtNum(row.price_per_kg)}</td>
-          <td>${fmtDate(row.sale_date) || '—'}</td>
+          <td data-label="ID">${row.cow_id || '—'}${!row.event_matched ? ' <span title="No matching sale exit event (SOLD/GAME/PATH)" style="color:#b45309">⚠</span>' : ''}</td>
+          <td data-label="ETAG">${row.etag || '—'}</td>
+          <td data-label="Lact">${row.lact != null ? row.lact : '—'}</td>
+          <td data-label="Age">${row.age || '—'}</td>
+          <td data-label="DIM">${row.dim != null ? row.dim : '—'}</td>
+          <td data-label="Cold wt">${fmtNum(row.cold_weight_kg)}</td>
+          <td data-label="Amount">${salesPaymentAmountCell(row)}</td>
+          <td data-label="£/kg">${fmtNum(row.price_per_kg)}</td>
+          <td data-label="Sale date">${fmtDate(row.sale_date) || '—'}</td>
         `;
         body.appendChild(tr);
       });
@@ -1649,11 +1795,32 @@
     });
     {% endif %}
 
+    function syncMobileSort() {
+      const keySel = document.getElementById('mobile-sort-key');
+      const dirBtn = document.getElementById('mobile-sort-dir');
+      if (!keySel || !dirBtn) return;
+      if ([...keySel.options].some(option => option.value === sortKey)) keySel.value = sortKey;
+      dirBtn.textContent = sortDir < 0 ? '↓' : '↑';
+    }
+
+    document.getElementById('mobile-sort-key').addEventListener('change', () => {
+      sortKey = document.getElementById('mobile-sort-key').value;
+      sortDir = -1;
+      syncMobileSort();
+      renderTable(displayedRows());
+    });
+    document.getElementById('mobile-sort-dir').addEventListener('click', () => {
+      sortDir *= -1;
+      syncMobileSort();
+      renderTable(displayedRows());
+    });
+
     document.querySelectorAll('#cattle-sales-table thead th').forEach(th => {
       th.addEventListener('click', () => {
         const key = th.dataset.sort;
         if (sortKey === key) sortDir *= -1;
         else { sortKey = key; sortDir = 1; }
+        syncMobileSort();
         renderTable(displayedRows());
       });
     });
