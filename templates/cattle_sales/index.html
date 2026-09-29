@@ -127,9 +127,59 @@
     .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
     .meta-line.is-loading { font-style: italic; }
     .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
-    .summary-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
+    button.summary-card {
+      display: block; width: 100%; text-align: left; font: inherit;
+      background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.75rem; cursor: pointer; color: inherit;
+    }
+    button.summary-card:hover { border-color: #5a9fd4; background: #f8fafc; }
     .summary-card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
     .summary-card .value { font-size: 1.4rem; font-weight: 700; color: #1e3a5f; }
+    button.filter-funnel {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 2.25rem; height: 2.25rem; padding: 0; margin: 0;
+      border: 1px solid var(--border); border-radius: 6px;
+      background: #f3f4f6; color: var(--muted); cursor: pointer;
+    }
+    button.filter-funnel:hover { background: #e5e7eb; color: var(--text); }
+    button.filter-funnel.is-active { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    button.filter-funnel svg { display: block; }
+    .range-filter-panel {
+      margin-top: 0.65rem; padding: 0.75rem;
+      border: 1px solid var(--border); border-radius: 8px; background: #f8fafc;
+    }
+    .range-note { margin: 0 0 0.65rem; font-size: 0.75rem; color: var(--muted); font-weight: 500; }
+    .range-block { margin-bottom: 0.65rem; }
+    .range-block:last-child { margin-bottom: 0; }
+    .summary-popover {
+      position: fixed; inset: 0; z-index: 280;
+      display: flex; align-items: center; justify-content: center; padding: 1rem;
+    }
+    .summary-popover[hidden] { display: none; }
+    .summary-popover-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.35); }
+    .summary-popover-card {
+      position: relative; width: min(92vw, 420px); max-height: min(70vh, 480px);
+      overflow: auto; background: var(--card); border-radius: 10px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.28); padding: 1rem;
+    }
+    .summary-popover-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.75rem; }
+    .summary-popover-head h3 { margin: 0; font-size: 1rem; }
+    button.summary-popover-close {
+      width: 1.8rem; height: 1.8rem; padding: 0; border: 0; border-radius: 4px;
+      background: transparent; color: var(--muted); font-size: 1.3rem; line-height: 1; cursor: pointer;
+    }
+    button.summary-popover-close:hover { background: #f3f4f6; color: var(--text); }
+    .summary-breakdown { width: 100%; border-collapse: collapse; }
+    .summary-breakdown th, .summary-breakdown td {
+      padding: 0.4rem 0.35rem; border-bottom: 1px solid var(--border);
+      text-align: right; font-size: 0.85rem;
+    }
+    .summary-breakdown th:first-child, .summary-breakdown td:first-child { text-align: left; }
+    .summary-breakdown thead th {
+      color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    .summary-breakdown td:last-child, .summary-breakdown th:last-child { color: var(--muted); }
+    .summary-empty { margin: 0; color: var(--muted); font-size: 0.875rem; }
     .amount-rejected { color: #dc2626; font-weight: 700; }
     .action-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
     .import-scope { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 0.8rem; color: var(--muted); }
@@ -233,13 +283,6 @@
           </div>
         </div>
         <div class="filter-section">
-          <span class="section-label">Age (days)</span>
-          <div class="date-row">
-            <label>Min <input type="number" id="age-min" min="0" step="1" value="0" inputmode="numeric" title="Minimum age in days"></label>
-            <label>Max <input type="number" id="age-max" min="0" step="1" value="9999" inputmode="numeric" title="Maximum age in days"></label>
-          </div>
-        </div>
-        <div class="filter-section">
           <span class="section-label">Buyer</span>
           <div class="buyer-dropdown" id="buyer-filter">
             <button type="button" class="buyer-trigger" id="buyer-trigger" aria-expanded="false" aria-haspopup="listbox" aria-controls="buyer-panel">
@@ -254,6 +297,44 @@
           <div class="date-row">
             <label>From <select id="date-from"></select></label>
             <label>To <select id="date-to"></select></label>
+          </div>
+        </div>
+        <div class="filter-section" id="range-filter">
+          <button type="button" class="filter-funnel" id="range-filter-btn" aria-expanded="false" aria-controls="range-filter-panel" aria-label="Age, lactation, DIM and cold weight filters" title="Age, lactation, DIM and cold weight">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z"/>
+            </svg>
+          </button>
+          <div id="range-filter-panel" class="range-filter-panel" hidden>
+            <p class="range-note">Min and max start at the lowest and highest values in the current sales.</p>
+            <div class="range-block">
+              <span class="section-label">Age (days)</span>
+              <div class="date-row">
+                <label>Min <input type="number" id="age-min" min="0" step="1" inputmode="numeric"></label>
+                <label>Max <input type="number" id="age-max" min="0" step="1" inputmode="numeric"></label>
+              </div>
+            </div>
+            <div class="range-block">
+              <span class="section-label">Lact</span>
+              <div class="date-row">
+                <label>Min <input type="number" id="lact-min" min="0" step="1" inputmode="numeric"></label>
+                <label>Max <input type="number" id="lact-max" min="0" step="1" inputmode="numeric"></label>
+              </div>
+            </div>
+            <div class="range-block">
+              <span class="section-label">DIM</span>
+              <div class="date-row">
+                <label>Min <input type="number" id="dim-min" min="0" step="1" inputmode="numeric"></label>
+                <label>Max <input type="number" id="dim-max" min="0" step="1" inputmode="numeric"></label>
+              </div>
+            </div>
+            <div class="range-block">
+              <span class="section-label">Cold wt (kg)</span>
+              <div class="date-row">
+                <label>Min <input type="number" id="weight-min" min="0" step="any" inputmode="decimal"></label>
+                <label>Max <input type="number" id="weight-max" min="0" step="any" inputmode="decimal"></label>
+              </div>
+            </div>
           </div>
         </div>
       </aside>
@@ -283,6 +364,16 @@
       <p class="meta-line" id="meta-line">Loading cattle sales…</p>
 
       <div class="summary-cards" id="summary-cards"></div>
+      <div id="summary-popover" class="summary-popover" hidden>
+        <div class="summary-popover-backdrop" data-close="1"></div>
+        <div class="summary-popover-card" role="dialog" aria-modal="true" aria-labelledby="summary-popover-title">
+          <div class="summary-popover-head">
+            <h3 id="summary-popover-title">Breakdown</h3>
+            <button type="button" class="summary-popover-close" data-close="1" aria-label="Close">&times;</button>
+          </div>
+          <div id="summary-popover-body"></div>
+        </div>
+      </div>
 
       <div class="series-bar">
         <span class="section-label">Graph lines</span>
@@ -387,6 +478,20 @@
     const SERIES_PALETTE = ['#64748b', '#c2410c', '#4338ca', '#0e7490', '#a16207', '#9f1239', '#15803d'];
     let chartSeriesBy = 'farm';
     let buyerSelection = null;
+    let openSummaryMetric = null;
+    const lastRangeBounds = {};
+    const RANGE_FIELDS = {
+      age: { field: 'age_days', minId: 'age-min', maxId: 'age-max', integer: true },
+      lact: { field: 'lact', minId: 'lact-min', maxId: 'lact-max', integer: true },
+      dim: { field: 'dim', minId: 'dim-min', maxId: 'dim-max', integer: true },
+      weight: { field: 'cold_weight_kg', minId: 'weight-min', maxId: 'weight-max', integer: false },
+    };
+    const SUMMARY_SPECS = {
+      weight: { title: 'Avg weight by supplier', column: 'Avg kg', field: 'cold_weight_kg', dp: 1, payable: false },
+      amount: { title: 'Avg amount by supplier', column: 'Avg amount (£)', field: 'amount_gbp', dp: 2, payable: true, money: true },
+      price: { title: 'Avg £/kg by supplier', column: 'Avg £/kg', field: 'price_per_kg', dp: 2, payable: true, money: true },
+      dim: { title: 'Avg DIM by supplier', column: 'Avg DIM', field: 'dim', dp: 0, payable: false },
+    };
     let allRows = [];
     let sortKey = 'sale_date';
     let sortDir = -1;
@@ -506,28 +611,11 @@
       return allRows.filter(r => r.sale_date >= fromDate && r.sale_date <= toDate);
     }
 
-    const AGE_MIN_DEFAULT = 0;
-    const AGE_MAX_DEFAULT = 9999;
-
-    function ageParam(id, fallback) {
-      const el = document.getElementById(id);
-      if (!el) return fallback;
-      const raw = String(el.value || '').trim();
-      if (raw === '') return fallback;
-      const n = parseInt(raw, 10);
-      return Number.isFinite(n) && n >= 0 ? n : fallback;
-    }
-
     function buildQueryParams() {
       const params = new URLSearchParams();
       selectedValues('.farm-slicer').forEach(f => params.append('farm', f));
       selectedValues('.category-slicer').forEach(c => params.append('category', c));
       selectedValues('.gender-slicer').forEach(g => params.append('gender', g));
-      let ageMin = ageParam('age-min', AGE_MIN_DEFAULT);
-      let ageMax = ageParam('age-max', AGE_MAX_DEFAULT);
-      if (ageMin > ageMax) { const t = ageMin; ageMin = ageMax; ageMax = t; }
-      params.set('age_min', String(ageMin));
-      params.set('age_max', String(ageMax));
       params.set('include_unmatched', 'true');
       return params;
     }
@@ -586,13 +674,119 @@
       trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
 
-    function displayedRows() {
+    function buyerScopedRows() {
       const dated = filteredRows();
       const available = buyersFromRows(dated);
       const selected = effectiveBuyerSelection(available);
       if (selected === null) return dated;
       if (!selected.size) return [];
       return dated.filter(r => selected.has(r.buyer));
+    }
+
+    function parseNum(raw) {
+      const text = String(raw ?? '').trim();
+      if (text === '') return null;
+      const n = Number(text);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function sameNum(a, b) {
+      if (a == null || b == null) return false;
+      return Math.abs(a - b) < 1e-6;
+    }
+
+    function formatBound(n, integer) {
+      if (integer) return String(Math.round(n));
+      return String(Math.round(n * 100) / 100);
+    }
+
+    function isShownFullRange(extent, shown, integer) {
+      if (!extent || shown[0] == null || shown[1] == null) return false;
+      return sameNum(shown[0], Number(formatBound(extent[0], integer)))
+        && sameNum(shown[1], Number(formatBound(extent[1], integer)));
+    }
+
+    function limitForFilter(shown, raw, integer) {
+      if (sameNum(shown, Number(formatBound(raw, integer)))) return raw;
+      return shown;
+    }
+
+    function readRangePair(minEl, maxEl) {
+      let min = parseNum(minEl && minEl.value);
+      let max = parseNum(maxEl && maxEl.value);
+      if (min != null && max != null && min > max) { const t = min; min = max; max = t; }
+      return [min, max];
+    }
+
+    function numericExtent(rows, field) {
+      const vals = rows.map(r => r[field]).filter(v => v != null && Number.isFinite(Number(v))).map(Number);
+      if (!vals.length) return null;
+      return [Math.min(...vals), Math.max(...vals)];
+    }
+
+    function syncRangeInputs(rows) {
+      let narrowed = false;
+      Object.entries(RANGE_FIELDS).forEach(([key, spec]) => {
+        const minEl = document.getElementById(spec.minId);
+        const maxEl = document.getElementById(spec.maxId);
+        if (!minEl || !maxEl) return;
+        const extent = numericExtent(rows, spec.field);
+        const prev = lastRangeBounds[key];
+        const current = readRangePair(minEl, maxEl);
+        const stillDefault = !prev || isShownFullRange(prev, current, spec.integer);
+        if (!extent) {
+          minEl.value = '';
+          maxEl.value = '';
+          minEl.disabled = true;
+          maxEl.disabled = true;
+          lastRangeBounds[key] = null;
+          return;
+        }
+        minEl.disabled = false;
+        maxEl.disabled = false;
+        let min = extent[0];
+        let max = extent[1];
+        if (!stillDefault) {
+          const chosenMin = current[0] == null ? extent[0] : current[0];
+          const chosenMax = current[1] == null ? extent[1] : current[1];
+          if (chosenMax < extent[0] || chosenMin > extent[1]) {
+            min = extent[0];
+            max = extent[1];
+          } else {
+            min = Math.max(chosenMin, extent[0]);
+            max = Math.min(chosenMax, extent[1]);
+          }
+        }
+        minEl.value = formatBound(min, spec.integer);
+        maxEl.value = formatBound(max, spec.integer);
+        lastRangeBounds[key] = extent;
+        const shown = readRangePair(minEl, maxEl);
+        if (!isShownFullRange(extent, shown, spec.integer)) narrowed = true;
+      });
+      const funnel = document.getElementById('range-filter-btn');
+      if (funnel) funnel.classList.toggle('is-active', narrowed);
+    }
+
+    function rowPassesRanges(row) {
+      return Object.entries(RANGE_FIELDS).every(([key, spec]) => {
+        const extent = lastRangeBounds[key];
+        if (!extent) return true;
+        const minEl = document.getElementById(spec.minId);
+        const maxEl = document.getElementById(spec.maxId);
+        const [min, max] = readRangePair(minEl, maxEl);
+        if (min == null || max == null) return true;
+        const minLimit = limitForFilter(min, extent[0], spec.integer);
+        const maxLimit = limitForFilter(max, extent[1], spec.integer);
+        if (sameNum(minLimit, extent[0]) && sameNum(maxLimit, extent[1])) return true;
+        const value = row[spec.field];
+        if (value == null || !Number.isFinite(Number(value))) return false;
+        const n = Number(value);
+        return n >= minLimit && n <= maxLimit;
+      });
+    }
+
+    function displayedRows() {
+      return buyerScopedRows().filter(rowPassesRanges);
     }
 
     function fmtNum(v, dp = 2) {
@@ -654,15 +848,76 @@
       const avgPriceKg = avgMetric(payable, 'price_per_kg', 2);
       const avgDim = avgMetric(rows, 'dim', 0);
       const cards = [
-        { label: 'Avg weight (kg)', value: avgWeight != null ? fmtNum(avgWeight, 1) : '—' },
-        { label: 'Avg amount (£)', value: avgAmount != null ? fmtNum(avgAmount, 2) : '—' },
-        { label: 'Avg £/kg', value: avgPriceKg != null ? fmtNum(avgPriceKg, 2) : '—' },
-        { label: 'Avg DIM', value: avgDim != null ? String(Math.round(avgDim)) : '—' },
+        { metric: 'weight', label: 'Avg weight (kg)', value: avgWeight != null ? fmtNum(avgWeight, 1) : '—' },
+        { metric: 'amount', label: 'Avg amount (£)', value: avgAmount != null ? fmtNum(avgAmount, 2) : '—' },
+        { metric: 'price', label: 'Avg £/kg', value: avgPriceKg != null ? fmtNum(avgPriceKg, 2) : '—' },
+        { metric: 'dim', label: 'Avg DIM', value: avgDim != null ? String(Math.round(avgDim)) : '—' },
       ];
       document.getElementById('summary-cards').innerHTML = cards.map(c =>
-        `<div class="summary-card"><div class="label">${escapeHtml(c.label)}</div>` +
-        `<div class="value">${escapeHtml(c.value)}</div></div>`
+        `<button type="button" class="summary-card" data-metric="${c.metric}" title="Show supplier breakdown">` +
+        `<div class="label">${escapeHtml(c.label)}</div>` +
+        `<div class="value">${escapeHtml(c.value)}</div></button>`
       ).join('');
+      if (openSummaryMetric) fillSummaryPopover(rows, openSummaryMetric);
+    }
+
+    function supplierBreakdown(rows, spec) {
+      const source = spec.payable ? payableRows(rows) : rows;
+      const groups = new Map();
+      source.forEach(row => {
+        const value = row[spec.field];
+        if (value == null || !Number.isFinite(Number(value))) return;
+        const name = row.buyer || 'Unknown';
+        if (!groups.has(name)) groups.set(name, []);
+        groups.get(name).push(Number(value));
+      });
+      return [...groups.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([name, vals]) => ({
+          name,
+          n: vals.length,
+          avg: vals.reduce((sum, value) => sum + value, 0) / vals.length,
+        }));
+    }
+
+    function formatBreakdownValue(avg, spec) {
+      if (avg == null || Number.isNaN(avg)) return '—';
+      const text = spec.dp === 0 ? String(Math.round(avg)) : fmtNum(avg, spec.dp);
+      return spec.money ? `£${text}` : text;
+    }
+
+    function fillSummaryPopover(rows, metric) {
+      const spec = SUMMARY_SPECS[metric];
+      const title = document.getElementById('summary-popover-title');
+      const body = document.getElementById('summary-popover-body');
+      if (!spec || !title || !body) return;
+      title.textContent = spec.title;
+      const lines = supplierBreakdown(rows, spec);
+      if (!lines.length) {
+        body.innerHTML = '<p class="summary-empty">No sales to break down for the current filters.</p>';
+        return;
+      }
+      body.innerHTML =
+        '<table class="summary-breakdown"><thead><tr>' +
+        '<th>Supplier</th><th>' + escapeHtml(spec.column) + '</th><th>Animals</th>' +
+        '</tr></thead><tbody>' +
+        lines.map(line =>
+          `<tr><td>${escapeHtml(line.name)}</td><td>${escapeHtml(formatBreakdownValue(line.avg, spec))}</td><td>${line.n}</td></tr>`
+        ).join('') +
+        '</tbody></table>';
+    }
+
+    function openSummaryPopover(metric) {
+      if (!SUMMARY_SPECS[metric]) return;
+      openSummaryMetric = metric;
+      document.getElementById('summary-popover').hidden = false;
+      fillSummaryPopover(displayedRows(), metric);
+    }
+
+    function closeSummaryPopover() {
+      openSummaryMetric = null;
+      const popover = document.getElementById('summary-popover');
+      if (popover) popover.hidden = true;
     }
 
     function isoAddDays(iso, days) {
@@ -1026,6 +1281,7 @@
 
     function refreshView() {
       renderBuyerFilter();
+      syncRangeInputs(buyerScopedRows());
       const rows = displayedRows();
       const unmatched = rows.filter(r => !r.event_matched).length;
       let meta = `${rows.length} sale line(s)`;
@@ -1172,20 +1428,50 @@
       if (dropdown && !dropdown.contains(event.target)) setBuyerDropdownOpen(false);
     });
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') setBuyerDropdownOpen(false);
+      if (event.key !== 'Escape') return;
+      setBuyerDropdownOpen(false);
+      const panel = document.getElementById('range-filter-panel');
+      const funnel = document.getElementById('range-filter-btn');
+      if (panel) panel.hidden = true;
+      if (funnel) funnel.setAttribute('aria-expanded', 'false');
+      closeSummaryPopover();
     });
-    ['age-min', 'age-max'].forEach(id => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.addEventListener('change', fetchData);
-      el.addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); fetchData(); }
+    document.getElementById('range-filter-btn').addEventListener('click', () => {
+      const panel = document.getElementById('range-filter-panel');
+      const open = panel.hidden;
+      panel.hidden = !open;
+      document.getElementById('range-filter-btn').setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    document.addEventListener('click', (event) => {
+      const box = document.getElementById('range-filter');
+      if (box && !box.contains(event.target)) {
+        document.getElementById('range-filter-panel').hidden = true;
+        document.getElementById('range-filter-btn').setAttribute('aria-expanded', 'false');
+      }
+    });
+    Object.values(RANGE_FIELDS).forEach(spec => {
+      [spec.minId, spec.maxId].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('change', refreshView);
+        el.addEventListener('keydown', e => {
+          if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+        });
       });
+    });
+    document.getElementById('summary-cards').addEventListener('click', (event) => {
+      const card = event.target.closest('.summary-card');
+      if (!card) return;
+      if (openSummaryMetric === card.dataset.metric) closeSummaryPopover();
+      else openSummaryPopover(card.dataset.metric);
+    });
+    document.querySelectorAll('#summary-popover [data-close]').forEach(el => {
+      el.addEventListener('click', closeSummaryPopover);
     });
 
     bindSlicers('.farm-slicer');
-    bindSlicers('.category-slicer');
     bindSlicers('.gender-slicer');
+    bindExclusiveSlicer('.category-slicer', () => fetchData());
     bindExclusiveSlicer('.series-slicer', (value) => {
       chartSeriesBy = value === 'supplier' ? 'supplier' : 'farm';
       renderCharts(displayedRows());
