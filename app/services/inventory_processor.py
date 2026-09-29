@@ -209,7 +209,7 @@ def process_inventory_file(df: pd.DataFrame, farm: str) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype("Int64")
 
-    for col in ("DREG", "SREG", "SID"):
+    for col in ("DREG", "SREG", "MGREG", "GGREG", "SID"):
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip()
             df[col] = df[col].where(df[col].notna() & (df[col] != "") & (df[col] != "nan"), None)

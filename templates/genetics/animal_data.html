@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+
+{% block page_heading %}{{ page_heading }}{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .page-layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(0, 4fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .page-layout { grid-template-columns: 1fr; } }
+    .sidebar-column { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    .filter-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .filter-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .filter-section { margin-bottom: 1rem; }
+    .filter-section:last-of-type { margin-bottom: 0; }
+    .filter-section .section-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .slicer-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .slicer-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      min-height: 3rem;
+      padding: 0.5rem 0.4rem;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .slicer-btn[data-value="CM"].selected,
+    .slicer-btn[data-value="CM Cows"].selected,
+    .slicer-btn[data-value="CM YS"].selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
+    .slicer-btn[data-value="GAD"].selected,
+    .slicer-btn[data-value="GAD Cows"].selected,
+    .slicer-btn[data-value="GAD YS"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
+    .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
+    .action-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    .table-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 16rem);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    #animal-data-table { width: 100%; border-collapse: collapse; }
+    #animal-data-table th, #animal-data-table td {
+      padding: 0.45rem 0.55rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    #animal-data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    #animal-data-table thead th {
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    #animal-data-table thead th[data-sort] { cursor: pointer; user-select: none; }
+    #animal-data-table thead th[data-sort]:hover { background: #274b73; }
+    #animal-data-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
+    #animal-data-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
+    .empty-state { padding: 1.5rem; color: var(--muted); }
+    .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
+    .message { margin-bottom: 0.75rem; }
+    .message.err { color: #b91c1c; }
+{% endblock %}
+
+{% block content %}
+  <div class="page-layout">
+    <div class="sidebar-column">
+      <aside class="filter-panel">
+        <h2>Filters</h2>
+        <div class="filter-section">
+          <span class="section-label">Farm</span>
+          <div class="slicer-group farm-slicer">
+            {% for farm in farm_options %}
+            <button type="button" class="slicer-btn selected" data-value="{{ farm }}" aria-pressed="true">{{ farm }}</button>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="filter-section">
+          <span class="section-label">Farm Group</span>
+          <div class="slicer-group group-slicer">
+            {% for group in farm_groups %}
+            <button type="button" class="slicer-btn selected" data-value="{{ group }}" aria-pressed="true">{{ group }}</button>
+            {% endfor %}
+          </div>
+        </div>
+      </aside>
+      <aside class="filter-panel">
+        <h2>About</h2>
+        <p class="help-text">
+          Combined CM and GAD inventory. Lactation 0 animals with fewer than 100 days
+          carried calf are youngstock (CM YS or GAD YS). Every other animal is
+          CM Cows or GAD Cows, from the farm file they came from.
+          Bulls (RPRO BULL), males (RC 8), and beef (CBRD above 101) are left out.
+          CCI is the animal's custom index from genomic results, matched on ear tag.
+          Click a column heading to sort.
+        </p>
+      </aside>
+    </div>
+
+    <section class="content-panel">
+      <div id="status-message" class="message"></div>
+      <p class="meta-line" id="meta-line">Loading…</p>
+
+      <div class="action-bar">
+        <button type="button" class="secondary small" id="download-csv-btn">Download CSV</button>
+        <button type="button" class="secondary small" id="download-xlsx-btn">Download XLSX</button>
+      </div>
+
+      <div class="table-wrap">
+        <table id="animal-data-table">
+          <thead>
+            <tr>
+              <th data-sort="id">ID</th>
+              <th data-sort="etag">ETAG</th>
+              <th data-sort="bdat">BDAT</th>
+              <th data-sort="lact">LACT</th>
+              <th data-sort="cci">CCI</th>
+              <th data-sort="dreg">DREG</th>
+              <th data-sort="sreg">SREG</th>
+              <th data-sort="mgreg">MGREG</th>
+              <th data-sort="ggreg">GGREG</th>
+              <th data-sort="fdat">FDAT</th>
+              <th data-sort="due">DUE</th>
+              <th data-sort="hdat">HDAT</th>
+              <th data-sort="rpro">RPRO</th>
+              <th data-sort="cbrd">CBRD</th>
+              <th data-sort="dim">DIM</th>
+              <th data-sort="tbrd">TBRD</th>
+              <th data-sort="dcc">DCC</th>
+              <th data-sort="farm_group">Farm Group</th>
+            </tr>
+          </thead>
+          <tbody id="table-body">
+            <tr><td colspan="18" class="empty-state">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const NUM_COLS = new Set(["lact", "cci", "cbrd", "dim", "tbrd", "dcc"]);
+    const DATE_COLS = new Set(["bdat", "fdat", "due", "hdat"]);
+    const COLUMNS = [
+      "id", "etag", "bdat", "lact", "cci", "dreg", "sreg", "mgreg", "ggreg",
+      "fdat", "due", "hdat", "rpro", "cbrd", "dim", "tbrd", "dcc", "farm_group"
+    ];
+    let rows = [];
+    let sortKey = "farm_group";
+    let sortDir = "asc";
+
+    function showMessage(text, isError) {
+      const el = document.getElementById("status-message");
+      el.textContent = text || "";
+      el.className = "message" + (isError ? " err" : "");
+    }
+
+    function selectedValues(selector) {
+      return [...document.querySelectorAll(selector + " .slicer-btn.selected")]
+        .map(btn => btn.dataset.value);
+    }
+
+    function bindSlicers(selector, reload) {
+      document.querySelectorAll(selector + " .slicer-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const selected = btn.classList.contains("selected");
+          const count = document.querySelectorAll(selector + " .slicer-btn.selected").length;
+          if (selected && count <= 1) return;
+          btn.classList.toggle("selected", !selected);
+          btn.setAttribute("aria-pressed", btn.classList.contains("selected"));
+          reload();
+        });
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function formatDate(value) {
+      const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!match) return value || "";
+      return match[3] + "/" + match[2] + "/" + match[1];
+    }
+
+    function displayValue(row, key) {
+      const value = row[key];
+      if (value === null || value === undefined || value === "") return "";
+      if (DATE_COLS.has(key)) return formatDate(value);
+      return value;
+    }
+
+    function buildQuery() {
+      const params = new URLSearchParams();
+      selectedValues(".farm-slicer").forEach(farm => params.append("farm", farm));
+      selectedValues(".group-slicer").forEach(group => params.append("group", group));
+      return params.toString();
+    }
+
+    function sortValue(row, key) {
+      const value = row[key];
+      if (value === null || value === undefined || value === "") return null;
+      if (NUM_COLS.has(key)) {
+        const num = Number(value);
+        return Number.isNaN(num) ? value : num;
+      }
+      return value;
+    }
+
+    function compareBy(a, b, key, direction) {
+      const av = sortValue(a, key);
+      const bv = sortValue(b, key);
+      const aEmpty = av === null;
+      const bEmpty = bv === null;
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      let result;
+      if (typeof av === "number" && typeof bv === "number") {
+        result = av - bv;
+      } else {
+        result = String(av).localeCompare(String(bv), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }
+      return direction === "asc" ? result : -result;
+    }
+
+    function compareRows(a, b) {
+      const primary = compareBy(a, b, sortKey, sortDir);
+      if (primary !== 0) return primary;
+      return compareBy(a, b, "id", "asc");
+    }
+
+    function sortedRows() {
+      return [...rows].sort(compareRows);
+    }
+
+    function markSortHeaders() {
+      document.querySelectorAll("#animal-data-table thead th[data-sort]").forEach((th) => {
+        th.classList.remove("sorted-asc", "sorted-desc");
+        if (th.dataset.sort === sortKey) {
+          th.classList.add(sortDir === "asc" ? "sorted-asc" : "sorted-desc");
+        }
+      });
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById("table-body");
+      const sorted = sortedRows();
+      markSortHeaders();
+      if (!sorted.length) {
+        tbody.innerHTML = '<tr><td colspan="18" class="empty-state">No animals for the current filters.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = sorted.map(function (row) {
+        return "<tr>" + COLUMNS.map(function (key) {
+          const cls = NUM_COLS.has(key) ? ' class="num"' : "";
+          return "<td" + cls + ">" + escapeHtml(displayValue(row, key)) + "</td>";
+        }).join("") + "</tr>";
+      }).join("");
+    }
+
+    async function loadRows() {
+      showMessage("");
+      document.getElementById("meta-line").textContent = "Loading…";
+      try {
+        const res = await fetch("/api/genetics/animal-data?" + buildQuery());
+        if (!res.ok) throw new Error("Failed to load animal data");
+        const data = await res.json();
+        rows = data.rows || [];
+        document.getElementById("meta-line").textContent =
+          rows.length + " animal" + (rows.length === 1 ? "" : "s");
+        renderTable();
+      } catch (err) {
+        document.getElementById("meta-line").textContent = "";
+        showMessage(err.message, true);
+      }
+    }
+
+    document.getElementById("download-csv-btn").addEventListener("click", function () {
+      window.location.href = "/api/genetics/animal-data/export.csv?" + buildQuery();
+    });
+
+    document.getElementById("download-xlsx-btn").addEventListener("click", function () {
+      window.location.href = "/api/genetics/animal-data/export.xlsx?" + buildQuery();
+    });
+
+    document.querySelector("#animal-data-table thead").addEventListener("click", function (event) {
+      const th = event.target.closest("th[data-sort]");
+      if (!th) return;
+      const key = th.dataset.sort;
+      if (sortKey === key) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortKey = key;
+        sortDir = "asc";
+      }
+      renderTable();
+    });
+
+    bindSlicers(".farm-slicer", loadRows);
+    bindSlicers(".group-slicer", loadRows);
+    loadRows();
+  </script>
+{% endblock %}

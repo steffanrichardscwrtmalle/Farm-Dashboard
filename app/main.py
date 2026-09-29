@@ -1589,6 +1589,26 @@ def genetics_pending_results_page(request: Request):
     )
 
 
+@app.get("/genetics/animal-data", response_class=HTMLResponse)
+def genetics_animal_data_page(request: Request):
+    if denied := _page_guard(request, PAGE_GENETICS):
+        return denied
+    from app.models import HERD_FARM_OPTIONS
+    from app.services.animal_data import FARM_GROUPS
+
+    return templates.TemplateResponse(
+        request,
+        "genetics/animal_data.html",
+        _template_ctx(
+            request,
+            page_heading="Animal Data",
+            farm_options=list(HERD_FARM_OPTIONS),
+            farm_groups=list(FARM_GROUPS),
+            **_genetics_context("Animal Data", "animal-data", "Animal Data"),
+        ),
+    )
+
+
 @app.get("/genetics/sire-conflicts", response_class=HTMLResponse)
 def genetics_sire_conflicts_page(request: Request):
     if denied := _page_guard(request, PAGE_GENETICS):

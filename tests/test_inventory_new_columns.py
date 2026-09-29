@@ -65,6 +65,44 @@ def test_inventory_import_maps_ewgt_httag_rum_pen_tbrd() -> None:
     assert pd.isna(rows[1]["rum"]) or rows[1]["rum"] is None
 
 
+def test_inventory_import_maps_mgreg_and_ggreg() -> None:
+    source = pd.DataFrame(
+        [
+            {
+                "id": "201",
+                "etag": "UK740651300201",
+                "lact": 0,
+                "sbrd": "HF",
+                "rc": 3,
+                "mgreg": " UK111111111111 ",
+                "ggreg": "UK222222222222",
+            },
+            {
+                "id": "202",
+                "etag": "UK740651300202",
+                "lact": 1,
+                "sbrd": "HF",
+                "rc": 5,
+                "mgreg": "-",
+                "ggreg": "",
+            },
+            {"id": "TOTAL"},
+        ]
+    )
+
+    processed = process_inventory_file(source, "CM")
+    assert processed.iloc[0]["MGREG"] == "UK111111111111"
+    assert processed.iloc[0]["GGREG"] == "UK222222222222"
+    assert processed.iloc[1]["MGREG"] == "-"
+    assert pd.isna(processed.iloc[1]["GGREG"])
+
+    rows = _dataframe_to_mappings(processed, dt.datetime(2026, 9, 29, 12, 0))
+    assert rows[0]["mgreg"] == "UK111111111111"
+    assert rows[0]["ggreg"] == "UK222222222222"
+    assert rows[1]["mgreg"] == "-"
+    assert pd.isna(rows[1]["ggreg"]) or rows[1]["ggreg"] is None
+
+
 def test_inventory_headers_are_stripped_and_uppercased() -> None:
     source = pd.DataFrame(
         [

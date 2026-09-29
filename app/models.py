@@ -1100,6 +1100,8 @@ class HerdInventory(Base):
     dped: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dreg: Mapped[str | None] = mapped_column(String(64), nullable=True)
     sreg: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    mgreg: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ggreg: Mapped[str | None] = mapped_column(String(64), nullable=True)
     sid: Mapped[str | None] = mapped_column(String(64), nullable=True)
     gid: Mapped[str | None] = mapped_column(String(64), nullable=True)
     gtest: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)

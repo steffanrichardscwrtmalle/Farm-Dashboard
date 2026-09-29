@@ -105,6 +105,8 @@ def _dataframe_to_mappings(df: pd.DataFrame, import_time: dt.datetime) -> list[d
             "dped": series_int("DPED"),
             "dreg": series_str("DREG"),
             "sreg": series_str("SREG"),
+            "mgreg": series_str("MGREG"),
+            "ggreg": series_str("GGREG"),
             "sid": series_str("SID"),
             "gid": series_str("GID"),
             "gtest": series_date("GTEST"),

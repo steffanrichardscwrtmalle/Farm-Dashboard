@@ -655,6 +655,8 @@ def _migrate_herd_inventory_schema() -> None:
         "dped": "INTEGER",
         "dreg": "VARCHAR(64)",
         "sreg": "VARCHAR(64)",
+        "mgreg": "VARCHAR(64)",
+        "ggreg": "VARCHAR(64)",
         "sid": "VARCHAR(64)",
         "gid": "VARCHAR(64)",
         "gtest": "DATE",

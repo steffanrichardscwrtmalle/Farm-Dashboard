@@ -32,6 +32,12 @@ from app.services.pedigree_registrations import (
     set_recipient,
 )
 from app.services.sire_conflicts import build_sire_conflicts_csv, list_sire_conflicts
+from app.services.animal_data import (
+    XLSX_CONTENT_TYPE as ANIMAL_DATA_XLSX_CONTENT_TYPE,
+    build_animal_data_csv,
+    build_animal_data_xlsx,
+    list_animal_data,
+)
 from app.services.ahdb_bulls import AhdbBullsError, ensure_imported, list_bulls, refresh_bulls
 from app.services.custom_indexes import reset_index_settings, save_index_settings
 from app.services.animals_to_test import (
@@ -266,6 +272,48 @@ def api_sire_conflicts_export_csv(
         content=content,
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="sire_conflicts.csv"'},
+    )
+
+
+@router.get("/animal-data")
+def api_animal_data(
+    farm: list[str] | None = Query(None),
+    group: list[str] | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_GENETICS)),
+):
+    return list_animal_data(db, farms=farm, groups=group)
+
+
+@router.get("/animal-data/export.csv")
+def api_animal_data_export_csv(
+    farm: list[str] | None = Query(None),
+    group: list[str] | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_GENETICS)),
+):
+    result = list_animal_data(db, farms=farm, groups=group)
+    content = build_animal_data_csv(result["rows"])
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="animal_data.csv"'},
+    )
+
+
+@router.get("/animal-data/export.xlsx")
+def api_animal_data_export_xlsx(
+    farm: list[str] | None = Query(None),
+    group: list[str] | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_GENETICS)),
+):
+    result = list_animal_data(db, farms=farm, groups=group)
+    content = build_animal_data_xlsx(result["rows"])
+    return Response(
+        content=content,
+        media_type=ANIMAL_DATA_XLSX_CONTENT_TYPE,
+        headers={"Content-Disposition": 'attachment; filename="animal_data.xlsx"'},
     )
 
 
