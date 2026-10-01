@@ -171,6 +171,22 @@ def test_build_usage_report_totals_and_daily_averages() -> None:
     assert report["source"] == "Loaded Mixes → By Ingredient"
 
 
+def test_usage_report_defaults_to_ingredient_name_order() -> None:
+    report = build_usage_report(
+        [
+            {"ingredient_name": "Rape Meal", "as_fed_kg": 500, "dm_kg": 1, "cost": 1},
+            {"ingredient_name": "grass silage", "as_fed_kg": 100, "dm_kg": 1, "cost": 1},
+        ],
+        period_start=AUG_START,
+        period_end=AUG_END,
+        farm="GAD",
+    )
+    assert [row["ingredient_name"] for row in report["ingredients"]] == [
+        "grass silage",
+        "Rape Meal",
+    ]
+
+
 def test_import_replaces_only_selected_month(db: Session) -> None:
     july_start, july_end = month_bounds(2026, 7)
     db.add(

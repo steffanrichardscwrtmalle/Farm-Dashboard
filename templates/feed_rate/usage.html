@@ -176,6 +176,13 @@
       font-weight: 600;
       border-bottom: 1px solid var(--border);
     }
+    #usage-table thead th[data-sort] {
+      cursor: pointer;
+      user-select: none;
+    }
+    #usage-table thead th[data-sort]:hover { background: #e2e8f0; }
+    #usage-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.65em; }
+    #usage-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.65em; }
     #usage-table tr.total-row td {
       font-weight: 700;
       border-top: 2px solid var(--border);
@@ -255,10 +262,10 @@
           <table id="usage-table">
             <thead>
               <tr>
-                <th>Ingredient</th>
-                <th>As Fed (kg)</th>
-                <th>As Fed (MT)</th>
-                <th>Avg MT/day</th>
+                <th data-sort="name" aria-sort="ascending">Ingredient</th>
+                <th data-sort="kg" aria-sort="none">As Fed (kg)</th>
+                <th data-sort="mt" aria-sort="none">As Fed (MT)</th>
+                <th data-sort="daily" aria-sort="none">Avg MT/day</th>
               </tr>
             </thead>
             <tbody id="usage-body"></tbody>
@@ -277,6 +284,8 @@
     const FARM_LABEL = {{ farm_label | tojson }};
     let importPollTimer = null;
     let reportData = null;
+    let sortKey = "name";
+    let sortDir = "asc";
     let fiscalYearOptions = [];
     let syncingFilters = false;
     let lastConcreteMonth = "";
@@ -480,11 +489,38 @@
       }
     }
 
+    function sortValue(row, key) {
+      if (key === "name") return row.ingredient_name || "";
+      if (key === "daily") return Number(row.as_fed_mt_per_day) || 0;
+      return Number(row.as_fed_kg) || 0;
+    }
+
+    function sortedIngredients(rows) {
+      const direction = sortDir === "asc" ? 1 : -1;
+      return [...rows].sort((left, right) => {
+        const a = sortValue(left, sortKey);
+        const b = sortValue(right, sortKey);
+        if (typeof a === "string") {
+          return a.localeCompare(b, "en-GB", { sensitivity: "base" }) * direction;
+        }
+        return (a - b) * direction;
+      });
+    }
+
+    function markSortHeaders() {
+      document.querySelectorAll("#usage-table thead th[data-sort]").forEach(th => {
+        const active = th.dataset.sort === sortKey;
+        th.classList.toggle("sorted-asc", active && sortDir === "asc");
+        th.classList.toggle("sorted-desc", active && sortDir === "desc");
+        th.setAttribute("aria-sort", active ? (sortDir === "asc" ? "ascending" : "descending") : "none");
+      });
+    }
+
     function renderReport(data) {
       reportData = data;
       const empty = document.getElementById("empty-state");
       const tableView = document.getElementById("table-view");
-      const rows = data.ingredients || [];
+      const rows = sortedIngredients(data.ingredients || []);
       const period = `${formatDateUk(data.period_start)} – ${formatDateUk(data.period_end)}`;
       const totalMt = asFedMt(data.totals?.as_fed_kg);
       const totalMtPerDay = data.totals?.as_fed_mt_per_day;
@@ -505,6 +541,7 @@
         notice.textContent = data.partial_notice || "";
       }
       document.getElementById("table-title").textContent = `${FARM_LABEL} ingredient usage · ${period}`;
+      markSortHeaders();
       const body = document.getElementById("usage-body");
       body.innerHTML = rows.map(row => `
         <tr>
@@ -652,6 +689,18 @@
       if (params.get("retry_import") === "1" && CAN_IMPORT_FEED) startImport();
     }
 
+    document.querySelector("#usage-table thead").addEventListener("click", (event) => {
+      const th = event.target.closest("th[data-sort]");
+      if (!th) return;
+      const key = th.dataset.sort;
+      if (sortKey === key) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortKey = key;
+        sortDir = key === "name" ? "asc" : "desc";
+      }
+      if (reportData) renderReport(reportData);
+    });
     ["usage-fiscal-year", "usage-month", "usage-month-from", "usage-month-to"].forEach(id => {
       document.getElementById(id).addEventListener("change", onPeriodChange);
     });

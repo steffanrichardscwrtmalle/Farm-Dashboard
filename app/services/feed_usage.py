@@ -156,8 +156,7 @@ def build_usage_report(
     days = (period_end - period_start).days + 1
     ingredients = sorted(
         rows,
-        key=lambda row: float(row.get("as_fed_kg") or 0),
-        reverse=True,
+        key=lambda row: (row.get("ingredient_name") or "").casefold(),
     )
     total_as_fed = sum(float(row.get("as_fed_kg") or 0) for row in ingredients)
     total_dm = sum(float(row.get("dm_kg") or 0) for row in ingredients)
