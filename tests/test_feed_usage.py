@@ -162,6 +162,8 @@ def test_build_usage_report_totals_and_daily_averages() -> None:
     assert report["totals"]["cost"] == 1_022_640.75
     assert report["days"] == 31
     assert report["averages"]["as_fed_kg"] == round(6_920_631 / 31, 2)
+    assert report["ingredients"][0]["as_fed_mt_per_day"] == round((6_398_038 / 1000) / 31, 4)
+    assert report["totals"]["as_fed_mt_per_day"] == round((6_920_631 / 1000) / 31, 4)
     assert report["source"] == "Loaded Mixes → By Ingredient"
 
 
@@ -565,6 +567,51 @@ def test_usage_report_hides_excluded_stored_ingredients(db: Session) -> None:
     assert report["row_count"] == 1
 
 
+def test_combined_usage_report_adds_gad_and_cm(db: Session) -> None:
+    db.add_all(
+        [
+            FeedUsageRecord(
+                period_start=AUG_START,
+                period_end=AUG_END,
+                farm="GAD",
+                ingredient_name="Rape Meal",
+                as_fed_kg=1000,
+                dm_kg=900,
+                cost=100,
+            ),
+            FeedUsageRecord(
+                period_start=AUG_START,
+                period_end=AUG_END,
+                farm="CM",
+                ingredient_name="Rape Meal",
+                as_fed_kg=500,
+                dm_kg=450,
+                cost=50,
+            ),
+            FeedUsageRecord(
+                period_start=AUG_START,
+                period_end=AUG_END,
+                farm="CM",
+                ingredient_name="Grass Silage",
+                as_fed_kg=200,
+                dm_kg=60,
+                cost=20,
+            ),
+        ]
+    )
+    db.commit()
+    report = get_usage_report(db, month=AUG_START, farm="combined")
+    assert report["farm"] == "COMBINED"
+    assert report["farm_label"] == "Combined"
+    by_name = {row["ingredient_name"]: row for row in report["ingredients"]}
+    assert by_name["Rape Meal"]["as_fed_kg"] == 1500
+    assert by_name["Rape Meal"]["dm_kg"] == 1350
+    assert by_name["Grass Silage"]["as_fed_kg"] == 200
+    assert report["totals"]["as_fed_kg"] == 1700
+    assert report["totals"]["as_fed_mt_per_day"] == round((1700 / 1000) / 31, 4)
+    assert by_name["Rape Meal"]["as_fed_mt_per_day"] == round((1500 / 1000) / 31, 4)
+
+
 def test_usage_xlsx_has_borders_and_fitted_columns() -> None:
     report = build_usage_report(
         [
@@ -582,16 +629,24 @@ def test_usage_xlsx_has_borders_and_fitted_columns() -> None:
     workbook = load_workbook(BytesIO(build_usage_xlsx(report)))
     sheet = workbook.active
     assert sheet.title == "Green Acre Dairy"
-    assert [cell.value for cell in sheet[1]] == ["Ingredient", "As Fed (kg)", "As Fed (MT)"]
+    assert [cell.value for cell in sheet[1]] == [
+        "Ingredient",
+        "As Fed (kg)",
+        "As Fed (MT)",
+        "Avg MT/day",
+    ]
     assert sheet["A2"].value == "Megalac / Protected Fat"
     assert sheet["B2"].value == 12345
     assert sheet["C2"].value == 12.345
+    assert sheet["D2"].value == round((12345 / 1000) / 31, 4)
     assert sheet["A3"].value == "Total"
     assert sheet["B3"].value == 12345
     assert sheet["C3"].value == 12.345
+    assert sheet["D3"].value == round((12345 / 1000) / 31, 4)
     assert sheet["B2"].number_format == "#,##0"
     assert sheet["C2"].number_format == "#,##0.0000"
-    for row in sheet.iter_rows(min_row=1, max_row=3, min_col=1, max_col=3):
+    assert sheet["D2"].number_format == "#,##0.0000"
+    for row in sheet.iter_rows(min_row=1, max_row=3, min_col=1, max_col=4):
         for cell in row:
             assert cell.border.left.style == "thin"
             assert cell.border.right.style == "thin"
@@ -600,4 +655,5 @@ def test_usage_xlsx_has_borders_and_fitted_columns() -> None:
     assert sheet.column_dimensions["A"].width >= len("Megalac / Protected Fat")
     assert sheet.column_dimensions["B"].width >= len("As Fed (kg)")
     assert sheet.column_dimensions["C"].width >= len("As Fed (MT)")
+    assert sheet.column_dimensions["D"].width >= len("Avg MT/day")
 

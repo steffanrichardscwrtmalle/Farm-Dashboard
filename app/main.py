@@ -1240,17 +1240,29 @@ def feed_usage_settings_ingredients_page(request: Request):
 def feed_usage_farm_page(request: Request, farm: str):
     if denied := _page_guard(request, PAGE_FEED_RATE):
         return denied
-    from app.services.farm_schedule import FARM_LABELS, normalize_farm
+    from app.services.feed_usage import (
+        USAGE_COMBINED_FARM,
+        normalize_usage_farm,
+        usage_farm_label,
+    )
     from app.services.feed_usage_settings import assigned_ration_names, seed_ration_assignments_if_empty
+    from app.models import HERD_FARM_OPTIONS
 
     try:
-        farm_key = normalize_farm(farm)
+        farm_key = normalize_usage_farm(farm)
     except ValueError:
         return RedirectResponse(url="/feed-rate/usage", status_code=302)
-    farm_label = FARM_LABELS[farm_key]
+    farm_label = usage_farm_label(farm_key)
     with SessionLocal() as db:
         seed_ration_assignments_if_empty(db)
-        usage_rations = assigned_ration_names(db, farm_key)
+        if farm_key == USAGE_COMBINED_FARM:
+            usage_rations: list[str] = []
+            for key in HERD_FARM_OPTIONS:
+                for name in assigned_ration_names(db, key):
+                    if name not in usage_rations:
+                        usage_rations.append(name)
+        else:
+            usage_rations = assigned_ration_names(db, farm_key)
     return templates.TemplateResponse(
         request,
         "feed_rate/usage.html",

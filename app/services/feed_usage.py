@@ -32,7 +32,12 @@ from app.services.feedlync_auth import FeedlyncAuthError
 XLSX_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
-_USAGE_XLSX_HEADERS = ("Ingredient", "As Fed (kg)", "As Fed (MT)")
+USAGE_COMBINED_FARM = "COMBINED"
+USAGE_FARM_LABELS: dict[str, str] = {
+    **FARM_LABELS,
+    USAGE_COMBINED_FARM: "Combined",
+}
+_USAGE_XLSX_HEADERS = ("Ingredient", "As Fed (kg)", "As Fed (MT)", "Avg MT/day")
 _THIN_BORDER = Border(
     left=Side(style="thin"),
     right=Side(style="thin"),
@@ -78,6 +83,17 @@ def mark_import_started(month: str) -> None:
     )
 
 
+def normalize_usage_farm(farm: str | None) -> str:
+    value = (farm or "").strip().upper()
+    if value == USAGE_COMBINED_FARM:
+        return USAGE_COMBINED_FARM
+    return normalize_farm(value)
+
+
+def usage_farm_label(farm: str) -> str:
+    return USAGE_FARM_LABELS[normalize_usage_farm(farm)]
+
+
 def resolve_usage_month(value: str | None, *, today: dt.date | None = None) -> dt.date:
     if value:
         text = value.strip()
@@ -115,6 +131,17 @@ def _round_money(value: float) -> float:
     return round(value, 2)
 
 
+def _default_usage_rations(farm_key: str) -> list[str]:
+    if farm_key == USAGE_COMBINED_FARM:
+        names: list[str] = []
+        for farm in HERD_FARM_OPTIONS:
+            for name in USAGE_RATIONS_BY_FARM.get(farm, ()):
+                if name not in names:
+                    names.append(name)
+        return names
+    return list(USAGE_RATIONS_BY_FARM.get(farm_key, ()))
+
+
 def build_usage_report(
     rows: list[dict[str, Any]],
     *,
@@ -124,12 +151,8 @@ def build_usage_report(
     rations: list[str] | None = None,
     import_timestamp: dt.datetime | None = None,
 ) -> dict[str, Any]:
-    farm_key = normalize_farm(farm)
-    ration_names = (
-        list(rations)
-        if rations is not None
-        else list(USAGE_RATIONS_BY_FARM.get(farm_key, ()))
-    )
+    farm_key = normalize_usage_farm(farm)
+    ration_names = list(rations) if rations is not None else _default_usage_rations(farm_key)
     days = (period_end - period_start).days + 1
     ingredients = sorted(
         rows,
@@ -139,26 +162,30 @@ def build_usage_report(
     total_as_fed = sum(float(row.get("as_fed_kg") or 0) for row in ingredients)
     total_dm = sum(float(row.get("dm_kg") or 0) for row in ingredients)
     total_cost = sum(float(row.get("cost") or 0) for row in ingredients)
+
+    def ingredient_row(row: dict[str, Any]) -> dict[str, Any]:
+        kg = float(row.get("as_fed_kg") or 0)
+        return {
+            "ingredient_name": row.get("ingredient_name") or "",
+            "as_fed_kg": _round_kg(kg),
+            "as_fed_mt_per_day": _mt_per_day(kg, days),
+            "dm_kg": _round_kg(float(row.get("dm_kg") or 0)),
+            "cost": _round_money(float(row.get("cost") or 0)),
+        }
+
     return {
         "month": period_start.strftime("%Y-%m"),
         "period_start": period_start.isoformat(),
         "period_end": period_end.isoformat(),
         "days": days,
         "farm": farm_key,
-        "farm_label": FARM_LABELS[farm_key],
+        "farm_label": USAGE_FARM_LABELS[farm_key],
         "rations": ration_names,
         "source": "Loaded Mixes → By Ingredient",
-        "ingredients": [
-            {
-                "ingredient_name": row.get("ingredient_name") or "",
-                "as_fed_kg": _round_kg(float(row.get("as_fed_kg") or 0)),
-                "dm_kg": _round_kg(float(row.get("dm_kg") or 0)),
-                "cost": _round_money(float(row.get("cost") or 0)),
-            }
-            for row in ingredients
-        ],
+        "ingredients": [ingredient_row(row) for row in ingredients],
         "totals": {
             "as_fed_kg": _round_kg(total_as_fed),
+            "as_fed_mt_per_day": _mt_per_day(total_as_fed, days),
             "dm_kg": _round_kg(total_dm),
             "cost": _round_money(total_cost),
         },
@@ -174,6 +201,12 @@ def build_usage_report(
 
 def _as_fed_mt(kg: float) -> float:
     return round(float(kg or 0) / 1000, 4)
+
+
+def _mt_per_day(kg: float, days: int) -> float:
+    if not days:
+        return 0.0
+    return round((float(kg or 0) / 1000) / days, 4)
 
 
 def _xlsx_display_width(value: Any) -> int:
@@ -215,31 +248,30 @@ def build_usage_xlsx(report: dict[str, Any]) -> bytes:
     ws.title = farm_label[:31]
     header_font = Font(bold=True)
     total_font = Font(bold=True)
+    days = int(report.get("days") or 0)
     ws.append(list(_USAGE_XLSX_HEADERS))
     for cell in ws[1]:
         cell.font = header_font
-    ws["B1"].alignment = Alignment(horizontal="right")
-    ws["C1"].alignment = Alignment(horizontal="right")
+    for column in ("B", "C", "D"):
+        ws[f"{column}1"].alignment = Alignment(horizontal="right")
 
-    for row in report.get("ingredients") or []:
-        kg = float(row.get("as_fed_kg") or 0)
-        ws.append([row.get("ingredient_name") or "", kg, _as_fed_mt(kg)])
+    def _write_usage_row(name: str, kg: float, *, bold: bool = False) -> None:
+        ws.append([name, kg, _as_fed_mt(kg), _mt_per_day(kg, days)])
         data_row = ws[ws.max_row]
+        if bold:
+            for cell in data_row:
+                cell.font = total_font
         data_row[1].number_format = _KG_NUMBER_FORMAT
         data_row[2].number_format = _MT_NUMBER_FORMAT
-        data_row[1].alignment = Alignment(horizontal="right", vertical="center")
-        data_row[2].alignment = Alignment(horizontal="right", vertical="center")
+        data_row[3].number_format = _MT_NUMBER_FORMAT
+        for cell in data_row[1:]:
+            cell.alignment = Alignment(horizontal="right", vertical="center")
+
+    for row in report.get("ingredients") or []:
+        _write_usage_row(row.get("ingredient_name") or "", float(row.get("as_fed_kg") or 0))
 
     totals = report.get("totals") or {}
-    total_kg = float(totals.get("as_fed_kg") or 0)
-    ws.append(["Total", total_kg, _as_fed_mt(total_kg)])
-    total_row = ws[ws.max_row]
-    for cell in total_row:
-        cell.font = total_font
-    total_row[1].number_format = _KG_NUMBER_FORMAT
-    total_row[2].number_format = _MT_NUMBER_FORMAT
-    total_row[1].alignment = Alignment(horizontal="right", vertical="center")
-    total_row[2].alignment = Alignment(horizontal="right", vertical="center")
+    _write_usage_row("Total", float(totals.get("as_fed_kg") or 0), bold=True)
 
     _fit_xlsx_columns(ws)
     _border_xlsx_cells(ws)
@@ -248,15 +280,46 @@ def build_usage_xlsx(report: dict[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
+def _combined_usage_rows(records: list[FeedUsageRecord]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for record in records:
+        name = (record.ingredient_name or "").strip()
+        bucket = merged.get(name)
+        if bucket is None:
+            bucket = {
+                "ingredient_name": name,
+                "as_fed_kg": 0.0,
+                "dm_kg": 0.0,
+                "cost": 0.0,
+            }
+            merged[name] = bucket
+        bucket["as_fed_kg"] += float(record.as_fed_kg or 0)
+        bucket["dm_kg"] += float(record.dm_kg or 0)
+        bucket["cost"] += float(record.cost or 0)
+    return list(merged.values())
+
+
+def _usage_ration_names(db: Session, farm_key: str) -> list[str]:
+    if farm_key != USAGE_COMBINED_FARM:
+        return assigned_ration_names(db, farm_key)
+    names: list[str] = []
+    for farm in HERD_FARM_OPTIONS:
+        for name in assigned_ration_names(db, farm):
+            if name not in names:
+                names.append(name)
+    return names
+
+
 def get_usage_report(db: Session, *, month: dt.date, farm: str) -> dict[str, Any]:
-    farm_key = normalize_farm(farm)
+    farm_key = normalize_usage_farm(farm)
     period_start, period_end = month_bounds(month.year, month.month)
+    farms = list(HERD_FARM_OPTIONS) if farm_key == USAGE_COMBINED_FARM else [farm_key]
     records = list(
         db.scalars(
             select(FeedUsageRecord)
             .where(
                 FeedUsageRecord.period_start == period_start,
-                FeedUsageRecord.farm == farm_key,
+                FeedUsageRecord.farm.in_(farms),
             )
             .order_by(FeedUsageRecord.as_fed_kg.desc(), FeedUsageRecord.ingredient_name)
         ).all()
@@ -269,16 +332,21 @@ def get_usage_report(db: Session, *, month: dt.date, farm: str) -> dict[str, Any
         )
     seed_ration_assignments_if_empty(db)
     inclusion = ingredient_inclusion_lookup(db)
+    included = [
+        record
+        for record in records
+        if is_usage_ingredient_included(record.ingredient_name, inclusion)
+    ]
+    if farm_key == USAGE_COMBINED_FARM:
+        rows = _combined_usage_rows(included)
+    else:
+        rows = [record.to_dict() for record in included]
     return build_usage_report(
-        [
-            record.to_dict()
-            for record in records
-            if is_usage_ingredient_included(record.ingredient_name, inclusion)
-        ],
+        rows,
         period_start=period_start,
         period_end=period_end,
         farm=farm_key,
-        rations=assigned_ration_names(db, farm_key),
+        rations=_usage_ration_names(db, farm_key),
         import_timestamp=latest_import,
     )
 

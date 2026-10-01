@@ -33,13 +33,6 @@ from app.services.feed_rate_import import (
     mark_import_started,
     run_import_in_background,
 )
-from app.services.farm_schedule import normalize_farm
-from app.services.feed_usage_settings import (
-    list_ingredient_assignments,
-    list_ration_assignments,
-    save_ingredient_assignment,
-    save_ration_assignment,
-)
 from app.services.feed_usage import (
     XLSX_CONTENT_TYPE as USAGE_XLSX_CONTENT_TYPE,
     build_usage_xlsx,
@@ -47,8 +40,15 @@ from app.services.feed_usage import (
     get_usage_report,
     is_import_running as is_usage_import_running,
     mark_import_started as mark_usage_import_started,
+    normalize_usage_farm,
     resolve_usage_month,
     run_usage_import_in_background,
+)
+from app.services.feed_usage_settings import (
+    list_ingredient_assignments,
+    list_ration_assignments,
+    save_ingredient_assignment,
+    save_ration_assignment,
 )
 
 router = APIRouter(prefix="/api/feed-rate")
@@ -155,7 +155,7 @@ def _usage_month_or_400(value: str | None) -> dt.date:
 
 def _usage_farm_or_400(farm: str | None) -> str:
     try:
-        return normalize_farm(farm)
+        return normalize_usage_farm(farm)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

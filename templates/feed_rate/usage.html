@@ -235,6 +235,7 @@
                 <th>Ingredient</th>
                 <th>As Fed (kg)</th>
                 <th>As Fed (MT)</th>
+                <th>Avg MT/day</th>
               </tr>
             </thead>
             <tbody id="usage-body"></tbody>
@@ -328,6 +329,7 @@
       const rows = data.ingredients || [];
       const period = `${formatDateUk(data.period_start)} – ${formatDateUk(data.period_end)}`;
       const totalMt = asFedMt(data.totals?.as_fed_kg);
+      const totalMtPerDay = data.totals?.as_fed_mt_per_day;
 
       if (!rows.length) {
         tableView.style.display = "none";
@@ -344,12 +346,14 @@
           <td>${escapeHtml(row.ingredient_name)}</td>
           <td>${formatInt(row.as_fed_kg)}</td>
           <td>${formatDecimal(asFedMt(row.as_fed_kg), 4)}</td>
+          <td>${formatDecimal(row.as_fed_mt_per_day, 4)}</td>
         </tr>
       `).join("") + `
         <tr class="total-row">
           <td>Total</td>
           <td>${formatInt(data.totals.as_fed_kg)}</td>
           <td>${formatDecimal(totalMt, 4)}</td>
+          <td>${formatDecimal(totalMtPerDay, 4)}</td>
         </tr>
       `;
       tableView.style.display = "";

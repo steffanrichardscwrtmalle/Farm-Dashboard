@@ -35,6 +35,7 @@
     }
     .schedule-card.cm { border-top: 4px solid #5a9fd4; }
     .schedule-card.gad { border-top: 4px solid #ffb366; }
+    .schedule-card.combined { border-top: 4px solid #1a6b3c; }
 {% endblock %}
 
 {% block content %}
@@ -46,6 +47,10 @@
     <a href="/feed-rate/usage/GAD" class="schedule-card gad">
       <h2>Green Acre Dairy</h2>
       <p>Open GAD feed usage.</p>
+    </a>
+    <a href="/feed-rate/usage/COMBINED" class="schedule-card combined">
+      <h2>Combined</h2>
+      <p>GAD and CM feed together.</p>
     </a>
   </div>
 {% endblock %}
