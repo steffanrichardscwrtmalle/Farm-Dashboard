@@ -15,12 +15,15 @@ from app.models import Base, FeedUsageRecord
 from app.services.feed_usage import (
     build_usage_report,
     build_usage_xlsx,
+    get_import_status,
     get_usage_report,
     import_feed_usage,
+    import_feed_usage_months,
     import_previous_month_usage_if_due,
     previous_month_usage_import_month,
     resolve_usage_month,
     resolve_usage_period,
+    usage_fiscal_year_options,
 )
 from app.services.feed_usage_settings import (
     assigned_ration_names,
@@ -219,6 +222,97 @@ def test_import_replaces_only_selected_month(db: Session) -> None:
     cm = get_usage_report(db, month=AUG_START, farm="CM")
     assert cm["ingredients"][0]["as_fed_kg"] == 1000
     assert cm["row_count"] == 1
+
+
+def test_partial_month_refresh_is_dropped_after_the_import_day(db: Session) -> None:
+    october_start, october_end = month_bounds(2026, 10)
+    september_start, september_end = month_bounds(2026, 9)
+    db.add_all(
+        [
+            FeedUsageRecord(
+                period_start=october_start,
+                period_end=october_end,
+                farm="GAD",
+                ingredient_name="Rape Meal",
+                as_fed_kg=50,
+                dm_kg=40,
+                cost=5,
+                import_timestamp=dt.datetime(2026, 10, 1, 9, 0),
+            ),
+            FeedUsageRecord(
+                period_start=september_start,
+                period_end=september_end,
+                farm="GAD",
+                ingredient_name="Grass Silage",
+                as_fed_kg=200,
+                dm_kg=60,
+                cost=2,
+                import_timestamp=dt.datetime(2026, 10, 1, 9, 0),
+            ),
+        ]
+    )
+    db.commit()
+
+    later = get_usage_report(db, month=october_start, farm="GAD", today=dt.date(2026, 10, 3))
+    assert later["ingredients"] == []
+    assert "left out" in later["partial_notice"]
+    remaining = list(db.scalars(select(FeedUsageRecord)).all())
+    assert [row.period_start for row in remaining] == [september_start]
+
+    db.add(
+        FeedUsageRecord(
+            period_start=october_start,
+            period_end=october_end,
+            farm="GAD",
+            ingredient_name="Rape Meal",
+            as_fed_kg=80,
+            dm_kg=70,
+            cost=8,
+            import_timestamp=dt.datetime(2026, 10, 3, 11, 0),
+        )
+    )
+    db.commit()
+    same_day = get_usage_report(db, month=october_start, farm="GAD", today=dt.date(2026, 10, 3))
+    assert same_day["ingredients"][0]["as_fed_kg"] == 80
+    assert same_day["partial_notice"] == (
+        "October 2026 is still in progress. This refresh is kept for today only."
+    )
+
+
+def test_import_range_refreshes_each_selected_month(db: Session) -> None:
+    september = dt.date(2026, 9, 1)
+    october = dt.date(2026, 10, 1)
+
+    def fake_fetch(_db, *, period_start, period_end):
+        if period_start == september:
+            return []
+        return [
+            {
+                "farm": "GAD",
+                "ingredient_name": "Rape Meal",
+                "as_fed_kg": period_start.month * 10,
+                "dm_kg": 1,
+                "cost": 1,
+            }
+        ]
+
+    with patch(
+        "app.services.feed_usage.fetch_loaded_mix_ingredient_usage",
+        side_effect=fake_fetch,
+    ) as fetch:
+        result = import_feed_usage_months(db, months=[AUG_START, september, october])
+
+    assert fetch.call_count == 3
+    assert result["months"] == ["2026-08", "2026-10"]
+    assert result["skipped"] == ["2026-09"]
+    stored = {
+        row.period_start: row.as_fed_kg
+        for row in db.scalars(select(FeedUsageRecord)).all()
+    }
+    assert stored == {AUG_START: 80, october: 100}
+    assert get_import_status()["status"] == "complete"
+    assert "2026-08 to 2026-10" in get_import_status()["message"]
+    assert "2026-09" in get_import_status()["message"]
 
 
 def test_fetch_uses_loaded_mixes_endpoint_not_fed_mixes() -> None:
@@ -657,6 +751,28 @@ def test_usage_xlsx_has_borders_and_fitted_columns() -> None:
     assert sheet.column_dimensions["B"].width >= len("As Fed (kg)")
     assert sheet.column_dimensions["C"].width >= len("As Fed (MT)")
     assert sheet.column_dimensions["D"].width >= len("Avg MT/day")
+
+
+def test_usage_fiscal_year_options_include_the_last_two_years(db: Session) -> None:
+    options = usage_fiscal_year_options(db, today=dt.date(2026, 10, 1))
+    assert options[:2] == [2027, 2026]
+
+    db.add(
+        FeedUsageRecord(
+            period_start=dt.date(2024, 5, 1),
+            period_end=dt.date(2024, 5, 31),
+            farm="GAD",
+            ingredient_name="Rape Meal",
+            as_fed_kg=1,
+            dm_kg=1,
+            cost=1,
+        )
+    )
+    db.commit()
+    with_history = usage_fiscal_year_options(db, today=dt.date(2026, 10, 1))
+    assert with_history[0] == 2027
+    assert 2025 in with_history
+    assert 2026 in with_history
 
 
 def test_resolve_usage_period_defaults_to_this_fiscal_year() -> None:

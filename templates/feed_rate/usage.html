@@ -135,6 +135,12 @@
       margin: 0;
       font-size: 1.05rem;
     }
+    .partial-notice {
+      margin: 0 0 0.75rem;
+      font-size: 0.8125rem;
+      line-height: 1.4;
+      color: #9a3412;
+    }
     .table-wrap {
       overflow: visible;
       max-height: none;
@@ -244,6 +250,7 @@
           <h2 id="table-title">Ingredient usage</h2>
           <button type="button" id="download-xlsx-btn">Download Excel</button>
         </div>
+        <p id="partial-notice" class="partial-notice" hidden></p>
         <div class="table-wrap">
           <table id="usage-table">
             <thead>
@@ -308,13 +315,14 @@
 
     function monthsForSelection(fyValue) {
       if (fyValue === "any") {
+        const currentFy = fiscalYearOf(new Date());
         const years = fiscalYearOptions.map(Number).filter(year => !Number.isNaN(year));
-        const earliest = years.length ? Math.min(...years) : fiscalYearOf(new Date());
+        const earliest = Math.min(currentFy - 1, currentFy, ...years);
         const start = new Date(earliest - 1, 3, 1);
         const end = new Date();
         end.setDate(1);
         const months = [];
-        for (let cursor = new Date(end); cursor >= start; cursor = addMonths(cursor, -1)) {
+        for (let cursor = new Date(start); cursor <= end; cursor = addMonths(cursor, 1)) {
           months.push(isoMonth(cursor));
         }
         return months;
@@ -343,7 +351,7 @@
       const previous = addMonths(new Date(today.getFullYear(), today.getMonth(), 1), -1);
       const previousIso = isoMonth(previous);
       if (months.includes(previousIso)) return previousIso;
-      if (fyValue === "any") return months[0];
+      if (fyValue === "any") return months[months.length - 1];
       const currentIso = isoMonth(today);
       if (months.includes(currentIso)) return currentIso;
       const past = months.filter(value => value <= isoMonth(today));
@@ -375,8 +383,6 @@
       fillSelect(fromSelect, months, months.includes(previousFrom) ? previousFrom : bounds.from);
       fillSelect(toSelect, months, months.includes(previousTo) ? previousTo : bounds.to);
       document.getElementById("usage-range").hidden = monthSelect.value !== "range";
-      const refreshBtn = document.getElementById("refresh-feed-btn");
-      if (refreshBtn) refreshBtn.disabled = monthSelect.value === "range";
     }
 
     function applyFilters(filters) {
@@ -385,8 +391,9 @@
       fiscalYearOptions = filters.fiscal_year_options || fiscalYearOptions;
       const fySelect = document.getElementById("usage-fiscal-year");
       const selectedFy = filters.any_year ? "any" : String(filters.fiscal_year || "");
+      const yearOptions = [...fiscalYearOptions].sort((left, right) => left - right);
       fySelect.innerHTML = `<option value="any">Any</option>` +
-        fiscalYearOptions.map(year => `<option value="${year}">FY ${year}</option>`).join("");
+        yearOptions.map(year => `<option value="${year}">FY ${year}</option>`).join("");
       fySelect.value = [...fySelect.options].some(option => option.value === selectedFy)
         ? selectedFy
         : (fiscalYearOptions[0] ? String(fiscalYearOptions[0]) : "any");
@@ -401,11 +408,6 @@
         lastConcreteMonth = filters.month;
       }
       document.getElementById("usage-range").hidden = monthSelect.value !== "range";
-      const refreshBtn = document.getElementById("refresh-feed-btn");
-      if (refreshBtn) {
-        refreshBtn.disabled = monthSelect.value === "range";
-        refreshBtn.title = monthSelect.value === "range" ? "Refresh fetches one month at a time." : "";
-      }
       syncingFilters = false;
     }
 
@@ -487,17 +489,21 @@
       const totalMt = asFedMt(data.totals?.as_fed_kg);
       const totalMtPerDay = data.totals?.as_fed_mt_per_day;
 
+      const notice = document.getElementById("partial-notice");
       if (!rows.length) {
         tableView.style.display = "none";
         empty.style.display = "";
-        const refreshHint = data.filters?.is_range
-          ? ""
-          : " Use Refresh from Feedlync to fetch this month.";
-        empty.textContent = `No Loaded Mixes data for ${FARM_LABEL} in ${period}.${refreshHint}`;
+        const refreshHint = " Use Refresh from Feedlync to fetch this period.";
+        const partial = data.partial_notice ? ` ${data.partial_notice}` : "";
+        empty.textContent = `No Loaded Mixes data for ${FARM_LABEL} in ${period}.${refreshHint}${partial}`;
         return;
       }
 
       empty.style.display = "none";
+      if (notice) {
+        notice.hidden = !data.partial_notice;
+        notice.textContent = data.partial_notice || "";
+      }
       document.getElementById("table-title").textContent = `${FARM_LABEL} ingredient usage · ${period}`;
       const body = document.getElementById("usage-body");
       body.innerHTML = rows.map(row => `
@@ -558,7 +564,7 @@
       }
       stopImportPoll();
       const btn = document.getElementById("refresh-feed-btn");
-      if (btn) btn.disabled = document.getElementById("usage-month").value === "range";
+      if (btn) btn.disabled = false;
       if (data.status === "complete") {
         setImportStatus(data.message || "Import complete.");
         await loadReport();
@@ -573,11 +579,21 @@
 
     async function startImport() {
       const month = document.getElementById("usage-month").value;
-      if (!month || month === "range") return;
+      if (!month) return;
+      const params = new URLSearchParams({ month });
+      const fy = document.getElementById("usage-fiscal-year").value;
+      if (fy) params.set("fiscal_year", fy);
+      if (month === "range") {
+        const monthFrom = document.getElementById("usage-month-from").value;
+        const monthTo = document.getElementById("usage-month-to").value;
+        if (!monthFrom || !monthTo) return;
+        params.set("month_from", monthFrom);
+        params.set("month_to", monthTo);
+      }
       const btn = document.getElementById("refresh-feed-btn");
       if (btn) btn.disabled = true;
       setImportStatus("Starting Feedlync import…", "running");
-      const res = await fetch(`/api/feed-rate/usage/import?month=${encodeURIComponent(month)}`, { method: "POST" });
+      const res = await fetch(`/api/feed-rate/usage/import?${params}`, { method: "POST" });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         setImportStatus(err.detail || "Failed to start import.", "error");
@@ -623,11 +639,6 @@
       const month = monthSelect.value;
       if (month && month !== "range") lastConcreteMonth = month;
       document.getElementById("usage-range").hidden = month !== "range";
-      const refreshBtn = document.getElementById("refresh-feed-btn");
-      if (refreshBtn) {
-        refreshBtn.disabled = month === "range";
-        refreshBtn.title = month === "range" ? "Refresh fetches one month at a time." : "";
-      }
       loadReport();
     }
 

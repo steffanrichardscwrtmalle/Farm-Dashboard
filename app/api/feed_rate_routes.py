@@ -259,18 +259,43 @@ def api_feed_usage_import_status(
 def api_feed_usage_import(
     background_tasks: BackgroundTasks,
     month: str | None = None,
+    month_from: str | None = None,
+    month_to: str | None = None,
+    fiscal_year: str | None = None,
     _: User = Depends(get_current_user),
 ):
-    period = _usage_month_or_400(month)
+    if (month or "").strip().lower() == "range":
+        period = _usage_period_or_400(
+            fiscal_year=fiscal_year,
+            month=month,
+            month_from=month_from,
+            month_to=month_to,
+        )
+        months = period["months"]
+        start = period["month_from"].strftime("%Y-%m")
+        end = period["month_to"].strftime("%Y-%m")
+        label = start if start == end else f"{start} to {end}"
+        if is_usage_import_running():
+            return {"status": "running", "message": "Usage import already in progress."}
+        mark_usage_import_started(label)
+        background_tasks.add_task(run_usage_import_in_background, SessionLocal, months)
+        return {
+            "status": "started",
+            "message": f"Feedlync usage import started for {label}.",
+            "month": label,
+            "months": [item.strftime("%Y-%m") for item in months],
+        }
+
+    period_month = _usage_month_or_400(month)
     if is_usage_import_running():
         return {"status": "running", "message": "Usage import already in progress."}
 
-    mark_usage_import_started(period.strftime("%Y-%m"))
-    background_tasks.add_task(run_usage_import_in_background, SessionLocal, period)
+    mark_usage_import_started(period_month.strftime("%Y-%m"))
+    background_tasks.add_task(run_usage_import_in_background, SessionLocal, period_month)
     return {
         "status": "started",
-        "message": f"Feedlync usage import started for {period.strftime('%Y-%m')}.",
-        "month": period.strftime("%Y-%m"),
+        "message": f"Feedlync usage import started for {period_month.strftime('%Y-%m')}.",
+        "month": period_month.strftime("%Y-%m"),
     }
 
 

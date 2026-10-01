@@ -414,7 +414,7 @@ def resolve_usage_period(
 
 def usage_fiscal_year_options(db: Session, *, today: dt.date | None = None) -> list[int]:
     current = fiscal_year_for_date(today or dt.date.today())
-    years = {current}
+    years = {current, current - 1}
     starts = db.scalars(select(FeedUsageRecord.period_start).distinct()).all()
     for start in starts:
         if start is not None:
@@ -433,13 +433,81 @@ def _usage_ration_names(db: Session, farm_key: str) -> list[str]:
     return names
 
 
+def usage_import_is_partial(period_end: dt.date, imported_on: dt.date) -> bool:
+    """A month fetched before it had finished is only a partial snapshot."""
+    return period_end >= imported_on
+
+
+def discard_expired_partial_usage(db: Session, *, today: dt.date | None = None) -> int:
+    """Drop an in-progress month once the day it was fetched has passed."""
+    current_day = today or dt.date.today()
+    expired_ids = [
+        record.id
+        for record in db.scalars(select(FeedUsageRecord)).all()
+        if record.import_timestamp
+        and usage_import_is_partial(record.period_end, record.import_timestamp.date())
+        and record.import_timestamp.date() < current_day
+    ]
+    if not expired_ids:
+        return 0
+    db.execute(delete(FeedUsageRecord).where(FeedUsageRecord.id.in_(expired_ids)))
+    db.commit()
+    return len(expired_ids)
+
+
+_MONTH_NAMES = (
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+)
+
+
+def _month_label(value: dt.date) -> str:
+    return f"{_MONTH_NAMES[value.month - 1]} {value.year}"
+
+
+def _partial_usage_notice(
+    month_starts: list[dt.date],
+    records: list[FeedUsageRecord],
+    *,
+    today: dt.date,
+) -> str | None:
+    open_start = today.replace(day=1)
+    if open_start not in month_starts:
+        return None
+    label = _month_label(open_start)
+    has_today = any(
+        record.period_start == open_start
+        and record.import_timestamp
+        and record.import_timestamp.date() == today
+        for record in records
+    )
+    if has_today:
+        return f"{label} is still in progress. This refresh is kept for today only."
+    return (
+        f"{label} is still in progress, so it is left out unless you refresh it today."
+    )
+
+
 def get_usage_report(
     db: Session,
     *,
     month: dt.date,
     farm: str,
     month_to: dt.date | None = None,
+    today: dt.date | None = None,
 ) -> dict[str, Any]:
+    current_day = today or dt.date.today()
+    discard_expired_partial_usage(db, today=current_day)
     farm_key = normalize_usage_farm(farm)
     month_starts = usage_month_starts(month, month_to or month)
     period_start, _period_end_first = month_bounds(month_starts[0].year, month_starts[0].month)
@@ -472,7 +540,7 @@ def get_usage_report(
         rows = _combined_usage_rows(included)
     else:
         rows = [record.to_dict() for record in included]
-    return build_usage_report(
+    report = build_usage_report(
         rows,
         period_start=period_start,
         period_end=period_end,
@@ -480,14 +548,24 @@ def get_usage_report(
         rations=_usage_ration_names(db, farm_key),
         import_timestamp=latest_import,
     )
+    report["partial_notice"] = _partial_usage_notice(
+        month_starts, included, today=current_day
+    )
+    return report
 
 
-def import_feed_usage(db: Session, *, month: dt.date) -> dict[str, Any]:
+def import_feed_usage(
+    db: Session,
+    *,
+    month: dt.date,
+    progress: str | None = None,
+    finalize: bool = True,
+) -> dict[str, Any]:
     period_start, period_end = month_bounds(month.year, month.month)
     month_key = period_start.strftime("%Y-%m")
     _set_status(
         status="running",
-        message=f"Fetching Loaded Mixes for {month_key}…",
+        message=progress or f"Fetching Loaded Mixes for {month_key}…",
         rows_imported=0,
         month=month_key,
         needs_auth=False,
@@ -533,14 +611,18 @@ def import_feed_usage(db: Session, *, month: dt.date) -> dict[str, Any]:
             "period_end": period_end.isoformat(),
             "latest_import": latest_import,
         }
-        _set_status(
-            status="complete",
-            message=f"Imported {len(rows)} ingredients for {month_key}.",
-            latest_import=latest_import,
-            rows_imported=len(rows),
-            month=month_key,
-            needs_auth=False,
-        )
+        if finalize:
+            note = ""
+            if usage_import_is_partial(period_end, import_ts.date()):
+                note = " This month is still in progress, so these figures are kept for today only."
+            _set_status(
+                status="complete",
+                message=f"Imported {len(rows)} ingredients for {month_key}.{note}",
+                latest_import=latest_import,
+                rows_imported=len(rows),
+                month=month_key,
+                needs_auth=False,
+            )
         return result
     except FeedlyncAuthError as exc:
         db.rollback()
@@ -552,10 +634,70 @@ def import_feed_usage(db: Session, *, month: dt.date) -> dict[str, Any]:
         raise
 
 
-def run_usage_import_in_background(db_factory, month: dt.date) -> None:
+def import_feed_usage_months(db: Session, *, months: list[dt.date]) -> dict[str, Any]:
+    """Refresh each month from Feedlync. Earlier months stay saved if a later one fails."""
+    if not months:
+        raise ValueError("Choose at least one month to refresh.")
+    total_rows = 0
+    imported: list[str] = []
+    skipped: list[str] = []
+    latest_import = None
+    for index, month in enumerate(months, start=1):
+        month_key = month.strftime("%Y-%m")
+        try:
+            result = import_feed_usage(
+                db,
+                month=month,
+                progress=f"Fetching Loaded Mixes for {month_key} ({index} of {len(months)})…",
+                finalize=False,
+            )
+        except ValueError as exc:
+            if not str(exc).startswith("No Loaded Mixes"):
+                raise
+            skipped.append(month_key)
+            continue
+        total_rows += int(result["rows_imported"])
+        imported.append(month_key)
+        latest_import = result["latest_import"]
+    if not imported:
+        missing = ", ".join(skipped) or "the selected months"
+        message = f"No Loaded Mixes ingredient rows returned from Feedlync for {missing}."
+        _set_status(status="error", message=message, month=missing, needs_auth=False)
+        raise ValueError(message)
+    span = imported[0] if len(imported) == 1 else f"{imported[0]} to {imported[-1]}"
+    message = f"Imported {total_rows} ingredients for {span}."
+    if skipped:
+        message += f" No rows for {', '.join(skipped)}."
+    imported_on = dt.date.today()
+    if any(
+        usage_import_is_partial(month_bounds(int(key[:4]), int(key[5:7]))[1], imported_on)
+        for key in imported
+    ):
+        message += " An unfinished month is kept for today only."
+    _set_status(
+        status="complete",
+        message=message,
+        latest_import=latest_import,
+        rows_imported=total_rows,
+        month=span,
+        needs_auth=False,
+    )
+    return {
+        "rows_imported": total_rows,
+        "months": imported,
+        "skipped": skipped,
+        "latest_import": latest_import,
+    }
+
+
+def run_usage_import_in_background(db_factory, month: dt.date | list[dt.date]) -> None:
+    months = month if isinstance(month, list) else [month]
     db = db_factory()
     try:
-        import_feed_usage(db, month=month)
+        if len(months) == 1:
+            import_feed_usage(db, month=months[0])
+        else:
+            import_feed_usage_months(db, months=months)
     except Exception:
         pass
     finally:
