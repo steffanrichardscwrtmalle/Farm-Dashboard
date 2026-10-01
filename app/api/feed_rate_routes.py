@@ -42,7 +42,9 @@ from app.services.feed_usage import (
     mark_import_started as mark_usage_import_started,
     normalize_usage_farm,
     resolve_usage_month,
+    resolve_usage_period,
     run_usage_import_in_background,
+    usage_fiscal_year_options,
 )
 from app.services.feed_usage_settings import (
     list_ingredient_assignments,
@@ -160,29 +162,85 @@ def _usage_farm_or_400(farm: str | None) -> str:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _usage_period_or_400(
+    *,
+    fiscal_year: str | None,
+    month: str | None,
+    month_from: str | None,
+    month_to: str | None,
+) -> dict:
+    try:
+        return resolve_usage_period(
+            fiscal_year=fiscal_year,
+            month=month,
+            month_from=month_from,
+            month_to=month_to,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _usage_report_response(db: Session, farm: str | None, period: dict) -> dict:
+    farm_key = _usage_farm_or_400(farm)
+    report = get_usage_report(
+        db,
+        month=period["month_from"],
+        month_to=period["month_to"],
+        farm=farm_key,
+    )
+    report["filters"] = {
+        "fiscal_year": period["fiscal_year"],
+        "any_year": period["any_year"],
+        "is_range": period["is_range"],
+        "month": "range" if period["is_range"] else period["month_from"].strftime("%Y-%m"),
+        "month_from": period["month_from"].strftime("%Y-%m"),
+        "month_to": period["month_to"].strftime("%Y-%m"),
+        "fiscal_year_options": usage_fiscal_year_options(db),
+    }
+    return report
+
+
 @router.get("/usage")
 def api_feed_usage_report(
     month: str | None = None,
+    month_from: str | None = None,
+    month_to: str | None = None,
+    fiscal_year: str | None = None,
     farm: str | None = None,
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_FEED_RATE)),
 ):
-    period = _usage_month_or_400(month)
-    farm_key = _usage_farm_or_400(farm)
-    return get_usage_report(db, month=period, farm=farm_key)
+    period = _usage_period_or_400(
+        fiscal_year=fiscal_year,
+        month=month,
+        month_from=month_from,
+        month_to=month_to,
+    )
+    return _usage_report_response(db, farm, period)
 
 
 @router.get("/usage/export.xlsx")
 def api_feed_usage_export_xlsx(
     month: str | None = None,
+    month_from: str | None = None,
+    month_to: str | None = None,
+    fiscal_year: str | None = None,
     farm: str | None = None,
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_FEED_RATE)),
 ):
-    period = _usage_month_or_400(month)
+    period = _usage_period_or_400(
+        fiscal_year=fiscal_year,
+        month=month,
+        month_from=month_from,
+        month_to=month_to,
+    )
     farm_key = _usage_farm_or_400(farm)
-    report = get_usage_report(db, month=period, farm=farm_key)
-    filename = f"feed_usage_{farm_key}_{report['month']}.xlsx"
+    report = _usage_report_response(db, farm_key, period)
+    start = period["month_from"].strftime("%Y-%m")
+    end = period["month_to"].strftime("%Y-%m")
+    span = start if start == end else f"{start}_{end}"
+    filename = f"feed_usage_{farm_key}_{span}.xlsx"
     return Response(
         content=build_usage_xlsx(report),
         media_type=USAGE_XLSX_CONTENT_TYPE,

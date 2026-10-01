@@ -20,6 +20,7 @@ from app.services.feed_usage import (
     import_previous_month_usage_if_due,
     previous_month_usage_import_month,
     resolve_usage_month,
+    resolve_usage_period,
 )
 from app.services.feed_usage_settings import (
     assigned_ration_names,
@@ -656,4 +657,113 @@ def test_usage_xlsx_has_borders_and_fitted_columns() -> None:
     assert sheet.column_dimensions["B"].width >= len("As Fed (kg)")
     assert sheet.column_dimensions["C"].width >= len("As Fed (MT)")
     assert sheet.column_dimensions["D"].width >= len("Avg MT/day")
+
+
+def test_resolve_usage_period_defaults_to_this_fiscal_year() -> None:
+    october = resolve_usage_period(today=dt.date(2026, 10, 1))
+    assert october["fiscal_year"] == 2027
+    assert october["any_year"] is False
+    assert october["is_range"] is False
+    assert october["month_from"] == dt.date(2026, 9, 1)
+    assert october["month_to"] == dt.date(2026, 9, 1)
+
+    early_april = resolve_usage_period(today=dt.date(2026, 4, 2))
+    assert early_april["fiscal_year"] == 2027
+    assert early_april["month_from"] == dt.date(2026, 4, 1)
+
+
+def test_resolve_usage_period_any_and_range() -> None:
+    single = resolve_usage_period(fiscal_year="any", month="2025-08", today=dt.date(2026, 10, 1))
+    assert single["any_year"] is True
+    assert single["fiscal_year"] is None
+    assert single["is_range"] is False
+    assert single["month_from"] == dt.date(2025, 8, 1)
+
+    span = resolve_usage_period(
+        fiscal_year="any",
+        month="range",
+        month_from="2025-11",
+        month_to="2026-05",
+        today=dt.date(2026, 10, 1),
+    )
+    assert span["is_range"] is True
+    assert span["months"][0] == dt.date(2025, 11, 1)
+    assert span["months"][-1] == dt.date(2026, 5, 1)
+    assert len(span["months"]) == 7
+
+
+def test_resolve_usage_period_keeps_months_inside_fiscal_year() -> None:
+    period = resolve_usage_period(
+        fiscal_year="2027",
+        month="range",
+        month_from="2026-04",
+        month_to="2027-03",
+        today=dt.date(2026, 10, 1),
+    )
+    assert period["fiscal_year"] == 2027
+    assert len(period["months"]) == 12
+
+    with pytest.raises(ValueError, match="inside the selected fiscal year"):
+        resolve_usage_period(
+            fiscal_year="2027",
+            month="2025-08",
+            today=dt.date(2026, 10, 1),
+        )
+
+    with pytest.raises(ValueError, match="end month is before"):
+        resolve_usage_period(
+            fiscal_year="any",
+            month="range",
+            month_from="2026-06",
+            month_to="2026-04",
+        )
+
+
+def test_usage_report_sums_a_month_range(db: Session) -> None:
+    db.add_all(
+        [
+            FeedUsageRecord(
+                period_start=AUG_START,
+                period_end=AUG_END,
+                farm="GAD",
+                ingredient_name="Rape Meal",
+                as_fed_kg=1000,
+                dm_kg=900,
+                cost=10,
+            ),
+            FeedUsageRecord(
+                period_start=dt.date(2026, 9, 1),
+                period_end=dt.date(2026, 9, 30),
+                farm="GAD",
+                ingredient_name="Rape Meal",
+                as_fed_kg=500,
+                dm_kg=450,
+                cost=5,
+            ),
+            FeedUsageRecord(
+                period_start=dt.date(2026, 9, 1),
+                period_end=dt.date(2026, 9, 30),
+                farm="GAD",
+                ingredient_name="Grass Silage",
+                as_fed_kg=200,
+                dm_kg=60,
+                cost=2,
+            ),
+        ]
+    )
+    db.commit()
+    report = get_usage_report(
+        db,
+        month=AUG_START,
+        month_to=dt.date(2026, 9, 1),
+        farm="GAD",
+    )
+    by_name = {row["ingredient_name"]: row for row in report["ingredients"]}
+    assert report["period_start"] == "2026-08-01"
+    assert report["period_end"] == "2026-09-30"
+    assert report["days"] == 61
+    assert by_name["Rape Meal"]["as_fed_kg"] == 1500
+    assert by_name["Grass Silage"]["as_fed_kg"] == 200
+    assert report["totals"]["as_fed_kg"] == 1700
+    assert report["totals"]["as_fed_mt_per_day"] == round((1700 / 1000) / 61, 4)
 

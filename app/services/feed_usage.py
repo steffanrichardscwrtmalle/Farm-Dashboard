@@ -299,6 +299,129 @@ def _combined_usage_rows(records: list[FeedUsageRecord]) -> list[dict[str, Any]]
     return list(merged.values())
 
 
+def fiscal_year_for_date(value: dt.date) -> int:
+    """UK fiscal year ending in March. April 2026 is FY 2027."""
+    return value.year + 1 if value.month >= 4 else value.year
+
+
+def fiscal_year_bounds(fiscal_year: int) -> tuple[dt.date, dt.date]:
+    return dt.date(fiscal_year - 1, 4, 1), dt.date(fiscal_year, 3, 31)
+
+
+def usage_month_starts(start: dt.date, end: dt.date) -> list[dt.date]:
+    cursor = start.replace(day=1)
+    last = end.replace(day=1)
+    months: list[dt.date] = []
+    while cursor <= last:
+        months.append(cursor)
+        if cursor.month == 12:
+            cursor = dt.date(cursor.year + 1, 1, 1)
+        else:
+            cursor = dt.date(cursor.year, cursor.month + 1, 1)
+    return months
+
+
+def parse_usage_month_value(value: str) -> dt.date:
+    text = value.strip()
+    if len(text) == 7 and text[4] == "-":
+        text = text + "-01"
+    try:
+        parsed = dt.date.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError(f"Invalid month: {value}") from exc
+    return parsed.replace(day=1)
+
+
+def default_usage_month_for_fiscal_year(fiscal_year: int, today: dt.date) -> dt.date:
+    """Previous month when it sits in this fiscal year, otherwise the latest month so far."""
+    previous = previous_calendar_month(today)
+    start, end = fiscal_year_bounds(fiscal_year)
+    if start <= previous <= end:
+        return previous
+    if end < today:
+        return dt.date(fiscal_year, 3, 1)
+    if today < start:
+        return start
+    return today.replace(day=1)
+
+
+def resolve_usage_period(
+    *,
+    fiscal_year: str | None = None,
+    month: str | None = None,
+    month_from: str | None = None,
+    month_to: str | None = None,
+    today: dt.date | None = None,
+) -> dict[str, Any]:
+    """Resolve the feed usage period. Fiscal year defaults to the current year."""
+    current_day = today or dt.date.today()
+    current_fy = fiscal_year_for_date(current_day)
+    fy_text = (fiscal_year or "").strip().lower()
+    any_year = fy_text == "any"
+    fiscal_year_num: int | None
+    if not fy_text:
+        fiscal_year_num = None
+    elif any_year:
+        fiscal_year_num = None
+    else:
+        try:
+            fiscal_year_num = int(fy_text)
+        except ValueError as exc:
+            raise ValueError("Fiscal year must be a year or Any.") from exc
+        if fiscal_year_num < 2000 or fiscal_year_num > 2100:
+            raise ValueError("Fiscal year is out of range.")
+
+    month_text = (month or "").strip().lower()
+    is_range = month_text == "range"
+    if is_range:
+        if not (month_from or "").strip() or not (month_to or "").strip():
+            raise ValueError("Choose a from and to month for a range.")
+        start = parse_usage_month_value(month_from or "")
+        end = parse_usage_month_value(month_to or "")
+    elif month_text:
+        start = end = parse_usage_month_value(month_text)
+    elif fiscal_year_num is None and not any_year:
+        fiscal_year_num = current_fy
+        start = end = default_usage_month_for_fiscal_year(current_fy, current_day)
+    elif any_year:
+        start = end = default_usage_month_for_fiscal_year(current_fy, current_day)
+    else:
+        start = end = default_usage_month_for_fiscal_year(fiscal_year_num or current_fy, current_day)
+
+    if end < start:
+        raise ValueError("The end month is before the start month.")
+
+    if fiscal_year_num is None and not any_year:
+        fiscal_year_num = fiscal_year_for_date(start)
+    if not any_year and fiscal_year_num is not None:
+        fy_start, fy_end = fiscal_year_bounds(fiscal_year_num)
+        if start < fy_start or end > fy_end:
+            raise ValueError("Months must fall inside the selected fiscal year.")
+
+    months = usage_month_starts(start, end)
+    if len(months) > 36:
+        raise ValueError("Choose a range of 36 months or fewer.")
+
+    return {
+        "fiscal_year": None if any_year else fiscal_year_num,
+        "any_year": any_year,
+        "is_range": is_range or start != end,
+        "month_from": start,
+        "month_to": end,
+        "months": months,
+    }
+
+
+def usage_fiscal_year_options(db: Session, *, today: dt.date | None = None) -> list[int]:
+    current = fiscal_year_for_date(today or dt.date.today())
+    years = {current}
+    starts = db.scalars(select(FeedUsageRecord.period_start).distinct()).all()
+    for start in starts:
+        if start is not None:
+            years.add(fiscal_year_for_date(start))
+    return sorted(years, reverse=True)
+
+
 def _usage_ration_names(db: Session, farm_key: str) -> list[str]:
     if farm_key != USAGE_COMBINED_FARM:
         return assigned_ration_names(db, farm_key)
@@ -310,15 +433,23 @@ def _usage_ration_names(db: Session, farm_key: str) -> list[str]:
     return names
 
 
-def get_usage_report(db: Session, *, month: dt.date, farm: str) -> dict[str, Any]:
+def get_usage_report(
+    db: Session,
+    *,
+    month: dt.date,
+    farm: str,
+    month_to: dt.date | None = None,
+) -> dict[str, Any]:
     farm_key = normalize_usage_farm(farm)
-    period_start, period_end = month_bounds(month.year, month.month)
+    month_starts = usage_month_starts(month, month_to or month)
+    period_start, _period_end_first = month_bounds(month_starts[0].year, month_starts[0].month)
+    _period_start_last, period_end = month_bounds(month_starts[-1].year, month_starts[-1].month)
     farms = list(HERD_FARM_OPTIONS) if farm_key == USAGE_COMBINED_FARM else [farm_key]
     records = list(
         db.scalars(
             select(FeedUsageRecord)
             .where(
-                FeedUsageRecord.period_start == period_start,
+                FeedUsageRecord.period_start.in_(month_starts),
                 FeedUsageRecord.farm.in_(farms),
             )
             .order_by(FeedUsageRecord.as_fed_kg.desc(), FeedUsageRecord.ingredient_name)
@@ -337,7 +468,7 @@ def get_usage_report(db: Session, *, month: dt.date, farm: str) -> dict[str, Any
         for record in records
         if is_usage_ingredient_included(record.ingredient_name, inclusion)
     ]
-    if farm_key == USAGE_COMBINED_FARM:
+    if farm_key == USAGE_COMBINED_FARM or len(month_starts) > 1:
         rows = _combined_usage_rows(included)
     else:
         rows = [record.to_dict() for record in included]
