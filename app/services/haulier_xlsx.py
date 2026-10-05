@@ -12,6 +12,7 @@ Temperatures may be a single value (``4.2``) or a per-fill list
 from __future__ import annotations
 
 import datetime as dt
+import difflib
 import io
 import re
 from typing import Any
@@ -32,6 +33,12 @@ _COL_SAMPLE = 22
 
 _DATE_RE = re.compile(
     r"\b(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day\s+"
+    r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{2,})",
+    re.IGNORECASE,
+)
+# Same shape when the weekday is misspelled ("Firday 2nd October 2026").
+_LOOSE_DATE_RE = re.compile(
+    r"\b([A-Za-z]{5,})\s+"
     r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{2,})",
     re.IGNORECASE,
 )
@@ -91,20 +98,37 @@ def _year_candidates(year_str: str, prev_date: dt.date | None) -> list[int]:
     return candidates
 
 
+def _match_weekday(word: str) -> str | None:
+    """Return a canonical weekday name, allowing a small spelling slip."""
+    key = word.lower()
+    if key in _WEEKDAYS:
+        return key
+    matches = difflib.get_close_matches(key, list(_WEEKDAYS), n=1, cutoff=0.8)
+    return matches[0] if matches else None
+
+
 def _parse_date_header(value: Any, prev_date: dt.date | None) -> dt.date | None:
     if not isinstance(value, str):
         return None
     match = _DATE_RE.search(value)
-    if not match:
-        return None
-    weekday_prefix, day, month_name, year_str = match.groups()
+    if match:
+        weekday_prefix, day, month_name, year_str = match.groups()
+        weekday_name = weekday_prefix.lower() + "day"
+    else:
+        match = _LOOSE_DATE_RE.search(value)
+        if not match:
+            return None
+        weekday_word, day, month_name, year_str = match.groups()
+        weekday_name = _match_weekday(weekday_word)
+        if weekday_name is None:
+            return None
     try:
         month = dt.datetime.strptime(month_name[:3], "%b").month
         day_num = int(day)
     except ValueError:
         return None
 
-    expected_weekday = _WEEKDAYS.get((weekday_prefix + "day").lower())
+    expected_weekday = _WEEKDAYS.get(weekday_name)
     candidates: list[dt.date] = []
     for year in _year_candidates(year_str, prev_date):
         try:
