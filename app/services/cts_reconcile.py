@@ -155,7 +155,11 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
     inv = _inventory_etags(db, farm_key)
     exits = _exit_by_etag(db, farm_key)
 
-    cts_by_etag = {row.etag: row for row in cts_animals if row.etag}
+    cts_by_etag: dict[str, CtsOnHolding] = {}
+    for row in cts_animals:
+        key = normalize_cts_etag(row.etag)
+        if key:
+            cts_by_etag.setdefault(key, row)
     cts_keys = set(cts_by_etag)
     inv_keys = set(inv)
 
@@ -188,8 +192,8 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
     awaiting_events_days = cts_only_awaiting_events_days(db, farm_key, as_of=as_of)
     awaiting_cts = active_awaiting_cts_etags(db, farm_key)
 
-    def _cts_dict(row: CtsOnHolding) -> dict[str, Any]:
-        exit_info = exits.get(row.etag) or {}
+    def _cts_dict(key: str, row: CtsOnHolding) -> dict[str, Any]:
+        exit_info = exits.get(key) or {}
         exit_event = exit_info.get("exit_event")
         days_since_exit = exit_info.get("days_since_exit")
         awaiting_events = (
@@ -198,7 +202,7 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
             and awaiting_events_days is not None
         )
         return {
-            "etag": row.etag,
+            "etag": key,
             "breed": row.breed,
             "sex": row.sex,
             "dob": row.dob.isoformat() if row.dob else None,
@@ -210,7 +214,7 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
             "days_since_exit": days_since_exit,
             "awaiting_events": awaiting_events,
             "awaiting_events_days": awaiting_events_days if awaiting_events else None,
-            "awaiting_cts": bool(row.etag and row.etag in awaiting_cts),
+            "awaiting_cts": key in awaiting_cts,
         }
 
     inv_only_rows = []
@@ -231,7 +235,7 @@ def reconcile_farm(db: Session, farm: str) -> dict[str, Any]:
         "cts_only_count": len(cts_only_keys),
         "inventory_only_count": len(inv_only_keys),
         # Only mismatches are returned as row lists (matched can be thousands).
-        "cts_only": [_cts_dict(cts_by_etag[k]) for k in cts_only_keys],
+        "cts_only": [_cts_dict(k, cts_by_etag[k]) for k in cts_only_keys],
         "inventory_only": inv_only_rows,
         "last_sync": (
             {

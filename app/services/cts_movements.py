@@ -606,11 +606,11 @@ def _reported_list_context(db: Session, farm_key: str) -> dict[str, Any]:
         "births": _births_by_etag(db, farm_key),
         "purchases": _purchases_by_etag(db, farm_key),
         "cts_by_etag": {
-            row.etag: row
+            key: row
             for row in db.scalars(
                 select(CtsOnHolding).where(CtsOnHolding.farm == farm_key)
             ).all()
-            if row.etag
+            if (key := normalize_cts_etag(row.etag))
         },
     }
 

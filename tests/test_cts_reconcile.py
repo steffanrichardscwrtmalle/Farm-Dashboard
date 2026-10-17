@@ -140,6 +140,31 @@ def test_reconcile_farm_buckets() -> None:
     )
 
 
+def test_reconcile_matches_padded_german_tags_to_stored_cts_snapshot() -> None:
+    """CTS snapshots saved before DE padding still match DairyComp inventory."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(CtsOnHolding(farm="CM", etag="DE362628698", sex="F", breed="HF"))
+    session.add(
+        HerdInventory(
+            farm="CM",
+            etag="DE000362628698",
+            cow_id="28698",
+            gender="F",
+            sbrd="HF",
+            category="Milking",
+            bdat=dt.date(2023, 3, 13),
+        )
+    )
+    session.commit()
+
+    result = reconcile_farm(session, "CM")
+    assert result["matched_count"] == 1
+    assert result["inventory_only_count"] == 0
+    assert result["cts_only_count"] == 0
+
+
 def test_reconcile_marks_cts_only_awaiting_events_when_inventory_newer() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
