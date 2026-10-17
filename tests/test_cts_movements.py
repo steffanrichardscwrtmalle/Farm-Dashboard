@@ -19,6 +19,7 @@ from app.models import (
 )
 from app.services.cts_movements import (
     archive_confirmed_movements,
+    ensure_accepted_de_off_movement,
     is_deadline_day,
     list_archived_movements,
     list_awaiting_cts_movements,
@@ -194,6 +195,53 @@ def test_list_pending_movements_buckets() -> None:
     move_on = next(r for r in result["rows"] if r["movement_type"] == "move_on")
     assert move_on["breed"] == "AAX"
     assert move_on["sreg"] == "UK777777777777"
+
+
+def test_padded_german_off_movement_is_not_pending_again() -> None:
+    session = _session()
+    event_date = dt.date(2026, 10, 15)
+    session.add(
+        CtsOnHolding(farm="CM", etag="DE362628698", breed="HF", sex="F")
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="DE000362628698",
+            cow_id="28698",
+            event="SOLD",
+            event_date=event_date,
+        )
+    )
+    session.commit()
+
+    before = list_pending_movements(session, "CM")
+    assert [row["etag"] for row in before["rows"]] == ["DE0362628698"]
+
+    session.add(
+        CtsReportedMovement(
+            farm="CM",
+            movement_type="sale",
+            etag="DE362628698",
+            event_date=event_date,
+            status="accepted",
+            receipt="45279203",
+        )
+    )
+    session.commit()
+
+    after = list_pending_movements(session, "CM")
+    assert after["rows"] == []
+
+    ensure_accepted_de_off_movement(session)
+    stored = session.scalar(
+        select(CtsReportedMovement).where(
+            CtsReportedMovement.receipt == "45279203"
+        )
+    )
+    assert stored is not None
+    assert stored.etag == "DE0362628698"
+    assert stored.movement_type == "sale"
+    assert stored.event_date == event_date
 
 
 def test_pending_move_on_from_inventory_edat() -> None:

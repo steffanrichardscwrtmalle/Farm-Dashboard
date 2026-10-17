@@ -100,9 +100,11 @@ def _reported_keys(db: Session, farm: str) -> set[tuple[str, str, dt.date]]:
         )
     ).all()
     return {
-        (movement_type, etag, event_date)
+        (movement_type, key, event_date)
         for movement_type, etag, event_date in rows
-        if movement_type and etag and event_date
+        if movement_type
+        and event_date
+        and (key := normalize_cts_etag(etag))
     }
 
 
@@ -261,11 +263,13 @@ def requeue_stale_awaiting_movements(
 
 
 def _cts_etag_set(db: Session, farm: str) -> set[str]:
-    return set(
-        db.scalars(
+    return {
+        key
+        for etag in db.scalars(
             select(CtsOnHolding.etag).where(CtsOnHolding.farm == farm.upper())
         ).all()
-    )
+        if (key := normalize_cts_etag(etag))
+    }
 
 
 def _inventory_by_etag(db: Session, farm: str) -> dict[str, HerdInventory]:
@@ -448,7 +452,7 @@ def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:
         select(CtsOnHolding).where(CtsOnHolding.farm == farm_key)
     ).all()
     for cts in cts_rows:
-        etag = cts.etag
+        etag = normalize_cts_etag(cts.etag)
         if not etag or etag in inventory:
             continue
         exit_ev = exits.get(etag)
@@ -823,6 +827,56 @@ def list_archived_movements(db: Session, farm: str) -> dict[str, Any]:
         "total": len(archived),
         "rows": archived,
     }
+
+
+def ensure_accepted_de_off_movement(db: Session) -> None:
+    """Remember the German off-movement BCMS already accepted.
+
+    Receipt 45279203 was issued for DE0362628698 leaving CM on 2026-10-15.
+    The send happened before this app stored a reported-movement row, so the
+    pending queue would otherwise offer the same off-movement again.
+    """
+    farm = "CM"
+    movement_type = "sale"
+    event_date = dt.date(2026, 10, 15)
+    etag = normalize_cts_etag("DE362628698")
+    receipt = "45279203"
+    rows = db.scalars(
+        select(CtsReportedMovement).where(
+            CtsReportedMovement.farm == farm,
+            CtsReportedMovement.movement_type == movement_type,
+            CtsReportedMovement.event_date == event_date,
+        )
+    ).all()
+    match = next((row for row in rows if normalize_cts_etag(row.etag) == etag), None)
+    if match is None:
+        db.add(
+            CtsReportedMovement(
+                farm=farm,
+                movement_type=movement_type,
+                etag=etag,
+                event_date=event_date,
+                status="accepted",
+                receipt=receipt,
+                error_message=(
+                    "BCMS accepted this off movement before the app recorded it."
+                ),
+            )
+        )
+        db.commit()
+        return
+    changed = False
+    if match.etag != etag:
+        match.etag = etag
+        changed = True
+    if match.status not in _SUPPRESS_PENDING_STATUSES:
+        match.status = "accepted"
+        changed = True
+    if not match.receipt:
+        match.receipt = receipt
+        changed = True
+    if changed:
+        db.commit()
 
 
 def mark_movements_reported(

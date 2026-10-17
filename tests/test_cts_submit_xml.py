@@ -125,6 +125,24 @@ def test_reg_movs_xml_mtypes(_creds) -> None:
 
 
 @patch("app.services.cts_submit_xml.cts_farm_credentials", return_value=_FAKE_CREDS)
+def test_reg_movs_xml_pads_short_german_etag(_creds) -> None:
+    rows = [
+        {
+            "id": "death:CM:DE362:2026-10-15",
+            "movement_type": "death",
+            "etag": "DE362628698",
+            "event_date": "2026-10-15",
+            "holding": "55/013/0048",
+        }
+    ]
+    xml = build_reg_movs_xml(rows, farm="CM", redact_password=True, request_timestamp=_STAMP)
+    root = ET.fromstring(xml.split("?>", 1)[-1])
+    mov = next(el for el in root.iter() if _local(el.tag) == "Mov")
+    assert mov.attrib["Etg"] == "DE0362628698"
+    assert mov.attrib["MType"] == "death"
+
+
+@patch("app.services.cts_submit_xml.cts_farm_credentials", return_value=_FAKE_CREDS)
 def test_build_preview_xml_filenames(_creds) -> None:
     name, xml = build_preview_xml(
         _rows(), farm="CM", kind="births", request_timestamp=_STAMP

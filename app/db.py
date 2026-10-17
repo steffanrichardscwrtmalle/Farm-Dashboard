@@ -75,6 +75,14 @@ def init_db() -> None:
     _seed_feed_contracts()
     _seed_feed_usage_ration_assignments()
     _seed_cwrt_malle_leave_sheet()
+    _seed_known_cts_receipt()
+
+
+def _seed_known_cts_receipt() -> None:
+    from app.services.cts_movements import ensure_accepted_de_off_movement
+
+    with SessionLocal() as db:
+        ensure_accepted_de_off_movement(db)
 
 
 def _seed_cwrt_malle_leave_sheet() -> None:

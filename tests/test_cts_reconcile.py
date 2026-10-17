@@ -27,6 +27,14 @@ def test_normalize_cts_etag_strips_spaces_and_zeros() -> None:
     assert normalize_cts_etag("   ") == ""
 
 
+def test_normalize_cts_etag_pads_short_german_tags() -> None:
+    assert normalize_cts_etag("DE362628698") == "DE0362628698"
+    assert normalize_cts_etag("DE0362628698") == "DE0362628698"
+    assert normalize_cts_etag("DE 03626  28698") == "DE0362628698"
+    assert normalize_cts_etag("DE000362628698") == "DE0362628698"
+    assert normalize_cts_etag("DE1234567890") == "DE1234567890"
+
+
 def test_parse_holding_animals_xml_from_fixture() -> None:
     root = ET.parse(_FIXTURE).getroot()
     animals = parse_holding_animals_xml(root)

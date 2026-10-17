@@ -54,17 +54,33 @@ class CtsAnimal:
     on_date: dt.date | None
 
 
-def normalize_cts_etag(value: str | None) -> str:
-    """Normalize a CTS / inventory ear tag for set comparison.
+def _pad_de_etag(etag: str) -> str:
+    """BCMS expects German tags as DE plus 10 digits.
 
-    Reuses the cattle-sales normalizer so DairyComp zero-padding and spaces match.
+    DairyComp and the sales matcher drop the leading zero (DE362628698). CTS
+    rejects that form and accepts the 10-digit form (DE0362628698).
+    """
+    match = re.fullmatch(r"DE(\d+)", etag)
+    if match is None:
+        return etag
+    digits = match.group(1)
+    if len(digits) < 10:
+        digits = digits.zfill(10)
+    return f"DE{digits}"
+
+
+def normalize_cts_etag(value: str | None) -> str:
+    """Normalize a CTS / inventory ear tag for set comparison and CTWS send.
+
+    Reuses the cattle-sales normalizer so DairyComp zero-padding and spaces match,
+    then pads a short German numeric part back out to 10 digits.
     """
     from app.services.cattle_sale_pdf import normalize_etag
 
     raw = normalize_etag(value)
     if not raw or raw == "?":
         return ""
-    return raw
+    return _pad_de_etag(raw)
 
 
 def _parse_holding(holding: str) -> tuple[str, str | None]:
