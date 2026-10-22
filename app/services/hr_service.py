@@ -175,13 +175,6 @@ def list_staff(
     business: str | list[str] | None = None,
 ) -> list[dict[str, Any]]:
     query = select(Employee).order_by(Employee.full_name)
-    if status:
-        query = query.where(Employee.status == status)
-    elif view == "archived":
-        query = query.where(Employee.status == EMPLOYEE_STATUS_ARCHIVED)
-    else:
-        # Default "current" view hides archived staff.
-        query = query.where(Employee.status != EMPLOYEE_STATUS_ARCHIVED)
     businesses: list[str] = []
     if isinstance(business, str) and business.strip():
         businesses = [business.strip()]
@@ -199,8 +192,45 @@ def list_staff(
                 Employee.employee_number.ilike(term),
             )
         )
-    rows = db.scalars(query).all()
+    rows = list(db.scalars(query).all())
+    changed = False
+    for row in rows:
+        if _archive_if_left(row):
+            changed = True
+    if changed:
+        db.commit()
+    if status:
+        rows = [row for row in rows if row.status == status]
+    elif view == "archived":
+        rows = [row for row in rows if row.status == EMPLOYEE_STATUS_ARCHIVED]
+    else:
+        rows = [row for row in rows if row.status != EMPLOYEE_STATUS_ARCHIVED]
     return [_employee_summary(row) for row in rows]
+
+
+def _archive_if_left(employee: Employee, today: dt.date | None = None) -> bool:
+    """Move a leaver to Archived once their leaving date is today or earlier."""
+    today = today or dt.date.today()
+    leaving = employee.leaving_date
+    if leaving is None or leaving > today:
+        return False
+    if employee.status == EMPLOYEE_STATUS_ARCHIVED:
+        return False
+    employee.status = EMPLOYEE_STATUS_ARCHIVED
+    return True
+
+
+def _apply_leaving_date(
+    employee: Employee, leaving_date: dt.date | None, *, previous: dt.date | None
+) -> None:
+    """Store the leaving date and archive or restore to match it."""
+    employee.leaving_date = leaving_date
+    today = dt.date.today()
+    if leaving_date is not None and leaving_date <= today:
+        employee.status = EMPLOYEE_STATUS_ARCHIVED
+        return
+    if previous is not None and employee.status == EMPLOYEE_STATUS_ARCHIVED:
+        employee.status = EMPLOYEE_STATUS_ACTIVE
 
 
 def get_staff_detail(
@@ -212,6 +242,9 @@ def get_staff_detail(
     employee = db.get(Employee, employee_id)
     if employee is None:
         raise HRServiceError("Employee not found.")
+    if _archive_if_left(employee):
+        db.commit()
+        db.refresh(employee)
     return _employee_detail(employee, include_sensitive=include_sensitive)
 
 
@@ -238,7 +271,8 @@ def _build_employee(
     if employee_number:
         _ensure_employee_number_unique(db, employee_number)
 
-    return Employee(
+    leaving_date = payload.get("leaving_date")
+    employee = Employee(
         business=_clean("business"),
         employment_type=normalize_employment_type(payload.get("employment_type")),
         title=_clean("title"),
@@ -253,6 +287,7 @@ def _build_employee(
         pay_rate_enc=encrypt_field(payload.get("pay_rate")),
         role_title=payload["role_title"].strip(),
         start_date=payload["start_date"],
+        leaving_date=leaving_date,
         working_days_per_week=payload.get("working_days_per_week"),
         working_hours_per_day=payload.get("working_hours_per_day"),
         holiday_year_end=_holiday_year_end_from_payload(payload),
@@ -279,6 +314,9 @@ def _build_employee(
         template_id=template_id,
         created_by_user_id=user.id,
     )
+    if leaving_date is not None and leaving_date <= dt.date.today():
+        employee.status = EMPLOYEE_STATUS_ARCHIVED
+    return employee
 
 
 def _titlecase(value: Any) -> str:
@@ -739,6 +777,12 @@ def update_employee(
     employee.pay_type = pay_type
     employee.role_title = payload["role_title"].strip()
     employee.start_date = payload["start_date"]
+    if "leaving_date" in payload:
+        _apply_leaving_date(
+            employee,
+            payload.get("leaving_date"),
+            previous=employee.leaving_date,
+        )
     employee.working_days_per_week = payload.get("working_days_per_week")
     employee.working_hours_per_day = payload.get("working_hours_per_day")
     if (
@@ -861,6 +905,7 @@ def set_employee_archived(
     *,
     archived: bool,
     user: User,
+    leaving_date: dt.date | None = None,
 ) -> dict[str, Any]:
     """Archive (remove from active employment) or restore an employee."""
     employee = db.get(Employee, employee_id)
@@ -868,10 +913,17 @@ def set_employee_archived(
         raise HRServiceError("Employee not found.")
 
     if archived:
+        if leaving_date is not None:
+            if employee.start_date and leaving_date < employee.start_date:
+                raise HRServiceError(
+                    "Leaving date cannot be before the date they started."
+                )
+            employee.leaving_date = leaving_date
         employee.status = EMPLOYEE_STATUS_ARCHIVED
     else:
         if employee.status != EMPLOYEE_STATUS_ARCHIVED:
             raise HRServiceError("Only archived staff can be restored.")
+        employee.leaving_date = None
         employee.status = EMPLOYEE_STATUS_ACTIVE
 
     db.commit()
@@ -1109,6 +1161,9 @@ def _employee_summary(employee: Employee) -> dict[str, Any]:
         "email": employee.email,
         "role_title": employee.role_title,
         "start_date": employee.start_date.isoformat(),
+        "leaving_date": (
+            employee.leaving_date.isoformat() if employee.leaving_date else None
+        ),
         "holiday_year_end": (
             year_end.isoformat() if (year_end := _employee_year_end(employee)) else None
         ),
@@ -1205,6 +1260,7 @@ _STAFF_EXPORT_HEADERS = (
     "Email",
     "Phone",
     "Start date",
+    "Leaving date",
     "Leave year end",
     "Annual leave days",
     "Status",
@@ -1223,6 +1279,7 @@ def _staff_export_cells(row: dict[str, Any]) -> list[Any]:
         row.get("email") or "",
         row.get("phone") or "",
         row.get("start_date") or "",
+        row.get("leaving_date") or "",
         row.get("holiday_year_end") or "",
         row.get("annual_leave_days") if row.get("annual_leave_days") is not None else "",
         (row.get("status") or "").replace("_", " "),
@@ -1246,7 +1303,7 @@ def build_staff_xlsx(rows: list[dict[str, Any]]) -> bytes:
     for row in rows:
         ws.append(_staff_export_cells(row))
 
-    widths = [14, 8, 22, 20, 14, 18, 28, 16, 12, 14, 16, 16]
+    widths = [14, 8, 22, 20, 14, 18, 28, 16, 12, 14, 14, 16, 16]
     for index, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(index)].width = width
     for cell in ws[1]:

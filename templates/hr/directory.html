@@ -109,6 +109,68 @@
       margin-bottom: 0.75rem;
     }
     .table-actions h2 { margin: 0; margin-right: auto; }
+    .archive-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 400;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .archive-modal[hidden] { display: none; }
+    .archive-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+    }
+    .archive-modal-card {
+      position: relative;
+      width: min(28rem, 100%);
+      padding: 1rem 1.1rem 0.9rem;
+      border-radius: 10px;
+      background: var(--card);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+    }
+    .archive-modal-card h3 { margin: 0 0 0.35rem; }
+    .archive-modal-card p { margin: 0 0 0.75rem; }
+    .archive-modal-card label { display: block; margin: 0 0 0.7rem; }
+    .archive-modal-card input { width: 100%; margin: 0.2rem 0 0; }
+    .archive-matches {
+      list-style: none;
+      margin: 0.35rem 0 0;
+      padding: 0;
+      max-height: 11rem;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .archive-matches li { margin: 0; }
+    .archive-matches button,
+    .archive-matches button:hover {
+      display: block;
+      width: 100%;
+      margin: 0;
+      padding: 0.4rem 0.55rem;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--text);
+      font-weight: 500;
+      text-align: left;
+    }
+    .archive-matches button.selected,
+    .archive-matches button.selected:hover {
+      background: #fee2e2;
+      color: #7f1d1d;
+    }
+    .archive-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-top: 0.85rem;
+    }
+    .archive-modal-error { min-height: 1.1rem; margin: 0.2rem 0 0; }
 {% endblock %}
 
 {% block content %}
@@ -131,7 +193,8 @@
         <button type="button" class="secondary" onclick="window.location.href='/hr/timesheets'">Time sheets</button>
         {% endif %}
         {% if can_enroll %}
-        <button type="button" id="enroll-btn" style="margin-left:auto"
+        <button type="button" id="archive-staff-btn" class="secondary" style="margin-left:auto">Archive staff member</button>
+        <button type="button" id="enroll-btn"
           onclick="window.location.href='/hr/enroll'">Enroll new staff</button>
         {% endif %}
       </div>
@@ -159,16 +222,41 @@
               <th data-sort="role_title">Role</th>
               <th data-sort="email">Email</th>
               <th data-sort="start_date" class="col-date">Start date</th>
+              <th data-sort="leaving_date" class="col-date">Leaving date</th>
               <th data-sort="holiday_year_end" class="col-date">Leave year end</th>
               <th data-sort="status">Status</th>
             </tr>
           </thead>
           <tbody id="staff-body">
-            <tr><td colspan="9" class="muted">Loading…</td></tr>
+            <tr><td colspan="10" class="muted">Loading…</td></tr>
           </tbody>
         </table>
       </div>
     </div>
+
+    {% if can_enroll %}
+    <div id="archive-modal" class="archive-modal" hidden>
+      <div class="archive-modal-backdrop" data-close-archive></div>
+      <div class="archive-modal-card" role="dialog" aria-modal="true" aria-labelledby="archive-modal-title">
+        <h3 id="archive-modal-title">Archive staff member</h3>
+        <p class="muted">Choose who is leaving and their leaving date. They move to Archived. Time sheets keep them for pay periods they worked, and leave them off periods that start after this date.</p>
+        <label>
+          Name
+          <input type="text" id="archive-name" autocomplete="off" placeholder="Start typing a name">
+          <ul id="archive-matches" class="archive-matches"></ul>
+        </label>
+        <label>
+          Leaving date
+          <input type="date" id="archive-leaving-date" required>
+        </label>
+        <p id="archive-modal-error" class="archive-modal-error message err"></p>
+        <div class="archive-modal-actions">
+          <button type="button" class="secondary" data-close-archive>Cancel</button>
+          <button type="button" id="archive-confirm">Archive</button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -247,7 +335,7 @@
     updateSortIndicators();
     const rows = sortedRows();
     if (!rows.length) {
-      staffBody.innerHTML = '<tr><td colspan="9" class="muted">No staff found.</td></tr>';
+      staffBody.innerHTML = '<tr><td colspan="10" class="muted">No staff found.</td></tr>';
       return;
     }
     staffBody.innerHTML = rows.map(function (s) {
@@ -262,6 +350,7 @@
         '<td>' + escapeHtml(s.role_title) + '</td>' +
         '<td>' + escapeHtml(s.email) + '</td>' +
         '<td class="col-date">' + escapeHtml(formatDateUk(s.start_date)) + '</td>' +
+        '<td class="col-date">' + escapeHtml(formatDateUk(s.leaving_date)) + '</td>' +
         '<td class="col-date col-leave-year">' + escapeHtml(formatDateUk(s.holiday_year_end)) + '</td>' +
         '<td>' + statusBadge(s.status) + '</td>' +
         '</tr>';
@@ -270,7 +359,7 @@
 
   async function loadStaff() {
     showMessage('');
-    staffBody.innerHTML = '<tr><td colspan="9" class="muted">Loading…</td></tr>';
+    staffBody.innerHTML = '<tr><td colspan="10" class="muted">Loading…</td></tr>';
     try {
       const res = await fetch('/api/hr/staff?' + buildQuery().toString());
       if (!res.ok) {
@@ -282,7 +371,7 @@
       renderTable();
     } catch (err) {
       staffRows = [];
-      staffBody.innerHTML = '<tr><td colspan="9" class="muted">Could not load staff.</td></tr>';
+      staffBody.innerHTML = '<tr><td colspan="10" class="muted">Could not load staff.</td></tr>';
       showMessage(err.message, true);
     }
   }
@@ -295,7 +384,7 @@
       tab.setAttribute('aria-selected', active ? 'true' : 'false');
     });
     staffHeading.textContent = view === 'archived' ? 'Archived staff' : 'Current staff';
-    loadStaff();
+    return loadStaff();
   }
 
   function escapeHtml(str) {
@@ -364,6 +453,139 @@
 
   updateSortIndicators();
   loadStaff();
+
+  const archiveBtn = document.getElementById('archive-staff-btn');
+  const archiveModal = document.getElementById('archive-modal');
+  if (archiveBtn && archiveModal) {
+    const nameInput = document.getElementById('archive-name');
+    const dateInput = document.getElementById('archive-leaving-date');
+    const matchesEl = document.getElementById('archive-matches');
+    const modalError = document.getElementById('archive-modal-error');
+    const confirmBtn = document.getElementById('archive-confirm');
+    let roster = [];
+    let selectedId = null;
+
+    function modalMessage(text) {
+      modalError.textContent = text || '';
+    }
+
+    function staffLabel(person) {
+      const number = person.employee_number ? person.employee_number + ' · ' : '';
+      const business = person.business ? ' · ' + person.business : '';
+      return number + person.full_name + business;
+    }
+
+    function visibleMatches() {
+      const query = nameInput.value.trim().toLowerCase();
+      return roster.filter(function (person) {
+        if (!query) return true;
+        const haystack = (person.full_name + ' ' + (person.employee_number || '')).toLowerCase();
+        return haystack.indexOf(query) !== -1;
+      }).slice(0, 12);
+    }
+
+    function renderMatches() {
+      const matches = visibleMatches();
+      if (!roster.length) {
+        matchesEl.innerHTML = '<li class="muted" style="padding:0.45rem 0.55rem">No current staff.</li>';
+        return;
+      }
+      if (!matches.length) {
+        matchesEl.innerHTML = '<li class="muted" style="padding:0.45rem 0.55rem">No matching name.</li>';
+        return;
+      }
+      matchesEl.innerHTML = matches.map(function (person) {
+        const selected = person.id === selectedId ? ' selected' : '';
+        return '<li><button type="button" class="' + selected.trim() + '" data-id="' +
+          person.id + '">' + escapeHtml(staffLabel(person)) + '</button></li>';
+      }).join('');
+    }
+
+    function closeArchive() {
+      archiveModal.hidden = true;
+    }
+
+    archiveBtn.addEventListener('click', async function () {
+      modalMessage('');
+      selectedId = null;
+      nameInput.value = '';
+      dateInput.value = new Date().toISOString().slice(0, 10);
+      matchesEl.innerHTML = '<li class="muted" style="padding:0.45rem 0.55rem">Loading…</li>';
+      archiveModal.hidden = false;
+      nameInput.focus();
+      try {
+        const res = await fetch('/api/hr/staff?view=current');
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.detail || 'Could not load staff');
+        roster = data.staff || [];
+        renderMatches();
+      } catch (err) {
+        roster = [];
+        matchesEl.innerHTML = '';
+        modalMessage(err.message);
+      }
+    });
+
+    nameInput.addEventListener('input', function () {
+      const chosen = roster.find(function (person) { return person.id === selectedId; });
+      if (!chosen || nameInput.value.trim() !== chosen.full_name) selectedId = null;
+      modalMessage('');
+      renderMatches();
+    });
+
+    matchesEl.addEventListener('click', function (ev) {
+      const button = ev.target.closest('button[data-id]');
+      if (!button) return;
+      selectedId = Number(button.dataset.id);
+      const chosen = roster.find(function (person) { return person.id === selectedId; });
+      if (chosen) nameInput.value = chosen.full_name;
+      modalMessage('');
+      renderMatches();
+    });
+
+    archiveModal.addEventListener('click', function (ev) {
+      if (ev.target.closest('[data-close-archive]')) closeArchive();
+    });
+
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && !archiveModal.hidden) closeArchive();
+    });
+
+    confirmBtn.addEventListener('click', async function () {
+      modalMessage('');
+      let person = roster.find(function (row) { return row.id === selectedId; });
+      if (!person) {
+        const matches = visibleMatches();
+        if (matches.length === 1) person = matches[0];
+      }
+      if (!person) {
+        modalMessage('Choose a staff member from the list.');
+        return;
+      }
+      if (!dateInput.value) {
+        modalMessage('Enter a leaving date.');
+        return;
+      }
+      confirmBtn.disabled = true;
+      try {
+        const res = await fetch(
+          '/api/hr/staff/' + person.id + '/archive?leaving_date=' +
+            encodeURIComponent(dateInput.value),
+          { method: 'POST' }
+        );
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.detail || 'Could not archive staff member');
+        closeArchive();
+        if (view !== 'archived') await setView('archived');
+        else await loadStaff();
+        showMessage(person.full_name + ' archived.', false);
+      } catch (err) {
+        modalMessage(err.message);
+      } finally {
+        confirmBtn.disabled = false;
+      }
+    });
+  }
 })();
 </script>
 {% endblock %}

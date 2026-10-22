@@ -1401,6 +1401,7 @@ def _migrate_hr_schema() -> None:
             "holiday_hours_per_day": "FLOAT",
             "accommodation_deduction": "FLOAT",
             "accommodation_cadence": "VARCHAR(16)",
+            "leaving_date": "DATE",
         }
         missing = {k: v for k, v in new_columns.items() if k not in existing_cols}
         if missing:
@@ -1440,14 +1441,20 @@ def _migrate_hr_schema() -> None:
         EmployeeTimesheetEntry.__table__.create(bind=engine, checkfirst=True)
     else:
         ts_cols = {col["name"] for col in inspector.get_columns("employee_timesheet_entries")}
-        if "holiday_days" not in ts_cols:
+        ts_new = {
+            "holiday_days": "FLOAT",
+            "statutory_payments": "FLOAT",
+        }
+        ts_missing = {name: ddl for name, ddl in ts_new.items() if name not in ts_cols}
+        if ts_missing:
             with engine.begin() as conn:
-                conn.execute(
-                    text(
-                        "ALTER TABLE employee_timesheet_entries "
-                        "ADD COLUMN holiday_days FLOAT"
+                for name, ddl_type in ts_missing.items():
+                    conn.execute(
+                        text(
+                            "ALTER TABLE employee_timesheet_entries "
+                            f"ADD COLUMN {name} {ddl_type}"
+                        )
                     )
-                )
 
     if "contract_templates" not in inspector.get_table_names():
         return

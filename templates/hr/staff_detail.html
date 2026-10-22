@@ -281,6 +281,7 @@
 
       sectionHeading('Work &amp; pay') +
       detailItem('Start date', escapeHtml(formatDateUk(emp.start_date))) +
+      detailItem('Leaving date', escapeHtml(formatDateUk(emp.leaving_date))) +
       detailItem('Pay type', escapeHtml(emp.pay_type || '—')) +
       detailItem(payRateLabel(emp), sensitiveValue(emp.pay_rate, emp.has_sensitive_data)) +
       detailItem('Working days/week', escapeHtml(fmtNum(emp.working_days_per_week))) +

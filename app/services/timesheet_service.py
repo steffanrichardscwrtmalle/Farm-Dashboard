@@ -204,7 +204,7 @@ def list_timesheet(
         periods.append(period)
         periods.sort(key=lambda item: item["start"])
 
-    staff = _active_staff_for_farm(db, farm_key)
+    staff = _staff_for_period(db, farm_key, start, end)
     entries = {
         row.employee_id: row
         for row in db.scalars(
@@ -254,10 +254,14 @@ def save_timesheet_row(
     employee = db.get(Employee, employee_id)
     if employee is None:
         raise TimesheetError("Employee not found.")
-    if employee.status == EMPLOYEE_STATUS_ARCHIVED:
-        raise TimesheetError("Archived staff cannot be added to a time sheet.")
     if (employee.business or "") != farm_business(farm_key):
         raise TimesheetError("Staff member does not belong to this farm.")
+    if not _on_farm_for_period(employee, start, end):
+        if employee.status == EMPLOYEE_STATUS_ARCHIVED or (
+            employee.leaving_date is not None and employee.leaving_date < start
+        ):
+            raise TimesheetError("Archived staff cannot be added to a time sheet.")
+        raise TimesheetError("This staff member was not on the farm for this pay period.")
 
     entry = db.scalar(
         select(EmployeeTimesheetEntry).where(
@@ -282,6 +286,7 @@ def save_timesheet_row(
         "dinner_break_hours",
         "mileage",
         "bonus",
+        "statutory_payments",
         "loan_deduction",
         "other_deduction",
         "accommodation_deduction",
@@ -337,17 +342,45 @@ def save_timesheet_row(
     )
 
 
-def _active_staff_for_farm(db: Session, farm: str) -> list[Employee]:
+def _staff_for_period(
+    db: Session, farm: str, start: dt.date, end: dt.date
+) -> list[Employee]:
     business = farm_business(farm)
+    staff = list(
+        db.scalars(select(Employee).where(Employee.business == business)).all()
+    )
+    changed = False
+    for employee in staff:
+        if _archive_if_left(employee):
+            changed = True
+    if changed:
+        db.commit()
     return sorted(
-        db.scalars(
-            select(Employee).where(
-                Employee.status != EMPLOYEE_STATUS_ARCHIVED,
-                Employee.business == business,
-            )
-        ).all(),
+        (employee for employee in staff if _on_farm_for_period(employee, start, end)),
         key=_staff_sort_key,
     )
+
+
+def _archive_if_left(employee: Employee, today: dt.date | None = None) -> bool:
+    """Move a leaver to Archived once their leaving date is today or earlier."""
+    today = today or dt.date.today()
+    leaving = employee.leaving_date
+    if leaving is None or leaving > today:
+        return False
+    if employee.status == EMPLOYEE_STATUS_ARCHIVED:
+        return False
+    employee.status = EMPLOYEE_STATUS_ARCHIVED
+    return True
+
+
+def _on_farm_for_period(employee: Employee, start: dt.date, end: dt.date) -> bool:
+    """True when this pay period overlaps days they were on the farm."""
+    if employee.start_date and employee.start_date > end:
+        return False
+    leaving = employee.leaving_date
+    if leaving is not None:
+        return leaving >= start
+    return employee.status != EMPLOYEE_STATUS_ARCHIVED
 
 
 def _staff_sort_key(employee: Employee) -> tuple[int, int, str]:
@@ -439,6 +472,7 @@ def _serialize_row(
         "dinner_break_hours": _num(entry.dinner_break_hours if entry else None),
         "mileage": _num(entry.mileage if entry else None),
         "bonus": _num(entry.bonus if entry else None),
+        "statutory_payments": _num(entry.statutory_payments if entry else None),
         "loan_deduction": _num(entry.loan_deduction if entry else None),
         "other_deduction": _num(entry.other_deduction if entry else None),
         "accommodation_deduction": _accommodation_amount(
@@ -723,6 +757,7 @@ def _timesheet_xlsx_headers(period: dict[str, Any]) -> list[str]:
         "Dinner break (hrs)",
         "Mileage claimed",
         "Bonus",
+        "Statutory payments",
         "Loan deduction",
         "Other deduction",
         "Accommodation deduction",
@@ -755,6 +790,7 @@ def _timesheet_xlsx_values(
         row.get("dinner_break_hours"),
         row.get("mileage"),
         row.get("bonus"),
+        row.get("statutory_payments"),
         row.get("loan_deduction"),
         row.get("other_deduction"),
         row.get("accommodation_deduction"),
@@ -783,6 +819,7 @@ def build_timesheet_xlsx(sheet: dict[str, Any]) -> bytes:
     money_headers = {
         "Mileage claimed",
         "Bonus",
+        "Statutory payments",
         "Loan deduction",
         "Other deduction",
         "Accommodation deduction",
@@ -887,7 +924,7 @@ def build_timesheet_xlsx(sheet: dict[str, Any]) -> bytes:
 
     widths = [12, 24, 16, 12, 14]
     widths.extend([14] * len(hours_columns))
-    widths.extend([12, 13, 14, 14, 12, 14, 14, 18, 22, 14, 13, 16, 16])
+    widths.extend([12, 13, 14, 14, 12, 18, 14, 14, 18, 22, 14, 13, 16, 16])
     for index, width in enumerate(widths[: len(headers)], start=1):
         ws.column_dimensions[get_column_letter(index)].width = width
 

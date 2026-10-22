@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
-
 from io import BytesIO
+from types import SimpleNamespace
 
 import pytest
 from openpyxl import load_workbook
@@ -24,6 +24,7 @@ from app.models import (
     Employee,
 )
 from app.services.crypto_fields import encrypt_field
+from app.services.hr_service import HRServiceError, list_staff, set_employee_archived
 from app.services.timesheet_service import (
     TimesheetError,
     build_timesheet_xlsx,
@@ -555,6 +556,7 @@ def test_timesheet_xlsx_is_formatted_workbook(db):
     ]
     assert "Hours 7-13 Sep 2026" in headers
     assert "Hours 14-20 Sep 2026" in headers
+    assert "Statutory payments" in headers
     days_col = headers.index("Days holiday")
     hours_col_h = headers.index("Holiday hours")
     assert days_col == hours_col_h - 1
@@ -779,4 +781,101 @@ def test_carry_forward_is_brought_forward_on_next_period(db):
     first_again = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
     assert first_again["rows"][0]["holidays_remaining"] == 10
     assert first_again["rows"][0]["holidays_carry_forward"] == 8
+
+
+def test_statutory_payments_are_saved_on_the_row(db):
+    staff = _employee(db)
+    saved = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "statutory_payments": 96.4,
+            "hours_week_1": 37.5,
+        },
+    )
+    assert saved["statutory_payments"] == 96.4
+    assert saved["hours_week_1"] == 37.5
+
+
+def test_leaver_stays_on_worked_periods_and_drops_off_later_ones(db):
+    staff = _employee(db, leaving_date=dt.date(2026, 9, 18))
+    during = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
+    assert [row["employee_id"] for row in during["rows"]] == [staff.id]
+    db.refresh(staff)
+    assert staff.status == EMPLOYEE_STATUS_ARCHIVED
+
+    saved = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "hours_week_1": 16,
+        },
+    )
+    assert saved["hours_week_1"] == 16
+
+    after = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 21))
+    assert after["rows"] == []
+    with pytest.raises(TimesheetError, match="Archived"):
+        save_timesheet_row(
+            db,
+            "CM",
+            {
+                "employee_id": staff.id,
+                "period_start": dt.date(2026, 9, 21),
+                "hours_week_1": 8,
+            },
+        )
+
+
+def test_leaving_date_moves_staff_onto_the_archive_list(db):
+    staff = _employee(db, leaving_date=dt.date(2026, 9, 18))
+    current = list_staff(db)
+    archived = list_staff(db, view="archived")
+    assert staff.id not in {row["id"] for row in current}
+    match = next(row for row in archived if row["id"] == staff.id)
+    assert match["leaving_date"] == "2026-09-18"
+    assert match["status"] == EMPLOYEE_STATUS_ARCHIVED
+
+
+def test_archive_button_stores_leaving_date_and_keeps_worked_periods(db):
+    staff = _employee(db, start_date=dt.date(2026, 1, 1))
+    result = set_employee_archived(
+        db,
+        staff.id,
+        archived=True,
+        leaving_date=dt.date(2026, 9, 18),
+        user=SimpleNamespace(id=1),
+    )
+    assert result["employee"]["status"] == EMPLOYEE_STATUS_ARCHIVED
+    assert result["employee"]["leaving_date"] == "2026-09-18"
+    during = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
+    assert [row["employee_id"] for row in during["rows"]] == [staff.id]
+    after = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 21))
+    assert after["rows"] == []
+    with pytest.raises(HRServiceError, match="before"):
+        set_employee_archived(
+            db,
+            staff.id,
+            archived=True,
+            leaving_date=dt.date(2025, 12, 1),
+            user=SimpleNamespace(id=1),
+        )
+
+
+def test_future_leaving_date_keeps_staff_current(db):
+    staff = _employee(db, leaving_date=dt.date.today() + dt.timedelta(days=40))
+    sheet = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
+    assert sheet["rows"][0]["employee_id"] == staff.id
+    db.refresh(staff)
+    assert staff.status == EMPLOYEE_STATUS_ACTIVE
+
+
+def test_staff_who_have_not_started_are_left_off_the_sheet(db):
+    _employee(db, start_date=dt.date(2026, 10, 1))
+    sheet = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 7))
+    assert sheet["rows"] == []
 

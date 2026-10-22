@@ -165,9 +165,10 @@
     .ts-table tbody tr:nth-child(even) td { background: #f7f7f7; }
     .ts-table tbody tr:nth-child(even) td.sticky-col,
     .ts-table tbody tr:nth-child(even) td.sticky-name { background: #ececec; }
-    .ts-table tbody tr:hover td { background: #e7f2ea; }
+    .ts-table tbody tr:hover td,
     .ts-table tbody tr:hover td.sticky-col,
-    .ts-table tbody tr:hover td.sticky-name { background: #d9eadf; }
+    .ts-table tbody tr:hover td.sticky-name,
+    .ts-table tbody tr:hover td.formula-cell { background: #f6b4b4; }
     .ts-table tbody tr.row-salary td,
     .ts-table tbody tr.row-salary td.sticky-col,
     .ts-table tbody tr.row-salary td.sticky-name,
@@ -179,7 +180,7 @@
     .ts-table tbody tr.row-salary:hover td,
     .ts-table tbody tr.row-salary:hover td.sticky-col,
     .ts-table tbody tr.row-salary:hover td.sticky-name,
-    .ts-table tbody tr.row-salary:hover td.formula-cell { background: #b7dfc4; }
+    .ts-table tbody tr.row-salary:hover td.formula-cell { background: #f6b4b4; }
     .ts-table tbody tr.row-self-employed td,
     .ts-table tbody tr.row-self-employed td.sticky-col,
     .ts-table tbody tr.row-self-employed td.sticky-name,
@@ -191,7 +192,7 @@
     .ts-table tbody tr.row-self-employed:hover td,
     .ts-table tbody tr.row-self-employed:hover td.sticky-col,
     .ts-table tbody tr.row-self-employed:hover td.sticky-name,
-    .ts-table tbody tr.row-self-employed:hover td.formula-cell { background: #dcc8eb; }
+    .ts-table tbody tr.row-self-employed:hover td.formula-cell { background: #f6b4b4; }
     .ts-table input[type="number"],
     .ts-table input[type="text"],
     .ts-table input[type="date"] {
@@ -210,7 +211,8 @@
       box-shadow: none;
       field-sizing: fixed;
     }
-    .ts-table input[type="number"] {
+    .ts-table input[type="number"],
+    .ts-table input[data-hours] {
       min-width: 0;
       text-align: right;
       appearance: textfield;
@@ -308,8 +310,8 @@
   const exportEmploymentEl = document.getElementById('export-employment');
   const NUMBER_FIELDS = [
     'hours_week_1', 'hours_week_2', 'holiday_days', 'dinner_break_hours',
-    'mileage', 'bonus', 'loan_deduction', 'other_deduction', 'accommodation_deduction',
-    'holidays_remaining'
+    'mileage', 'bonus', 'statutory_payments', 'loan_deduction', 'other_deduction',
+    'accommodation_deduction', 'holidays_remaining'
   ];
 
   let periodStart = new URLSearchParams(window.location.search).get('period') || '';
@@ -371,11 +373,19 @@
     return match[3] + '/' + match[2] + '/' + match[1];
   }
 
+  function formatHours(value) {
+    if (value == null || value === '') return '';
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '';
+    return n.toFixed(2);
+  }
+
   function hourCell(row, col) {
     if (row.hours_locked || row.pay_type === 'salary') {
       return '<td class="readonly formula-cell">' + escapeHtml(formatMoney(row[col.key])) + '</td>';
     }
-    return '<td>' + numInput(row, col.key, '0.25') + '</td>';
+    return '<td><input type="text" inputmode="decimal" data-hours="1" data-field="' +
+      escapeHtml(col.key) + '" value="' + escapeHtml(formatHours(row[col.key])) + '"></td>';
   }
 
   function sortTh(label, key, extraClass) {
@@ -404,6 +414,7 @@
       sortTh('Dinner break (hrs)', 'dinner_break_hours') +
       sortTh('Mileage claimed', 'mileage') +
       sortTh('Bonus', 'bonus') +
+      sortTh('Statutory payments', 'statutory_payments') +
       sortTh('Loan deduction', 'loan_deduction') +
       sortTh('Other deduction', 'other_deduction') +
       sortTh('Accommodation deduction', 'accommodation_deduction') +
@@ -416,7 +427,7 @@
 
   function renderRows() {
     if (!rows.length) {
-      const cols = 18 + hoursColumns.length;
+      const cols = 19 + hoursColumns.length;
       bodyEl.innerHTML = '<tr><td colspan="' + cols +
         '" class="empty-state">No current employed or self-employed staff for this farm.</td></tr>';
       return;
@@ -442,6 +453,7 @@
         '<td>' + numInput(row, 'dinner_break_hours', '0.25') + '</td>' +
         '<td>' + numInput(row, 'mileage', '0.01') + '</td>' +
         '<td>' + numInput(row, 'bonus', '0.01') + '</td>' +
+        '<td>' + numInput(row, 'statutory_payments', '0.01') + '</td>' +
         '<td>' + numInput(row, 'loan_deduction', '0.01') + '</td>' +
         '<td>' + numInput(row, 'other_deduction', '0.01') + '</td>' +
         '<td>' + numInput(row, 'accommodation_deduction', '0.01') + '</td>' +
@@ -643,6 +655,11 @@
       }
       applyRemainingCell(tr, saved);
       updateCarryForwardCell(tr, saved.holidays_remaining, saved.holiday_days);
+      tr.querySelectorAll('[data-hours]').forEach(function (input) {
+        if (document.activeElement === input) return;
+        const n = saved[input.dataset.field];
+        input.value = n == null || n === '' ? '' : Number(n).toFixed(2);
+      });
       const idx = rows.findIndex(function (row) { return row.employee_id === employeeId; });
       if (idx !== -1) rows[idx] = Object.assign({}, rows[idx], saved);
       if (!dirtyIds.size) {
@@ -834,6 +851,12 @@
       updateCarryForwardCell(tr, parseNumber(input.value), thisPeriodDaysFromRow(tr));
     }
     queueSave(tr.dataset.id);
+  });
+  bodyEl.addEventListener('focusout', function (ev) {
+    const input = ev.target.closest('[data-hours]');
+    if (!input) return;
+    const n = parseNumber(input.value);
+    input.value = n == null ? '' : n.toFixed(2);
   });
   bodyEl.addEventListener('change', function (ev) {
     const input = ev.target.closest('[data-field]');

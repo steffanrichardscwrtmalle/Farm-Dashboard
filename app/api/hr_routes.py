@@ -84,6 +84,7 @@ class EnrollStaffBody(BaseModel):
     pay_rate: str | None = Field(default=None, max_length=64)
     role_title: str = Field(min_length=1, max_length=128)
     start_date: dt.date
+    leaving_date: dt.date | None = None
     working_days_per_week: float | None = Field(default=None, ge=0, le=7)
     working_hours_per_day: float | None = Field(default=None, ge=0, le=24)
     holiday_hours_per_day: float | None = Field(default=8, ge=0, le=24)
@@ -122,6 +123,7 @@ class DraftStaffBody(BaseModel):
     pay_rate: str | None = Field(default=None, max_length=64)
     role_title: str = Field(default="Farm Worker", min_length=1, max_length=128)
     start_date: dt.date
+    leaving_date: dt.date | None = None
     working_days_per_week: float | None = Field(default=None, ge=0, le=7)
     working_hours_per_day: float | None = Field(default=None, ge=0, le=24)
     holiday_hours_per_day: float | None = Field(default=8, ge=0, le=24)
@@ -161,6 +163,7 @@ class TimesheetRowBody(BaseModel):
     dinner_break_hours: float | None = None
     mileage: float | None = None
     bonus: float | None = None
+    statutory_payments: float | None = None
     loan_deduction: float | None = None
     other_deduction: float | None = None
     accommodation_deduction: float | None = None
@@ -394,11 +397,18 @@ def api_send_staff(
 @router.post("/staff/{employee_id}/archive")
 def api_archive_staff(
     employee_id: int,
+    leaving_date: dt.date | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_action(ACTION_HR_ENROLL)),
 ):
     try:
-        return set_employee_archived(db, employee_id, archived=True, user=user)
+        return set_employee_archived(
+            db,
+            employee_id,
+            archived=True,
+            user=user,
+            leaving_date=leaving_date,
+        )
     except HRServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

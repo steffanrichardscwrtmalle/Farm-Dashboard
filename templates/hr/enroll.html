@@ -280,6 +280,11 @@
               <input type="date" id="start_date" required>
             </label>
             <label>
+              Leaving date
+              <input type="date" id="leaving_date">
+              <small class="muted">Once this date is today or in the past they move to Archived. They stay on time sheets for pay periods they worked, and drop off periods that start after they left.</small>
+            </label>
+            <label>
               Employee number
               <input type="text" id="employee_number" maxlength="64" autocomplete="off"
                 placeholder="After first wages paid">
@@ -612,6 +617,7 @@
       ni_number: val('ni_number') || null,
       role_title: val('role_title'),
       start_date: val('start_date'),
+      leaving_date: val('leaving_date') || null,
       employee_number: val('employee_number') || null,
       pay_type: val('pay_type'),
       pay_rate: val('pay_rate') || null,
@@ -906,6 +912,7 @@
       await refreshJobTitles(emp.role_title || '');
       setVal('role_title', emp.role_title);
       setVal('start_date', emp.start_date);
+      setVal('leaving_date', emp.leaving_date);
       setVal('employee_number', emp.employee_number);
       setVal('pay_type', emp.pay_type || 'hourly');
       updatePayLabel();
