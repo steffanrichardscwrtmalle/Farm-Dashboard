@@ -3,6 +3,11 @@
 {% block page_heading %}{{ page_heading }}{% endblock %}
 
 {% block extra_styles %}
+    main { max-width: none; }
+    .staff-table th,
+    .staff-table td {
+      white-space: nowrap;
+    }
     .hr-toolbar {
       display: flex;
       gap: 1rem;
