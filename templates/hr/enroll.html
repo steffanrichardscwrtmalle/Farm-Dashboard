@@ -279,7 +279,7 @@
               <span class="required-label">Date started work *</span>
               <input type="date" id="start_date" required>
             </label>
-            <label>
+            <label id="leaving-date-field" hidden>
               Leaving date
               <input type="date" id="leaving_date">
               <small class="muted">Once this date is today or in the past they move to Archived. They stay on time sheets for pay periods they worked, and drop off periods that start after they left.</small>
@@ -617,7 +617,7 @@
       ni_number: val('ni_number') || null,
       role_title: val('role_title'),
       start_date: val('start_date'),
-      leaving_date: val('leaving_date') || null,
+      leaving_date: EDIT_ID ? (val('leaving_date') || null) : null,
       employee_number: val('employee_number') || null,
       pay_type: val('pay_type'),
       pay_rate: val('pay_rate') || null,
@@ -950,6 +950,8 @@
   function enterEditMode() {
     stepBusiness.classList.remove('active');
     stepDetails.classList.add('active');
+    const leavingField = document.getElementById('leaving-date-field');
+    if (leavingField) leavingField.hidden = false;
     submitBtn.dataset.employedLabel = 'Save & send for signing';
     draftBtn.textContent = 'Save changes';
     prefill();
