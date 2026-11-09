@@ -44,6 +44,13 @@ _ARCHIVED_MESSAGE = "Confirmed on CTS cattle-on-holding."
 # Off-CTS exit queue (slaughterhouse death clears holding before we report):
 # only include SOLD/DIED from this date onwards.
 _OFF_CTS_EXIT_PENDING_FROM = dt.date(2026, 8, 5)
+# England: a birth must be registered within 27 days. A calf that dies in that
+# window, before BCMS has the birth, cannot be reported as a death until the
+# birth itself has been accepted.
+UNREGISTERED_DEATH_MAX_AGE_DAYS = 27
+_NOT_ON_BCMS_MESSAGE = (
+    "This animal does not exist on BCMS, so it cannot be entered as sold or died."
+)
 
 
 def _inventory_is_move_on(inv: HerdInventory) -> bool:
@@ -423,6 +430,45 @@ def deadline_day_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [row for row in rows if is_deadline_day(row)]
 
 
+def _died_before_bcms_registration(
+    *,
+    etag: str,
+    exit_ev: CowEvent,
+    birth: HerdBirth | None,
+    reported: set[tuple[str, str, dt.date]],
+) -> bool:
+    """True when a sale/death cannot be sent because BCMS has never had the animal.
+
+    A calf born on the farm and sold or died within 27 days, with no accepted
+    birth, is not on CTS. BCMS rejects a sold/died movement for that tag.
+    """
+    if exit_ev.event not in {"DIED", "SOLD"} or exit_ev.event_date is None:
+        return False
+    if birth is None or birth.bdat is None:
+        return False
+    age_days = (exit_ev.event_date - birth.bdat).days
+    if age_days < 0 or age_days > UNREGISTERED_DEATH_MAX_AGE_DAYS:
+        return False
+    return ("birth", etag, birth.bdat) not in reported
+
+
+def _archive_not_on_bcms(
+    db: Session,
+    *,
+    farm: str,
+    items: list[dict[str, Any]],
+) -> None:
+    if not items:
+        return
+    mark_movements_reported(
+        db,
+        farm=farm,
+        items=items,
+        status="archived",
+        error_message=_NOT_ON_BCMS_MESSAGE,
+    )
+
+
 def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:
     """Pending BCMS queue from DairyComp inventory vs CTS reconcile.
 
@@ -430,6 +476,8 @@ def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:
     - Sale / death: on BCMS holding, not in herd inventory (with SOLD/DIED event)
     - Sale / death: also when already off CTS (from 2026-08-05), so same-day
       slaughterhouse registration still queues an off-move
+    - A calf that died or was sold before BCMS registration is not queued.
+      BCMS has no record of the animal, so the exit is archived instead.
     """
     farm_key = farm.upper()
     if farm_key not in {"CM", "GAD"}:
@@ -446,6 +494,7 @@ def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:
 
     pending: list[dict[str, Any]] = []
     pending_exit_keys: set[tuple[str, str, dt.date]] = set()
+    not_on_bcms: list[dict[str, Any]] = []
 
     # Sales / deaths: on CTS, not in DairyComp inventory.
     cts_rows = db.scalars(
@@ -492,6 +541,20 @@ def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:
         key = (movement_type, etag, exit_ev.event_date)
         if key in reported or key in pending_exit_keys:
             continue
+        if _died_before_bcms_registration(
+            etag=etag,
+            exit_ev=exit_ev,
+            birth=births.get(etag),
+            reported=reported,
+        ):
+            not_on_bcms.append(
+                {
+                    "movement_type": movement_type,
+                    "etag": etag,
+                    "event_date": exit_ev.event_date,
+                }
+            )
+            continue
         tags = pedigree_tags.get(etag) or {}
         row = _row(
             movement_type=movement_type,
@@ -509,6 +572,8 @@ def list_pending_movements(db: Session, farm: str) -> dict[str, Any]:
         if row:
             pending.append(row)
             pending_exit_keys.add(key)
+
+    _archive_not_on_bcms(db, farm=farm_key, items=not_on_bcms)
 
     # Births / move-ons: in DairyComp inventory, not on CTS.
     # Prefer inventory EDAT (EDAT != BDAT → move_on); fall back to stock purchases.
@@ -711,6 +776,7 @@ def _display_row_for_reported(
         return None
     row["receipt"] = (reported.receipt or "").strip()
     row["status"] = (reported.status or "").strip()
+    row["error_message"] = (reported.error_message or "").strip()
     reported_at = reported.reported_at
     if reported_at is not None:
         row["reported_at"] = reported_at.isoformat(sep=" ", timespec="minutes")

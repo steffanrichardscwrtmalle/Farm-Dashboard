@@ -426,6 +426,7 @@
         row.dreg,
         row.sreg,
         row.receipt,
+        row.error_message,
         row.reported_at,
       ].join(" ").toUpperCase();
       return hay.includes(needle);
@@ -639,7 +640,9 @@
         const typeClass = `type-${esc(row.movement_type || "")}`;
         let rowClass = "";
         let title = "";
-        if (isArchive()) {
+        if (row.error_message) {
+          title = ` title="${esc(row.error_message)}"`;
+        } else if (isArchive()) {
           const compliance = archiveCompliance(row);
           const lag = reportingLagDays(row);
           const limit = REPORTING_DEADLINE_DAYS[row.movement_type];
@@ -664,7 +667,7 @@
             <td>${esc(row.breed)}</td>
             <td>${esc(row.dreg)}</td>
             <td>${esc(row.sreg)}</td>
-            <td>${esc(row.receipt)}</td>
+            <td>${esc(row.receipt || row.error_message || "")}</td>
             <td>${esc(fmtDateUk(row.reported_at))}</td>
           </tr>
         `;

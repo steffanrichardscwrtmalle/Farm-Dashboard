@@ -395,6 +395,77 @@ def test_list_pending_includes_sale_already_off_cts_from_cutoff() -> None:
     assert sale["breed"] == "HF"
 
 
+def test_calf_death_before_registration_is_archived_not_pending() -> None:
+    session = _session()
+    session.add(
+        HerdBirth(
+            farm="CM",
+            etag="UK740651636199",
+            cow_id="636199",
+            bdat=dt.date(2026, 8, 8),
+            gndr="F",
+            cbrd=1,
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="UK740651636199",
+            cow_id="636199",
+            event="DIED",
+            event_date=dt.date(2026, 8, 10),
+            gndr="F",
+            cbrd=1,
+            bdat=dt.date(2026, 8, 8),
+        )
+    )
+    session.commit()
+
+    pending = list_pending_movements(session, "CM")
+    assert pending["rows"] == []
+
+    archived = list_archived_movements(session, "CM")
+    assert archived["total"] == 1
+    row = archived["rows"][0]
+    assert row["etag"] == "UK740651636199"
+    assert row["movement_type"] == "death"
+    assert row["status"] == "archived"
+    assert "does not exist on BCMS" in row["error_message"]
+
+    again = list_pending_movements(session, "CM")
+    assert again["rows"] == []
+
+
+def test_older_death_already_off_cts_does_not_queue_a_birth() -> None:
+    session = _session()
+    session.add(
+        HerdBirth(
+            farm="CM",
+            etag="UK740651223721",
+            cow_id="223721",
+            bdat=dt.date(2021, 10, 7),
+            gndr="F",
+            cbrd=1,
+        )
+    )
+    session.add(
+        CowEvent(
+            farm="CM",
+            etag="UK740651223721",
+            cow_id="223721",
+            event="DIED",
+            event_date=dt.date(2026, 9, 3),
+            gndr="F",
+            cbrd=1,
+            bdat=dt.date(2021, 10, 7),
+        )
+    )
+    session.commit()
+
+    pending = list_pending_movements(session, "CM")
+    assert [row["movement_type"] for row in pending["rows"]] == ["death"]
+
+
 def test_list_pending_excludes_off_cts_exit_before_cutoff() -> None:
     session = _session()
     session.add(
