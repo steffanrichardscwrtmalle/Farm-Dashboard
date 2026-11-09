@@ -65,23 +65,28 @@
       color: #9a3412;
     }
     .slicer-btn[data-value="highlighted"].selected {
-      background: #fef3c7;
-      border-color: #d97706;
-      color: #92400e;
+      background: #fee2e2;
+      border-color: #dc2626;
+      color: #7f1d1d;
     }
     .sheet-toolbar {
       display: flex;
       gap: 0.75rem;
       flex-wrap: wrap;
       align-items: flex-end;
-      margin-bottom: 0.75rem;
+      margin-bottom: 0.85rem;
     }
     .sheet-toolbar label { margin: 0; }
     .sheet-toolbar input { margin: 0.2rem 0 0; min-width: 220px; }
     .sheet-meta {
-      margin-left: auto;
       color: var(--muted);
       font-size: 0.85rem;
+    }
+    .sheet-actions {
+      margin-left: auto;
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
     }
     .holiday-legend {
       display: flex;
@@ -95,55 +100,60 @@
     .swatch {
       width: 0.9rem;
       height: 0.9rem;
-      border-radius: 2px;
-      border: 1px solid #d97706;
-      background: #fde68a;
+      border-radius: 3px;
+      border: 1px solid #dc2626;
+      background: #fca5a5;
     }
-    .holiday-sheet .table-wrap {
-      max-height: calc(100vh - 220px);
-      border: 1px solid #8a8a8a;
-      border-radius: 0;
+    .holiday-table-wrap {
+      overflow: visible;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     }
     .holiday-table {
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
-      font-size: 0.875rem;
+      font-size: 0.98rem;
     }
     .holiday-table th,
     .holiday-table td {
-      padding: 0.4rem 0.65rem;
-      border-top: 1px solid #b4b4b4;
-      border-left: 1px solid #b4b4b4;
+      padding: 0.85rem 1rem;
+      border-top: 1px solid #e5e7eb;
+      border-left: 1px solid #e5e7eb;
       text-align: left;
       white-space: nowrap;
       background: #fff;
     }
     .holiday-table th:last-child,
-    .holiday-table td:last-child { border-right: 1px solid #b4b4b4; }
-    .holiday-table tbody tr:last-child td { border-bottom: 1px solid #b4b4b4; }
+    .holiday-table td:last-child { border-right: 1px solid #e5e7eb; }
+    .holiday-table tbody tr:last-child td { border-bottom: 1px solid #e5e7eb; }
     .holiday-table tbody tr:nth-child(even) td { background: #f8fafc; }
     .holiday-table th.num,
     .holiday-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
     .holiday-table thead th {
-      position: sticky;
-      top: 0;
-      z-index: 1;
-      background: #e7e6e6;
-      color: #1f1f1f;
-      font-weight: 700;
+      background: #1e3a5f;
+      color: #fff;
+      font-weight: 650;
+      font-size: 0.82rem;
+      letter-spacing: 0.01em;
       cursor: pointer;
       user-select: none;
+      border-color: #17304f;
     }
+    .holiday-table thead th:first-child { border-top-left-radius: 12px; }
+    .holiday-table thead th:last-child { border-top-right-radius: 12px; }
+    .holiday-table tbody tr:last-child td:first-child { border-bottom-left-radius: 12px; }
+    .holiday-table tbody tr:last-child td:last-child { border-bottom-right-radius: 12px; }
     .holiday-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
     .holiday-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
-    .holiday-table tbody tr:hover td { background: #eef6ff; }
-    .holiday-table tr.flagged td { background: #fff7d6; }
-    .holiday-table tr.flagged:hover td { background: #ffefb0; }
-    .holiday-table tr.flagged td.name-cell {
-      background: #fde68a;
-      box-shadow: inset 3px 0 0 #d97706;
+    .holiday-table tbody tr:hover td { background: #f1f5f9; }
+    .holiday-table tbody tr.flagged td,
+    .holiday-table tbody tr.flagged:nth-child(even) td {
+      background: #fca5a5;
+      color: #450a0a;
     }
+    .holiday-table tbody tr.flagged:hover td { background: #f87171; }
     .holiday-table a { color: inherit; font-weight: 650; text-decoration: none; }
     .holiday-table a:hover { text-decoration: underline; }
     @media (max-width: 860px) {
@@ -174,26 +184,28 @@
           Search
           <input type="search" id="holiday-search" placeholder="Name…" autocomplete="off">
         </label>
-        <div class="sheet-meta" id="sheet-meta"></div>
+        <div class="sheet-actions">
+          <div class="sheet-meta" id="sheet-meta"></div>
+          <button type="button" class="secondary small" id="export-xlsx-btn">Export XLSX</button>
+        </div>
       </div>
       <div class="holiday-legend">
-        <span><i class="swatch"></i> More than 28 days left, or the days until the leave year ends are no more than twice the days left (for example 5 days left and 7 days to go).</span>
+        <span><i class="swatch"></i> More than 28 Holidays Remaining, or Days Remaining are no more than twice the Holidays Remaining (for example 5 Holidays Remaining and 7 Days Remaining).</span>
       </div>
       <div id="holiday-message" class="message"></div>
-      <div class="table-wrap">
+      <div class="holiday-table-wrap">
         <table class="holiday-table">
           <thead>
             <tr>
-              <th data-sort="full_name">Staff name</th>
+              <th data-sort="full_name">Name</th>
               <th data-sort="farm">Farm</th>
-              <th data-sort="days_taken" class="num">Days holiday taken</th>
-              <th data-sort="days_left" class="num">Days holiday left</th>
-              <th data-sort="holiday_year_end">Annual leave year end</th>
-              <th data-sort="days_until_year_end" class="num">Days until leave year end</th>
+              <th data-sort="days_left" class="num">Holidays Remaining</th>
+              <th data-sort="holiday_year_end">Annual Leave Year End</th>
+              <th data-sort="days_until_year_end" class="num">Days Remaining</th>
             </tr>
           </thead>
           <tbody id="holiday-body">
-            <tr><td colspan="6">Loading…</td></tr>
+            <tr><td colspan="5">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -244,10 +256,10 @@
     const until = Number(row.days_until_year_end);
     const reasons = [];
     if (Number.isFinite(left) && left > 28) {
-      reasons.push('More than 28 days holiday left');
+      reasons.push('More than 28 Holidays Remaining');
     }
     if (Number.isFinite(left) && left > 0 && Number.isFinite(until) && until <= left * 2) {
-      reasons.push('Days until the leave year ends are no more than twice the days left');
+      reasons.push('Days Remaining are no more than twice the Holidays Remaining');
     }
     return reasons;
   }
@@ -307,17 +319,16 @@
     const shown = visibleRows();
     metaEl.textContent = shown.length + ' of ' + rows.length + ' employed staff';
     if (!shown.length) {
-      bodyEl.innerHTML = '<tr><td colspan="6">No staff to show.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="5">No staff to show.</td></tr>';
       return;
     }
     bodyEl.innerHTML = shown.map(function (row) {
       const reasons = highlightReasons(row);
       const name = '<a href="/hr/staff/' + encodeURIComponent(row.employee_id) + '">' +
         escapeHtml(row.full_name) + '</a>';
-      return '<tr class="' + (reasons.length ? 'flagged' : '') + '">' +
-        '<td class="name-cell" title="' + escapeHtml(reasons.join('. ')) + '">' + name + '</td>' +
+      return '<tr class="' + (reasons.length ? 'flagged' : '') + '" title="' + escapeHtml(reasons.join('. ')) + '">' +
+        '<td>' + name + '</td>' +
         '<td>' + escapeHtml(row.farm) + '</td>' +
-        '<td class="num">' + escapeHtml(formatDays(row.days_taken)) + '</td>' +
         '<td class="num">' + escapeHtml(formatDays(row.days_left)) + '</td>' +
         '<td>' + escapeHtml(formatDateUk(row.holiday_year_end)) + '</td>' +
         '<td class="num">' + escapeHtml(formatDays(row.days_until_year_end)) + '</td>' +
@@ -351,6 +362,17 @@
     render();
   });
   searchEl.addEventListener('input', render);
+  document.getElementById('export-xlsx-btn').addEventListener('click', function () {
+    const params = new URLSearchParams();
+    params.set('filtered', 'true');
+    farms.forEach(function (farm) { params.append('farm', farm); });
+    if (highlightedOnly) params.set('highlighted', 'true');
+    const term = searchEl.value.trim();
+    if (term) params.set('q', term);
+    params.set('sort', sortState.key);
+    params.set('dir', sortState.dir === 1 ? 'asc' : 'desc');
+    window.location.href = '/api/hr/holidays/export.xlsx?' + params.toString();
+  });
 
   fetch('/api/hr/holidays')
     .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
@@ -360,7 +382,7 @@
       render();
     })
     .catch(function (err) {
-      bodyEl.innerHTML = '<tr><td colspan="6">Could not load holidays.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="5">Could not load holidays.</td></tr>';
       messageEl.textContent = err.message || 'Could not load holidays.';
       messageEl.className = 'message error';
     });

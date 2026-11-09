@@ -744,6 +744,187 @@ def list_holiday_summary(
     return {"as_of": as_of.isoformat(), "rows": rows}
 
 
+def holiday_highlight_reasons(row: dict[str, Any]) -> list[str]:
+    """Why a holiday row should be marked. Empty means it is not highlighted."""
+    reasons: list[str] = []
+    left = row.get("days_left")
+    until = row.get("days_until_year_end")
+    if left is not None and float(left) > 28:
+        reasons.append("More than 28 Holidays Remaining")
+    if (
+        left is not None
+        and float(left) > 0
+        and until is not None
+        and float(until) <= float(left) * 2
+    ):
+        reasons.append(
+            "Days Remaining are no more than twice the Holidays Remaining"
+        )
+    return reasons
+
+
+_HOLIDAY_SORT_TEXT = {"full_name", "farm", "holiday_year_end"}
+
+
+def filter_holiday_rows(
+    rows: list[dict[str, Any]],
+    *,
+    farms: set[str] | None = None,
+    highlighted_only: bool = False,
+    search: str | None = None,
+    sort_key: str = "full_name",
+    sort_dir: str = "asc",
+) -> list[dict[str, Any]]:
+    """Apply the Holidays page slicers, search and sort to summary rows."""
+    term = (search or "").strip().casefold()
+    key = sort_key if sort_key in _HOLIDAY_SORT_TEXT or sort_key in {
+        "days_taken",
+        "days_left",
+        "days_until_year_end",
+    } else "full_name"
+    reverse = sort_dir == "desc"
+
+    chosen = []
+    for row in rows:
+        if farms is not None and (row.get("farm") or "") not in farms:
+            continue
+        if highlighted_only and not holiday_highlight_reasons(row):
+            continue
+        if term and term not in (row.get("full_name") or "").casefold():
+            continue
+        chosen.append(row)
+
+    def sort_value(row: dict[str, Any]) -> tuple[bool, Any]:
+        value = row.get(key)
+        empty = value is None or value == ""
+        if empty:
+            return True, ""
+        if key in _HOLIDAY_SORT_TEXT:
+            return False, str(value).casefold()
+        return False, float(value)
+
+    chosen.sort(key=sort_value, reverse=reverse)
+    if reverse:
+        present = [row for row in chosen if not sort_value(row)[0]]
+        missing = [row for row in chosen if sort_value(row)[0]]
+        chosen = present + missing
+    return chosen
+
+
+def holiday_xlsx_filename(as_of: dt.date) -> str:
+    return f"Holidays {_uk_date(as_of)}.xlsx"
+
+
+_HOLIDAY_FLAG_FILL = PatternFill("solid", fgColor="FCA5A5")
+_HOLIDAY_ALT_FILL = PatternFill("solid", fgColor="F8FAFC")
+_HOLIDAY_FLAG_FONT = Font(color="450A0A")
+_HOLIDAY_HEADER_FILL = PatternFill("solid", fgColor="1E3A5F")
+_HOLIDAY_HEADER_FONT = Font(bold=True, size=11, color="FFFFFF")
+
+
+def build_holiday_xlsx(summary: dict[str, Any]) -> bytes:
+    """Workbook matching the Holidays table, including red rows and gridlines."""
+    headers = [
+        "Name",
+        "Farm",
+        "Holidays Remaining",
+        "Annual Leave Year End",
+        "Days Remaining",
+        "Highlight",
+    ]
+    last_col = get_column_letter(len(headers))
+    as_of_raw = summary.get("as_of")
+    as_of = (
+        dt.date.fromisoformat(as_of_raw)
+        if isinstance(as_of_raw, str) and as_of_raw
+        else dt.date.today()
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Holidays"
+    ws.merge_cells(f"A1:{last_col}1")
+    ws.merge_cells(f"A2:{last_col}2")
+    title = ws["A1"]
+    title.value = "Holidays"
+    title.font = _TITLE_FONT
+    title.alignment = Alignment(horizontal="left", vertical="center")
+    subtitle = ws["A2"]
+    subtitle.value = f"Employed staff · {_uk_date(as_of)}"
+    subtitle.font = _SUBTITLE_FONT
+    subtitle.alignment = Alignment(horizontal="left", vertical="center")
+    for cell in ws[1]:
+        cell.fill = _TITLE_FILL
+        cell.border = _THIN_BORDER
+        cell.font = _TITLE_FONT
+    for cell in ws[2]:
+        cell.fill = _SUBTITLE_FILL
+        cell.border = _THIN_BORDER
+        cell.font = _SUBTITLE_FONT
+    ws.row_dimensions[1].height = 24
+    ws.row_dimensions[2].height = 18
+
+    ws.append(headers)
+    for cell in ws[3]:
+        cell.font = _HOLIDAY_HEADER_FONT
+        cell.fill = _HOLIDAY_HEADER_FILL
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = _THIN_BORDER
+    ws.row_dimensions[3].height = 30
+
+    for offset, row in enumerate(summary.get("rows") or []):
+        reasons = holiday_highlight_reasons(row)
+        year_end = row.get("holiday_year_end")
+        year_end_value: dt.date | None = None
+        if year_end:
+            year_end_value = dt.date.fromisoformat(str(year_end)[:10])
+        ws.append(
+            [
+                row.get("full_name") or "",
+                row.get("farm") or "",
+                row.get("days_left"),
+                year_end_value,
+                row.get("days_until_year_end"),
+                ". ".join(reasons),
+            ]
+        )
+        flagged = bool(reasons)
+        alt = offset % 2 == 1
+        for index, cell in enumerate(ws[ws.max_row], start=1):
+            header = headers[index - 1]
+            cell.border = _THIN_BORDER
+            cell.alignment = Alignment(vertical="center")
+            if flagged:
+                cell.fill = _HOLIDAY_FLAG_FILL
+                cell.font = _HOLIDAY_FLAG_FONT
+            elif alt:
+                cell.fill = _HOLIDAY_ALT_FILL
+            if header == "Holidays Remaining" and isinstance(cell.value, (int, float)):
+                cell.number_format = _HOURS_FORMAT
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+            elif header == "Days Remaining" and isinstance(cell.value, (int, float)):
+                cell.number_format = "0"
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+            elif header == "Annual Leave Year End" and isinstance(cell.value, dt.date):
+                cell.number_format = _DATE_FORMAT
+
+    for index, width in enumerate([28, 22, 24, 26, 18, 62], start=1):
+        ws.column_dimensions[get_column_letter(index)].width = width
+    ws.freeze_panes = "A4"
+    ws.auto_filter.ref = f"A3:{last_col}{max(ws.max_row, 3)}"
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.print_title_rows = "1:3"
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
 def _holiday_summary_row(
     employee: Employee,
     holiday_entries: list[EmployeeTimesheetEntry],

@@ -166,17 +166,18 @@ def test_list_shift_summaries_problem_stalls_uses_prior_day() -> None:
         for i, point in enumerate(points):
             # Stall 10 consistently low yield → problem across shifts.
             yield_kg = 5.0 if point == 10 else 20.0 + (i * 0.1)
-            _add_cow(
-                session,
-                import_id=import_id,
-                farm="GAD",
-                milking_date=milking_date,
-                shift=shift_name,
-                cow_id=f"{milking_date}-{shift_name}-{point}",
-                milking_point=point,
-                start_seconds=6 * 3600 + i * 30,
-                yield_kg=yield_kg,
-            )
+            for cow_n in range(8):
+                _add_cow(
+                    session,
+                    import_id=import_id,
+                    farm="GAD",
+                    milking_date=milking_date,
+                    shift=shift_name,
+                    cow_id=f"{milking_date}-{shift_name}-{point}-{cow_n}",
+                    milking_point=point,
+                    start_seconds=6 * 3600 + i * 30 + cow_n,
+                    yield_kg=yield_kg,
+                )
     session.commit()
 
     payload = list_shift_summaries(

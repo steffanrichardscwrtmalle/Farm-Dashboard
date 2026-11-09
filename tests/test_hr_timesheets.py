@@ -27,9 +27,11 @@ from app.services.crypto_fields import encrypt_field
 from app.services.hr_service import HRServiceError, list_staff, set_employee_archived
 from app.services.timesheet_service import (
     TimesheetError,
+    build_holiday_xlsx,
     build_timesheet_xlsx,
     current_holiday_year_end,
     current_period_start,
+    filter_holiday_rows,
     filter_timesheet_export,
     leave_year_bounds,
     list_holiday_summary,
@@ -632,6 +634,78 @@ def test_holiday_summary_lists_taken_left_and_days_until_year_end(db):
     assert row["days_left"] == 28
     assert row["holiday_year_end"] == "2027-08-20"
     assert row["days_until_year_end"] == (dt.date(2027, 8, 20) - dt.date(2026, 11, 9)).days
+
+
+def test_holiday_xlsx_exports_red_highlighted_rows():
+    rows = [
+        {
+            "full_name": "Tight Leave",
+            "farm": "Cwrt Malle",
+            "days_taken": 5,
+            "days_left": 5,
+            "holiday_year_end": "2026-11-16",
+            "days_until_year_end": 7,
+        },
+        {
+            "full_name": "Comfortable",
+            "farm": "Green Acre Dairy",
+            "days_taken": 2,
+            "days_left": 10,
+            "holiday_year_end": "2027-08-01",
+            "days_until_year_end": 265,
+        },
+        {
+            "full_name": "Lots Left",
+            "farm": "Cwrt Malle",
+            "days_taken": 0,
+            "days_left": 40,
+            "holiday_year_end": "2027-08-20",
+            "days_until_year_end": 284,
+        },
+        {
+            "full_name": "Exactly Twenty Eight",
+            "farm": "Cwrt Malle",
+            "days_taken": 0,
+            "days_left": 28,
+            "holiday_year_end": "2027-09-01",
+            "days_until_year_end": 296,
+        },
+    ]
+    shown = filter_holiday_rows(
+        rows, farms={"Cwrt Malle"}, sort_key="days_left", sort_dir="desc"
+    )
+    assert [row["full_name"] for row in shown] == [
+        "Lots Left",
+        "Exactly Twenty Eight",
+        "Tight Leave",
+    ]
+    content = build_holiday_xlsx({"as_of": "2026-11-09", "rows": shown})
+    ws = load_workbook(BytesIO(content)).active
+    assert ws["A1"].value == "Holidays"
+    assert ws["A3"].value == "Name"
+    assert [ws.cell(3, col).value for col in range(1, 6)] == [
+        "Name",
+        "Farm",
+        "Holidays Remaining",
+        "Annual Leave Year End",
+        "Days Remaining",
+    ]
+    assert [ws.cell(row, 1).value for row in range(4, 7)] == [
+        "Lots Left",
+        "Exactly Twenty Eight",
+        "Tight Leave",
+    ]
+    assert ws["A4"].fill.fgColor.rgb.endswith("FCA5A5")
+    assert ws["F4"].fill.fgColor.rgb.endswith("FCA5A5")
+    assert "More than 28" in ws["F4"].value
+    assert not (ws["A5"].fill.fgColor.rgb or "").endswith("FCA5A5")
+    assert ws["A6"].fill.fgColor.rgb.endswith("FCA5A5")
+    assert "twice the Holidays Remaining" in ws["F6"].value
+    assert ws["C4"].number_format == "0.00"
+    assert ws["D4"].number_format == "DD/MM/YYYY"
+    assert ws["D4"].value == dt.datetime(2027, 8, 20)
+    assert ws["A4"].border.left.style == "thin"
+    assert ws["F6"].border.bottom.style == "thin"
 
 
 def test_timesheet_uses_staff_accommodation_default(db):

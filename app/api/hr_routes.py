@@ -59,8 +59,12 @@ from app.services.hr_service import (
 )
 from app.services.timesheet_service import (
     TimesheetError,
+    build_holiday_xlsx,
     build_timesheet_xlsx,
+    filter_holiday_rows,
     filter_timesheet_export,
+    holiday_xlsx_filename,
+    list_holiday_summary,
     list_timesheet,
     save_timesheet_row,
     timesheet_xlsx_filename,
@@ -526,9 +530,44 @@ def api_list_holidays(
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_HR)),
 ):
-    from app.services.timesheet_service import list_holiday_summary
-
     return list_holiday_summary(db, as_of=as_of)
+
+
+@router.get("/holidays/export.xlsx")
+def api_export_holidays(
+    as_of: dt.date | None = Query(None),
+    farm: list[str] | None = Query(None),
+    highlighted: bool = Query(False),
+    q: str | None = Query(None),
+    sort: str = Query("full_name"),
+    direction: str = Query("asc", alias="dir"),
+    filtered: bool = Query(False),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_HR)),
+):
+    summary = list_holiday_summary(db, as_of=as_of)
+    if direction not in ("asc", "desc"):
+        raise HTTPException(status_code=400, detail="Invalid sort direction.")
+    summary["rows"] = filter_holiday_rows(
+        summary["rows"],
+        farms=set(farm or []) if filtered else None,
+        highlighted_only=highlighted,
+        search=q,
+        sort_key=sort,
+        sort_dir=direction,
+    )
+    when = dt.date.fromisoformat(summary["as_of"])
+    filename = holiday_xlsx_filename(when)
+    return Response(
+        content=build_holiday_xlsx(summary),
+        media_type=XLSX_CONTENT_TYPE,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"; '
+                f"filename*=UTF-8''{quote(filename)}"
+            )
+        },
+    )
 
 
 @router.get("/timesheets/{farm}")

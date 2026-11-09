@@ -242,9 +242,11 @@
         <input type="date" id="date-to">
       </div>
       <p class="help-note">
-        Cell = number of shifts that stall was a problem stall that day
-        (metric ≥2 SD bad this shift and the previous shift).
-        Red = more than one shift. Click a stall for its last 4 days of metrics.
+        Cell = number of shifts that stall was a problem that day.
+        A problem is the same kind of fault (yield, let-down, time on, or takeoff)
+        on this shift and the previous shift, and the gap versus the other stalls
+        is large enough to matter. Red = more than one shift.
+        Click a stall for its last 4 days of metrics.
       </p>
     </div>
   </aside>
@@ -452,7 +454,7 @@
     detailSection.innerHTML =
       `<h2>Stall ${point}</h2>` +
       `<p class="pen-meta">${payload.farm} · ${payload.date_from} → ${payload.date_to} · ` +
-      `red = ≥2 SD worse this shift · dark red = problem stall (same metric previous shift) · Average / SD are all stalls in this window</p>` +
+      `red = unusual versus the other stalls, and by enough to matter · dark red = same kind of fault on the previous shift · Average / SD are all stalls in this window</p>` +
       `<div class="detail-wrap">` +
       `<table class="metric-table">` +
       `<thead>` +

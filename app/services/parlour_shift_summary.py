@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import statistics
 from collections import defaultdict
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -36,25 +36,40 @@ from app.services.parlour_rotation import rotation_stats_from_point_starts
 # Flow rate at removal above this = high-flow takeoff.
 HIGH_FLOW_TAKEOFF_THRESHOLD = 1800.0
 
-# Stall outlier rules. Bad direction vs peer stalls.
-OUTLIER_SD = 2.0
-OUTLIER_MIN_N = 5
-METRIC_OUTLIER_RULES: list[tuple[str, str]] = [
-    ("avg_yield_kg", "low"),
-    ("high_flow_takeoff_pct", "high"),
-    ("bimodal_pct", "high"),
-    ("median_milking_duration_seconds", "high"),
-    ("avg_milking_duration_seconds", "high"),
-    ("avg_flow_15s", "low"),
-    ("avg_flow_30s", "low"),
-    ("avg_flow_60s", "low"),
-    ("avg_flow_120s", "low"),
-    ("avg_peak_flow", "low"),
-    ("avg_average_flow", "low"),
-    ("avg_pct_2_minutes", "low"),
-    ("avg_milk_yield_2_minutes", "low"),
-    ("avg_flow_rate_at_removal", "high"),
-]
+# Stall outlier rules. A stall is unusual versus the other stalls in the shift,
+# and the gap is at least a practical minimum so a tight parlour cannot flag noise.
+OUTLIER_Z = 2.0
+OUTLIER_MIN_PEERS = 5
+OUTLIER_MIN_COWS = 8
+# MAD / this ≈ SD for a normal spread. Used only so the z-score stays familiar.
+_MAD_TO_SD = 0.6744897501960817
+
+
+class _OutlierRule(NamedTuple):
+    metric: str
+    bad_direction: str
+    mode: str
+    floor: float
+    floor_kind: str  # "absolute" units, or "relative" fraction of |peer median|
+
+
+METRIC_OUTLIER_RULES: tuple[_OutlierRule, ...] = (
+    _OutlierRule("avg_yield_kg", "low", "yield", 1.0, "absolute"),
+    _OutlierRule("bimodal_pct", "high", "let_down", 10.0, "absolute"),
+    _OutlierRule("avg_pct_2_minutes", "low", "let_down", 5.0, "absolute"),
+    _OutlierRule("avg_flow_15s", "low", "let_down", 0.15, "relative"),
+    _OutlierRule("avg_flow_30s", "low", "let_down", 0.15, "relative"),
+    _OutlierRule("avg_flow_60s", "low", "let_down", 0.15, "relative"),
+    _OutlierRule("avg_flow_120s", "low", "let_down", 0.10, "relative"),
+    _OutlierRule("avg_peak_flow", "low", "let_down", 0.10, "relative"),
+    _OutlierRule("avg_average_flow", "low", "let_down", 0.10, "relative"),
+    _OutlierRule("avg_milk_yield_2_minutes", "low", "let_down", 0.15, "relative"),
+    _OutlierRule("median_milking_duration_seconds", "high", "time_on", 30.0, "absolute"),
+    _OutlierRule("avg_milking_duration_seconds", "high", "time_on", 30.0, "absolute"),
+    _OutlierRule("high_flow_takeoff_pct", "high", "takeoff", 10.0, "absolute"),
+    _OutlierRule("avg_flow_rate_at_removal", "high", "takeoff", 0.15, "relative"),
+)
+_METRIC_MODE = {rule.metric: rule.mode for rule in METRIC_OUTLIER_RULES}
 SHIFT_SEQUENCE = ("Morning", "Day", "Afternoon", "Evening", "Night")
 
 
@@ -367,31 +382,41 @@ def _milking_point_summary(rows: list[ParlourMilkFlowRow]) -> list[dict]:
     return _milking_point_summary_from_cows([_row_to_cow_dict(row) | {"yield_kg": row.yield_kg} for row in rows])
 
 
-def _sample_stats(values: list[float]) -> tuple[float, float] | None:
-    if len(values) < OUTLIER_MIN_N:
+def _peer_center_scale(
+    peer_values: list[float],
+    rule: _OutlierRule,
+) -> tuple[float, float] | None:
+    """Median and a spread that cannot shrink below the practical floor.
+
+    scale = max(robust SD, minimum gap / 2). A z-score of 2 then always means
+    a gap at least as large as the floor, even when the other stalls match.
+    """
+    if len(peer_values) < OUTLIER_MIN_PEERS:
         return None
-    mean = statistics.fmean(values)
-    if len(values) < 2:
+    center = float(statistics.median(peer_values))
+    mad = float(statistics.median(abs(value - center) for value in peer_values))
+    robust_sd = mad / _MAD_TO_SD
+    if rule.floor_kind == "relative":
+        minimum_gap = abs(center) * rule.floor
+    else:
+        minimum_gap = rule.floor
+    scale = max(robust_sd, minimum_gap / OUTLIER_Z)
+    if scale <= 0:
         return None
-    sd = statistics.stdev(values)
-    if not sd or sd <= 0:
-        return None
-    return mean, float(sd)
+    return center, scale
 
 
 def _is_outlier_bad(
-    value: float | None,
-    stats: tuple[float, float] | None,
+    value: float,
+    center: float,
+    scale: float,
     bad_direction: str,
 ) -> bool:
-    if value is None or stats is None:
-        return False
-    mean, sd = stats
-    z = (float(value) - mean) / sd
+    z = (value - center) / scale
     if bad_direction == "high":
-        return z >= OUTLIER_SD
+        return z >= OUTLIER_Z
     if bad_direction == "low":
-        return z <= -OUTLIER_SD
+        return z <= -OUTLIER_Z
     return False
 
 
@@ -420,25 +445,41 @@ def _previous_existing_shift(
 
 
 def _alert_metrics_for_points(points: list[dict[str, Any]]) -> dict[Any, set[str]]:
-    """Map milking_point -> set of metric keys that are ≥2 SD bad within this shift."""
+    """Map milking_point -> metrics that are unusual and far enough to matter.
+
+    The comparison is the other stalls in this shift, and only stalls with
+    enough cows are scored or used as peers.
+    """
     alerts: dict[Any, set[str]] = defaultdict(set)
-    if len(points) < OUTLIER_MIN_N:
+    eligible = [
+        p
+        for p in points
+        if p.get("milking_point") is not None
+        and (p.get("cow_count") or 0) >= OUTLIER_MIN_COWS
+    ]
+    if len(eligible) < OUTLIER_MIN_PEERS + 1:
         return alerts
-    for metric, bad_direction in METRIC_OUTLIER_RULES:
-        values = [
-            float(p[metric])
-            for p in points
-            if p.get(metric) is not None
-        ]
-        stats = _sample_stats(values)
-        if stats is None:
-            continue
-        for p in points:
-            raw = p.get(metric)
+    for rule in METRIC_OUTLIER_RULES:
+        valued: list[tuple[dict[str, Any], float]] = []
+        for point in eligible:
+            raw = point.get(rule.metric)
             if raw is None:
                 continue
-            if _is_outlier_bad(float(raw), stats, bad_direction):
-                alerts[p.get("milking_point")].add(metric)
+            try:
+                valued.append((point, float(raw)))
+            except (TypeError, ValueError):
+                continue
+        if len(valued) < OUTLIER_MIN_PEERS + 1:
+            continue
+        values = [value for _, value in valued]
+        for index, (point, value) in enumerate(valued):
+            peers = values[:index] + values[index + 1 :]
+            stats = _peer_center_scale(peers, rule)
+            if stats is None:
+                continue
+            center, scale = stats
+            if _is_outlier_bad(value, center, scale, rule.bad_direction):
+                alerts[point.get("milking_point")].add(rule.metric)
     return alerts
 
 
@@ -447,10 +488,9 @@ def _annotate_milking_point_outliers(
 ) -> dict[tuple[dt.date, str], int]:
     """Add outlier_flags to each point; return problem_stall_count per (date, shift).
 
-    alert = ≥2 SD bad this shift
-    problem = alert this shift AND alert on same metric in the previous
-    milked shift (skips missing labels such as Evening when the farm runs
-    Morning / Day / Night).
+    alert = unusual versus the other stalls, and past the practical floor
+    problem = alert this shift AND an alert in the same failure mode
+    (yield, let-down, time on, takeoff) on the previous milked shift.
     """
     alert_by_shift: dict[tuple[dt.date, str], dict[Any, set[str]]] = {}
     for key, points in by_shift.items():
@@ -467,8 +507,14 @@ def _annotate_milking_point_outliers(
         for p in points:
             point_id = p.get("milking_point")
             flags: dict[str, str] = {}
+            prev_modes = {
+                _METRIC_MODE[metric]
+                for metric in prev_alerts.get(point_id, set())
+                if metric in _METRIC_MODE
+            }
             for metric in cur_alerts.get(point_id, set()):
-                if metric in prev_alerts.get(point_id, set()):
+                mode = _METRIC_MODE.get(metric)
+                if mode is not None and mode in prev_modes:
                     flags[metric] = "problem"
                     problem_points.add(point_id)
                 else:
@@ -1641,8 +1687,9 @@ def list_stall_issues(
 ) -> dict[str, Any]:
     """Matrix of milking points × days: count of shifts each stall was a problem.
 
-    Problem = ≥2 SD alert this shift and the same metric alerted on the
-    previous shift.
+    Problem = a failure mode (yield, let-down, time on, or takeoff) that is
+    both far enough from the other stalls to matter and repeated from the
+    previous milked shift.
     """
     farm_key = farm.upper()
     resolved = _resolve_stall_issue_dates(
