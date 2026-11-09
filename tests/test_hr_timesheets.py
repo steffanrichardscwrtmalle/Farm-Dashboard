@@ -615,6 +615,15 @@ def test_holiday_summary_lists_taken_left_and_days_until_year_end(db):
         holiday_year_end=dt.date(2026, 8, 20),
         holidays_remaining=5,
     )
+    _employee(
+        db,
+        full_name="Pat Contractor",
+        employee_number="A998",
+        email="pat@test.local",
+        employment_type=EMPLOYMENT_TYPE_SELF_EMPLOYED,
+        holiday_year_end=dt.date(2026, 8, 20),
+        holidays_remaining=20,
+    )
     summary = list_holiday_summary(db, as_of=dt.date(2026, 11, 9))
     assert [row["full_name"] for row in summary["rows"]] == ["Ehtisham Shahid"]
     row = summary["rows"][0]

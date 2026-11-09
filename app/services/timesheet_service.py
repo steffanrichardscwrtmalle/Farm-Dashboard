@@ -719,7 +719,7 @@ _FARM_BY_BUSINESS = {business: farm for farm, business in TIMESHEET_FARM_BUSINES
 def list_holiday_summary(
     db: Session, *, as_of: dt.date | None = None
 ) -> dict[str, Any]:
-    """Current staff holiday balances, using the same leave year as the time sheets."""
+    """Employed staff holiday balances, using the same leave year as the time sheets."""
     as_of = as_of or dt.date.today()
     staff = list(db.scalars(select(Employee)).all())
     changed = False
@@ -732,6 +732,8 @@ def list_holiday_summary(
         employee
         for employee in staff
         if _on_farm_for_period(employee, as_of, as_of)
+        and (employee.employment_type or EMPLOYMENT_TYPE_EMPLOYED)
+        == EMPLOYMENT_TYPE_EMPLOYED
     ]
     entries = _holiday_hours_by_employee(db, [employee.id for employee in current])
     rows = [

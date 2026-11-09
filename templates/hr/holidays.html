@@ -4,59 +4,199 @@
 
 {% block extra_styles %}
     main { max-width: none; }
-    .holiday-table { width: 100%; border-collapse: collapse; }
+    .holiday-layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 1rem;
+      align-items: start;
+    }
+    .slicer-card h2 {
+      margin: 0 0 0.35rem;
+      font-size: 0.8rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .slicer-card p {
+      margin: 0 0 0.75rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+    .slicer-group { margin-bottom: 1rem; }
+    .slicer-group:last-child { margin-bottom: 0; }
+    .slicer-label {
+      margin-bottom: 0.35rem;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+    .slicer-options { display: grid; gap: 0.4rem; }
+    .slicer-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 2.35rem;
+      padding: 0.4rem 0.65rem;
+      border: 2px solid var(--border);
+      border-radius: 6px;
+      background: #f3f4f6;
+      color: var(--muted);
+      font-size: 0.8125rem;
+      font-weight: 650;
+      cursor: pointer;
+      text-align: left;
+    }
+    .slicer-btn .count {
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+    }
+    .slicer-btn.selected {
+      background: #e8eef5;
+      border-color: #6b8cae;
+      color: #1e3a5f;
+    }
+    .slicer-btn[data-value="Cwrt Malle"].selected {
+      background: #dceaf7;
+      border-color: #5a9fd4;
+    }
+    .slicer-btn[data-value="Green Acre Dairy"].selected {
+      background: #ffecd9;
+      border-color: #ffb366;
+      color: #9a3412;
+    }
+    .slicer-btn[data-value="highlighted"].selected {
+      background: #fef3c7;
+      border-color: #d97706;
+      color: #92400e;
+    }
+    .sheet-toolbar {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      margin-bottom: 0.75rem;
+    }
+    .sheet-toolbar label { margin: 0; }
+    .sheet-toolbar input { margin: 0.2rem 0 0; min-width: 220px; }
+    .sheet-meta {
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    .holiday-legend {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin: 0 0 0.75rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .holiday-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .swatch {
+      width: 0.9rem;
+      height: 0.9rem;
+      border-radius: 2px;
+      border: 1px solid #d97706;
+      background: #fde68a;
+    }
+    .holiday-sheet .table-wrap {
+      max-height: calc(100vh - 220px);
+      border: 1px solid #8a8a8a;
+      border-radius: 0;
+    }
+    .holiday-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.875rem;
+    }
     .holiday-table th,
     .holiday-table td {
-      padding: 0.55rem 0.75rem;
-      border-bottom: 1px solid var(--border);
+      padding: 0.4rem 0.65rem;
+      border-top: 1px solid #b4b4b4;
+      border-left: 1px solid #b4b4b4;
       text-align: left;
       white-space: nowrap;
+      background: #fff;
     }
+    .holiday-table th:last-child,
+    .holiday-table td:last-child { border-right: 1px solid #b4b4b4; }
+    .holiday-table tbody tr:last-child td { border-bottom: 1px solid #b4b4b4; }
+    .holiday-table tbody tr:nth-child(even) td { background: #f8fafc; }
     .holiday-table th.num,
     .holiday-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
     .holiday-table thead th {
       position: sticky;
       top: 0;
-      background: var(--card);
+      z-index: 1;
+      background: #e7e6e6;
+      color: #1f1f1f;
+      font-weight: 700;
       cursor: pointer;
       user-select: none;
     }
     .holiday-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
     .holiday-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
-    .holiday-table tbody tr:hover { background: rgba(0, 0, 0, 0.03); }
-    .holiday-table a { color: inherit; font-weight: 600; text-decoration: none; }
+    .holiday-table tbody tr:hover td { background: #eef6ff; }
+    .holiday-table tr.flagged td { background: #fff7d6; }
+    .holiday-table tr.flagged:hover td { background: #ffefb0; }
+    .holiday-table tr.flagged td.name-cell {
+      background: #fde68a;
+      box-shadow: inset 3px 0 0 #d97706;
+    }
+    .holiday-table a { color: inherit; font-weight: 650; text-decoration: none; }
     .holiday-table a:hover { text-decoration: underline; }
-    #holiday-search { min-width: 220px; margin: 0; }
+    @media (max-width: 860px) {
+      .holiday-layout { grid-template-columns: 1fr; }
+    }
 {% endblock %}
 
 {% block content %}
-  <div class="card" style="margin-bottom:1rem">
-    <p style="color: var(--muted); margin: 0 0 0.75rem;">
-      Current staff. Days left include any balance carried into the new leave year.
-    </p>
-    <label>
-      Search
-      <input type="search" id="holiday-search" placeholder="Name or farm…" autocomplete="off">
-    </label>
-    <div id="holiday-message" class="message"></div>
-  </div>
-  <div class="card">
-    <div class="table-wrap">
-      <table class="holiday-table">
-        <thead>
-          <tr>
-            <th data-sort="full_name">Staff name</th>
-            <th data-sort="farm">Farm</th>
-            <th data-sort="days_taken" class="num">Days holiday taken</th>
-            <th data-sort="days_left" class="num">Days holiday left</th>
-            <th data-sort="holiday_year_end">Annual leave year end</th>
-            <th data-sort="days_until_year_end" class="num">Days until leave year end</th>
-          </tr>
-        </thead>
-        <tbody id="holiday-body">
-          <tr><td colspan="6">Loading…</td></tr>
-        </tbody>
-      </table>
+  <div class="holiday-layout">
+    <div class="card slicer-card">
+      <h2>Slicers</h2>
+      <p>Employed staff only. Click a slicer to include or leave it out.</p>
+      <div class="slicer-group">
+        <div class="slicer-label">Farm</div>
+        <div class="slicer-options" id="farm-slicer" role="group" aria-label="Farm"></div>
+      </div>
+      <div class="slicer-group">
+        <div class="slicer-label">Highlight</div>
+        <div class="slicer-options" id="flag-slicer" role="group" aria-label="Highlight">
+          <button type="button" class="slicer-btn selected" data-value="all" aria-pressed="true">All employed</button>
+          <button type="button" class="slicer-btn" data-value="highlighted" aria-pressed="false">Highlighted only</button>
+        </div>
+      </div>
+    </div>
+    <div class="card holiday-sheet">
+      <div class="sheet-toolbar">
+        <label>
+          Search
+          <input type="search" id="holiday-search" placeholder="Name…" autocomplete="off">
+        </label>
+        <div class="sheet-meta" id="sheet-meta"></div>
+      </div>
+      <div class="holiday-legend">
+        <span><i class="swatch"></i> More than 28 days left, or the days until the leave year ends are no more than twice the days left (for example 5 days left and 7 days to go).</span>
+      </div>
+      <div id="holiday-message" class="message"></div>
+      <div class="table-wrap">
+        <table class="holiday-table">
+          <thead>
+            <tr>
+              <th data-sort="full_name">Staff name</th>
+              <th data-sort="farm">Farm</th>
+              <th data-sort="days_taken" class="num">Days holiday taken</th>
+              <th data-sort="days_left" class="num">Days holiday left</th>
+              <th data-sort="holiday_year_end">Annual leave year end</th>
+              <th data-sort="days_until_year_end" class="num">Days until leave year end</th>
+            </tr>
+          </thead>
+          <tbody id="holiday-body">
+            <tr><td colspan="6">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 {% endblock %}
@@ -67,7 +207,13 @@
   const bodyEl = document.getElementById('holiday-body');
   const searchEl = document.getElementById('holiday-search');
   const messageEl = document.getElementById('holiday-message');
+  const metaEl = document.getElementById('sheet-meta');
+  const farmSlicer = document.getElementById('farm-slicer');
+  const flagSlicer = document.getElementById('flag-slicer');
+  const FARMS = ['Cwrt Malle', 'Green Acre Dairy'];
   let rows = [];
+  let farms = new Set(FARMS);
+  let highlightedOnly = false;
   let sortState = { key: 'full_name', dir: 1 };
 
   function escapeHtml(str) {
@@ -93,10 +239,23 @@
     return match[3] + '/' + match[2] + '/' + match[1];
   }
 
+  function highlightReasons(row) {
+    const left = Number(row.days_left);
+    const until = Number(row.days_until_year_end);
+    const reasons = [];
+    if (Number.isFinite(left) && left > 28) {
+      reasons.push('More than 28 days holiday left');
+    }
+    if (Number.isFinite(left) && left > 0 && Number.isFinite(until) && until <= left * 2) {
+      reasons.push('Days until the leave year ends are no more than twice the days left');
+    }
+    return reasons;
+  }
+
   function compare(a, b) {
     const key = sortState.key;
-    let av = a[key];
-    let bv = b[key];
+    const av = a[key];
+    const bv = b[key];
     const aEmpty = av == null || av === '';
     const bEmpty = bv == null || bv === '';
     if (aEmpty && bEmpty) return 0;
@@ -108,19 +267,37 @@
     return (Number(av) - Number(bv)) * sortState.dir;
   }
 
+  function passesFarm(row) {
+    return farms.has(row.farm || '');
+  }
+
   function visibleRows() {
     const term = searchEl.value.trim().toLowerCase();
-    const filtered = term
-      ? rows.filter(function (row) {
-          return (row.full_name || '').toLowerCase().includes(term)
-            || (row.farm || '').toLowerCase().includes(term);
-        })
-      : rows.slice();
-    filtered.sort(compare);
-    return filtered;
+    return rows.filter(function (row) {
+      if (!passesFarm(row)) return false;
+      if (highlightedOnly && !highlightReasons(row).length) return false;
+      if (!term) return true;
+      return (row.full_name || '').toLowerCase().includes(term);
+    }).sort(compare);
+  }
+
+  function renderSlicers() {
+    farmSlicer.innerHTML = FARMS.map(function (farm) {
+      const count = rows.filter(function (row) { return row.farm === farm; }).length;
+      const selected = farms.has(farm);
+      return '<button type="button" class="slicer-btn' + (selected ? ' selected' : '') +
+        '" data-value="' + escapeHtml(farm) + '" aria-pressed="' + selected + '">' +
+        '<span>' + escapeHtml(farm) + '</span><span class="count">' + count + '</span></button>';
+    }).join('');
+    flagSlicer.querySelectorAll('.slicer-btn').forEach(function (btn) {
+      const on = (btn.dataset.value === 'highlighted') === highlightedOnly;
+      btn.classList.toggle('selected', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
   }
 
   function render() {
+    renderSlicers();
     document.querySelectorAll('.holiday-table thead th').forEach(function (th) {
       th.classList.remove('sorted-asc', 'sorted-desc');
       if (th.dataset.sort === sortState.key) {
@@ -128,15 +305,17 @@
       }
     });
     const shown = visibleRows();
+    metaEl.textContent = shown.length + ' of ' + rows.length + ' employed staff';
     if (!shown.length) {
       bodyEl.innerHTML = '<tr><td colspan="6">No staff to show.</td></tr>';
       return;
     }
     bodyEl.innerHTML = shown.map(function (row) {
+      const reasons = highlightReasons(row);
       const name = '<a href="/hr/staff/' + encodeURIComponent(row.employee_id) + '">' +
         escapeHtml(row.full_name) + '</a>';
-      return '<tr>' +
-        '<td>' + name + '</td>' +
+      return '<tr class="' + (reasons.length ? 'flagged' : '') + '">' +
+        '<td class="name-cell" title="' + escapeHtml(reasons.join('. ')) + '">' + name + '</td>' +
         '<td>' + escapeHtml(row.farm) + '</td>' +
         '<td class="num">' + escapeHtml(formatDays(row.days_taken)) + '</td>' +
         '<td class="num">' + escapeHtml(formatDays(row.days_left)) + '</td>' +
@@ -146,6 +325,20 @@
     }).join('');
   }
 
+  farmSlicer.addEventListener('click', function (ev) {
+    const btn = ev.target.closest('.slicer-btn');
+    if (!btn) return;
+    const farm = btn.dataset.value;
+    if (farms.has(farm)) farms.delete(farm);
+    else farms.add(farm);
+    render();
+  });
+  flagSlicer.addEventListener('click', function (ev) {
+    const btn = ev.target.closest('.slicer-btn');
+    if (!btn) return;
+    highlightedOnly = btn.dataset.value === 'highlighted';
+    render();
+  });
   document.querySelector('.holiday-table thead').addEventListener('click', function (ev) {
     const th = ev.target.closest('th[data-sort]');
     if (!th) return;
