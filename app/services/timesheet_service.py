@@ -301,10 +301,10 @@ def save_timesheet_row(
     else:
         entry.hours_week_2 = None
     if "holiday_days" in payload:
-        days = _quarter_days(_optional_float(payload.get("holiday_days")))
+        days = _quarter_days(_signed_float(payload.get("holiday_days")))
         entry.holiday_days = days
         per_day = _holiday_hours_per_day(employee)
-        entry.holiday_hours = round((days or 0) * per_day, 2)
+        entry.holiday_hours = round((0 if days is None else days) * per_day, 2)
     if "other_remark" in payload:
         remark = payload.get("other_remark")
         entry.other_remark = (
@@ -322,6 +322,7 @@ def save_timesheet_row(
             hours_per_day,
             as_of=start,
             period_start=start,
+            period_end=end,
         )
         if not remaining_locked:
             employee.holidays_remaining = _optional_float(
@@ -439,6 +440,7 @@ def _serialize_row(
         hours_per_day,
         as_of=as_of,
         period_start=period_start or as_of,
+        period_end=period_end,
     )
     holiday_days = _holiday_days_for_entry(entry, hours_per_day)
     holiday_hours = round(holiday_days * hours_per_day, 2) if holiday_days else 0.0
@@ -560,6 +562,24 @@ def _accommodation_for_period(
     return round(amount * days / 7.0, 2)
 
 
+def _annual_entitlement(employee: Employee) -> float:
+    if employee.annual_leave_days is None:
+        return float(DEFAULT_ANNUAL_LEAVE_DAYS)
+    return float(employee.annual_leave_days)
+
+
+def _year_renews_during_period(
+    year_end: dt.date | None,
+    period_start: dt.date | None,
+    period_end: dt.date | None,
+) -> bool:
+    """True when the new leave year starts after this period has already begun."""
+    if year_end is None or period_start is None or period_end is None:
+        return False
+    end = current_holiday_year_end(year_end, period_start)
+    return end < period_end
+
+
 def _opening_remaining(
     employee: Employee,
     holiday_entries: list[EmployeeTimesheetEntry],
@@ -567,8 +587,43 @@ def _opening_remaining(
     *,
     as_of: dt.date,
     period_start: dt.date,
+    period_end: dt.date | None = None,
 ) -> tuple[float | None, bool]:
-    """Remaining brought into this pay period: stored opening minus earlier days."""
+    """Remaining brought into this pay period.
+
+    When the leave year ends during the period, days still left are added to
+    the new annual entitlement so both can be taken on this sheet.
+    """
+    plain, locked = _plain_opening(
+        employee,
+        holiday_entries,
+        hours_per_day,
+        as_of=as_of,
+        period_start=period_start,
+    )
+    year_end = _employee_year_end(employee)
+    if _year_renews_during_period(year_end, period_start, period_end):
+        base = 0.0 if plain is None else float(plain)
+        return round(base + _annual_entitlement(employee), 2), True
+    carried = _opening_after_straddle(
+        employee,
+        holiday_entries,
+        hours_per_day,
+        period_start=period_start,
+    )
+    if carried is not None:
+        return carried
+    return plain, locked
+
+
+def _plain_opening(
+    employee: Employee,
+    holiday_entries: list[EmployeeTimesheetEntry],
+    hours_per_day: float,
+    *,
+    as_of: dt.date,
+    period_start: dt.date,
+) -> tuple[float | None, bool]:
     year_end = _employee_year_end(employee)
     prior_days = 0.0
     for item in holiday_entries:
@@ -581,14 +636,65 @@ def _opening_remaining(
         prior_days += _holiday_days_for_entry(item, hours_per_day)
 
     stored = _num(employee.holidays_remaining)
-    if stored is None and year_end is not None and as_of > year_end:
-        entitlement = employee.annual_leave_days
-        if entitlement is None:
-            entitlement = DEFAULT_ANNUAL_LEAVE_DAYS
-        return _num(float(entitlement) - prior_days), True
+    # A balance stored against the directory year-end belongs to that year.
+    # Once the date has passed, and no sheet contained the renewal (that case
+    # is handled by the straddle), the new year opens at the annual entitlement.
+    if year_end is not None and as_of > year_end:
+        return round(_annual_entitlement(employee) - prior_days, 2), True
     if stored is None:
         return None, False
-    return round(float(stored) - prior_days, 2), prior_days > 0
+    return round(float(stored) - prior_days, 2), prior_days != 0
+
+
+def _opening_after_straddle(
+    employee: Employee,
+    holiday_entries: list[EmployeeTimesheetEntry],
+    hours_per_day: float,
+    *,
+    period_start: dt.date,
+) -> tuple[float, bool] | None:
+    """New-year balance after a sheet that already added the expiring days.
+
+    Days on that sheet use the expiring balance first. Only the overflow
+    reduces the new entitlement. Unused expiring days do not continue.
+    """
+    year_end = _employee_year_end(employee)
+    if year_end is None:
+        return None
+    year_start, _end = leave_year_bounds(year_end, period_start)
+    boundary = year_start - dt.timedelta(days=1)
+    straddle = next(
+        (
+            item
+            for item in holiday_entries
+            if item.period_end is not None
+            and item.period_start <= boundary <= item.period_end
+        ),
+        None,
+    )
+    if straddle is None:
+        return None
+    old_plain, _locked = _plain_opening(
+        employee,
+        holiday_entries,
+        hours_per_day,
+        as_of=straddle.period_start,
+        period_start=straddle.period_start,
+    )
+    old_left = 0.0 if old_plain is None else float(old_plain)
+    taken = _holiday_days_for_entry(straddle, hours_per_day)
+    # Old days are used first. Unused ones expire. A negative entry adds days
+    # and those added days stay on the new year.
+    if taken < 0:
+        excess = taken
+    else:
+        excess = max(0.0, taken - old_left)
+    prior = 0.0
+    for item in holiday_entries:
+        if item.period_start >= period_start or item.period_start < year_start:
+            continue
+        prior += _holiday_days_for_entry(item, hours_per_day)
+    return round(_annual_entitlement(employee) - prior - excess, 2), True
 
 
 def _holidays_carry_forward(
@@ -623,15 +729,20 @@ def _parse_money(raw: str | None) -> float | None:
 
 
 def _optional_float(value: Any) -> float | None:
+    number = _signed_float(value)
+    if number is not None and number < 0:
+        raise TimesheetError("Numeric fields cannot be negative.")
+    return number
+
+
+def _signed_float(value: Any) -> float | None:
+    """A number that may be negative. Holiday days use this so a minus adds days."""
     if value in (None, ""):
         return None
     try:
-        number = float(value)
+        return float(value)
     except (TypeError, ValueError) as exc:
         raise TimesheetError("Numeric fields must be numbers.") from exc
-    if number < 0:
-        raise TimesheetError("Numeric fields cannot be negative.")
-    return number
 
 
 def _quarter_days(value: float | None) -> float | None:

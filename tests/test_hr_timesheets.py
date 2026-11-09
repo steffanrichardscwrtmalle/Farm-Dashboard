@@ -411,9 +411,11 @@ def test_remaining_resets_the_day_after_year_end(db):
             "holiday_days": 4,
         },
     )
-    assert before["remaining_locked"] is False
-    assert before["holidays_remaining"] is None
-    assert before["holidays_carry_forward"] is None
+    # 21 Sep-4 Oct contains 30 Sep, so the new 28 is available on this sheet.
+    assert before["remaining_locked"] is True
+    assert before["holidays_remaining"] == 28
+    assert before["holidays_taken"] == 4
+    assert before["holidays_carry_forward"] == 24
     assert before["holiday_year_end"] == "2026-09-30"
 
     after = save_timesheet_row(
@@ -427,19 +429,110 @@ def test_remaining_resets_the_day_after_year_end(db):
     )
     assert after["remaining_locked"] is True
     assert after["holidays_taken"] == 8
-    assert after["holidays_remaining"] == 28
-    assert after["holidays_carry_forward"] == 20
+    assert after["holidays_remaining"] == 24
+    assert after["holidays_carry_forward"] == 16
     assert after["holiday_year_end"] == "2027-09-30"
 
 
-def test_imported_remaining_is_kept_after_year_end(db):
+def test_expiring_days_are_added_to_the_new_entitlement(db):
     staff = _employee(
         db,
-        holiday_year_end=dt.date(2026, 8, 24),
+        holiday_year_end=dt.date(2026, 9, 10),
         annual_leave_days=28,
-        holidays_remaining=19,
+        holidays_remaining=5,
     )
-    saved = save_timesheet_row(
+    during = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "holiday_days": 10,
+        },
+    )
+    assert during["holidays_remaining"] == 33
+    assert during["remaining_locked"] is True
+    assert during["holidays_carry_forward"] == 23
+
+    after = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 21))
+    assert after["rows"][0]["holidays_remaining"] == 23
+    assert after["rows"][0]["holiday_year_end"] == "2027-09-10"
+
+
+def test_unused_days_drop_off_after_the_renewal_sheet(db):
+    staff = _employee(
+        db,
+        holiday_year_end=dt.date(2026, 9, 10),
+        annual_leave_days=28,
+        holidays_remaining=5,
+    )
+    during = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "holiday_days": 0,
+        },
+    )
+    assert during["holidays_remaining"] == 33
+    assert during["holidays_taken"] == 0
+    assert during["holidays_carry_forward"] == 33
+
+    after = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 21))
+    assert after["rows"][0]["holidays_remaining"] == 28
+    assert after["rows"][0]["holidays_carry_forward"] == 28
+    assert after["rows"][0]["holiday_year_end"] == "2027-09-10"
+
+
+def test_negative_holiday_days_add_to_the_balance(db):
+    staff = _employee(db, holidays_remaining=10, annual_leave_days=28)
+    added = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 9, 7),
+            "holiday_days": -2,
+        },
+    )
+    assert added["holiday_days"] == -2
+    assert added["holiday_hours"] == -16
+    assert added["holidays_taken"] == -2
+    assert added["holidays_remaining"] == 10
+    assert added["holidays_carry_forward"] == 12
+
+    later = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 21))
+    row = later["rows"][0]
+    assert row["holidays_remaining"] == 12
+    assert row["remaining_locked"] is True
+    assert row["holidays_carry_forward"] == 12
+
+    with pytest.raises(TimesheetError, match="cannot be negative"):
+        save_timesheet_row(
+            db,
+            "CM",
+            {
+                "employee_id": staff.id,
+                "period_start": dt.date(2026, 9, 21),
+                "mileage": -1,
+            },
+        )
+
+
+def test_new_entitlement_opens_when_year_ended_before_timesheets(db):
+    """Imported remaining belongs to the year that already ended.
+
+    Timesheets start on 7 Sep 2026, so a year end before that never sits on a
+    sheet that can add the old days to the new entitlement.
+    """
+    staff = _employee(
+        db,
+        holiday_year_end=dt.date(2026, 8, 20),
+        annual_leave_days=28,
+        holidays_remaining=12,
+    )
+    opened = save_timesheet_row(
         db,
         "CM",
         {
@@ -447,9 +540,30 @@ def test_imported_remaining_is_kept_after_year_end(db):
             "period_start": dt.date(2026, 9, 7),
         },
     )
-    assert saved["remaining_locked"] is False
-    assert saved["holidays_remaining"] == 19
-    assert saved["holidays_carry_forward"] == 19
+    assert opened["remaining_locked"] is True
+    assert opened["holidays_remaining"] == 28
+    assert opened["holidays_carry_forward"] == 28
+    assert opened["holiday_year_end"] == "2027-08-20"
+
+    taken = save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 10, 19),
+            "holiday_days": 12,
+        },
+    )
+    assert taken["holidays_remaining"] == 28
+    assert taken["holidays_carry_forward"] == 16
+
+    later = list_timesheet(db, "CM", period_start=dt.date(2026, 11, 2))
+    row = later["rows"][0]
+    assert row["holidays_remaining"] == 16
+    assert row["remaining_locked"] is True
+    assert row["holidays_carry_forward"] == 16
+    db.refresh(staff)
+    assert staff.holidays_remaining == 12
 
 
 def test_timesheet_uses_staff_accommodation_default(db):
