@@ -32,6 +32,7 @@ from app.services.timesheet_service import (
     current_period_start,
     filter_timesheet_export,
     leave_year_bounds,
+    list_holiday_summary,
     list_periods,
     list_timesheet,
     period_containing,
@@ -459,7 +460,7 @@ def test_expiring_days_are_added_to_the_new_entitlement(db):
     assert after["rows"][0]["holiday_year_end"] == "2027-09-10"
 
 
-def test_unused_days_drop_off_after_the_renewal_sheet(db):
+def test_unused_days_carry_into_the_new_year(db):
     staff = _employee(
         db,
         holiday_year_end=dt.date(2026, 9, 10),
@@ -480,8 +481,8 @@ def test_unused_days_drop_off_after_the_renewal_sheet(db):
     assert during["holidays_carry_forward"] == 33
 
     after = list_timesheet(db, "CM", period_start=dt.date(2026, 9, 21))
-    assert after["rows"][0]["holidays_remaining"] == 28
-    assert after["rows"][0]["holidays_carry_forward"] == 28
+    assert after["rows"][0]["holidays_remaining"] == 33
+    assert after["rows"][0]["holidays_carry_forward"] == 33
     assert after["rows"][0]["holiday_year_end"] == "2027-09-10"
 
 
@@ -521,10 +522,10 @@ def test_negative_holiday_days_add_to_the_balance(db):
 
 
 def test_new_entitlement_opens_when_year_ended_before_timesheets(db):
-    """Imported remaining belongs to the year that already ended.
+    """A year that ended before time sheets still keeps its leftover days.
 
-    Timesheets start on 7 Sep 2026, so a year end before that never sits on a
-    sheet that can add the old days to the new entitlement.
+    The new allowance is added to that leftover. Days booked afterwards come
+    off the combined balance.
     """
     staff = _employee(
         db,
@@ -541,8 +542,8 @@ def test_new_entitlement_opens_when_year_ended_before_timesheets(db):
         },
     )
     assert opened["remaining_locked"] is True
-    assert opened["holidays_remaining"] == 28
-    assert opened["holidays_carry_forward"] == 28
+    assert opened["holidays_remaining"] == 40
+    assert opened["holidays_carry_forward"] == 40
     assert opened["holiday_year_end"] == "2027-08-20"
 
     taken = save_timesheet_row(
@@ -554,16 +555,74 @@ def test_new_entitlement_opens_when_year_ended_before_timesheets(db):
             "holiday_days": 12,
         },
     )
-    assert taken["holidays_remaining"] == 28
-    assert taken["holidays_carry_forward"] == 16
+    assert taken["holidays_remaining"] == 40
+    assert taken["holidays_carry_forward"] == 28
 
     later = list_timesheet(db, "CM", period_start=dt.date(2026, 11, 2))
     row = later["rows"][0]
-    assert row["holidays_remaining"] == 16
+    assert row["holidays_remaining"] == 28
     assert row["remaining_locked"] is True
-    assert row["holidays_carry_forward"] == 16
+    assert row["holidays_carry_forward"] == 28
     db.refresh(staff)
     assert staff.holidays_remaining == 12
+
+
+def test_future_year_end_is_not_topped_up_early(db):
+    staff = _employee(
+        db,
+        holiday_year_end=dt.date(2027, 10, 5),
+        annual_leave_days=28,
+        holidays_remaining=27,
+    )
+    save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": staff.id,
+            "period_start": dt.date(2026, 10, 5),
+            "holiday_days": 1,
+        },
+    )
+    later = list_timesheet(db, "CM", period_start=dt.date(2026, 11, 2))
+    assert later["rows"][0]["holidays_remaining"] == 27
+
+
+def test_holiday_summary_lists_taken_left_and_days_until_year_end(db):
+    kept = _employee(
+        db,
+        full_name="Ehtisham Shahid",
+        employee_number="A250",
+        email="ehtisham@test.local",
+        holiday_year_end=dt.date(2026, 8, 20),
+        annual_leave_days=28,
+        holidays_remaining=12,
+    )
+    save_timesheet_row(
+        db,
+        "CM",
+        {
+            "employee_id": kept.id,
+            "period_start": dt.date(2026, 10, 19),
+            "holiday_days": 12,
+        },
+    )
+    _employee(
+        db,
+        full_name="Left Already",
+        employee_number="A999",
+        email="left@test.local",
+        status=EMPLOYEE_STATUS_ARCHIVED,
+        holiday_year_end=dt.date(2026, 8, 20),
+        holidays_remaining=5,
+    )
+    summary = list_holiday_summary(db, as_of=dt.date(2026, 11, 9))
+    assert [row["full_name"] for row in summary["rows"]] == ["Ehtisham Shahid"]
+    row = summary["rows"][0]
+    assert row["farm"] == "Cwrt Malle"
+    assert row["days_taken"] == 12
+    assert row["days_left"] == 28
+    assert row["holiday_year_end"] == "2027-08-20"
+    assert row["days_until_year_end"] == (dt.date(2027, 8, 20) - dt.date(2026, 11, 9)).days
 
 
 def test_timesheet_uses_staff_accommodation_default(db):

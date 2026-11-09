@@ -866,6 +866,7 @@
             </button>
             <div class="nav-group-items" id="hr-nav-items">
               <a href="/hr/staff" class="{% if active_nav == 'staff-directory' %}active{% endif %}">Staff Directory</a>
+              <a href="/hr/holidays" class="{% if active_nav == 'holidays' %}active{% endif %}">Holidays</a>
               {% if perms.action('hr.timesheets') %}
               <a href="/hr/timesheets" class="{% if active_nav == 'timesheets' %}active{% endif %}">Time Sheets</a>
               {% endif %}

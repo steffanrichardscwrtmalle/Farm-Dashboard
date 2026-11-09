@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block page_heading %}Holidays{% endblock %}
+
+{% block extra_styles %}
+    main { max-width: none; }
+    .holiday-table { width: 100%; border-collapse: collapse; }
+    .holiday-table th,
+    .holiday-table td {
+      padding: 0.55rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      white-space: nowrap;
+    }
+    .holiday-table th.num,
+    .holiday-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .holiday-table thead th {
+      position: sticky;
+      top: 0;
+      background: var(--card);
+      cursor: pointer;
+      user-select: none;
+    }
+    .holiday-table thead th.sorted-asc::after { content: " \25B2"; font-size: 0.7em; }
+    .holiday-table thead th.sorted-desc::after { content: " \25BC"; font-size: 0.7em; }
+    .holiday-table tbody tr:hover { background: rgba(0, 0, 0, 0.03); }
+    .holiday-table a { color: inherit; font-weight: 600; text-decoration: none; }
+    .holiday-table a:hover { text-decoration: underline; }
+    #holiday-search { min-width: 220px; margin: 0; }
+{% endblock %}
+
+{% block content %}
+  <div class="card" style="margin-bottom:1rem">
+    <p style="color: var(--muted); margin: 0 0 0.75rem;">
+      Current staff. Days left include any balance carried into the new leave year.
+    </p>
+    <label>
+      Search
+      <input type="search" id="holiday-search" placeholder="Name or farm…" autocomplete="off">
+    </label>
+    <div id="holiday-message" class="message"></div>
+  </div>
+  <div class="card">
+    <div class="table-wrap">
+      <table class="holiday-table">
+        <thead>
+          <tr>
+            <th data-sort="full_name">Staff name</th>
+            <th data-sort="farm">Farm</th>
+            <th data-sort="days_taken" class="num">Days holiday taken</th>
+            <th data-sort="days_left" class="num">Days holiday left</th>
+            <th data-sort="holiday_year_end">Annual leave year end</th>
+            <th data-sort="days_until_year_end" class="num">Days until leave year end</th>
+          </tr>
+        </thead>
+        <tbody id="holiday-body">
+          <tr><td colspan="6">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const bodyEl = document.getElementById('holiday-body');
+  const searchEl = document.getElementById('holiday-search');
+  const messageEl = document.getElementById('holiday-message');
+  let rows = [];
+  let sortState = { key: 'full_name', dir: 1 };
+
+  function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function formatDays(value) {
+    if (value == null || value === '') return '';
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '';
+    return String(Math.round(n * 100) / 100);
+  }
+
+  function formatDateUk(value) {
+    if (!value) return '';
+    const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return String(value);
+    return match[3] + '/' + match[2] + '/' + match[1];
+  }
+
+  function compare(a, b) {
+    const key = sortState.key;
+    let av = a[key];
+    let bv = b[key];
+    const aEmpty = av == null || av === '';
+    const bEmpty = bv == null || bv === '';
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;
+    if (bEmpty) return -1;
+    if (key === 'full_name' || key === 'farm' || key === 'holiday_year_end') {
+      return String(av).localeCompare(String(bv), 'en', { sensitivity: 'base' }) * sortState.dir;
+    }
+    return (Number(av) - Number(bv)) * sortState.dir;
+  }
+
+  function visibleRows() {
+    const term = searchEl.value.trim().toLowerCase();
+    const filtered = term
+      ? rows.filter(function (row) {
+          return (row.full_name || '').toLowerCase().includes(term)
+            || (row.farm || '').toLowerCase().includes(term);
+        })
+      : rows.slice();
+    filtered.sort(compare);
+    return filtered;
+  }
+
+  function render() {
+    document.querySelectorAll('.holiday-table thead th').forEach(function (th) {
+      th.classList.remove('sorted-asc', 'sorted-desc');
+      if (th.dataset.sort === sortState.key) {
+        th.classList.add(sortState.dir === 1 ? 'sorted-asc' : 'sorted-desc');
+      }
+    });
+    const shown = visibleRows();
+    if (!shown.length) {
+      bodyEl.innerHTML = '<tr><td colspan="6">No staff to show.</td></tr>';
+      return;
+    }
+    bodyEl.innerHTML = shown.map(function (row) {
+      const name = '<a href="/hr/staff/' + encodeURIComponent(row.employee_id) + '">' +
+        escapeHtml(row.full_name) + '</a>';
+      return '<tr>' +
+        '<td>' + name + '</td>' +
+        '<td>' + escapeHtml(row.farm) + '</td>' +
+        '<td class="num">' + escapeHtml(formatDays(row.days_taken)) + '</td>' +
+        '<td class="num">' + escapeHtml(formatDays(row.days_left)) + '</td>' +
+        '<td>' + escapeHtml(formatDateUk(row.holiday_year_end)) + '</td>' +
+        '<td class="num">' + escapeHtml(formatDays(row.days_until_year_end)) + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  document.querySelector('.holiday-table thead').addEventListener('click', function (ev) {
+    const th = ev.target.closest('th[data-sort]');
+    if (!th) return;
+    const key = th.dataset.sort;
+    if (sortState.key === key) sortState.dir *= -1;
+    else {
+      sortState.key = key;
+      sortState.dir = key === 'full_name' || key === 'farm' ? 1 : -1;
+    }
+    render();
+  });
+  searchEl.addEventListener('input', render);
+
+  fetch('/api/hr/holidays')
+    .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+    .then(function (result) {
+      if (!result.ok) throw new Error(result.data.detail || 'Could not load holidays.');
+      rows = result.data.rows || [];
+      render();
+    })
+    .catch(function (err) {
+      bodyEl.innerHTML = '<tr><td colspan="6">Could not load holidays.</td></tr>';
+      messageEl.textContent = err.message || 'Could not load holidays.';
+      messageEl.className = 'message error';
+    });
+})();
+</script>
+{% endblock %}

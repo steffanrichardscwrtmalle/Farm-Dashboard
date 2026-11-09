@@ -636,11 +636,20 @@ def _plain_opening(
         prior_days += _holiday_days_for_entry(item, hours_per_day)
 
     stored = _num(employee.holidays_remaining)
-    # A balance stored against the directory year-end belongs to that year.
-    # Once the date has passed, and no sheet contained the renewal (that case
-    # is handled by the straddle), the new year opens at the annual entitlement.
+    # The stored balance belongs to the directory year. Each time that date
+    # passes, the new allowance is added and whatever was left stays.
     if year_end is not None and as_of > year_end:
-        return round(_annual_entitlement(employee) - prior_days, 2), True
+        base = 0.0 if stored is None else float(stored)
+        rolled = _times_year_has_rolled(year_end, as_of)
+        taken_since = 0.0
+        for item in holiday_entries:
+            if item.period_start >= period_start or item.period_start <= year_end:
+                continue
+            taken_since += _holiday_days_for_entry(item, hours_per_day)
+        return (
+            round(base + _annual_entitlement(employee) * rolled - taken_since, 2),
+            True,
+        )
     if stored is None:
         return None, False
     return round(float(stored) - prior_days, 2), prior_days != 0
@@ -653,16 +662,19 @@ def _opening_after_straddle(
     *,
     period_start: dt.date,
 ) -> tuple[float, bool] | None:
-    """New-year balance after a sheet that already added the expiring days.
+    """Balance after a sheet that added the new allowance to the days left.
 
-    Days on that sheet use the expiring balance first. Only the overflow
-    reduces the new entitlement. Unused expiring days do not continue.
+    Unused days stay. Days booked on that sheet, and later, come off the total.
     """
     year_end = _employee_year_end(employee)
     if year_end is None:
         return None
     year_start, _end = leave_year_bounds(year_end, period_start)
     boundary = year_start - dt.timedelta(days=1)
+    # A future directory year-end has not renewed yet. The day before this
+    # leave year is an earlier anniversary, not a new allowance.
+    if boundary < year_end:
+        return None
     straddle = next(
         (
             item
@@ -683,18 +695,123 @@ def _opening_after_straddle(
     )
     old_left = 0.0 if old_plain is None else float(old_plain)
     taken = _holiday_days_for_entry(straddle, hours_per_day)
-    # Old days are used first. Unused ones expire. A negative entry adds days
-    # and those added days stay on the new year.
-    if taken < 0:
-        excess = taken
-    else:
-        excess = max(0.0, taken - old_left)
     prior = 0.0
     for item in holiday_entries:
         if item.period_start >= period_start or item.period_start < year_start:
             continue
         prior += _holiday_days_for_entry(item, hours_per_day)
-    return round(_annual_entitlement(employee) - prior - excess, 2), True
+    return round(old_left + _annual_entitlement(employee) - taken - prior, 2), True
+
+
+def _times_year_has_rolled(year_end: dt.date, as_of: dt.date) -> int:
+    """How many leave-year end dates have passed on or before as_of."""
+    rolled = 0
+    current = year_end
+    while as_of > current:
+        rolled += 1
+        current = _anniversary_on(current.year + 1, current)
+    return rolled
+
+
+_FARM_BY_BUSINESS = {business: farm for farm, business in TIMESHEET_FARM_BUSINESS.items()}
+
+
+def list_holiday_summary(
+    db: Session, *, as_of: dt.date | None = None
+) -> dict[str, Any]:
+    """Current staff holiday balances, using the same leave year as the time sheets."""
+    as_of = as_of or dt.date.today()
+    staff = list(db.scalars(select(Employee)).all())
+    changed = False
+    for employee in staff:
+        if _archive_if_left(employee, as_of):
+            changed = True
+    if changed:
+        db.commit()
+    current = [
+        employee
+        for employee in staff
+        if _on_farm_for_period(employee, as_of, as_of)
+    ]
+    entries = _holiday_hours_by_employee(db, [employee.id for employee in current])
+    rows = [
+        _holiday_summary_row(employee, entries.get(employee.id, []), as_of)
+        for employee in current
+    ]
+    rows.sort(key=lambda row: ((row["farm"] or ""), (row["full_name"] or "").casefold()))
+    return {"as_of": as_of.isoformat(), "rows": rows}
+
+
+def _holiday_summary_row(
+    employee: Employee,
+    holiday_entries: list[EmployeeTimesheetEntry],
+    as_of: dt.date,
+) -> dict[str, Any]:
+    farm = _FARM_BY_BUSINESS.get(employee.business or "")
+    if farm:
+        period_start, period_end = period_containing(farm, as_of)
+        farm_name = farm_label(farm)
+    else:
+        period_start = period_end = as_of
+        farm_name = employee.business or ""
+    hours_per_day = _holiday_hours_per_day(employee)
+    remaining, _locked = _opening_remaining(
+        employee,
+        holiday_entries,
+        hours_per_day,
+        as_of=period_start,
+        period_start=period_start,
+        period_end=period_end,
+    )
+    booked = 0.0
+    for item in holiday_entries:
+        if item.period_start >= period_start:
+            booked += _holiday_days_for_entry(item, hours_per_day)
+    year_end = _employee_year_end(employee)
+    display_end = current_holiday_year_end(year_end, as_of) if year_end else None
+    left = None if remaining is None else round(float(remaining) - booked, 2)
+    return {
+        "employee_id": employee.id,
+        "full_name": employee.full_name,
+        "farm": farm_name,
+        "days_taken": _holiday_days_taken(
+            employee, holiday_entries, hours_per_day, as_of, year_end, display_end
+        ),
+        "days_left": left,
+        "holiday_year_end": display_end.isoformat() if display_end else None,
+        "days_until_year_end": (display_end - as_of).days if display_end else None,
+    }
+
+
+def _holiday_days_taken(
+    employee: Employee,
+    holiday_entries: list[EmployeeTimesheetEntry],
+    hours_per_day: float,
+    as_of: dt.date,
+    year_end: dt.date | None,
+    display_end: dt.date | None,
+) -> float:
+    """Holiday days already counted against the leave year that contains as_of."""
+    if year_end is None or display_end is None:
+        return round(
+            sum(_holiday_days_for_entry(item, hours_per_day) for item in holiday_entries),
+            2,
+        )
+    year_start, _end = leave_year_bounds(year_end, as_of)
+    total = 0.0
+    for item in holiday_entries:
+        if year_start <= item.period_start <= display_end:
+            total += _holiday_days_for_entry(item, hours_per_day)
+    boundary = year_start - dt.timedelta(days=1)
+    if as_of > boundary:
+        for item in holiday_entries:
+            if (
+                item.period_end is None
+                or not (item.period_start <= boundary <= item.period_end)
+            ):
+                continue
+            total += _holiday_days_for_entry(item, hours_per_day)
+    return round(total, 2)
 
 
 def _holidays_carry_forward(

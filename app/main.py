@@ -2494,6 +2494,21 @@ def hr_edit_staff_page(request: Request, employee_id: int):
     )
 
 
+@app.get("/hr/holidays", response_class=HTMLResponse)
+def hr_holidays_page(request: Request):
+    if denied := _page_guard(request, PAGE_HR):
+        return denied
+    return templates.TemplateResponse(
+        request,
+        "hr/holidays.html",
+        _template_ctx(
+            request,
+            page_heading="Holidays",
+            **_hr_context("Holidays", "holidays", "Holidays"),
+        ),
+    )
+
+
 @app.get("/hr/timesheets", response_class=HTMLResponse)
 def hr_timesheets_hub_page(request: Request):
     if denied := _page_guard(request, PAGE_HR):

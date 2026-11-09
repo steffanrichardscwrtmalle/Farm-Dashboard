@@ -520,6 +520,17 @@ def api_delete_document(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/holidays")
+def api_list_holidays(
+    as_of: dt.date | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_page(PAGE_HR)),
+):
+    from app.services.timesheet_service import list_holiday_summary
+
+    return list_holiday_summary(db, as_of=as_of)
+
+
 @router.get("/timesheets/{farm}")
 def api_list_timesheet(
     farm: str,
