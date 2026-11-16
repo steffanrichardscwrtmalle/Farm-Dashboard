@@ -114,16 +114,20 @@
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
-      font-size: 0.98rem;
+      font-size: 0.65rem;
     }
     .holiday-table th,
     .holiday-table td {
-      padding: 0.85rem 1rem;
+      box-sizing: border-box;
+      height: 1.4rem;
+      padding: 0 0.4rem;
       border-top: 1px solid #e5e7eb;
       border-left: 1px solid #e5e7eb;
       text-align: left;
       white-space: nowrap;
+      vertical-align: middle;
       background: #fff;
+      line-height: 1.15;
     }
     .holiday-table th:last-child,
     .holiday-table td:last-child { border-right: 1px solid #e5e7eb; }
@@ -134,8 +138,11 @@
     .holiday-table thead th {
       background: #1e3a5f;
       color: #fff;
-      font-weight: 650;
-      font-size: 0.82rem;
+      font-weight: 600;
+      font-size: 0.6rem;
+      line-height: 1.1;
+      height: auto;
+      padding: 0.16rem 0.4rem;
       letter-spacing: 0.01em;
       cursor: pointer;
       user-select: none;
