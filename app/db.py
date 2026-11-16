@@ -66,6 +66,7 @@ def init_db() -> None:
     _migrate_rental_agreements_schema()
     _migrate_xero_line_amount_types()
     _migrate_xero_aged_payable_marks()
+    _migrate_xero_sync_watermarks()
     _migrate_parlour_schema()
     _migrate_sensehub_calf_assignments_schema()
     _seed_financial_forecasts()
@@ -188,6 +189,26 @@ def _migrate_xero_aged_payable_marks() -> None:
                 )
     if "xero_aged_payable_marks" not in tables:
         XeroAgedPayableMarks.__table__.create(bind=engine, checkfirst=True)
+
+
+def _migrate_xero_sync_watermarks() -> None:
+    """Remember when each Xero organisation last completed a document sync."""
+    inspector = inspect(engine)
+    if "xero_organisations" not in set(inspector.get_table_names()):
+        return
+    cols = {col["name"] for col in inspector.get_columns("xero_organisations")}
+    wanted = (
+        "invoices_synced_at",
+        "credit_notes_synced_at",
+        "journals_synced_at",
+        "bank_synced_at",
+    )
+    with engine.begin() as conn:
+        for name in wanted:
+            if name not in cols:
+                conn.execute(
+                    text(f"ALTER TABLE xero_organisations ADD COLUMN {name} TIMESTAMP")
+                )
 
 
 def _migrate_xero_line_amount_types() -> None:

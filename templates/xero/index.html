@@ -293,7 +293,10 @@
     </h2>
     <p>
       Pull sales invoices, bills, credit notes, account names, manual journals, and bank spend/receive money
-      from each mapped organisation. Totals below exclude draft, deleted, and voided documents.
+      from each mapped organisation. The first sync reads the whole history. Later syncs ask Xero only for
+      records created or changed since the last one, including an old invoice or journal that was edited,
+      paid, or voided. About every three weeks one sync reads the full history again. Totals below exclude
+      draft, deleted, and voided documents.
     </p>
     <div class="actions">
       <button type="button" class="primary" id="sync-invoices-btn" disabled>Sync invoices, journals &amp; bank</button>
@@ -832,7 +835,7 @@
       const btn = document.getElementById("sync-invoices-btn");
       btn.disabled = true;
       btn.textContent = "Syncing…";
-      showInvoiceStatus("Syncing invoices, credit notes, accounts, journals, and bank transactions from Xero. This can take a few minutes…", true);
+      showInvoiceStatus("Checking Xero for new and edited invoices, credit notes, journals, and bank transactions. A first sync or a full history check can take a few minutes…", true);
       try {
         const res = await fetch("/api/xero/invoices/sync", { method: "POST" });
         const data = await res.json().catch(() => ({}));
@@ -843,13 +846,16 @@
         const parts = (data.organisations || []).map(
           o => `${o.tenant_name}: ${Number(o.fetched || 0).toLocaleString("en-GB")}`
         );
+        const modeNote = data.sync_mode === "incremental"
+          ? " Changes only: old documents are included when they were edited, paid, or voided."
+          : " Full history check.";
         showInvoiceStatus(
           `Synced ${Number(data.fetched_total || 0).toLocaleString("en-GB")} invoices` +
             `, ${Number(data.credit_notes_fetched_total || 0).toLocaleString("en-GB")} credit notes` +
             `, ${Number(data.journals_fetched_total || 0).toLocaleString("en-GB")} journals` +
             `, and ${Number(data.bank_transactions_fetched_total || 0).toLocaleString("en-GB")} bank transactions` +
             (parts.length ? ` (${parts.join("; ")})` : "") +
-            ".",
+            "." + modeNote,
           true
         );
         await loadStatus();

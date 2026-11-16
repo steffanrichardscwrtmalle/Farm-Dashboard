@@ -15,6 +15,7 @@ from app.models import XeroBankTransaction, XeroBankTransactionLine, XeroOrganis
 from app.services.xero_amounts import normalize_line_amount_types
 from app.services.xero_auth import XeroAuthError
 from app.services.xero_dates import parse_xero_date, parse_xero_datetime
+from app.services.xero_incremental import modified_since_header
 from app.services.xero_orgs import resolve_access_token
 
 # Authorised spend/receive money (and over/prepayments). Transfers are bank↔bank only.
@@ -64,6 +65,7 @@ def _get_json(
     access_token: str,
     tenant_id: str,
     params: dict[str, Any] | None = None,
+    modified_since: dt.datetime | None = None,
 ) -> dict[str, Any]:
     for attempt in range(6):
         response = client.get(
@@ -73,6 +75,7 @@ def _get_json(
                 "Authorization": f"Bearer {access_token}",
                 "Xero-Tenant-Id": tenant_id,
                 "Accept": "application/json",
+                **modified_since_header(modified_since),
             },
         )
         if response.status_code == 429:
@@ -93,6 +96,7 @@ def fetch_bank_transactions_page(
     access_token: str,
     tenant_id: str,
     page: int,
+    modified_since: dt.datetime | None = None,
 ) -> list[dict[str, Any]]:
     payload = _get_json(
         client,
@@ -101,6 +105,7 @@ def fetch_bank_transactions_page(
         tenant_id=tenant_id,
         # page= is required for LineItems to be returned.
         params={"page": page, "unitdp": 4},
+        modified_since=modified_since,
     )
     return list(payload.get("BankTransactions") or [])
 
@@ -207,17 +212,22 @@ def sync_bank_transactions_for_organisation(
     *,
     access_token: str,
     organisation: XeroOrganisation,
+    modified_since: dt.datetime | None = None,
 ) -> dict[str, Any]:
+    started = _utcnow()
     page = 1
     fetched = 0
+    complete = False
     while page <= _MAX_PAGES:
         transactions = fetch_bank_transactions_page(
             client,
             access_token=access_token,
             tenant_id=organisation.tenant_id,
             page=page,
+            modified_since=modified_since,
         )
         if not transactions:
+            complete = True
             break
         for payload in transactions:
             bank_transaction_id = str(payload.get("BankTransactionID") or "").strip()
@@ -242,14 +252,20 @@ def sync_bank_transactions_for_organisation(
             fetched += 1
         db.commit()
         if len(transactions) < 100:
+            complete = True
             break
         page += 1
+    if complete:
+        organisation.bank_synced_at = started
+        db.commit()
     return {
         "tenant_id": organisation.tenant_id,
         "tenant_name": organisation.tenant_name,
         "dashboard_business": organisation.dashboard_business,
         "fetched": fetched,
         "pages": page,
+        "mode": "incremental" if modified_since is not None else "full",
+        "complete": complete,
     }
 
 

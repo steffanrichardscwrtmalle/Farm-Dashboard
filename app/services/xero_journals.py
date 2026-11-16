@@ -14,6 +14,7 @@ from app.config import XERO_API_BASE_URL
 from app.models import XeroManualJournal, XeroManualJournalLine, XeroOrganisation
 from app.services.xero_auth import XeroAuthError
 from app.services.xero_dates import parse_xero_date, parse_xero_datetime
+from app.services.xero_incremental import modified_since_header
 from app.services.xero_orgs import resolve_access_token
 
 JOURNAL_STATUSES = frozenset({"POSTED"})
@@ -42,6 +43,7 @@ def _get_json(
     access_token: str,
     tenant_id: str,
     params: dict[str, Any] | None = None,
+    modified_since: dt.datetime | None = None,
 ) -> dict[str, Any]:
     for attempt in range(6):
         response = client.get(
@@ -51,6 +53,7 @@ def _get_json(
                 "Authorization": f"Bearer {access_token}",
                 "Xero-Tenant-Id": tenant_id,
                 "Accept": "application/json",
+                **modified_since_header(modified_since),
             },
         )
         if response.status_code == 429:
@@ -71,6 +74,7 @@ def fetch_manual_journals_page(
     access_token: str,
     tenant_id: str,
     page: int,
+    modified_since: dt.datetime | None = None,
 ) -> list[dict[str, Any]]:
     payload = _get_json(
         client,
@@ -78,6 +82,7 @@ def fetch_manual_journals_page(
         access_token=access_token,
         tenant_id=tenant_id,
         params={"page": page},
+        modified_since=modified_since,
     )
     return list(payload.get("ManualJournals") or [])
 
@@ -159,17 +164,22 @@ def sync_journals_for_organisation(
     *,
     access_token: str,
     organisation: XeroOrganisation,
+    modified_since: dt.datetime | None = None,
 ) -> dict[str, Any]:
+    started = _utcnow()
     page = 1
     fetched = 0
+    complete = False
     while page <= _MAX_PAGES:
         journals = fetch_manual_journals_page(
             client,
             access_token=access_token,
             tenant_id=organisation.tenant_id,
             page=page,
+            modified_since=modified_since,
         )
         if not journals:
+            complete = True
             break
         for payload in journals:
             journal_id = str(payload.get("ManualJournalID") or "").strip()
@@ -191,14 +201,20 @@ def sync_journals_for_organisation(
             fetched += 1
         db.commit()
         if len(journals) < 100:
+            complete = True
             break
         page += 1
+    if complete:
+        organisation.journals_synced_at = started
+        db.commit()
     return {
         "tenant_id": organisation.tenant_id,
         "tenant_name": organisation.tenant_name,
         "dashboard_business": organisation.dashboard_business,
         "fetched": fetched,
         "pages": page,
+        "mode": "incremental" if modified_since is not None else "full",
+        "complete": complete,
     }
 
 

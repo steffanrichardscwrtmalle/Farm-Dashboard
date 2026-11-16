@@ -128,6 +128,46 @@
     font-size: 0.875rem;
     padding: 0.85rem;
   }
+  .actuals-table .cat-label {
+    display: block;
+  }
+  @media (max-width: 768px) {
+    main {
+      padding: 0.45rem 0.3rem 0.6rem;
+    }
+    .filters select {
+      min-width: 0;
+      width: 100%;
+    }
+    .actuals-table {
+      font-size: 0.72rem;
+    }
+    .actuals-table th,
+    .actuals-table td {
+      padding: 0.16rem 0.24rem;
+    }
+    .actuals-table th.cat,
+    .actuals-table td.cat {
+      width: 6.25rem;
+      min-width: 6.25rem;
+      max-width: 6.25rem;
+      white-space: nowrap;
+    }
+    .actuals-table .cat-label {
+      width: 5.75rem;
+      max-width: 5.75rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .actuals-table .code-hint {
+      display: none;
+    }
+    .actuals-table th.cls,
+    .actuals-table td.cls {
+      display: none;
+    }
+  }
 {% endblock %}
 
 {% block content %}
@@ -214,7 +254,7 @@
           : "";
         return `
           <tr>
-            <td class="cat">${row.category || row.label}${codeHint}</td>
+            <td class="cat" title="${String(row.category || row.label || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")}"><span class="cat-label">${row.category || row.label}</span>${codeHint}</td>
             <td class="cls">${classPill(row)}</td>
             ${cells}
             <td class="num">${formatAmount(row.total)}</td>
@@ -240,7 +280,7 @@
               <tbody>
                 ${body}
                 <tr class="total-row">
-                  <td class="cat">${section.label} total</td>
+                  <td class="cat"><span class="cat-label">${section.label} total</span></td>
                   <td class="cls"></td>
                   ${totalCells}
                   <td class="num">${formatAmount(section.totals.total)}</td>

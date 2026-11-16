@@ -766,6 +766,14 @@ class XeroOrganisation(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+    # Start time of the last sync that finished inside the page cap.
+    # The next sync asks Xero for changes since this time, minus a short overlap.
+    invoices_synced_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    credit_notes_synced_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    journals_synced_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    bank_synced_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class XeroInvoice(Base):

@@ -16,6 +16,12 @@ from app.services.xero_accounts import sync_accounts_for_organisation
 from app.services.xero_amounts import normalize_line_amount_types
 from app.services.xero_auth import XeroAuthError
 from app.services.xero_dates import parse_xero_date, parse_xero_datetime
+from app.services.xero_incremental import (
+    credit_notes_modified_since,
+    invoices_modified_since,
+    modified_since_header,
+    overall_sync_mode,
+)
 from app.services.xero_orgs import resolve_access_token
 
 _INVOICE_TYPES = ("ACCREC", "ACCPAY")
@@ -58,6 +64,7 @@ def fetch_invoices_page(
     access_token: str,
     tenant_id: str,
     page: int,
+    modified_since: dt.datetime | None = None,
 ) -> list[dict[str, Any]]:
     response = client.get(
         f"{XERO_API_BASE_URL}/Invoices",
@@ -66,6 +73,7 @@ def fetch_invoices_page(
             "Authorization": f"Bearer {access_token}",
             "Xero-Tenant-Id": tenant_id,
             "Accept": "application/json",
+            **modified_since_header(modified_since),
         },
     )
     if response.status_code >= 400:
@@ -168,6 +176,7 @@ def fetch_credit_notes_page(
     access_token: str,
     tenant_id: str,
     page: int,
+    modified_since: dt.datetime | None = None,
 ) -> list[dict[str, Any]]:
     for attempt in range(6):
         response = client.get(
@@ -177,6 +186,7 @@ def fetch_credit_notes_page(
                 "Authorization": f"Bearer {access_token}",
                 "Xero-Tenant-Id": tenant_id,
                 "Accept": "application/json",
+                **modified_since_header(modified_since),
             },
         )
         if response.status_code == 429:
@@ -225,17 +235,22 @@ def sync_credit_notes_for_organisation(
     *,
     access_token: str,
     organisation: XeroOrganisation,
+    modified_since: dt.datetime | None = None,
 ) -> dict[str, Any]:
+    started = _utcnow()
     page = 1
     fetched = 0
+    complete = False
     while page <= _MAX_PAGES_PER_TENANT:
         notes = fetch_credit_notes_page(
             client,
             access_token=access_token,
             tenant_id=organisation.tenant_id,
             page=page,
+            modified_since=modified_since,
         )
         if not notes:
+            complete = True
             break
         for payload in notes:
             credit_note_id = str(payload.get("CreditNoteID") or "").strip()
@@ -260,14 +275,20 @@ def sync_credit_notes_for_organisation(
             fetched += 1
         db.commit()
         if len(notes) < 100:
+            complete = True
             break
         page += 1
+    if complete:
+        organisation.credit_notes_synced_at = started
+        db.commit()
     return {
         "tenant_id": organisation.tenant_id,
         "tenant_name": organisation.tenant_name,
         "dashboard_business": organisation.dashboard_business,
         "fetched": fetched,
         "pages": page,
+        "mode": "incremental" if modified_since is not None else "full",
+        "complete": complete,
     }
 
 
@@ -277,17 +298,22 @@ def sync_invoices_for_organisation(
     *,
     access_token: str,
     organisation: XeroOrganisation,
+    modified_since: dt.datetime | None = None,
 ) -> dict[str, Any]:
+    started = _utcnow()
     page = 1
     fetched = 0
+    complete = False
     while page <= _MAX_PAGES_PER_TENANT:
         invoices = fetch_invoices_page(
             client,
             access_token=access_token,
             tenant_id=organisation.tenant_id,
             page=page,
+            modified_since=modified_since,
         )
         if not invoices:
+            complete = True
             break
         for payload in invoices:
             upsert_invoice(
@@ -299,14 +325,20 @@ def sync_invoices_for_organisation(
             fetched += 1
         db.commit()
         if len(invoices) < 100:
+            complete = True
             break
         page += 1
+    if complete:
+        organisation.invoices_synced_at = started
+        db.commit()
     return {
         "tenant_id": organisation.tenant_id,
         "tenant_name": organisation.tenant_name,
         "dashboard_business": organisation.dashboard_business,
         "fetched": fetched,
         "pages": page,
+        "mode": "incremental" if modified_since is not None else "full",
+        "complete": complete,
     }
 
 
@@ -316,8 +348,15 @@ def sync_all_invoices(db: Session) -> dict[str, Any]:
         raise XeroAuthError(
             "Map at least one Xero organisation to a dashboard business before syncing."
         )
-    from app.services.xero_bank_transactions import sync_bank_transactions_for_organisation
-    from app.services.xero_journals import sync_journals_for_organisation
+    from app.services.xero_bank_transactions import (
+        _MAX_PAGES as _BANK_MAX_PAGES,
+        sync_bank_transactions_for_organisation,
+    )
+    from app.services.xero_incremental import bank_modified_since, journals_modified_since
+    from app.services.xero_journals import (
+        _MAX_PAGES as _JOURNAL_MAX_PAGES,
+        sync_journals_for_organisation,
+    )
 
     access_token = resolve_access_token(db)
     results: list[dict[str, Any]] = []
@@ -333,6 +372,9 @@ def sync_all_invoices(db: Session) -> dict[str, Any]:
                     client,
                     access_token=access_token,
                     organisation=organisation,
+                    modified_since=invoices_modified_since(
+                        db, organisation, page_cap=_MAX_PAGES_PER_TENANT
+                    ),
                 )
             )
             credit_results.append(
@@ -341,6 +383,9 @@ def sync_all_invoices(db: Session) -> dict[str, Any]:
                     client,
                     access_token=access_token,
                     organisation=organisation,
+                    modified_since=credit_notes_modified_since(
+                        db, organisation, page_cap=_MAX_PAGES_PER_TENANT
+                    ),
                 )
             )
             account_results.append(
@@ -357,6 +402,9 @@ def sync_all_invoices(db: Session) -> dict[str, Any]:
                     client,
                     access_token=access_token,
                     organisation=organisation,
+                    modified_since=journals_modified_since(
+                        db, organisation, page_cap=_JOURNAL_MAX_PAGES
+                    ),
                 )
             )
             bank_results.append(
@@ -365,6 +413,9 @@ def sync_all_invoices(db: Session) -> dict[str, Any]:
                     client,
                     access_token=access_token,
                     organisation=organisation,
+                    modified_since=bank_modified_since(
+                        db, organisation, page_cap=_BANK_MAX_PAGES
+                    ),
                 )
             )
     summary = invoice_summary(db)
@@ -380,6 +431,9 @@ def sync_all_invoices(db: Session) -> dict[str, Any]:
         "bank_transactions": bank_results,
         "bank_transactions_fetched_total": sum(
             int(item["fetched"]) for item in bank_results
+        ),
+        "sync_mode": overall_sync_mode(
+            results, credit_results, journal_results, bank_results
         ),
         "summary": summary,
     }

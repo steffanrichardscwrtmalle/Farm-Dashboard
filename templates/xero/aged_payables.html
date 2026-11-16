@@ -417,6 +417,74 @@
     margin: 0 0 0.75rem;
     font-weight: 700;
   }
+  .aged-table .contact-label {
+    display: block;
+  }
+  @media (max-width: 768px) {
+    main {
+      padding: 0.4rem 0.3rem 0.55rem;
+    }
+    .aged-toolbar {
+      gap: 0.4rem;
+      margin-bottom: 0.35rem;
+    }
+    .aged-toolbar-left,
+    .aged-toolbar-right {
+      width: 100%;
+    }
+    .view-tab,
+    .auto-sort-btn,
+    .payments-btn {
+      padding: 0.32rem 0.55rem;
+      font-size: 0.78rem;
+    }
+    .contact-search {
+      flex: 1 1 7rem;
+      min-width: 0;
+    }
+    .to-pay-widget {
+      flex: 1;
+      min-width: 0;
+      padding: 0.28rem 0.6rem;
+    }
+    .to-pay-widget .value {
+      font-size: 1.15rem;
+    }
+    .meta-line {
+      margin-bottom: 0.35rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .grid-scroll {
+      width: 100%;
+      max-height: calc(100dvh - 8.5rem);
+    }
+    .aged-table {
+      font-size: 0.72rem;
+    }
+    .aged-table th,
+    .aged-table td {
+      padding: 0.14rem 0.22rem;
+    }
+    .aged-table .sticky-col {
+      width: 5.75rem;
+      min-width: 5.75rem;
+      max-width: 5.75rem;
+      white-space: nowrap;
+    }
+    .aged-table .contact-label {
+      width: 5.3rem;
+      max-width: 5.3rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .aged-table .num {
+      min-width: 3.4rem;
+    }
+  }
 {% endblock %}
 
 {% block content %}
@@ -434,6 +502,7 @@
         {% endfor %}
       </div>
       <button type="button" class="auto-sort-btn" id="auto-sort-btn" title="Sort red, then blank, then blue; then To Pay, then Total. Click again to re-sort.">Auto Sort</button>
+      <button type="button" class="auto-sort-btn" id="export-xlsx-btn">Export XLSX</button>
       <input type="search" id="contact-search" class="contact-search" placeholder="Search contact…" autocomplete="off" aria-label="Search contact">
     </div>
     <div class="aged-toolbar-right">
@@ -1526,7 +1595,7 @@
         return `
           <tr class="${rowClass.trim()}" data-contact="${esc(row.contact)}" data-contact-ids="${esc(ids.join(","))}">
             <td class="col-colour${statusClass}" title="${statusTitle}"></td>
-            <td class="sticky-col contact-cell${statusClass}" title="${statusTitle}">${esc(row.contact)}</td>
+            <td class="sticky-col contact-cell${statusClass}" title="${esc(`${row.contact}. ${statusTitle}`)}"><span class="contact-label">${esc(row.contact)}</span></td>
             ${cells}
             <td class="num col-total${totalNeg}${totalClickable}" data-month="__all__" title="${standingOrder ? "Covered by direct debit / standing order" : "Click to mark all months for this contact"}">${formatAmount(row.total)}</td>
             ${toPayCell}
@@ -1554,7 +1623,7 @@
         ${bodyRows}
         <tr class="total-row">
           <td class="col-colour"></td>
-          <td class="sticky-col">Total</td>
+          <td class="sticky-col"><span class="contact-label">Total</span></td>
           ${totalCells}
           <td class="num col-total${grandNeg}">${formatAmount(visibleGrand)}</td>
           <td class="num col-topay${grandToPayNeg}">${formatAmount(visibleToPay)}</td>
@@ -1852,6 +1921,293 @@
         hidePaymentsModal();
         loadAgedPayables();
       });
+    });
+
+    const XLSX_FONT = "Calibri";
+    const XLSX_TEXT = "1F2933";
+    const XLSX_MUTED = "5F6B7A";
+    const XLSX_NEG = "B42318";
+    const XLSX_GBP = "£#,##0.00";
+    let excelJsPromise = null;
+
+    function ensureExcelJS() {
+      if (typeof ExcelJS !== "undefined") return Promise.resolve();
+      if (excelJsPromise) return excelJsPromise;
+      excelJsPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
+        script.crossOrigin = "anonymous";
+        script.onload = () => {
+          if (typeof ExcelJS === "undefined") {
+            excelJsPromise = null;
+            reject(new Error("ExcelJS missing"));
+            return;
+          }
+          resolve();
+        };
+        script.onerror = () => {
+          excelJsPromise = null;
+          reject(new Error("ExcelJS failed to load"));
+        };
+        document.head.appendChild(script);
+      });
+      return excelJsPromise;
+    }
+
+    function xlsxArgb(hex) {
+      return "FF" + String(hex || "").replace("#", "");
+    }
+
+    function xlsxFill(hex) {
+      const argb = xlsxArgb(hex);
+      return { type: "pattern", pattern: "solid", fgColor: { argb }, bgColor: { argb } };
+    }
+
+    function styleAgedCell(cell, options) {
+      cell.value = options.value == null ? null : options.value;
+      cell.fill = xlsxFill(options.fill);
+      cell.font = {
+        name: XLSX_FONT,
+        size: options.size || 10,
+        bold: !!options.bold,
+        color: { argb: xlsxArgb(options.fontColor || XLSX_TEXT) },
+      };
+      cell.alignment = {
+        horizontal: options.align || "left",
+        vertical: "middle",
+      };
+      cell.border = {
+        bottom: { style: "thin", color: { argb: xlsxArgb("D8DEE4") } },
+        right: { style: "thin", color: { argb: xlsxArgb("CBD5E1") } },
+      };
+      if (options.numFmt && options.value != null && typeof options.value === "number") {
+        cell.numFmt = options.numFmt;
+      }
+    }
+
+    function xlsxAmount(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n) || Math.abs(n) < 0.005) return null;
+      return Math.round(n * 100) / 100;
+    }
+
+    function xlsxSheetName(label) {
+      const clean = String(label || "Aged payables").replace(/[\\/?*[\]:]/g, " ").replace(/\s+/g, " ").trim();
+      return (clean || "Aged payables").slice(0, 31);
+    }
+
+    function xlsxFileBase(label) {
+      const clean = String(label || "Aged payables").replace(/[<>:"/\\|?*]+/g, " ").replace(/\s+/g, " ").trim();
+      return `Aged payables ${clean || "export"}`;
+    }
+
+    function displayedAgedExport() {
+      if (!tableData) return null;
+      const display = applyLocalPayments(tableData);
+      const rows = matchingContacts(display);
+      if (!rows.length) return null;
+      return { display, rows };
+    }
+
+    async function buildAgedXlsx(display, rows) {
+      const dates = display.months || [];
+      const labels = display.month_labels || [];
+      const query = contactQuery();
+      const headers = ["", "Contact", ...dates.map((key, i) => labels[i] || key), "Total", "To Pay"];
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "Farm Dashboard";
+      workbook.created = new Date();
+      const ws = workbook.addWorksheet(xlsxSheetName(display.business_label), {
+        properties: { defaultRowHeight: 18 },
+        views: [{
+          state: "frozen",
+          xSplit: 2,
+          ySplit: 1,
+          topLeftCell: "C2",
+          activeCell: "C2",
+          showGridLines: false,
+        }],
+        pageSetup: {
+          orientation: "landscape",
+          fitToPage: true,
+          fitToWidth: 1,
+          fitToHeight: 0,
+          paperSize: 9,
+          printTitlesRow: "1:1",
+        },
+      });
+      const meta = `${display.business_label || "Aged payables"}${query ? ` · matching “${query}”` : ""}`;
+      ws.headerFooter = {
+        oddHeader: `&L&8&K5F6B7A${meta.replace(/&/g, "&&")}`,
+        oddFooter: "&R&8Page &P of &N",
+      };
+
+      headers.forEach((header, index) => {
+        const isOlder = dates[index - 2] === "older";
+        const isTotal = index === headers.length - 2;
+        const isToPay = index === headers.length - 1;
+        let fill = "F8FAFC";
+        let fontColor = XLSX_MUTED;
+        if (isOlder) fill = "E2E8F0";
+        if (isTotal) fill = "FED7AA";
+        if (isToPay) {
+          fill = "BBF7D0";
+          fontColor = "14532D";
+        }
+        styleAgedCell(ws.getCell(1, index + 1), {
+          value: String(header || "").toUpperCase(),
+          fill,
+          fontColor,
+          bold: true,
+          size: 9,
+          align: index < 2 ? "left" : "right",
+        });
+      });
+      ws.getRow(1).height = 22;
+
+      rows.forEach((row, rowIndex) => {
+        const excelRow = rowIndex + 2;
+        const amounts = row.amounts || {};
+        const ids = contactIdsFromRow(row);
+        const status = getContactStatus(row.contact, ids);
+        const standing = status === "standing_order";
+        const critical = status === "critical";
+        const flagFill = standing ? "2563EB" : critical ? "DC2626" : "E5E7EB";
+        const contactFill = standing ? "93C5FD" : critical ? "FECACA" : "FFFFFF";
+        const contactFont = standing ? "1E3A8A" : critical ? "7F1D1D" : XLSX_TEXT;
+        styleAgedCell(ws.getCell(excelRow, 1), { value: null, fill: flagFill });
+        styleAgedCell(ws.getCell(excelRow, 2), {
+          value: row.contact || "",
+          fill: contactFill,
+          fontColor: contactFont,
+          bold: standing || critical,
+        });
+        dates.forEach((key, index) => {
+          const n = xlsxAmount(amounts[key]);
+          const selected = !standing && n != null && isSelected(row.contact, key, ids);
+          let fill = "FFFFFF";
+          if (standing) fill = "BFDBFE";
+          else if (selected) fill = "BBF7D0";
+          else if (key === "older") fill = "F1F5F9";
+          else if (critical) fill = "FFF1F2";
+          styleAgedCell(ws.getCell(excelRow, index + 3), {
+            value: n,
+            fill,
+            fontColor: n != null && n < 0 ? XLSX_NEG : (standing ? "1E3A8A" : XLSX_TEXT),
+            align: "right",
+            numFmt: XLSX_GBP,
+          });
+        });
+        const total = xlsxAmount(row.total);
+        const toPay = standing ? null : xlsxAmount(rowToPay(row, dates));
+        styleAgedCell(ws.getCell(excelRow, dates.length + 3), {
+          value: total,
+          fill: standing ? "BFDBFE" : "FFEDD5",
+          fontColor: total != null && total < 0 ? XLSX_NEG : (standing ? "1E3A8A" : XLSX_TEXT),
+          align: "right",
+          numFmt: XLSX_GBP,
+        });
+        styleAgedCell(ws.getCell(excelRow, dates.length + 4), {
+          value: standing ? "—" : toPay,
+          fill: standing ? "BFDBFE" : (toPay != null ? "DCFCE7" : "ECFDF5"),
+          fontColor: !standing && toPay != null && toPay < 0 ? XLSX_NEG : (standing ? "1E3A8A" : "14532D"),
+          bold: !standing && toPay != null,
+          align: "right",
+          numFmt: XLSX_GBP,
+        });
+      });
+
+      const totals = query
+        ? dates.reduce((acc, key) => {
+            acc[key] = rows.reduce((sum, row) => sum + Number((row.amounts || {})[key] || 0), 0);
+            return acc;
+          }, {})
+        : (display.column_totals || {});
+      const grand = query
+        ? rows.reduce((sum, row) => sum + Number(row.total || 0), 0)
+        : Number(display.grand_total);
+      const toPayTotal = rows.reduce((sum, row) => sum + rowToPay(row, dates), 0);
+      const totalRow = rows.length + 2;
+      styleAgedCell(ws.getCell(totalRow, 1), { value: null, fill: "E2E8F0" });
+      styleAgedCell(ws.getCell(totalRow, 2), { value: "Total", fill: "FFEDD5", bold: true });
+      dates.forEach((key, index) => {
+        const n = xlsxAmount(totals[key]);
+        styleAgedCell(ws.getCell(totalRow, index + 3), {
+          value: n,
+          fill: key === "older" ? "E2E8F0" : "F8FAFC",
+          fontColor: n != null && n < 0 ? XLSX_NEG : XLSX_TEXT,
+          bold: true,
+          align: "right",
+          numFmt: XLSX_GBP,
+        });
+      });
+      const grandAmount = xlsxAmount(grand);
+      const toPayAmount = xlsxAmount(toPayTotal);
+      styleAgedCell(ws.getCell(totalRow, dates.length + 3), {
+        value: grandAmount,
+        fill: "FFEDD5",
+        fontColor: grandAmount != null && grandAmount < 0 ? XLSX_NEG : XLSX_TEXT,
+        bold: true,
+        align: "right",
+        numFmt: XLSX_GBP,
+      });
+      styleAgedCell(ws.getCell(totalRow, dates.length + 4), {
+        value: toPayAmount,
+        fill: "F8FAFC",
+        fontColor: toPayAmount != null && toPayAmount < 0 ? XLSX_NEG : "14532D",
+        bold: true,
+        align: "right",
+        numFmt: XLSX_GBP,
+      });
+      ws.getRow(totalRow).height = 20;
+
+      let contactWidth = 18;
+      rows.forEach((row) => {
+        contactWidth = Math.max(contactWidth, String(row.contact || "").length + 2);
+      });
+      ws.getColumn(1).width = 4;
+      ws.getColumn(2).width = Math.min(contactWidth, 42);
+      for (let index = 3; index <= headers.length; index += 1) {
+        ws.getColumn(index).width = 13;
+      }
+      return workbook.xlsx.writeBuffer();
+    }
+
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById("export-xlsx-btn").addEventListener("click", async () => {
+      const shown = displayedAgedExport();
+      if (!shown) {
+        alert("Nothing to export yet.");
+        return;
+      }
+      const btn = document.getElementById("export-xlsx-btn");
+      btn.disabled = true;
+      const original = btn.textContent;
+      btn.textContent = "Generating…";
+      try {
+        await ensureExcelJS();
+        const buffer = await buildAgedXlsx(shown.display, shown.rows);
+        downloadBlob(
+          new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+          `${xlsxFileBase(shown.display.business_label)}.xlsx`,
+        );
+      } catch (err) {
+        console.error(err);
+        alert("Could not generate the Excel file. Check your connection and try again.");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
     });
 
     loadAgedPayables();
