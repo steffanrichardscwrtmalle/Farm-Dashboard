@@ -2344,7 +2344,11 @@
       if (!rows.length) return;
 
       const labels = rows.map(r => r.event_month);
-      const datasets = ["dairy", "beef"].map(semenType => ({
+      const chartTypes = ["dairy", "beef"];
+      if (selectedSemenTypes().includes("unknown")) {
+        chartTypes.push("unknown");
+      }
+      const datasets = chartTypes.map(semenType => ({
         label: capitalizeSemenLabel(semenType),
         data: rows.map(r => r[semenType] ?? 0),
         backgroundColor: SEMEN_COLORS[semenType] || "#888",

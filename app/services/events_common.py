@@ -76,7 +76,7 @@ SALES_MAPPED_REMARKS: tuple[str, ...] = ("OFS", *SALES_TB_REMARKS, "CAR16", *SAL
 # sales in reporting via sales_classified_event_clause().
 DIED_AS_SALES_REMARKS: tuple[str, ...] = ("TB", "OFS")
 BREEDINGS_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy", "unknown")
-BREEDINGS_CHART_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy")
+BREEDINGS_CHART_SEMEN_ORDER: tuple[str, ...] = ("beef", "dairy", "unknown")
 
 
 def sales_classified_event_clause():
@@ -1804,13 +1804,15 @@ def _build_breedings_bundle(
         counts = semen_chart_pivot.get(event_month, {name: 0 for name in BREEDINGS_CHART_SEMEN_ORDER})
         beef = counts.get("beef", 0)
         dairy = counts.get("dairy", 0)
+        unknown = counts.get("unknown", 0)
         chart_rows.append(
             {
                 "event_month": event_month,
                 "sort_key": _sort_key_from_date(month_start),
                 "beef": beef,
                 "dairy": dairy,
-                "total": beef + dairy,
+                "unknown": unknown,
+                "total": beef + dairy + unknown,
             }
         )
 
