@@ -50,6 +50,7 @@ from app.services.hr_service import (
     list_job_titles,
     list_staff,
     list_templates,
+    record_pay_change,
     remove_job_title,
     save_draft,
     send_existing_employee,
@@ -362,6 +363,31 @@ def api_update_staff(
         raise HTTPException(status_code=400, detail="Invalid business.")
     try:
         return update_employee(db, employee_id, body.model_dump(), user)
+    except HRServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class PayRateChangeBody(BaseModel):
+    pay_rate: str = Field(min_length=1, max_length=64)
+    effective_from: dt.date
+
+
+@router.post("/staff/{employee_id}/pay-rate")
+def api_record_pay_change(
+    employee_id: int,
+    body: PayRateChangeBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_action(ACTION_HR_ENROLL)),
+):
+    try:
+        return record_pay_change(
+            db,
+            employee_id,
+            pay_rate=body.pay_rate,
+            effective_from=body.effective_from,
+            user=user,
+            include_sensitive=has_action(user, ACTION_HR_VIEW_SENSITIVE),
+        )
     except HRServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

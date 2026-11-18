@@ -34,6 +34,7 @@ from app.models import (
     TIMESHEET_FARM_OPTIONS,
     TIMESHEET_FORTNIGHT_DAYS,
     Employee,
+    EmployeePayRate,
     EmployeeTimesheetEntry,
 )
 from app.services.crypto_fields import decrypt_field
@@ -217,6 +218,7 @@ def list_timesheet(
     holiday_hours_by_employee = _holiday_hours_by_employee(
         db, [row.id for row in staff]
     )
+    pay_rates = _pay_rates_by_employee(db, [row.id for row in staff])
     return {
         "farm": farm_key,
         "farm_label": farm_label(farm_key),
@@ -234,6 +236,7 @@ def list_timesheet(
                 as_of=start,
                 period_start=start,
                 period_end=end,
+                pay_rates=pay_rates.get(employee.id, []),
             )
             for employee in staff
         ],
@@ -340,6 +343,7 @@ def save_timesheet_row(
         as_of=start,
         period_start=start,
         period_end=end,
+        pay_rates=_pay_rates_by_employee(db, [employee.id]).get(employee.id, []),
     )
 
 
@@ -417,18 +421,22 @@ def _serialize_row(
     as_of: dt.date | None = None,
     period_start: dt.date | None = None,
     period_end: dt.date | None = None,
+    pay_rates: list[EmployeePayRate] | None = None,
 ) -> dict[str, Any]:
     as_of = as_of or dt.date.today()
     pay_type = employee.pay_type or PAY_TYPE_HOURLY
     hours_locked = pay_type == PAY_TYPE_SALARY
     rate_value = None
     rate_label = None
-    salary_weekly = None
+    week_1_pay = None
+    week_2_pay = None
     if include_rate or hours_locked:
-        amount, label = _display_rate(pay_type, decrypt_field(employee.pay_rate_enc))
+        amount, label = _period_rate(
+            pay_type, pay_rates or [], employee, period_start, period_end
+        )
         if hours_locked:
-            salary_weekly = (
-                round(amount / WEEKS_PER_YEAR, 2) if amount is not None else None
+            week_1_pay, week_2_pay = _salary_week_amounts(
+                pay_rates or [], employee, period_start, period_end, amount
             )
         if include_rate:
             rate_value, rate_label = amount, label
@@ -459,12 +467,12 @@ def _serialize_row(
         "rate_label": rate_label,
         "hours_locked": hours_locked,
         "hours_week_1": (
-            salary_weekly
+            week_1_pay
             if hours_locked
             else _num(entry.hours_week_1 if entry else None)
         ),
         "hours_week_2": (
-            salary_weekly
+            week_2_pay
             if hours_locked
             else _num(entry.hours_week_2 if entry else None)
         ),
@@ -1003,6 +1011,129 @@ def _holidays_carry_forward(
     if remaining is None:
         return None
     return round(float(remaining) - float(period_days or 0), 2)
+
+
+def _pay_rates_by_employee(
+    db: Session, employee_ids: list[int]
+) -> dict[int, list[EmployeePayRate]]:
+    grouped: dict[int, list[EmployeePayRate]] = {eid: [] for eid in employee_ids}
+    if not employee_ids:
+        return grouped
+    rows = db.scalars(
+        select(EmployeePayRate)
+        .where(EmployeePayRate.employee_id.in_(employee_ids))
+        .order_by(EmployeePayRate.effective_from, EmployeePayRate.id)
+    ).all()
+    for row in rows:
+        grouped.setdefault(row.employee_id, []).append(row)
+    return grouped
+
+
+def _amount_on_day(
+    rates: list[EmployeePayRate], employee: Employee, day: dt.date
+) -> float | None:
+    chosen: str | None = None
+    for row in rates:
+        if row.effective_from <= day:
+            chosen = row.pay_rate_enc
+        else:
+            break
+    if chosen is None:
+        chosen = employee.pay_rate_enc
+    return _parse_money(decrypt_field(chosen))
+
+
+def _rate_segments(
+    rates: list[EmployeePayRate],
+    employee: Employee,
+    start: dt.date,
+    end: dt.date,
+) -> list[tuple[dt.date, float | None]]:
+    segments: list[tuple[dt.date, float | None]] = []
+    day = start
+    current = _amount_on_day(rates, employee, day)
+    seg_start = day
+    day += dt.timedelta(days=1)
+    while day <= end:
+        amount = _amount_on_day(rates, employee, day)
+        if amount != current:
+            segments.append((seg_start, current))
+            seg_start = day
+            current = amount
+        day += dt.timedelta(days=1)
+    segments.append((seg_start, current))
+    return segments
+
+
+def _period_rate(
+    pay_type: str,
+    rates: list[EmployeePayRate],
+    employee: Employee,
+    start: dt.date | None,
+    end: dt.date | None,
+) -> tuple[float | None, str | None]:
+    if start is None or end is None:
+        amount = _amount_on_day(rates, employee, dt.date.today())
+        return _display_rate(pay_type, None if amount is None else f"{amount:.2f}")
+    segments = _rate_segments(rates, employee, start, end)
+    if len(segments) == 1:
+        amount = segments[0][1]
+        return _display_rate(pay_type, None if amount is None else f"{amount:.2f}")
+    parts: list[str] = []
+    for index, (seg_start, amount) in enumerate(segments):
+        _, label = _display_rate(pay_type, None if amount is None else f"{amount:.2f}")
+        shown = label or "—"
+        if index == 0:
+            until = segments[1][0] - dt.timedelta(days=1)
+            parts.append(f"{shown} until {until.strftime('%d/%m/%Y')}")
+        else:
+            parts.append(f"{shown} from {seg_start.strftime('%d/%m/%Y')}")
+    return segments[0][1], " · ".join(parts)
+
+
+def _salary_week_amounts(
+    rates: list[EmployeePayRate],
+    employee: Employee,
+    start: dt.date | None,
+    end: dt.date | None,
+    fallback: float | None,
+) -> tuple[float | None, float | None]:
+    if start is None or end is None:
+        weekly = round(fallback / WEEKS_PER_YEAR, 2) if fallback is not None else None
+        return weekly, weekly
+    span = (end - start).days + 1
+    if span == TIMESHEET_FORTNIGHT_DAYS:
+        week_1_end = start + dt.timedelta(days=6)
+        week_2_start = start + dt.timedelta(days=7)
+        return (
+            _salary_weekly_equivalent(rates, employee, start, week_1_end),
+            _salary_weekly_equivalent(rates, employee, week_2_start, end),
+        )
+    weekly = _salary_weekly_equivalent(rates, employee, start, end)
+    return weekly, weekly
+
+
+def _salary_weekly_equivalent(
+    rates: list[EmployeePayRate],
+    employee: Employee,
+    start: dt.date,
+    end: dt.date,
+) -> float | None:
+    days = (end - start).days + 1
+    if days <= 0:
+        return None
+    total = 0.0
+    seen = False
+    day = start
+    while day <= end:
+        annual = _amount_on_day(rates, employee, day)
+        if annual is not None:
+            seen = True
+            total += annual / WEEKS_PER_YEAR / 7.0
+        day += dt.timedelta(days=1)
+    if not seen:
+        return None
+    return round(total / (days / 7.0), 2)
 
 
 def _display_rate(

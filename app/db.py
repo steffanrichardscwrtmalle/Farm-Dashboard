@@ -1456,6 +1456,13 @@ def _migrate_hr_schema() -> None:
             )
 
     inspector = inspect(engine)
+    if "employee_pay_rates" not in inspector.get_table_names():
+        from app.models import EmployeePayRate
+
+        EmployeePayRate.__table__.create(bind=engine, checkfirst=True)
+    _backfill_employee_pay_rates()
+
+    inspector = inspect(engine)
     if "employee_timesheet_entries" not in inspector.get_table_names():
         from app.models import EmployeeTimesheetEntry
 
@@ -1516,6 +1523,36 @@ def _migrate_hr_schema() -> None:
                     docuseal_template_id=template_id,
                     description=description,
                     is_active=True,
+                )
+            )
+            added = True
+        if added:
+            db.commit()
+
+
+def _backfill_employee_pay_rates() -> None:
+    """Keep the current rate as the rate from each staff member's start date.
+
+    Later adjustments are stored separately, so this does not invent history
+    for rises that were overwritten before pay changes were recorded.
+    """
+    from sqlalchemy import select
+
+    from app.models import PAY_TYPE_HOURLY, Employee, EmployeePayRate
+
+    with SessionLocal() as db:
+        existing_ids = set(db.scalars(select(EmployeePayRate.employee_id)).all())
+        employees = db.scalars(select(Employee)).all()
+        added = False
+        for employee in employees:
+            if employee.id in existing_ids or not employee.pay_rate_enc:
+                continue
+            db.add(
+                EmployeePayRate(
+                    employee_id=employee.id,
+                    effective_from=employee.start_date,
+                    pay_type=employee.pay_type or PAY_TYPE_HOURLY,
+                    pay_rate_enc=employee.pay_rate_enc,
                 )
             )
             added = True

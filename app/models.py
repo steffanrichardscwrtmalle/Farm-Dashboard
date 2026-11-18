@@ -2155,6 +2155,11 @@ class Employee(Base):
         back_populates="employee",
         cascade="all, delete-orphan",
     )
+    pay_rates: Mapped[list[EmployeePayRate]] = relationship(
+        back_populates="employee",
+        order_by="EmployeePayRate.effective_from",
+        cascade="all, delete-orphan",
+    )
 
 
 class EmployeeContract(Base):
@@ -2206,6 +2211,36 @@ class EmployeeDocument(Base):
     )
 
     employee: Mapped[Employee] = relationship(back_populates="documents")
+
+
+class EmployeePayRate(Base):
+    """A pay rate that applies from effective_from until the next change."""
+
+    __tablename__ = "employee_pay_rates"
+    __table_args__ = (
+        UniqueConstraint(
+            "employee_id",
+            "effective_from",
+            name="uq_employee_pay_rate_effective",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    effective_from: Mapped[datetime.date] = mapped_column(Date, index=True)
+    pay_type: Mapped[str] = mapped_column(String(16), default=PAY_TYPE_HOURLY)
+    pay_rate_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    employee: Mapped[Employee] = relationship(back_populates="pay_rates")
 
 
 class EmployeeTimesheetEntry(Base):

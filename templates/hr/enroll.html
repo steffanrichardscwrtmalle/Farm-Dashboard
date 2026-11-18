@@ -299,6 +299,7 @@
             <label>
               <span id="pay_rate_label">Hourly rate (£)</span>
               <input type="text" id="pay_rate" placeholder="e.g. 12.50" autocomplete="off">
+              <small class="muted" id="pay-rate-note">Later changes belong on the staff profile. Choose the date the new rate starts so earlier time sheets keep the old rate.</small>
             </label>
             <label>
               Working days per week
@@ -938,6 +939,15 @@
       setVal('next_of_kin_phone', emp.next_of_kin_phone);
       applySensitive('ni_number', emp.ni_number, emp.has_sensitive_data);
       applySensitive('pay_rate', emp.pay_rate, emp.has_sensitive_data);
+      const payNote = document.getElementById('pay-rate-note');
+      const rateLocked = (emp.pay_changes || []).length > 1;
+      payTypeEl.disabled = rateLocked;
+      if (payRateInput) payRateInput.disabled = rateLocked;
+      if (payNote) {
+        payNote.textContent = rateLocked
+          ? 'This rate has already changed. Use Change on the staff profile so earlier time sheets keep the old rate.'
+          : 'Later changes belong on the staff profile. Choose the date the new rate starts so earlier time sheets keep the old rate.';
+      }
       applySensitive('sort_code', emp.sort_code, emp.has_sensitive_data);
       applySensitive('account_number', emp.account_number, emp.has_sensitive_data);
       applySensitive('driving_license_number', emp.driving_license_number, emp.has_sensitive_data);

@@ -41,6 +41,54 @@
     .status-active { background: #d1fae5; color: #047857; }
     .status-archived { background: #fee2e2; color: #b91c1c; }
     .sensitive-mask { color: var(--muted); font-style: italic; }
+    .pay-rate-line {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .pay-history {
+      list-style: none;
+      margin: 0.35rem 0 0;
+      padding: 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .pay-history li { margin: 0.1rem 0; }
+    .pay-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 400;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .pay-modal[hidden] { display: none; }
+    .pay-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+    }
+    .pay-modal-card {
+      position: relative;
+      width: min(28rem, 100%);
+      padding: 1rem 1.1rem 0.9rem;
+      border-radius: 10px;
+      background: var(--card);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+    }
+    .pay-modal-card h3 { margin: 0 0 0.35rem; }
+    .pay-modal-card p { margin: 0 0 0.75rem; }
+    .pay-modal-card label { display: block; margin: 0 0 0.7rem; }
+    .pay-modal-card input { width: 100%; margin: 0.2rem 0 0; }
+    .pay-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-top: 0.85rem;
+    }
+    .pay-modal-error { min-height: 1.1rem; margin: 0.2rem 0 0; }
 {% endblock %}
 
 {% block content %}
@@ -117,6 +165,29 @@
         </table>
       </div>
     </div>
+
+    {% if can_enroll %}
+    <div id="pay-modal" class="pay-modal" hidden>
+      <div class="pay-modal-backdrop" data-close-pay></div>
+      <div class="pay-modal-card" role="dialog" aria-modal="true" aria-labelledby="pay-modal-title">
+        <h3 id="pay-modal-title">Change pay rate</h3>
+        <p id="pay-modal-hint" class="muted">Time sheets before this date keep the current rate. From this date onward they use the new rate.</p>
+        <label>
+          <span id="pay-modal-rate-label">New hourly rate (£)</span>
+          <input type="text" id="pay-modal-rate" inputmode="decimal" autocomplete="off" placeholder="e.g. 13.25">
+        </label>
+        <label>
+          Takes effect
+          <input type="date" id="pay-modal-date" required>
+        </label>
+        <p id="pay-modal-error" class="pay-modal-error message err"></p>
+        <div class="pay-modal-actions">
+          <button type="button" class="secondary" data-close-pay>Cancel</button>
+          <button type="button" id="pay-modal-save">Save rate</button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -201,8 +272,32 @@
     return digits.slice(0, 2) + '-' + digits.slice(2, 4) + '-' + digits.slice(4, 6);
   }
 
+  let currentEmp = null;
+  let openPayModal = function () {};
+
   function payRateLabel(emp) {
     return emp.pay_type === 'salary' ? 'Annual rate' : 'Hourly rate';
+  }
+
+  function payHistoryHtml(emp) {
+    const changes = emp.pay_changes || [];
+    if (!canViewSensitive || !changes.length) return '';
+    return '<ul class="pay-history">' + changes.map(function (change) {
+      const unit = change.pay_type === 'salary' ? '/ year' : '/ hour';
+      const money = change.pay_rate ? fmtMoney(change.pay_rate) + ' ' + unit : '—';
+      return '<li>From ' + escapeHtml(formatDateUk(change.effective_from)) + ': ' +
+        escapeHtml(money) + '</li>';
+    }).join('') + '</ul>';
+  }
+
+  function payRateValue(emp) {
+    let button = '';
+    if (canEnroll) {
+      button = '<button type="button" class="secondary small" id="change-rate-btn">Change</button>';
+    }
+    return '<div class="pay-rate-line"><span>' +
+      sensitiveValue(emp.pay_rate, emp.has_sensitive_data) +
+      '</span>' + button + '</div>' + payHistoryHtml(emp);
   }
 
   function renderActions(emp) {
@@ -264,6 +359,7 @@
   }
 
   function renderProfile(emp) {
+    currentEmp = emp;
     profileStatus.innerHTML = statusBadge(emp.status);
     renderActions(emp);
     profileGrid.innerHTML =
@@ -283,7 +379,7 @@
       detailItem('Start date', escapeHtml(formatDateUk(emp.start_date))) +
       detailItem('Leaving date', escapeHtml(formatDateUk(emp.leaving_date))) +
       detailItem('Pay type', escapeHtml(emp.pay_type || '—')) +
-      detailItem(payRateLabel(emp), sensitiveValue(emp.pay_rate, emp.has_sensitive_data)) +
+      detailItem(payRateLabel(emp), payRateValue(emp)) +
       detailItem('Working days/week', escapeHtml(fmtNum(emp.working_days_per_week))) +
       detailItem('Working hours/day', escapeHtml(fmtNum(emp.working_hours_per_day))) +
       holidayHoursPerDayItem(emp) +
@@ -314,6 +410,8 @@
 
       sectionHeading('Record') +
       detailItem('Created', escapeHtml(formatDateUk(emp.created_at)));
+    const changeBtn = document.getElementById('change-rate-btn');
+    if (changeBtn) changeBtn.onclick = openPayModal;
   }
 
   function sectionHeading(label) {
@@ -479,6 +577,91 @@
   }
 
   loadProfile();
+
+  const payModal = document.getElementById('pay-modal');
+  if (payModal) {
+    const rateInput = document.getElementById('pay-modal-rate');
+    const dateInput = document.getElementById('pay-modal-date');
+    const rateLabel = document.getElementById('pay-modal-rate-label');
+    const hint = document.getElementById('pay-modal-hint');
+    const modalError = document.getElementById('pay-modal-error');
+    const saveBtn = document.getElementById('pay-modal-save');
+
+    function payModalMessage(text) {
+      modalError.textContent = text || '';
+    }
+
+    function refreshPayHint() {
+      const start = currentEmp && currentEmp.start_date;
+      if (dateInput.value && start && dateInput.value === start) {
+        hint.textContent = 'This is their start date, so the new rate replaces the original rate on every time sheet.';
+      } else {
+        hint.textContent = 'Time sheets before this date keep the current rate. From this date onward they use the new rate.';
+      }
+    }
+
+    openPayModal = function () {
+      if (!currentEmp) return;
+      const salary = currentEmp.pay_type === 'salary';
+      rateLabel.textContent = salary ? 'New annual rate (£)' : 'New hourly rate (£)';
+      rateInput.value = '';
+      rateInput.placeholder = salary ? 'e.g. 28000' : 'e.g. 13.25';
+      dateInput.min = currentEmp.start_date || '';
+      dateInput.value = new Date().toISOString().slice(0, 10);
+      if (dateInput.min && dateInput.value < dateInput.min) dateInput.value = dateInput.min;
+      payModalMessage('');
+      refreshPayHint();
+      payModal.hidden = false;
+      rateInput.focus();
+    };
+
+    function closePayModal() {
+      payModal.hidden = true;
+    }
+
+    dateInput.addEventListener('change', refreshPayHint);
+    payModal.addEventListener('click', function (ev) {
+      if (ev.target.closest('[data-close-pay]')) closePayModal();
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && !payModal.hidden) closePayModal();
+    });
+    saveBtn.addEventListener('click', async function () {
+      payModalMessage('');
+      if (!rateInput.value.trim()) {
+        payModalMessage('Enter the new rate.');
+        return;
+      }
+      if (!dateInput.value) {
+        payModalMessage('Choose the date the new rate starts.');
+        return;
+      }
+      saveBtn.disabled = true;
+      try {
+        const res = await fetch('/api/hr/staff/' + employeeId + '/pay-rate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pay_rate: rateInput.value.trim(),
+            effective_from: dateInput.value,
+          }),
+        });
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.detail || 'Could not save the pay rate');
+        closePayModal();
+        showMessage(
+          'Pay rate saved from ' + formatDateUk(dateInput.value) + '.',
+          false
+        );
+        renderProfile(data);
+        renderContracts(data.contracts || [], data.employment_type === 'self_employed');
+      } catch (err) {
+        payModalMessage(err.message);
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+  }
 })();
 </script>
 {% endblock %}

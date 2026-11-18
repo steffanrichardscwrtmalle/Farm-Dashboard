@@ -37,12 +37,14 @@ from app.models import (
     HR_CWRT_MALLE_LEAVE_IMPORT_KEY,
     HR_JOB_TITLES_SETTING_KEY,
     JOB_TITLE_OPTIONS,
+    PAY_TYPE_HOURLY,
     PAY_TYPES,
     AppSetting,
     ContractTemplate,
     Employee,
     EmployeeContract,
     EmployeeDocument,
+    EmployeePayRate,
     User,
 )
 from app.services.contract_storage import ContractStorageError, default_storage
@@ -242,10 +244,241 @@ def get_staff_detail(
     employee = db.get(Employee, employee_id)
     if employee is None:
         raise HRServiceError("Employee not found.")
-    if _archive_if_left(employee):
+    changed = _archive_if_left(employee)
+    if _ensure_opening_pay_rate(db, employee, None):
+        changed = True
+    rates = _load_pay_rates(db, employee.id)
+    if _sync_current_pay(employee, rates):
+        changed = True
+    if changed:
         db.commit()
         db.refresh(employee)
     return _employee_detail(employee, include_sensitive=include_sensitive)
+
+
+def record_pay_change(
+    db: Session,
+    employee_id: int,
+    *,
+    pay_rate: str,
+    effective_from: dt.date,
+    user: User | None,
+    include_sensitive: bool = False,
+) -> dict[str, Any]:
+    """Store a rate that applies from effective_from. Earlier rates stay put."""
+    employee = db.get(Employee, employee_id)
+    if employee is None:
+        raise HRServiceError("Employee not found.")
+    if effective_from < employee.start_date:
+        raise HRServiceError(
+            "The new rate cannot start before this staff member's start date."
+        )
+    amount = _normalize_pay_rate(pay_rate)
+    _ensure_opening_pay_rate(db, employee, user)
+    rates = _load_pay_rates(db, employee.id)
+    pay_type = employee.pay_type or PAY_TYPE_HOURLY
+    on_date = next((row for row in rates if row.effective_from == effective_from), None)
+    prior = [row for row in rates if row.effective_from < effective_from]
+    baseline = prior[-1] if prior else None
+    if (
+        on_date is None
+        and baseline is not None
+        and baseline.pay_type == pay_type
+        and not _pay_amounts_differ(amount, decrypt_field(baseline.pay_rate_enc))
+    ):
+        raise HRServiceError("That rate is already in place on this date.")
+    if on_date is None:
+        db.add(
+            EmployeePayRate(
+                employee_id=employee.id,
+                effective_from=effective_from,
+                pay_type=pay_type,
+                pay_rate_enc=encrypt_field(amount),
+                created_by_user_id=user.id if user is not None else None,
+            )
+        )
+    else:
+        on_date.pay_type = pay_type
+        on_date.pay_rate_enc = encrypt_field(amount)
+        if user is not None:
+            on_date.created_by_user_id = user.id
+    db.flush()
+    rates = _load_pay_rates(db, employee.id)
+    _sync_current_pay(employee, rates)
+    db.commit()
+    db.refresh(employee)
+    logger.info(
+        "Recorded pay change employee_id=%s effective_from=%s",
+        employee.id,
+        effective_from.isoformat(),
+    )
+    return _employee_detail(employee, include_sensitive=include_sensitive)
+
+
+def _load_pay_rates(db: Session, employee_id: int) -> list[EmployeePayRate]:
+    return list(
+        db.scalars(
+            select(EmployeePayRate)
+            .where(EmployeePayRate.employee_id == employee_id)
+            .order_by(EmployeePayRate.effective_from, EmployeePayRate.id)
+        ).all()
+    )
+
+
+def _seed_opening_pay_rate(
+    db: Session, employee: Employee, user: User | None
+) -> None:
+    _ensure_opening_pay_rate(db, employee, user)
+
+
+def _ensure_opening_pay_rate(
+    db: Session, employee: Employee, user: User | None
+) -> bool:
+    """Record the rate already stored on the employee as applying from their start."""
+    if employee.id is None:
+        db.flush()
+    if _load_pay_rates(db, employee.id):
+        return False
+    if not employee.pay_rate_enc:
+        return False
+    db.add(
+        EmployeePayRate(
+            employee_id=employee.id,
+            effective_from=employee.start_date,
+            pay_type=employee.pay_type or PAY_TYPE_HOURLY,
+            pay_rate_enc=employee.pay_rate_enc,
+            created_by_user_id=user.id if user is not None else None,
+        )
+    )
+    db.flush()
+    return True
+
+
+def _apply_pay_from_edit(
+    db: Session,
+    employee: Employee,
+    user: User,
+    *,
+    pay_type: str,
+    pay_rate: Any,
+    previous_start: dt.date,
+) -> None:
+    """Correct the original rate, or leave dated changes untouched.
+
+    A profile that already has a later pay change must be adjusted with
+    record_pay_change so earlier time sheets keep the rate they were paid.
+    """
+    _ensure_opening_pay_rate(db, employee, user)
+    rates = _load_pay_rates(db, employee.id)
+    if (
+        rates
+        and previous_start
+        and rates[0].effective_from == previous_start
+        and employee.start_date != previous_start
+    ):
+        if any(
+            row.effective_from == employee.start_date and row is not rates[0]
+            for row in rates
+        ):
+            raise HRServiceError(
+                "That start date already has a pay change. Pick a different date."
+            )
+        rates[0].effective_from = employee.start_date
+        db.flush()
+        rates = _load_pay_rates(db, employee.id)
+
+    current = _rate_in_effect(rates, dt.date.today()) or (rates[0] if rates else None)
+    current_amount = (
+        decrypt_field(current.pay_rate_enc)
+        if current is not None
+        else decrypt_field(employee.pay_rate_enc)
+    )
+    current_type = (
+        current.pay_type if current is not None else employee.pay_type
+    ) or PAY_TYPE_HOURLY
+    rate_given = pay_rate is not None and str(pay_rate).strip() != ""
+    new_amount = _normalize_pay_rate(pay_rate) if rate_given else None
+    amount_changed = rate_given and _pay_amounts_differ(new_amount, current_amount)
+    type_changed = pay_type != current_type
+    if amount_changed or type_changed:
+        if len(rates) > 1:
+            raise HRServiceError(
+                "This staff member already has a pay change. Use Change next to "
+                "their rate so earlier time sheets keep the old rate."
+            )
+        stored_amount = new_amount if rate_given else _normalize_pay_rate(current_amount or "0")
+        opening = rates[0] if rates else None
+        if opening is None:
+            opening = EmployeePayRate(
+                employee_id=employee.id,
+                effective_from=employee.start_date,
+                created_by_user_id=user.id if user is not None else None,
+            )
+            db.add(opening)
+        opening.pay_type = pay_type
+        opening.pay_rate_enc = encrypt_field(stored_amount)
+        if user is not None:
+            opening.created_by_user_id = user.id
+        db.flush()
+        rates = _load_pay_rates(db, employee.id)
+    _sync_current_pay(employee, rates)
+
+
+def _rate_in_effect(
+    rates: list[EmployeePayRate], day: dt.date
+) -> EmployeePayRate | None:
+    chosen: EmployeePayRate | None = None
+    for row in rates:
+        if row.effective_from <= day:
+            chosen = row
+        else:
+            break
+    return chosen
+
+
+def _sync_current_pay(employee: Employee, rates: list[EmployeePayRate]) -> bool:
+    """Point the staff record at the rate in force today.
+
+    A rise dated in the future stays off the staff record until that day.
+    Time sheets read the dated rows, so earlier periods keep the old rate.
+    """
+    chosen = _rate_in_effect(rates, dt.date.today())
+    if chosen is None:
+        return False
+    changed = False
+    pay_type = chosen.pay_type or employee.pay_type or PAY_TYPE_HOURLY
+    if employee.pay_type != pay_type:
+        employee.pay_type = pay_type
+        changed = True
+    if employee.pay_rate_enc != chosen.pay_rate_enc:
+        employee.pay_rate_enc = chosen.pay_rate_enc
+        changed = True
+    return changed
+
+
+def _normalize_pay_rate(raw: Any) -> str:
+    cleaned = str(raw or "").replace("£", "").replace(",", "").strip()
+    if not cleaned:
+        raise HRServiceError("Enter a pay rate.")
+    try:
+        amount = float(cleaned)
+    except ValueError as exc:
+        raise HRServiceError("Pay rate must be a number.") from exc
+    if amount < 0:
+        raise HRServiceError("Pay rate cannot be negative.")
+    return f"{amount:.2f}"
+
+
+def _pay_amounts_differ(left: str | None, right: str | None) -> bool:
+    def _amount(value: str | None) -> float | None:
+        if value is None or str(value).strip() == "":
+            return None
+        try:
+            return round(float(str(value).replace("£", "").replace(",", "").strip()), 2)
+        except ValueError:
+            return None
+
+    return _amount(left) != _amount(right)
 
 
 def list_employee_contracts(db: Session, employee_id: int) -> list[dict[str, Any]]:
@@ -669,6 +902,8 @@ def save_draft(
         status=EMPLOYEE_STATUS_ONBOARDING,
     )
     db.add(employee)
+    db.flush()
+    _seed_opening_pay_rate(db, employee, user)
     db.commit()
     db.refresh(employee)
     logger.info("Saved draft employee id=%s", employee.id)
@@ -696,6 +931,8 @@ def enroll_employee(
             status=EMPLOYEE_STATUS_ACTIVE,
         )
         db.add(employee)
+        db.flush()
+        _seed_opening_pay_rate(db, employee, user)
         db.commit()
         db.refresh(employee)
         logger.info("Enrolled self-employed staff id=%s (no contract)", employee.id)
@@ -730,6 +967,7 @@ def enroll_employee(
     )
     db.add(employee)
     db.flush()
+    _seed_opening_pay_rate(db, employee, user)
 
     sensitive = {key: payload.get(key) for key, _ in _ENCRYPTED_FIELDS}
     return _submit_to_docuseal(db, employee, template, sensitive)
@@ -753,6 +991,7 @@ def update_employee(
     pay_type = payload.get("pay_type", employee.pay_type)
     if pay_type not in PAY_TYPES:
         raise HRServiceError(f"Invalid pay type: {pay_type}")
+    previous_start = employee.start_date
 
     def _clean(key: str) -> str | None:
         return (payload.get(key) or "").strip() or None
@@ -774,7 +1013,6 @@ def update_employee(
     employee.phone = _clean("phone")
     employee.dob = payload.get("dob")
     employee.address = _clean("address")
-    employee.pay_type = pay_type
     employee.role_title = payload["role_title"].strip()
     employee.start_date = payload["start_date"]
     if "leaving_date" in payload:
@@ -818,11 +1056,21 @@ def update_employee(
     employee.next_of_kin_phone = _clean("next_of_kin_phone")
 
     for form_key, attr in _ENCRYPTED_FIELDS:
+        if form_key == "pay_rate":
+            continue
         raw = payload.get(form_key)
         if raw is not None and str(raw).strip() != "":
             if form_key == "sort_code":
                 raw = format_sort_code(raw)
             setattr(employee, attr, encrypt_field(str(raw)))
+    _apply_pay_from_edit(
+        db,
+        employee,
+        user,
+        pay_type=pay_type,
+        pay_rate=payload.get("pay_rate"),
+        previous_start=previous_start,
+    )
 
     if payload.get("template_id") is not None:
         if is_self_employed(employee.employment_type):
@@ -1204,6 +1452,10 @@ def _employee_detail(employee: Employee, *, include_sensitive: bool) -> dict[str
             "updated_at": employee.updated_at.isoformat() if employee.updated_at else None,
             "contracts": [_contract_dict(c) for c in employee.contracts],
             "documents": [_document_dict(d) for d in employee.documents],
+            "pay_changes": [
+                _pay_change_dict(row, include_sensitive=include_sensitive)
+                for row in employee.pay_rates
+            ],
         }
     )
     sensitive_enc = (
@@ -1230,6 +1482,18 @@ def _employee_detail(employee: Employee, *, include_sensitive: bool) -> dict[str
             out[key] = None
         out["has_sensitive_data"] = any(sensitive_enc)
     return out
+
+
+def _pay_change_dict(
+    row: EmployeePayRate, *, include_sensitive: bool
+) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "effective_from": row.effective_from.isoformat() if row.effective_from else None,
+        "pay_type": row.pay_type,
+        "pay_rate": decrypt_field(row.pay_rate_enc) if include_sensitive else None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
 
 
 def _contract_dict(contract: EmployeeContract) -> dict[str, Any]:
