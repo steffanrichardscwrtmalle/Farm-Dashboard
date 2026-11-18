@@ -388,3 +388,12 @@ SENSEHUB_DOMAIN_RESOLVER_URL = os.getenv(
 
 def sensehub_is_configured() -> bool:
     return bool(SENSEHUB_USERNAME and SENSEHUB_PASSWORD and SENSEHUB_FARM_ID)
+
+
+# ST Strategy (strategy.stgen.com) female genomic export.
+ST_STRATEGY_EMAIL = os.getenv("ST_STRATEGY_EMAIL", "").strip()
+ST_STRATEGY_PASSWORD = os.getenv("ST_STRATEGY_PASSWORD", "")
+
+
+def st_strategy_is_configured() -> bool:
+    return bool(ST_STRATEGY_EMAIL and ST_STRATEGY_PASSWORD)

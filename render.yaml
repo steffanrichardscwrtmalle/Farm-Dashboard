@@ -43,6 +43,10 @@ services:
         sync: false
       - key: SENSEHUB_FARM_ID
         sync: false
+      - key: ST_STRATEGY_EMAIL
+        sync: false
+      - key: ST_STRATEGY_PASSWORD
+        sync: false
       - key: PUBLIC_APP_URL
         sync: false
       - key: DOCUSEAL_API_KEY
@@ -316,6 +320,54 @@ services:
           property: connectionString
       - key: ENVIRONMENT
         value: production
+      - key: GRAPH_TENANT_ID
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_TENANT_ID
+      - key: GRAPH_CLIENT_ID
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_CLIENT_ID
+      - key: GRAPH_CLIENT_SECRET
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_CLIENT_SECRET
+      - key: GRAPH_DRIVE_USER_EMAIL
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: GRAPH_DRIVE_USER_EMAIL
+      - key: HERD_EXPORT_BASE_PATH
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: HERD_EXPORT_BASE_PATH
+
+  # Download the ST Strategy GBR female workbook into OneDrive Genomic Results.
+  # Friday 06:00 UTC (06:00 GMT / 07:00 BST). The Sunday genomic import reads it.
+  # Own image: Playwright/Chromium stays off the web service image.
+  - type: cron
+    name: farm-dashboard-st-genomics
+    runtime: docker
+    dockerfilePath: ./Dockerfile.st-genomics
+    schedule: "0 6 * * 5"
+    dockerCommand: python scripts/fetch_st_genomic_results.py
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: ST_STRATEGY_EMAIL
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: ST_STRATEGY_EMAIL
+      - key: ST_STRATEGY_PASSWORD
+        fromService:
+          name: farm-dashboard
+          type: web
+          envVarKey: ST_STRATEGY_PASSWORD
       - key: GRAPH_TENANT_ID
         fromService:
           name: farm-dashboard

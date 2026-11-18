@@ -128,6 +128,16 @@ Blueprint service: `farm-dashboard-genomic-import` in [`render.yaml`](render.yam
 - Needs `DATABASE_URL`, `GRAPH_*`, `GRAPH_DRIVE_USER_EMAIL`, `HERD_EXPORT_BASE_PATH`
 - Skips reload when the newest workbook is unchanged; use `--force` to override
 
+The Friday cron `farm-dashboard-st-genomics` downloads that workbook from ST Strategy
+and saves it in the OneDrive `Genomic Results` folder. The Sunday job then imports
+whichever `.xlsx` in that folder is newest.
+
+- **Schedule:** `0 6 * * 5` (Friday 06:00 UTC, 06:00 GMT / 07:00 BST)
+- **Command:** `python scripts/fetch_st_genomic_results.py`
+- **Image:** `Dockerfile.st-genomics` (Playwright is not in the web image)
+- Set `ST_STRATEGY_EMAIL` and `ST_STRATEGY_PASSWORD` on the web service. The cron
+  copies those plus the Graph / `HERD_EXPORT_BASE_PATH` values.
+
 Manual run:
 
 ```powershell

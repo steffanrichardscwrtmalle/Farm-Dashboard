@@ -19,6 +19,8 @@ from app.config import (
 
 _TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
 _GRAPH_SCOPE = "https://graph.microsoft.com/.default"
+# Graph simple upload (PUT .../content) rejects files larger than 4 MB.
+_SIMPLE_UPLOAD_MAX_BYTES = 4_000_000
 
 # Access tokens cached per client_id so multiple app registrations (e.g. a
 # second tenant for the Cwrt Malle mailbox) can be used side by side.
@@ -272,15 +274,27 @@ def upload_herd_file(relative_path: str, content: bytes, *, content_type: str = 
 
     _require_graph_config()
     full_path = herd_file_relative_path(relative_path)
-    encoded_path = quote(full_path, safe="/")
-    url = (
-        f"https://graph.microsoft.com/v1.0/users/{GRAPH_DRIVE_USER_EMAIL}"
-        f"/drive/root:/{encoded_path}:/content"
-    )
     token = get_access_token()
-    with httpx.Client(timeout=120.0, follow_redirects=True) as client:
+    with httpx.Client(timeout=180.0, follow_redirects=True) as client:
+        _upload_graph_bytes(client, token, full_path, content, content_type)
+
+
+def _upload_graph_bytes(
+    client: httpx.Client,
+    token: str,
+    full_path: str,
+    content: bytes,
+    content_type: str,
+) -> None:
+    """Upload bytes to a OneDrive path. Files over 4 MB use an upload session."""
+    encoded_path = quote(full_path, safe="/")
+    item_url = (
+        f"https://graph.microsoft.com/v1.0/users/{GRAPH_DRIVE_USER_EMAIL}"
+        f"/drive/root:/{encoded_path}"
+    )
+    if len(content) <= _SIMPLE_UPLOAD_MAX_BYTES:
         response = client.put(
-            url,
+            f"{item_url}:/content",
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": content_type,
@@ -288,3 +302,28 @@ def upload_herd_file(relative_path: str, content: bytes, *, content_type: str = 
             content=content,
         )
         response.raise_for_status()
+        return
+
+    session = client.post(
+        f"{item_url}:/createUploadSession",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json={"item": {"@microsoft.graph.conflictBehavior": "replace"}},
+    )
+    session.raise_for_status()
+    upload_url = session.json().get("uploadUrl")
+    if not upload_url:
+        raise RuntimeError(f"OneDrive upload session did not return a URL for {full_path}")
+    size = len(content)
+    uploaded = client.put(
+        upload_url,
+        headers={
+            "Content-Length": str(size),
+            "Content-Range": f"bytes 0-{size - 1}/{size}",
+            "Content-Type": content_type,
+        },
+        content=content,
+    )
+    uploaded.raise_for_status()

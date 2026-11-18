@@ -1,4 +1,5 @@
 #*.env
+*.har
 data/
 .venv/
 __pycache__/
