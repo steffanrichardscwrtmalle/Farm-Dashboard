@@ -1089,32 +1089,68 @@
     (function initCollapsibleNav() {
       const navGroups = Array.from(document.querySelectorAll("[data-nav-group]"));
       const navGroupControllers = new Map();
-      // iOS Safari synthesizes a delayed "ghost" click at the original tap
-      // coordinates after touchend. Expanding a group collapses siblings above
-      // it, so the submenu (often the first child link) can slide under that
-      // point and get activated — or the ghost click re-hits the toggle and
-      // collapses the group. Block pointer hits briefly after expand.
-      const EXPAND_GUARD_MS = 450;
-
-      function armExpandGuard(el, toggle) {
-        const items = el.querySelector(":scope > .nav-group-items, :scope > .nav-supplier-items");
-        if (items) {
-          items.style.pointerEvents = "none";
-          window.setTimeout(() => {
-            items.style.pointerEvents = "";
-          }, EXPAND_GUARD_MS);
-        }
-        if (toggle) {
-          toggle.dataset.navExpandGuardUntil = String(Date.now() + EXPAND_GUARD_MS);
-        }
-      }
+      // Expand must never navigate. Prior on-expand location.href redirects
+      // (Office Admin → Sales Payments, Stock Inventory → Heifer Inventory,
+      // etc.) jumped to the first child before the user could choose.
+      // Separately, iOS Safari fires a delayed "ghost" click at the original
+      // tap coordinates after touchend. Expanding collapses siblings above,
+      // so the first child link can slide under that point and get activated
+      // — or the ghost click re-hits the toggle and collapses. Guard both.
+      const EXPAND_GUARD_MS = 600;
+      let suppressClicksUntil = 0;
+      let suppressClickHandler = null;
 
       function isExpandGuarded(toggle) {
         const until = Number(toggle && toggle.dataset.navExpandGuardUntil || 0);
         return until > Date.now();
       }
 
-      function initNode(el, key, toggleSelector, onExpand) {
+      function clearItemsPointerLock(items) {
+        if (!items) return;
+        if (Date.now() >= suppressClicksUntil) {
+          items.style.pointerEvents = "";
+          return;
+        }
+        window.setTimeout(() => clearItemsPointerLock(items), Math.max(0, suppressClicksUntil - Date.now()));
+      }
+
+      function armExpandGuard(el, toggle) {
+        const until = Date.now() + EXPAND_GUARD_MS;
+        suppressClicksUntil = Math.max(suppressClicksUntil, until);
+
+        const items = el.querySelector(":scope > .nav-group-items, :scope > .nav-supplier-items");
+        if (items) {
+          items.style.pointerEvents = "none";
+          window.setTimeout(() => clearItemsPointerLock(items), EXPAND_GUARD_MS);
+        }
+        if (toggle) {
+          toggle.dataset.navExpandGuardUntil = String(until);
+        }
+
+        // Capture-phase backup: even if pointer-events is ignored or a
+        // synthetic click is retargeted, kill nav-item / guarded-toggle
+        // clicks for the ghost-click window.
+        if (!suppressClickHandler) {
+          suppressClickHandler = (event) => {
+            if (Date.now() >= suppressClicksUntil) {
+              document.removeEventListener("click", suppressClickHandler, true);
+              suppressClickHandler = null;
+              return;
+            }
+            const target = event.target;
+            if (!(target instanceof Element)) return;
+            const inNavItems = target.closest(".nav-group-items, .nav-supplier-items");
+            const guardedToggle = target.closest(".nav-group-toggle, .nav-supplier-toggle");
+            if (inNavItems || (guardedToggle && isExpandGuarded(guardedToggle))) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          };
+          document.addEventListener("click", suppressClickHandler, true);
+        }
+      }
+
+      function initNode(el, key, toggleSelector) {
         const toggle = el.querySelector(toggleSelector);
         if (!toggle || !key) return null;
 
@@ -1139,7 +1175,6 @@
             });
             setExpanded(true);
             armExpandGuard(el, toggle);
-            if (onExpand) onExpand();
           } else {
             setExpanded(false);
           }
@@ -1149,36 +1184,7 @@
       }
 
       navGroups.forEach(el => {
-        const controller = initNode(el, el.dataset.navGroup, ":scope > .nav-group-toggle", () => {
-          const group = el.dataset.navGroup;
-          if (group === "stock-inventory" && !window.location.pathname.startsWith("/stock-inventory")) {
-            window.location.href = "/stock-inventory/heifer-inventory";
-          }
-          if (group === "bcms" && !window.location.pathname.startsWith("/bcms")) {
-            window.location.href = "/bcms/reconcile";
-          }
-          if (group === "feed-rate" && !window.location.pathname.startsWith("/feed-rate")) {
-            window.location.href = "/feed-rate";
-          }
-          if (group === "sensehub" && !window.location.pathname.startsWith("/sensehub")) {
-            window.location.href = "/sensehub";
-          }
-          if (group === "office-admin" && !window.location.pathname.startsWith("/office-admin")) {
-            window.location.href = "/office-admin/sales-payments";
-          }
-          if (group === "xero" && !window.location.pathname.startsWith("/xero")) {
-            window.location.href = "/xero";
-          }
-          if (group === "genetics" && !window.location.pathname.startsWith("/genetics")) {
-            window.location.href = "/genetics/genomic-progress";
-          }
-          if (group === "benchmarking" && !window.location.pathname.startsWith("/benchmarking")) {
-            window.location.href = "/benchmarking/forecasts";
-          }
-          if (group === "hr" && !window.location.pathname.startsWith("/hr")) {
-            window.location.href = "/hr/staff";
-          }
-        });
+        const controller = initNode(el, el.dataset.navGroup, ":scope > .nav-group-toggle");
         if (controller) navGroupControllers.set(el, controller);
       });
 
@@ -1226,13 +1232,6 @@
           setExpanded(willExpand);
           if (willExpand) {
             armExpandGuard(el, toggle);
-            const supplier = el.dataset.supplier;
-            if (supplier === "wynnstay" && !window.location.pathname.startsWith("/wynnstay")) {
-              window.location.href = "/wynnstay";
-            }
-            if (supplier === "prostock" && !window.location.pathname.startsWith("/prostock")) {
-              window.location.href = "/prostock";
-            }
           }
         });
       });
