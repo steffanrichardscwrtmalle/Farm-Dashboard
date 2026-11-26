@@ -106,9 +106,11 @@
       border-radius: 8px;
       transition: background 0.12s ease, color 0.12s ease;
     }
-    .sidebar-nav a:hover {
-      background: rgba(255,255,255,0.08);
-      color: #fff;
+    @media (hover: hover) {
+      .sidebar-nav a:hover {
+        background: rgba(255,255,255,0.08);
+        color: #fff;
+      }
     }
     .sidebar-nav a.active {
       background: rgba(125, 206, 160, 0.2);
@@ -195,20 +197,19 @@
       border-radius: 8px;
       transition: background 0.12s ease, color 0.12s ease;
     }
-    .nav-group-toggle:hover,
-    .nav-supplier-toggle:hover {
-      background: rgba(255,255,255,0.08);
-      color: #fff;
-    }
     button.nav-group-toggle,
     button.nav-supplier-toggle {
       background: none;
       color: rgba(255,255,255,0.82);
     }
-    button.nav-group-toggle:hover,
-    button.nav-supplier-toggle:hover {
-      background: rgba(255,255,255,0.08);
-      color: #fff;
+    @media (hover: hover) {
+      .nav-group-toggle:hover,
+      .nav-supplier-toggle:hover,
+      button.nav-group-toggle:hover,
+      button.nav-supplier-toggle:hover {
+        background: rgba(255,255,255,0.08);
+        color: #fff;
+      }
     }
     .nav-group.expanded > .nav-group-toggle,
     .nav-group-toggle.active,
@@ -451,7 +452,9 @@
       background: var(--accent);
       color: #fff;
     }
-    button:hover { background: var(--accent-hover); }
+    button:hover:not(.nav-group-toggle):not(.nav-supplier-toggle):not(.topbar-nav-btn):not(.home-btn):not(.refresh-all-btn) {
+      background: var(--accent-hover);
+    }
     button.secondary { background: #4b5563; }
     button.secondary:hover { background: #374151; }
     button.danger { background: var(--danger); }
@@ -1086,6 +1089,30 @@
     (function initCollapsibleNav() {
       const navGroups = Array.from(document.querySelectorAll("[data-nav-group]"));
       const navGroupControllers = new Map();
+      // iOS Safari synthesizes a delayed "ghost" click at the original tap
+      // coordinates after touchend. Expanding a group collapses siblings above
+      // it, so the submenu (often the first child link) can slide under that
+      // point and get activated — or the ghost click re-hits the toggle and
+      // collapses the group. Block pointer hits briefly after expand.
+      const EXPAND_GUARD_MS = 450;
+
+      function armExpandGuard(el, toggle) {
+        const items = el.querySelector(":scope > .nav-group-items, :scope > .nav-supplier-items");
+        if (items) {
+          items.style.pointerEvents = "none";
+          window.setTimeout(() => {
+            items.style.pointerEvents = "";
+          }, EXPAND_GUARD_MS);
+        }
+        if (toggle) {
+          toggle.dataset.navExpandGuardUntil = String(Date.now() + EXPAND_GUARD_MS);
+        }
+      }
+
+      function isExpandGuarded(toggle) {
+        const until = Number(toggle && toggle.dataset.navExpandGuardUntil || 0);
+        return until > Date.now();
+      }
 
       function initNode(el, key, toggleSelector, onExpand) {
         const toggle = el.querySelector(toggleSelector);
@@ -1099,13 +1126,19 @@
           try { sessionStorage.setItem(storageKey, open ? "1" : "0"); } catch (_) {}
         }
 
-        toggle.addEventListener("click", () => {
+        toggle.addEventListener("click", (event) => {
+          if (isExpandGuarded(toggle)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           const willExpand = !el.classList.contains("expanded");
           if (willExpand) {
             navGroupControllers.forEach((ctrl, groupEl) => {
               if (groupEl !== el) ctrl.setExpanded(false);
             });
             setExpanded(true);
+            armExpandGuard(el, toggle);
             if (onExpand) onExpand();
           } else {
             setExpanded(false);
@@ -1183,10 +1216,16 @@
           setExpanded(stored);
         }
 
-        toggle.addEventListener("click", () => {
+        toggle.addEventListener("click", (event) => {
+          if (isExpandGuarded(toggle)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           const willExpand = !el.classList.contains("expanded");
           setExpanded(willExpand);
           if (willExpand) {
+            armExpandGuard(el, toggle);
             const supplier = el.dataset.supplier;
             if (supplier === "wynnstay" && !window.location.pathname.startsWith("/wynnstay")) {
               window.location.href = "/wynnstay";
