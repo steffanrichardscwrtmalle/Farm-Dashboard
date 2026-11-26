@@ -53,10 +53,28 @@
     .slicer-btn[data-value="CM"].selected { background: #dceaf7; border-color: #5a9fd4; color: #1e3a5f; }
     .slicer-btn[data-value="GAD"].selected { background: #ffecd9; border-color: #ffb366; color: #b45309; }
     .meta-line { color: var(--muted); font-size: 0.875rem; margin-bottom: 0.75rem; }
-    #fit-stats, #fit-stats-2 { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #be185d; font-weight: 600; margin-top: -0.4rem; }
-    .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; margin-bottom: 1.25rem; }
+    #fit-stats, #fit-stats-2 {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #be185d;
+      font-weight: 600;
+      margin-top: -0.4rem;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: normal;
+      line-height: 1.35;
+    }
+    .content-panel { min-width: 0; max-width: 100%; }
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin-bottom: 1.25rem;
+      min-width: 0;
+      max-width: 100%;
+    }
     .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
-    .chart-card h3 { margin: 0; font-size: 0.95rem; }
+    .chart-card h3 { margin: 0; font-size: 0.95rem; min-width: 0; flex: 1; line-height: 1.25; }
     .chart-actions { display: flex; gap: 0.35rem; flex-shrink: 0; }
     .chart-btn, .chart-expand {
       border: 1px solid var(--border); background: #f3f4f6; color: var(--muted);
@@ -67,13 +85,17 @@
     .chart-wrap {
       position: relative;
       height: min(70vh, 560px);
+      max-width: 100%;
+      overflow: hidden;
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 0.75rem;
       background: #fff;
+      touch-action: manipulation;
     }
     .empty-state { padding: 1.5rem; color: var(--muted); }
     .help-text { font-size: 0.8125rem; color: var(--muted); line-height: 1.4; margin: 0; }
+    .hint-phone { display: none; }
     .message { margin-bottom: 0.75rem; }
     .message.err { color: #b91c1c; }
     .chart-modal { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 2vh 2vw; }
@@ -85,9 +107,40 @@
       height: 90vh; display: flex; flex-direction: column; padding: 1rem;
     }
     .chart-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
-    .chart-modal-head h3 { margin: 0; font-size: 1.1rem; }
+    .chart-modal-head h3 { margin: 0; font-size: 1.1rem; min-width: 0; flex: 1; line-height: 1.25; }
     .chart-modal-actions { display: flex; gap: 0.5rem; }
     .chart-modal-canvas { position: relative; flex: 1 1 auto; min-height: 0; }
+    @media (max-width: 768px) {
+      .page-layout { gap: 0.75rem; }
+      .page-layout, .sidebar-column, .content-panel, .chart-card, .filter-panel {
+        max-width: 100%;
+        min-width: 0;
+      }
+      .filter-section select { font-size: 16px; min-height: 2.75rem; }
+      .slicer-btn { min-height: 2.75rem; }
+      .chart-wrap {
+        height: min(52vh, 360px);
+        padding: 0.45rem;
+      }
+      .chart-btn, .chart-expand { width: 2.75rem; height: 2.75rem; }
+      .chart-head { align-items: flex-start; }
+      #fit-stats, #fit-stats-2 { font-size: 0.75rem; }
+      .hint-desktop { display: none; }
+      .hint-phone { display: inline; }
+      .chart-modal { padding: 0; align-items: stretch; }
+      .chart-modal-body {
+        width: 100%;
+        height: 100%;
+        max-width: none;
+        border-radius: 0;
+        padding: 0.75rem;
+        padding-top: max(0.75rem, env(safe-area-inset-top));
+        padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+      }
+      .chart-modal-head { flex-wrap: wrap; }
+      .chart-modal-actions { width: 100%; }
+      .chart-modal-actions button { flex: 1; min-height: 2.75rem; }
+    }
 {% endblock %}
 
 {% block content %}
@@ -126,7 +179,10 @@
     <section class="content-panel">
       <div id="status-message" class="message"></div>
 
-      <p class="help-text" style="margin-bottom:0.75rem;">Tip: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset. Click ⤢ to enlarge.</p>
+      <p class="help-text" style="margin-bottom:0.75rem;">
+        <span class="hint-desktop">Tip: scroll to zoom, drag to box-zoom, hold Ctrl/⌘ and drag to pan, double-click to reset. Click ⤢ to enlarge.</span>
+        <span class="hint-phone">Tip: pinch to zoom, tap a point for details, use ⟲ to reset, or ⤢ for a larger view.</span>
+      </p>
 
       <div class="chart-card">
         <div class="chart-head">
@@ -185,6 +241,7 @@
     const FARM_COLORS = { CM: "#1f77b4", GAD: "#ff7f0e" };
     const BEST_FIT_COLOR = "#ff1493";
     const DAYS_PER_MONTH = 30.4375;
+    const MOBILE_MQ = window.matchMedia("(max-width: 768px)");
     let ageChart = null;
     let traitChart = null;
     let currentTrait = "pli";
@@ -193,6 +250,10 @@
     const chartSpecs = {};
     let modalChart = null;
     let openModalCanvasId = null;
+
+    function isMobileViewport() {
+      return MOBILE_MQ.matches;
+    }
 
     function showMessage(text, isError) {
       const el = document.getElementById("status-message");
@@ -267,13 +328,17 @@
       return { min: min - pad, max: max + pad };
     }
 
-    function zoomPlugin() {
+    function zoomPlugin(mobile) {
       return {
-        pan: { enabled: true, mode: "xy", modifierKey: "ctrl" },
+        // Keep page scroll usable on phones; pinch-zoom still works via Hammer.
+        pan: mobile
+          ? { enabled: false }
+          : { enabled: true, mode: "xy", modifierKey: "ctrl" },
         zoom: {
-          wheel: { enabled: true },
+          wheel: { enabled: !mobile },
           pinch: { enabled: true },
-          drag: {
+          // Box-drag zoom fights vertical page scroll on phones; keep pinch only.
+          drag: mobile ? { enabled: false } : {
             enabled: true,
             backgroundColor: "rgba(31,119,180,0.15)",
             borderColor: "rgba(31,119,180,0.6)",
@@ -284,40 +349,98 @@
       };
     }
 
+    function chartUiOptions(spec, mobile) {
+      const tickFont = mobile ? 11 : 12;
+      const titleFont = mobile ? 12 : 13;
+      const xScale = Object.assign({}, spec.xScale, {
+        title: Object.assign({}, spec.xScale.title, {
+          display: true,
+          font: { size: titleFont, weight: "600" },
+          padding: mobile ? { top: 2, bottom: 0 } : undefined,
+        }),
+        ticks: Object.assign({}, spec.xScale.ticks || {}, {
+          font: { size: tickFont },
+          maxRotation: mobile ? 0 : 45,
+          autoSkip: true,
+          maxTicksLimit: mobile ? 5 : 10,
+          padding: mobile ? 2 : 4,
+        }),
+      });
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: {
+          padding: mobile ? { top: 4, right: 6, bottom: 2, left: 2 } : { top: 4, right: 8, bottom: 4, left: 4 },
+        },
+        interaction: {
+          mode: "nearest",
+          intersect: true,
+          axis: "xy",
+        },
+        plugins: {
+          legend: {
+            position: mobile ? "bottom" : "top",
+            align: "center",
+            labels: {
+              boxWidth: mobile ? 10 : 12,
+              boxHeight: mobile ? 10 : 12,
+              padding: mobile ? 10 : 12,
+              font: { size: mobile ? 11 : 12 },
+              usePointStyle: true,
+              pointStyle: "circle",
+            },
+          },
+          tooltip: {
+            enabled: true,
+            displayColors: true,
+            titleFont: { size: mobile ? 13 : 12 },
+            bodyFont: { size: mobile ? 13 : 12 },
+            padding: mobile ? 10 : 8,
+            callbacks: {
+              label(context) {
+                if (context.dataset.type === "line") return undefined;
+                const raw = context.raw || {};
+                const etag = raw.etag ? " (" + raw.etag + ")" : "";
+                return context.dataset.label + ": " + spec.xLabel + " " +
+                  formatNumber(raw.x, 1) + ", " + spec.yLabel + " " + raw.y + etag;
+              },
+            },
+          },
+          zoom: zoomPlugin(mobile),
+        },
+        scales: {
+          x: xScale,
+          y: {
+            min: spec.yMin,
+            max: spec.yMax,
+            title: {
+              display: true,
+              text: spec.yLabel,
+              font: { size: titleFont, weight: "600" },
+              padding: mobile ? { top: 0, bottom: 2 } : undefined,
+            },
+            ticks: {
+              font: { size: tickFont },
+              maxTicksLimit: mobile ? 6 : 10,
+              padding: mobile ? 2 : 4,
+            },
+          },
+        },
+      };
+    }
+
     // Build a scatter Chart for the given canvas from a stored spec. Used for both
     // the inline cards and the enlarged modal (cloneData copies points/scale so
     // the two instances don't interfere when zooming).
     function createScatterChart(canvas, spec, cloneData) {
+      const mobile = isMobileViewport();
       const datasets = cloneData
         ? spec.datasets.map(d => Object.assign({}, d, { data: (d.data || []).map(pt => Object.assign({}, pt)) }))
         : spec.datasets;
-      const xScale = Object.assign({}, spec.xScale, { title: Object.assign({}, spec.xScale.title) });
       return new Chart(canvas, {
         type: "scatter",
         data: { datasets },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { position: "top" },
-            tooltip: {
-              callbacks: {
-                label(context) {
-                  if (context.dataset.type === "line") return undefined;
-                  const raw = context.raw || {};
-                  const etag = raw.etag ? " (" + raw.etag + ")" : "";
-                  return context.dataset.label + ": " + spec.xLabel + " " +
-                    formatNumber(raw.x, 1) + ", " + spec.yLabel + " " + raw.y + etag;
-                },
-              },
-            },
-            zoom: zoomPlugin(),
-          },
-          scales: {
-            x: xScale,
-            y: { min: spec.yMin, max: spec.yMax, title: { display: true, text: spec.yLabel } },
-          },
-        },
+        options: chartUiOptions(spec, mobile),
       });
     }
 
@@ -382,6 +505,7 @@
       if (config.chart) config.chart.destroy();
 
       const farms = selectedFarms().length ? selectedFarms() : ["CM", "GAD"];
+      const mobile = isMobileViewport();
       const tx = config.transformX || (v => v);
       const allPoints = [];
       const datasets = farms.map(farm => {
@@ -393,8 +517,10 @@
           label: farm,
           data: mapped,
           backgroundColor: FARM_COLORS[farm] || "#888",
-          pointRadius: 4,
-          pointHoverRadius: 6,
+          // Slightly larger hit targets on phones; keep dense desktop look.
+          pointRadius: mobile ? 5 : 4,
+          pointHoverRadius: mobile ? 8 : 6,
+          pointHitRadius: mobile ? 10 : 6,
           order: 2,
         };
       });
@@ -603,6 +729,34 @@
       const b = document.getElementById("genomic-chart-2");
       if (b) b.addEventListener("dblclick", () => { if (traitChart) traitChart.resetZoom(); });
     }
+
+    function resizeOpenCharts() {
+      if (ageChart) ageChart.resize();
+      if (traitChart) traitChart.resize();
+      if (modalChart) modalChart.resize();
+    }
+
+    // Rebuild after crossing the mobile breakpoint so legend/zoom/tick options update.
+    let lastMobile = isMobileViewport();
+    function onViewportChange() {
+      const nowMobile = isMobileViewport();
+      if (nowMobile === lastMobile) {
+        resizeOpenCharts();
+        return;
+      }
+      lastMobile = nowMobile;
+      loadAll();
+      if (openModalCanvasId) renderModalChart(openModalCanvasId);
+    }
+
+    if (typeof MOBILE_MQ.addEventListener === "function") {
+      MOBILE_MQ.addEventListener("change", onViewportChange);
+    } else if (typeof MOBILE_MQ.addListener === "function") {
+      MOBILE_MQ.addListener(onViewportChange);
+    }
+    window.addEventListener("orientationchange", () => {
+      setTimeout(resizeOpenCharts, 150);
+    });
 
     bindFarmSlicers();
     bindChartReset();
