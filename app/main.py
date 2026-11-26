@@ -109,7 +109,11 @@ async def _no_cache_html(request: Request, call_next):
     response = await call_next(request)
     content_type = response.headers.get("content-type", "")
     if content_type.startswith("text/html"):
-        response.headers["Cache-Control"] = "no-store, must-revalidate"
+        # /login: avoid no-store (Safari password AutoFill heuristics)
+        if request.url.path == "/login":
+            response.headers["Cache-Control"] = "private, no-cache"
+        else:
+            response.headers["Cache-Control"] = "no-store, must-revalidate"
         response.headers["Pragma"] = "no-cache"
     return response
 
@@ -558,7 +562,7 @@ def login_submit(
         db.close()
 
     _login_attempts.pop(client_key, None)
-    return RedirectResponse(_safe_next_path(next), status_code=302)
+    return RedirectResponse(_safe_next_path(next), status_code=303)
 
 
 @app.post("/logout")
