@@ -30,7 +30,7 @@ SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_urlsafe(32)
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 IS_PRODUCTION = ENVIRONMENT.lower() == "production"
 
-SESSION_MAX_AGE_SECONDS = int(os.getenv("SESSION_MAX_AGE_SECONDS", str(60 * 60 * 12)))  # 12 hours
+SESSION_MAX_AGE_SECONDS = int(os.getenv("SESSION_MAX_AGE_SECONDS", str(60 * 60 * 24 * 7)))  # 7 days
 MIN_PASSWORD_LENGTH = int(os.getenv("MIN_PASSWORD_LENGTH", "12"))
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
