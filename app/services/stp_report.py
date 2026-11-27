@@ -10,7 +10,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import HERD_FARM_OPTIONS, CowEvent
-from app.services.events_common import normalize_farms
+from app.services.events_common import (
+    _apply_fiscal_year,
+    _clamp_date,
+    _fiscal_year_calendar_bounds,
+    _fiscal_year_from_date,
+    _get_fiscal_year_options,
+    normalize_farms,
+)
 
 STP_EVENT = "STP"
 STP_MAX_AGE_DAYS = 7
@@ -177,6 +184,21 @@ def _farm_block(counts: dict[str, int]) -> dict[str, Any]:
     }
 
 
+def _parse_fiscal_year(value: str | int | None) -> tuple[int | None, bool]:
+    """Return (fiscal_year, any_year). None/invalid with any_year False means default."""
+    if value is None:
+        return None, False
+    if isinstance(value, int):
+        return value, False
+    text = str(value).strip().lower()
+    if text in {"", "any"}:
+        return None, True
+    try:
+        return int(text), False
+    except ValueError:
+        return None, False
+
+
 def build_stp_report(
     db: Session,
     *,
@@ -184,18 +206,59 @@ def build_stp_report(
     breed_types: list[str] | None = None,
     birth_from: dt.date | None = None,
     birth_to: dt.date | None = None,
+    fiscal_year: str | int | None = None,
+    today: dt.date | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     selected_breeds = normalize_breed_types(breed_types)
+    today = today or dt.date.today()
+    requested_year, any_year = _parse_fiscal_year(fiscal_year)
+    option_farms = selected_farms or list(HERD_FARM_OPTIONS)
+    fiscal_year_options = _get_fiscal_year_options(db, (STP_EVENT,), option_farms)
 
-    bounds_query = select(func.min(CowEvent.bdat), func.max(CowEvent.bdat)).where(*_stp_filters())
+    if any_year:
+        resolved_year = None
+    elif requested_year is not None:
+        resolved_year = requested_year
+    elif fiscal_year_options:
+        resolved_year = fiscal_year_options[0]
+    else:
+        resolved_year = _fiscal_year_from_date(today)
+    if resolved_year is not None and resolved_year not in fiscal_year_options:
+        fiscal_year_options = [resolved_year, *fiscal_year_options]
+
+    bounds_query = select(func.min(CowEvent.bdat), func.max(CowEvent.bdat)).where(
+        *_stp_filters()
+    )
+    if option_farms:
+        bounds_query = bounds_query.where(CowEvent.farm.in_(option_farms))
     bounds_min, bounds_max = db.execute(bounds_query).one()
 
+    if resolved_year is not None:
+        slider_min, slider_max = _fiscal_year_calendar_bounds(resolved_year)
+    elif bounds_min is not None and bounds_max is not None:
+        slider_min, slider_max = bounds_min, bounds_max
+    else:
+        slider_min, slider_max = _fiscal_year_calendar_bounds(
+            _fiscal_year_from_date(today)
+        )
+
+    birth_bounds = {
+        "min": slider_min.isoformat(),
+        "max": slider_max.isoformat(),
+    }
+
+    effective_from = birth_from if birth_from is not None else slider_min
+    effective_to = birth_to if birth_to is not None else slider_max
+    effective_from = _clamp_date(effective_from, slider_min, slider_max)
+    effective_to = _clamp_date(effective_to, slider_min, slider_max)
+    if effective_from > effective_to:
+        effective_from, effective_to = effective_to, effective_from
+
     query = _base_stp_query()
-    if birth_from is not None:
-        query = query.where(CowEvent.bdat >= birth_from)
-    if birth_to is not None:
-        query = query.where(CowEvent.bdat <= birth_to)
+    query = query.where(CowEvent.bdat >= effective_from)
+    query = query.where(CowEvent.bdat <= effective_to)
+    query = _apply_fiscal_year(query, resolved_year)
     if selected_farms:
         query = query.where(CowEvent.farm.in_(selected_farms))
 
@@ -224,10 +287,9 @@ def build_stp_report(
 
     return {
         "latest_import": latest_import.isoformat() if latest_import else None,
-        "birth_bounds": {
-            "min": bounds_min.isoformat() if bounds_min else None,
-            "max": bounds_max.isoformat() if bounds_max else None,
-        },
+        "birth_bounds": birth_bounds,
+        "fiscal_year": resolved_year,
+        "fiscal_year_options": fiscal_year_options,
         "selected_farms": selected_farms,
         "selected_breeds": selected_breeds,
         "farms": {farm: _farm_block(by_farm[farm]) for farm in HERD_FARM_OPTIONS},
