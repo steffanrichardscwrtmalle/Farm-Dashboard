@@ -1301,6 +1301,62 @@ def _build_lame_month_pivot(
     return pivot
 
 
+def _merge_month_farm_pivots(
+    *sources: dict[str, dict[str, int]],
+    selected_farms: list[str],
+) -> dict[str, dict[str, int]]:
+    pivot: dict[str, dict[str, int]] = {}
+    for source in sources:
+        for month_label, counts in source.items():
+            pivot.setdefault(month_label, {"CM": 0, "GAD": 0})
+            for farm in selected_farms:
+                pivot[month_label][farm] = pivot[month_label].get(farm, 0) + int(
+                    counts.get(farm, 0)
+                )
+    return pivot
+
+
+def _footrim_lame_pct_pair(footrim: int, lame: int) -> tuple[float, float]:
+    """Return % Footrim / % Lame that always sum to 100 when there are events."""
+    total = int(footrim) + int(lame)
+    if total <= 0:
+        return 0.0, 0.0
+    footrim_pct = round(100.0 * int(footrim) / total, 1)
+    return footrim_pct, round(100.0 - footrim_pct, 1)
+
+
+def _build_footrim_lame_ratio_rows(
+    footrim_pivot: dict[str, dict[str, int]],
+    lame_pivot: dict[str, dict[str, int]],
+    *,
+    selected_farms: list[str],
+    effective_from: dt.date,
+    effective_to: dt.date,
+) -> list[dict[str, Any]]:
+    """Monthly % Footrim vs % Lame, farms aggregated to the selected set."""
+    rows: list[dict[str, Any]] = []
+    for month_start in _iter_month_starts(effective_from, effective_to):
+        event_month = month_start.strftime("%b-%y")
+        ft_counts = footrim_pivot.get(event_month, {})
+        lm_counts = lame_pivot.get(event_month, {})
+        footrim = sum(int(ft_counts.get(farm, 0)) for farm in selected_farms)
+        lame = sum(int(lm_counts.get(farm, 0)) for farm in selected_farms)
+        total = footrim + lame
+        footrim_pct, lame_pct = _footrim_lame_pct_pair(footrim, lame)
+        rows.append(
+            {
+                "event_month": event_month,
+                "sort_key": _sort_key_from_date(month_start),
+                "footrim": footrim,
+                "lame": lame,
+                "total": total,
+                "footrim_pct": footrim_pct,
+                "lame_pct": lame_pct,
+            }
+        )
+    return rows
+
+
 def _build_hoof_main_pivot(
     db: Session,
     *,
@@ -1329,15 +1385,9 @@ def _build_hoof_main_pivot(
         fiscal_year=fiscal_year,
         selected_protocols=selected_protocols,
     )
-    pivot: dict[str, dict[str, int]] = {}
-    for source in (footrim_pivot, lame_pivot):
-        for month_label, counts in source.items():
-            pivot.setdefault(month_label, {"CM": 0, "GAD": 0})
-            for farm in selected_farms:
-                pivot[month_label][farm] = pivot[month_label].get(farm, 0) + int(
-                    counts.get(farm, 0)
-                )
-    return pivot
+    return _merge_month_farm_pivots(
+        footrim_pivot, lame_pivot, selected_farms=selected_farms
+    )
 
 
 def _build_lame_protocol_rows(
@@ -1692,6 +1742,7 @@ def _build_hooftrimming_bundle(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
     list[str],
     dict[str, Any],
 ]:
@@ -1706,7 +1757,17 @@ def _build_hooftrimming_bundle(
         available_protocols, requested_protocols
     )
 
-    main_pivot = _build_hoof_main_pivot(
+    footrim_pivot = _build_standard_event_pivot(
+        db,
+        event_types=("FOOTRIM",),
+        selected_farms=selected_farms,
+        effective_from=effective_from,
+        effective_to=effective_to,
+        selected_lact_groups=None,
+        selected_parity_groups=None,
+        fiscal_year=fiscal_year,
+    )
+    lame_pivot = _build_lame_month_pivot(
         db,
         selected_farms=selected_farms,
         effective_from=effective_from,
@@ -1714,17 +1775,16 @@ def _build_hooftrimming_bundle(
         fiscal_year=fiscal_year,
         selected_protocols=selected_protocols,
     )
-    lame_rows = _zero_fill_rows(
-        _build_lame_month_pivot(
-            db,
-            selected_farms=selected_farms,
-            effective_from=effective_from,
-            effective_to=effective_to,
-            fiscal_year=fiscal_year,
-            selected_protocols=selected_protocols,
-        ),
-        effective_from,
-        effective_to,
+    main_pivot = _merge_month_farm_pivots(
+        footrim_pivot, lame_pivot, selected_farms=selected_farms
+    )
+    lame_rows = _zero_fill_rows(lame_pivot, effective_from, effective_to)
+    ratio_rows = _build_footrim_lame_ratio_rows(
+        footrim_pivot,
+        lame_pivot,
+        selected_farms=selected_farms,
+        effective_from=effective_from,
+        effective_to=effective_to,
     )
     protocol_rows = _build_lame_protocol_rows(
         db,
@@ -1748,7 +1808,15 @@ def _build_hooftrimming_bundle(
         effective_from=throughput_from,
         effective_to=throughput_to,
     )
-    return main_pivot, lame_rows, protocol_rows, dim_rows, available_protocols, throughput
+    return (
+        main_pivot,
+        lame_rows,
+        protocol_rows,
+        dim_rows,
+        ratio_rows,
+        available_protocols,
+        throughput,
+    )
 
 
 
@@ -1940,6 +2008,7 @@ def build_events_report(
         empty_result["lame_rows"] = []
         empty_result["lame_protocol_rows"] = []
         empty_result["lame_dim_rows"] = []
+        empty_result["footrim_lame_ratio_rows"] = []
         empty_result["available_protocols"] = []
         empty_result["footrim_throughput"] = _empty_footrim_throughput(
             *(throughput_range or (None, None))
@@ -2001,6 +2070,7 @@ def build_events_report(
     lame_rows: list[dict[str, Any]] | None = None
     lame_protocol_rows: list[dict[str, Any]] | None = None
     lame_dim_rows: list[dict[str, Any]] | None = None
+    footrim_lame_ratio_rows: list[dict[str, Any]] | None = None
     available_protocols: list[str] | None = None
     if use_disease_episode_counting:
         pivot, disease_scatter, disease_incidence = _build_disease_episode_bundle(
@@ -2032,6 +2102,7 @@ def build_events_report(
             lame_rows,
             lame_protocol_rows,
             lame_dim_rows,
+            footrim_lame_ratio_rows,
             available_protocols,
             footrim_throughput,
         ) = _build_hooftrimming_bundle(
@@ -2132,6 +2203,7 @@ def build_events_report(
         result["lame_rows"] = lame_rows or []
         result["lame_protocol_rows"] = lame_protocol_rows or []
         result["lame_dim_rows"] = lame_dim_rows or []
+        result["footrim_lame_ratio_rows"] = footrim_lame_ratio_rows or []
         result["available_protocols"] = available_protocols or []
         result["footrim_throughput"] = footrim_throughput or _empty_footrim_throughput()
     return result
