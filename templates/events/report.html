@@ -285,6 +285,25 @@
     .chart-wrap-secondary {
       margin-top: 1.5rem;
     }
+    .chart-gap-tooltip {
+      position: absolute;
+      pointer-events: none;
+      z-index: 20;
+      background: rgba(0, 0, 0, 0.8);
+      color: #fff;
+      border-radius: 4px;
+      padding: 0.45rem 0.6rem;
+      font-size: 0.75rem;
+      line-height: 1.35;
+      white-space: pre;
+      transform: translate(-50%, -110%);
+      max-width: min(280px, 90%);
+    }
+    .chart-gap-tooltip[hidden] { display: none; }
+    .chart-gap-tooltip .gap-title {
+      font-weight: 600;
+      margin-bottom: 0.2rem;
+    }
     .chart-wrap-protocols {
       height: 520px;
       margin-top: 1.5rem;
@@ -884,8 +903,9 @@
           </div>
           <p class="throughput-empty" id="throughput-empty" hidden>No trim or lame cows in this range.</p>
         </div>
-        <div class="chart-wrap chart-wrap-secondary">
+        <div class="chart-wrap chart-wrap-secondary" id="footrim-lame-ratio-wrap">
           <canvas id="footrim-lame-ratio-chart"></canvas>
+          <div class="chart-gap-tooltip" id="footrim-lame-ratio-gap-tooltip" hidden></div>
         </div>
         {% endif %}
         <div class="chart-wrap{% if show_hooftrimming_charts %} chart-wrap-secondary{% endif %}">
@@ -2626,7 +2646,40 @@
       }
     }
 
+    function hideFootrimLameRatioGapTooltip() {
+      const tip = document.getElementById("footrim-lame-ratio-gap-tooltip");
+      if (tip) tip.hidden = true;
+    }
+
+    function farmRatioTooltipLines(byFarm, farms) {
+      const lines = [];
+      farms.forEach(farm => {
+        const stats = (byFarm && byFarm[farm]) || {};
+        lines.push(`${farm} % Footrim: ${formatPct(stats.footrim_pct)}`);
+        lines.push(`${farm} % Lame: ${formatPct(stats.lame_pct)}`);
+      });
+      return lines;
+    }
+
+    function showFootrimLameRatioGapTooltip(chart, event, period, farms) {
+      const tip = document.getElementById("footrim-lame-ratio-gap-tooltip");
+      const wrap = document.getElementById("footrim-lame-ratio-wrap");
+      if (!tip || !wrap || !chart.chartArea) return;
+      const lines = farmRatioTooltipLines(period.by_farm || {}, farms);
+      tip.innerHTML = `<div class="gap-title">Selected period</div>${lines
+        .map(line => `<div>${escHtml(line)}</div>`)
+        .join("")}`;
+      const rect = wrap.getBoundingClientRect();
+      const native = event.native || event;
+      const clientX = native.clientX != null ? native.clientX : rect.left + event.x;
+      const clientY = native.clientY != null ? native.clientY : rect.top + event.y;
+      tip.style.left = `${clientX - rect.left}px`;
+      tip.style.top = `${clientY - rect.top}px`;
+      tip.hidden = false;
+    }
+
     function destroyFootrimLameRatioChart() {
+      hideFootrimLameRatioGapTooltip();
       if (footrimLameRatioChart) {
         footrimLameRatioChart.destroy();
         footrimLameRatioChart = null;
@@ -2643,9 +2696,47 @@
       const rows = data.footrim_lame_ratio_rows || [];
       if (!rows.length) return;
 
+      const farms = selectedFarms().length ? selectedFarms() : ["CM", "GAD"];
+      const period = data.footrim_lame_ratio_period || { by_farm: {} };
       const labels = rows.map(r => r.event_month);
+      const gapTooltipPlugin = {
+        id: "footrimLameRatioGapTooltip",
+        afterEvent(chart, args) {
+          const event = args.event;
+          if (!event) return;
+          if (event.type === "mouseout") {
+            hideFootrimLameRatioGapTooltip();
+            return;
+          }
+          if (event.type !== "mousemove") return;
+          const { chartArea } = chart;
+          if (
+            !chartArea ||
+            event.x < chartArea.left ||
+            event.x > chartArea.right ||
+            event.y < chartArea.top ||
+            event.y > chartArea.bottom
+          ) {
+            hideFootrimLameRatioGapTooltip();
+            return;
+          }
+          const active = chart.getElementsAtEventForMode(
+            event,
+            "nearest",
+            { intersect: true },
+            false
+          );
+          if (active.length) {
+            hideFootrimLameRatioGapTooltip();
+            return;
+          }
+          showFootrimLameRatioGapTooltip(chart, event, period, farms);
+        },
+      };
+
       footrimLameRatioChart = new Chart(canvas, {
         type: "bar",
+        plugins: [gapTooltipPlugin],
         data: {
           labels,
           datasets: [
@@ -2666,6 +2757,10 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          interaction: {
+            mode: "index",
+            intersect: true,
+          },
           plugins: {
             title: {
               display: true,
@@ -2674,16 +2769,13 @@
             legend: { title: { display: true, text: "Event type" } },
             tooltip: {
               callbacks: {
+                title(items) {
+                  return items.length ? String(items[0].label || "") : "";
+                },
                 label(context) {
-                  const index = context.dataIndex;
-                  const row = rows[index] || {};
-                  const key = context.dataset.label === "Lame" ? "lame" : "footrim";
-                  const pct = Number(context.raw || 0);
-                  const count = Number(row[key] || 0);
-                  return `${context.dataset.label}: ${pct.toLocaleString("en-GB", {
-                    minimumFractionDigits: 0,
-                    maximumFractionDigits: 1,
-                  })}% (${count.toLocaleString("en-GB")})`;
+                  if (context.datasetIndex !== 0) return null;
+                  const row = rows[context.dataIndex] || {};
+                  return farmRatioTooltipLines(row.by_farm || {}, farms);
                 },
               },
             },
