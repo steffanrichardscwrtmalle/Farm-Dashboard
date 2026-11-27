@@ -76,6 +76,16 @@ def test_ratio_aggregates_both_farms(db: Session) -> None:
     assert april["footrim_pct"] == 75.0
     assert april["lame_pct"] == 25.0
     assert april["footrim_pct"] + april["lame_pct"] == 100.0
+    assert april["by_farm"]["CM"]["footrim_pct"] == 100.0
+    assert april["by_farm"]["CM"]["lame_pct"] == 0.0
+    assert april["by_farm"]["GAD"]["footrim_pct"] == 50.0
+    assert april["by_farm"]["GAD"]["lame_pct"] == 50.0
+
+    period = result["footrim_lame_ratio_period"]
+    assert period["footrim_pct"] == 75.0
+    assert period["lame_pct"] == 25.0
+    assert period["by_farm"]["CM"]["footrim"] == 2
+    assert period["by_farm"]["GAD"]["lame"] == 1
 
 
 def test_ratio_respects_single_farm_filter(db: Session) -> None:
@@ -104,10 +114,13 @@ def test_ratio_respects_single_farm_filter(db: Session) -> None:
     assert april["lame"] == 1
     assert april["footrim_pct"] == 66.7
     assert april["lame_pct"] == 33.3
+    assert set(april["by_farm"]) == {"CM"}
+    assert april["by_farm"]["CM"]["footrim_pct"] == 66.7
+    assert set(result["footrim_lame_ratio_period"]["by_farm"]) == {"CM"}
 
 
 def test_ratio_rows_builder_zero_fills_months() -> None:
-    rows = _build_footrim_lame_ratio_rows(
+    rows, period = _build_footrim_lame_ratio_rows(
         {"Apr-26": {"CM": 9, "GAD": 0}},
         {"Apr-26": {"CM": 1, "GAD": 0}},
         selected_farms=["CM", "GAD"],
@@ -118,6 +131,68 @@ def test_ratio_rows_builder_zero_fills_months() -> None:
     assert set(by_month) == {"Apr-26", "May-26"}
     assert by_month["Apr-26"]["footrim_pct"] == 90.0
     assert by_month["Apr-26"]["lame_pct"] == 10.0
+    assert by_month["Apr-26"]["by_farm"]["CM"]["footrim_pct"] == 90.0
+    assert by_month["Apr-26"]["by_farm"]["GAD"]["total"] == 0
     assert by_month["May-26"]["total"] == 0
     assert by_month["May-26"]["footrim_pct"] == 0.0
     assert by_month["May-26"]["lame_pct"] == 0.0
+    assert period["footrim"] == 9
+    assert period["lame"] == 1
+    assert period["footrim_pct"] == 90.0
+    assert period["by_farm"]["CM"]["footrim"] == 9
+    assert period["by_farm"]["GAD"]["total"] == 0
+
+
+def test_ratio_period_sums_across_months(db: Session) -> None:
+    db.add_all(
+        [
+            _event(
+                farm="CM",
+                cow_id="1",
+                event_date=dt.date(2026, 4, 10),
+                event="FOOTRIM",
+            ),
+            _event(
+                farm="CM",
+                cow_id="2",
+                event_date=dt.date(2026, 4, 10),
+                event="LAME",
+            ),
+            _event(
+                farm="GAD",
+                cow_id="3",
+                event_date=dt.date(2026, 5, 10),
+                event="FOOTRIM",
+            ),
+            _event(
+                farm="GAD",
+                cow_id="4",
+                event_date=dt.date(2026, 5, 10),
+                event="FOOTRIM",
+            ),
+            _event(
+                farm="GAD",
+                cow_id="5",
+                event_date=dt.date(2026, 5, 10),
+                event="LAME",
+            ),
+        ]
+    )
+    db.commit()
+
+    result = build_events_page_report(
+        db,
+        page_slug="hooftrimming",
+        farms=["CM", "GAD"],
+        event_from=dt.date(2026, 4, 1),
+        event_to=dt.date(2026, 5, 31),
+    )
+    period = result["footrim_lame_ratio_period"]
+    assert period["footrim"] == 3
+    assert period["lame"] == 2
+    assert period["footrim_pct"] == 60.0
+    assert period["lame_pct"] == 40.0
+    assert period["by_farm"]["CM"]["footrim_pct"] == 50.0
+    assert period["by_farm"]["CM"]["lame_pct"] == 50.0
+    assert period["by_farm"]["GAD"]["footrim_pct"] == 66.7
+    assert period["by_farm"]["GAD"]["lame_pct"] == 33.3
