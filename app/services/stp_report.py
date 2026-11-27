@@ -57,6 +57,10 @@ STP_TARGETS: dict[str, float] = {
     "poor_max_pct": 10.0,
 }
 
+# Default birth-date window when the client does not pass birth_from/birth_to:
+# most recent STP birth date → that date minus this many days (clamped to bounds).
+STP_DEFAULT_LOOKBACK_DAYS = 90
+
 _PROTEIN_VALUE_RE = re.compile(r"(\d+(?:\.\d+)?)")
 
 
@@ -199,6 +203,23 @@ def _parse_fiscal_year(value: str | int | None) -> tuple[int | None, bool]:
         return None, False
 
 
+def _default_birth_range(
+    latest: dt.date | None,
+    slider_min: dt.date,
+    slider_max: dt.date,
+    *,
+    lookback_days: int = STP_DEFAULT_LOOKBACK_DAYS,
+) -> tuple[dt.date, dt.date]:
+    """Most recent data date → that date minus lookback_days, clamped to slider bounds."""
+    if latest is None:
+        return slider_min, slider_max
+    end = _clamp_date(latest, slider_min, slider_max)
+    start = _clamp_date(end - dt.timedelta(days=lookback_days), slider_min, slider_max)
+    if start > end:
+        return slider_min, slider_max
+    return start, end
+
+
 def build_stp_report(
     db: Session,
     *,
@@ -248,12 +269,27 @@ def build_stp_report(
         "max": slider_max.isoformat(),
     }
 
-    effective_from = birth_from if birth_from is not None else slider_min
-    effective_to = birth_to if birth_to is not None else slider_max
-    effective_from = _clamp_date(effective_from, slider_min, slider_max)
-    effective_to = _clamp_date(effective_to, slider_min, slider_max)
-    if effective_from > effective_to:
-        effective_from, effective_to = effective_to, effective_from
+    latest_in_scope_query = select(func.max(CowEvent.bdat)).where(*_stp_filters())
+    if option_farms:
+        latest_in_scope_query = latest_in_scope_query.where(
+            CowEvent.farm.in_(option_farms)
+        )
+    latest_in_scope_query = _apply_fiscal_year(latest_in_scope_query, resolved_year)
+    latest_in_scope_query = latest_in_scope_query.where(CowEvent.bdat >= slider_min)
+    latest_in_scope_query = latest_in_scope_query.where(CowEvent.bdat <= slider_max)
+    latest_birth = db.scalar(latest_in_scope_query)
+
+    if birth_from is None and birth_to is None:
+        effective_from, effective_to = _default_birth_range(
+            latest_birth, slider_min, slider_max
+        )
+    else:
+        effective_from = birth_from if birth_from is not None else slider_min
+        effective_to = birth_to if birth_to is not None else slider_max
+        effective_from = _clamp_date(effective_from, slider_min, slider_max)
+        effective_to = _clamp_date(effective_to, slider_min, slider_max)
+        if effective_from > effective_to:
+            effective_from, effective_to = effective_to, effective_from
 
     query = _base_stp_query()
     query = query.where(CowEvent.bdat >= effective_from)
@@ -288,6 +324,9 @@ def build_stp_report(
     return {
         "latest_import": latest_import.isoformat() if latest_import else None,
         "birth_bounds": birth_bounds,
+        "birth_from": effective_from.isoformat(),
+        "birth_to": effective_to.isoformat(),
+        "latest_birth": latest_birth.isoformat() if latest_birth else None,
         "fiscal_year": resolved_year,
         "fiscal_year_options": fiscal_year_options,
         "selected_farms": selected_farms,
@@ -299,6 +338,7 @@ def build_stp_report(
         ],
         "targets": STP_TARGETS,
         "max_age_days": STP_MAX_AGE_DAYS,
+        "default_lookback_days": STP_DEFAULT_LOOKBACK_DAYS,
         "breed_options": [
             {"id": STP_BREED_BEEF, "label": "Beef"},
             {"id": STP_BREED_DAIRY, "label": "Dairy"},
