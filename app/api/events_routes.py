@@ -392,6 +392,7 @@ def api_total_protein(
     breed: list[str] = Query(default=[]),
     birth_from: dt.date | None = Query(default=None),
     birth_to: dt.date | None = Query(default=None),
+    fiscal_year: str | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(require_page(PAGE_EVENTS)),
 ):
@@ -401,6 +402,7 @@ def api_total_protein(
         breed_types=breed or None,
         birth_from=birth_from,
         birth_to=birth_to,
+        fiscal_year=fiscal_year,
     )
 
 

@@ -110,6 +110,7 @@
       font-size: 0.7rem;
       font-weight: 700;
     }
+    .filter-select { width: 100%; margin: 0; }
     .date-inputs label {
       display: block;
       font-size: 0.8125rem;
@@ -297,6 +298,12 @@
           </div>
         </div>
         <div class="filter-section">
+          <span class="section-label">Fiscal year</span>
+          <select id="fiscal-year-select" class="filter-select">
+            <option value="any">Any</option>
+          </select>
+        </div>
+        <div class="filter-section">
           <span class="section-label">Birth date range</span>
           <div class="date-inputs">
             <label>
@@ -376,7 +383,10 @@
     let charts = { CM: null, GAD: null, total: null };
     let monthList = [];
     let storedBirthBounds = null;
+    let storedFullBirthBounds = null;
     let dateBoundsInitialized = false;
+    let fiscalYearInitialized = false;
+    let lastFiscalYear = null;
     let lastTargets = null;
 
     function selectedFarms() {
@@ -476,6 +486,37 @@
 
     function defaultSliderIndices(maxIdx) {
       return { minIdx: Math.max(0, maxIdx - (DEFAULT_MONTH_SPAN - 1)), maxIdx };
+    }
+
+    function fiscalYearBounds(year) {
+      const y = Number(year);
+      return {
+        min: `${y - 1}-04-01`,
+        max: `${y}-03-31`,
+      };
+    }
+
+    function selectedFiscalYear() {
+      return document.getElementById("fiscal-year-select").value || "any";
+    }
+
+    function renderFiscalYearOptions(options, selected) {
+      const select = document.getElementById("fiscal-year-select");
+      const years = (options || []).map(Number).filter((year) => Number.isFinite(year));
+      const current = selected == null
+        ? (fiscalYearInitialized ? selectedFiscalYear() : (years[0] != null ? String(years[0]) : "any"))
+        : String(selected);
+      select.innerHTML = '<option value="any">Any</option>' +
+        years.map((year) => `<option value="${year}">${year}</option>`).join("");
+      if (current && current !== "any" && years.includes(Number(current))) {
+        select.value = current;
+      } else if (current === "any") {
+        select.value = "any";
+      } else if (years.length) {
+        select.value = String(years[0]);
+      } else {
+        select.value = "any";
+      }
     }
 
     function syncDateControls(bounds, resetValues, useLastTwelveMonths = false) {
@@ -679,12 +720,29 @@
         return;
       }
 
+      const fiscalYear = selectedFiscalYear();
+      if (fiscalYearInitialized && fiscalYear !== lastFiscalYear) {
+        if (fiscalYear !== "any") {
+          syncDateControls(fiscalYearBounds(fiscalYear), true);
+          dateBoundsInitialized = true;
+        } else if (storedFullBirthBounds) {
+          syncDateControls(storedFullBirthBounds, true, true);
+          dateBoundsInitialized = true;
+        } else {
+          dateBoundsInitialized = false;
+        }
+        lastFiscalYear = fiscalYear;
+      }
+
       const params = new URLSearchParams();
       farms.forEach(f => params.append("farm", f));
       breeds.forEach(b => params.append("breed", b));
-      const birthRange = currentBirthRangeParams();
-      if (birthRange.birth_from) params.set("birth_from", birthRange.birth_from);
-      if (birthRange.birth_to) params.set("birth_to", birthRange.birth_to);
+      if (fiscalYearInitialized) params.set("fiscal_year", fiscalYear);
+      if (dateBoundsInitialized) {
+        const birthRange = currentBirthRangeParams();
+        if (birthRange.birth_from) params.set("birth_from", birthRange.birth_from);
+        if (birthRange.birth_to) params.set("birth_to", birthRange.birth_to);
+      }
 
       const res = await fetch(`/api/events/total-protein?${params}`);
       if (!res.ok) {
@@ -697,20 +755,32 @@
       const data = await res.json();
       lastTargets = data.targets;
 
+      renderFiscalYearOptions(
+        data.fiscal_year_options || [],
+        data.fiscal_year == null ? "any" : data.fiscal_year
+      );
+      lastFiscalYear = selectedFiscalYear();
+      fiscalYearInitialized = true;
+
       if (data.birth_bounds) {
         storedBirthBounds = data.birth_bounds;
+        if (data.fiscal_year == null) {
+          storedFullBirthBounds = data.birth_bounds;
+        }
         if (!dateBoundsInitialized) {
-          syncDateControls(data.birth_bounds, true, true);
+          const useLastTwelve = selectedFiscalYear() === "any";
+          syncDateControls(data.birth_bounds, true, useLastTwelve);
           dateBoundsInitialized = true;
           loadReport();
           return;
         }
       }
 
+      const fyLabel = data.fiscal_year == null ? "Any" : String(data.fiscal_year);
       const note = data.latest_import
         ? `Latest import: ${new Date(data.latest_import).toLocaleString("en-GB")}`
         : "No events import found — run the herd import cron job.";
-      meta.textContent = `${note} · Calves only (lact=0), STP at age 0–${data.max_age_days} days · Dairy CBRD < 102 · Beef CBRD > 101 · Excellent ≥6.2 · Good ≥5.8 · Fair ≥5.1`;
+      meta.textContent = `${note} · Fiscal year: ${fyLabel} · Calves only (lact=0), STP at age 0–${data.max_age_days} days · Dairy CBRD < 102 · Beef CBRD > 101 · Excellent ≥6.2 · Good ≥5.8 · Fair ≥5.1`;
 
       const hasData = (data.total?.total || 0) > 0;
       if (!hasData) {
@@ -744,13 +814,25 @@
     function clearFilters() {
       resetFarmSlicers();
       resetBreedSlicers();
-      if (storedBirthBounds) {
+      const select = document.getElementById("fiscal-year-select");
+      const years = [...select.options]
+        .map((opt) => opt.value)
+        .filter((value) => value && value !== "any");
+      select.value = years[0] || "any";
+      lastFiscalYear = selectedFiscalYear();
+      if (selectedFiscalYear() !== "any") {
+        syncDateControls(fiscalYearBounds(selectedFiscalYear()), true);
+      } else if (storedFullBirthBounds) {
+        syncDateControls(storedFullBirthBounds, true, true);
+      } else if (storedBirthBounds) {
         syncDateControls(storedBirthBounds, true, true);
       }
+      dateBoundsInitialized = true;
       loadReport();
     }
 
     document.getElementById("clear-filters-btn").addEventListener("click", clearFilters);
+    document.getElementById("fiscal-year-select").addEventListener("change", loadReport);
     bindFarmSlicers();
     bindBreedSlicers();
     bindDateInputs();
