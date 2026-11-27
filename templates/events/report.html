@@ -884,6 +884,9 @@
           </div>
           <p class="throughput-empty" id="throughput-empty" hidden>No trim or lame cows in this range.</p>
         </div>
+        <div class="chart-wrap chart-wrap-secondary">
+          <canvas id="footrim-lame-ratio-chart"></canvas>
+        </div>
         {% endif %}
         <div class="chart-wrap{% if show_hooftrimming_charts %} chart-wrap-secondary{% endif %}">
           <canvas id="events-chart"></canvas>
@@ -939,6 +942,22 @@
               </tr>
             </thead>
             <tbody id="footrim-throughput-body"></tbody>
+          </table>
+        </div>
+        <div class="table-wrap table-wrap-secondary">
+          <h3 class="table-section-title" id="footrim-lame-ratio-table-title">Footrim vs Lame %</h3>
+          <table id="footrim-lame-ratio-table" class="events-data-table">
+            <thead>
+              <tr>
+                <th>Event Month</th>
+                <th>Footrim %</th>
+                <th>Lame %</th>
+                <th>Footrim</th>
+                <th>Lame</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="footrim-lame-ratio-body"></tbody>
           </table>
         </div>
         {% endif %}
@@ -1035,6 +1054,8 @@
     const LAME_EVENTS_CHART_TITLE = "Lame Events by Month — Stacked by Farm";
     const LAME_PROTOCOLS_CHART_TITLE = "Lame Event Protocols";
     const LAME_DIM_CHART_TITLE = "Lame Events by DIM (30-day bins)";
+    const FOOTRIM_LAME_RATIO_CHART_TITLE = "Footrim vs Lame % by Month";
+    const FOOTRIM_LAME_RATIO_COLORS = { Footrim: "#2ca02c", Lame: "#d62728" };
     const FOOTRIM_THROUGHPUT_TITLES = {
       day: "Cow Per Day by day",
       week: "Cow Per Day by week",
@@ -1051,6 +1072,7 @@
     let lameProtocolsChart = null;
     let lameDimChart = null;
     let footrimThroughputChart = null;
+    let footrimLameRatioChart = null;
     let diseaseScatterChart = null;
     let diseaseIncidenceChart = null;
     let lastReportData = null;
@@ -2059,6 +2081,49 @@
       return html;
     }
 
+    function formatPct(value) {
+      return `${Number(value || 0).toLocaleString("en-GB", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 1,
+      })}%`;
+    }
+
+    function renderFootrimLameRatioTableBody(rows) {
+      if (!rows.length) return "";
+      let footrim = 0;
+      let lame = 0;
+      let html = rows.map(row => {
+        const ft = Number(row.footrim || 0);
+        const lm = Number(row.lame || 0);
+        footrim += ft;
+        lame += lm;
+        return `
+          <tr>
+            <td>${escHtml(row.event_month || "")}</td>
+            <td>${formatPct(row.footrim_pct)}</td>
+            <td>${formatPct(row.lame_pct)}</td>
+            <td>${ft}</td>
+            <td>${lm}</td>
+            <td>${ft + lm}</td>
+          </tr>
+        `;
+      }).join("");
+      const total = footrim + lame;
+      const footrimPct = total ? Math.round((1000 * footrim) / total) / 10 : 0;
+      const lamePct = total ? Math.round((100 - footrimPct) * 10) / 10 : 0;
+      html += `
+        <tr class="grand-total">
+          <td>Grand Total</td>
+          <td>${formatPct(footrimPct)}</td>
+          <td>${formatPct(lamePct)}</td>
+          <td>${footrim}</td>
+          <td>${lame}</td>
+          <td>${total}</td>
+        </tr>
+      `;
+      return html;
+    }
+
     function renderSimpleFarmTableHeader(headEl, firstLabel, farms) {
       if (!headEl) return;
       const farmHeaders = farms.map(farm => `<th>${escHtml(farm)}</th>`).join("");
@@ -2089,6 +2154,14 @@
           throughputRowsForGrain(data, grain),
           "label",
           farms
+        );
+      }
+      const ratioTitle = document.getElementById("footrim-lame-ratio-table-title");
+      if (ratioTitle) ratioTitle.textContent = FOOTRIM_LAME_RATIO_CHART_TITLE;
+      const ratioBody = document.getElementById("footrim-lame-ratio-body");
+      if (ratioBody) {
+        ratioBody.innerHTML = renderFootrimLameRatioTableBody(
+          data.footrim_lame_ratio_rows || []
         );
       }
       const mainTitle = document.getElementById("main-table-title");
@@ -2553,6 +2626,89 @@
       }
     }
 
+    function destroyFootrimLameRatioChart() {
+      if (footrimLameRatioChart) {
+        footrimLameRatioChart.destroy();
+        footrimLameRatioChart = null;
+      }
+    }
+
+    function renderFootrimLameRatioChart(data) {
+      if (!SHOW_HOOFTRIMMING_CHARTS) return;
+      const canvas = document.getElementById("footrim-lame-ratio-chart");
+      if (!canvas) return;
+
+      destroyFootrimLameRatioChart();
+
+      const rows = data.footrim_lame_ratio_rows || [];
+      if (!rows.length) return;
+
+      const labels = rows.map(r => r.event_month);
+      footrimLameRatioChart = new Chart(canvas, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: "Footrim",
+              data: rows.map(r => Number(r.footrim_pct || 0)),
+              backgroundColor: FOOTRIM_LAME_RATIO_COLORS.Footrim,
+              stack: "ratio",
+            },
+            {
+              label: "Lame",
+              data: rows.map(r => Number(r.lame_pct || 0)),
+              backgroundColor: FOOTRIM_LAME_RATIO_COLORS.Lame,
+              stack: "ratio",
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: {
+              display: true,
+              text: FOOTRIM_LAME_RATIO_CHART_TITLE,
+            },
+            legend: { title: { display: true, text: "Event type" } },
+            tooltip: {
+              callbacks: {
+                label(context) {
+                  const index = context.dataIndex;
+                  const row = rows[index] || {};
+                  const key = context.dataset.label === "Lame" ? "lame" : "footrim";
+                  const pct = Number(context.raw || 0);
+                  const count = Number(row[key] || 0);
+                  return `${context.dataset.label}: ${pct.toLocaleString("en-GB", {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 1,
+                  })}% (${count.toLocaleString("en-GB")})`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              stacked: true,
+              title: { display: true, text: "Event Month" },
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              max: 100,
+              title: { display: true, text: "% of events" },
+              ticks: {
+                callback(value) {
+                  return `${value}%`;
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
     function throughputRowsForGrain(data, grain) {
       const throughput = data.footrim_throughput || {};
       if (grain === "week") return throughput.week_rows || [];
@@ -2852,6 +3008,7 @@
         destroyLameProtocolsChart();
         destroyLameDimChart();
         destroyFootrimThroughputChart();
+        destroyFootrimLameRatioChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -2872,6 +3029,7 @@
         destroyLameProtocolsChart();
         destroyLameDimChart();
         destroyFootrimThroughputChart();
+        destroyFootrimLameRatioChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -2891,6 +3049,7 @@
         destroyLameProtocolsChart();
         destroyLameDimChart();
         destroyFootrimThroughputChart();
+        destroyFootrimLameRatioChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -2910,6 +3069,7 @@
         destroyLameProtocolsChart();
         destroyLameDimChart();
         destroyFootrimThroughputChart();
+        destroyFootrimLameRatioChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -2931,6 +3091,7 @@
         destroyLameProtocolsChart();
         destroyLameDimChart();
         destroyFootrimThroughputChart();
+        destroyFootrimLameRatioChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -2970,6 +3131,7 @@
         destroyLameProtocolsChart();
         destroyLameDimChart();
         destroyFootrimThroughputChart();
+        destroyFootrimLameRatioChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -3036,6 +3198,7 @@
         destroyLameProtocolsChart();
         destroyLameDimChart();
         destroyFootrimThroughputChart();
+        destroyFootrimLameRatioChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
         lastReportData = null;
@@ -3087,6 +3250,7 @@
       if (viewMode() === "graph") {
         renderChart(data);
         renderFootrimThroughputChart(data);
+        renderFootrimLameRatioChart(data);
         renderBreedingsSemenChart(data);
         renderLameEventsChart(data);
         renderLameProtocolsChart(data);
@@ -3099,6 +3263,7 @@
         destroyLameProtocolsChart();
         destroyLameDimChart();
         destroyFootrimThroughputChart();
+        destroyFootrimLameRatioChart();
         destroyDiseaseScatterChart();
         destroyDiseaseIncidenceChart();
       }
