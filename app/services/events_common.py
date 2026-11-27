@@ -1338,12 +1338,20 @@ def _farm_footrim_lame_stats(footrim: int, lame: int) -> dict[str, Any]:
 
 def _empty_footrim_lame_ratio_period(
     selected_farms: list[str] | None = None,
+    *,
+    effective_from: dt.date | None = None,
+    effective_to: dt.date | None = None,
 ) -> dict[str, Any]:
     farms = list(selected_farms or [])
-    return {
+    period: dict[str, Any] = {
         **_farm_footrim_lame_stats(0, 0),
         "by_farm": {farm: _farm_footrim_lame_stats(0, 0) for farm in farms},
     }
+    if effective_from is not None:
+        period["event_from"] = effective_from.isoformat()
+    if effective_to is not None:
+        period["event_to"] = effective_to.isoformat()
+    return period
 
 
 def _build_footrim_lame_ratio_rows(
@@ -1388,6 +1396,8 @@ def _build_footrim_lame_ratio_rows(
             farm: _farm_footrim_lame_stats(period_ft[farm], period_lm[farm])
             for farm in selected_farms
         },
+        "event_from": effective_from.isoformat(),
+        "event_to": effective_to.isoformat(),
     }
     return rows, period
 
