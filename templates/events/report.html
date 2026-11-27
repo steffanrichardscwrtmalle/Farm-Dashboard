@@ -302,7 +302,11 @@
     .chart-gap-tooltip[hidden] { display: none; }
     .chart-gap-tooltip .gap-title {
       font-weight: 600;
-      margin-bottom: 0.2rem;
+      margin-bottom: 0.15rem;
+    }
+    .chart-gap-tooltip .gap-range {
+      opacity: 0.9;
+      margin-bottom: 0.25rem;
     }
     .chart-wrap-protocols {
       height: 520px;
@@ -2661,12 +2665,38 @@
       return lines;
     }
 
+    function formatPeriodDateRangeLabel(period) {
+      let fromIso = period && period.event_from;
+      let toIso = period && period.event_to;
+      if (!fromIso || !toIso) {
+        try {
+          const current = currentDateRangeParams();
+          fromIso = fromIso || current.event_from;
+          toIso = toIso || current.event_to;
+        } catch (_err) {
+          return "";
+        }
+      }
+      if (!fromIso || !toIso) return "";
+      try {
+        const fromLabel = formatMonthLabel(parseIsoDate(fromIso));
+        const toLabel = formatMonthLabel(parseIsoDate(toIso));
+        return fromLabel === toLabel ? fromLabel : `${fromLabel} – ${toLabel}`;
+      } catch (_err) {
+        return "";
+      }
+    }
+
     function showFootrimLameRatioGapTooltip(chart, event, period, farms) {
       const tip = document.getElementById("footrim-lame-ratio-gap-tooltip");
       const wrap = document.getElementById("footrim-lame-ratio-wrap");
       if (!tip || !wrap || !chart.chartArea) return;
       const lines = farmRatioTooltipLines(period.by_farm || {}, farms);
-      tip.innerHTML = `<div class="gap-title">Selected period</div>${lines
+      const rangeLabel = formatPeriodDateRangeLabel(period);
+      const rangeHtml = rangeLabel
+        ? `<div class="gap-range">${escHtml(rangeLabel)}</div>`
+        : "";
+      tip.innerHTML = `<div class="gap-title">Selected period</div>${rangeHtml}${lines
         .map(line => `<div>${escHtml(line)}</div>`)
         .join("")}`;
       const rect = wrap.getBoundingClientRect();

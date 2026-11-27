@@ -86,6 +86,9 @@ def test_ratio_aggregates_both_farms(db: Session) -> None:
     assert period["lame_pct"] == 25.0
     assert period["by_farm"]["CM"]["footrim"] == 2
     assert period["by_farm"]["GAD"]["lame"] == 1
+    # Clamped to available event dates within the requested window.
+    assert period["event_from"] == "2026-04-15"
+    assert period["event_to"] == "2026-04-30"
 
 
 def test_ratio_respects_single_farm_filter(db: Session) -> None:
@@ -141,6 +144,8 @@ def test_ratio_rows_builder_zero_fills_months() -> None:
     assert period["footrim_pct"] == 90.0
     assert period["by_farm"]["CM"]["footrim"] == 9
     assert period["by_farm"]["GAD"]["total"] == 0
+    assert period["event_from"] == "2026-04-01"
+    assert period["event_to"] == "2026-05-31"
 
 
 def test_ratio_period_sums_across_months(db: Session) -> None:
@@ -196,3 +201,6 @@ def test_ratio_period_sums_across_months(db: Session) -> None:
     assert period["by_farm"]["CM"]["lame_pct"] == 50.0
     assert period["by_farm"]["GAD"]["footrim_pct"] == 66.7
     assert period["by_farm"]["GAD"]["lame_pct"] == 33.3
+    # From is clamped to earliest event; to keeps the requested month end.
+    assert period["event_from"] == "2026-04-10"
+    assert period["event_to"] == "2026-05-31"
