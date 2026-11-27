@@ -521,6 +521,7 @@
                 <th>Driver</th>
                 <th class="num">Avg BactoScan</th>
                 <th class="num">Loads</th>
+                <th class="num">Loads ≤30</th>
                 <th class="num">Over 30</th>
                 <th class="num">Over 50</th>
               </tr>
@@ -956,11 +957,12 @@
         if (value === null) return;
         const driver = String(row.driver || '').trim() || 'Unknown';
         if (!groups.has(driver)) {
-          groups.set(driver, { driver: driver, loads: 0, sum: 0, over30: 0, over50: 0 });
+          groups.set(driver, { driver: driver, loads: 0, sum: 0, le30: 0, over30: 0, over50: 0 });
         }
         const g = groups.get(driver);
         g.loads += 1;
         g.sum += value;
+        if (value <= 30) g.le30 += 1;
         if (value > 30) g.over30 += 1;
         if (value > 50) g.over50 += 1;
       });
@@ -968,6 +970,7 @@
         driver: g.driver,
         loads: g.loads,
         avg: g.loads ? g.sum / g.loads : null,
+        le30: g.le30,
         over30: g.over30,
         over50: g.over50,
       }));
@@ -975,10 +978,11 @@
       const totals = list.reduce((acc, g) => {
         acc.loads += g.loads;
         acc.sum += (g.avg || 0) * g.loads;
+        acc.le30 += g.le30;
         acc.over30 += g.over30;
         acc.over50 += g.over50;
         return acc;
-      }, { loads: 0, sum: 0, over30: 0, over50: 0 });
+      }, { loads: 0, sum: 0, le30: 0, over30: 0, over50: 0 });
       totals.avg = totals.loads ? totals.sum / totals.loads : null;
       return { rows: list, totals: totals };
     }
@@ -1001,6 +1005,7 @@
         '<td>' + escapeHtml(row.driver) + '</td>' +
         '<td class="' + bactoAvgClass(row.avg) + '">' + escapeHtml(avgText) + '</td>' +
         '<td class="num">' + escapeHtml(String(row.loads)) + '</td>' +
+        '<td class="num">' + escapeHtml(String(row.le30)) + '</td>' +
         '<td class="' + bactoCountClass(row.over30, 30) + '">' + escapeHtml(String(row.over30)) + '</td>' +
         '<td class="' + bactoCountClass(row.over50, 50) + '">' + escapeHtml(String(row.over50)) + '</td>' +
         '</' + tag + '>';
@@ -1015,7 +1020,7 @@
         ? 'Collection loads with a BactoScan result in the current filters. Unmatched NML samples have no driver and are not included.'
         : 'No collection loads with a BactoScan result in the current filters.';
       if (!data.rows.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No BactoScan results for the current filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No BactoScan results for the current filters.</td></tr>';
         tfoot.innerHTML = '';
         return;
       }
@@ -1024,6 +1029,7 @@
         driver: 'All drivers',
         avg: data.totals.avg,
         loads: data.totals.loads,
+        le30: data.totals.le30,
         over30: data.totals.over30,
         over50: data.totals.over50,
       }, 'tr');
