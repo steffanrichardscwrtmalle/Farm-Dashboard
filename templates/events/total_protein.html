@@ -378,12 +378,10 @@
       GAD: "Green Acre Dairy (GAD)",
       total: "Combined (All Farms)",
     };
-    const DEFAULT_MONTH_SPAN = 12;
+    const DEFAULT_LOOKBACK_DAYS = 90;
 
     let charts = { CM: null, GAD: null, total: null };
     let monthList = [];
-    let storedBirthBounds = null;
-    let storedFullBirthBounds = null;
     let dateBoundsInitialized = false;
     let fiscalYearInitialized = false;
     let lastFiscalYear = null;
@@ -484,16 +482,37 @@
         monthList[maxIdx] ? formatMonthLabel(monthList[maxIdx]) : "—";
     }
 
-    function defaultSliderIndices(maxIdx) {
-      return { minIdx: Math.max(0, maxIdx - (DEFAULT_MONTH_SPAN - 1)), maxIdx };
+    function monthIndexForDate(date) {
+      const y = date.getFullYear();
+      const m = date.getMonth();
+      for (let i = 0; i < monthList.length; i++) {
+        if (monthList[i].getFullYear() === y && monthList[i].getMonth() === m) {
+          return i;
+        }
+      }
+      return -1;
     }
 
-    function fiscalYearBounds(year) {
-      const y = Number(year);
-      return {
-        min: `${y - 1}-04-01`,
-        max: `${y}-03-31`,
-      };
+    function defaultSliderIndices(bounds, birthFromIso, birthToIso) {
+      const maxIdx = Math.max(0, monthList.length - 1);
+      if (!birthFromIso || !birthToIso || !monthList.length) {
+        return { minIdx: 0, maxIdx };
+      }
+      let minIdx = monthIndexForDate(parseIsoDate(birthFromIso));
+      let hi = monthIndexForDate(parseIsoDate(birthToIso));
+      if (minIdx < 0 || hi < 0) {
+        // Fallback: last ~90 days from the slider max / latest bound.
+        const end = parseIsoDate(birthToIso || bounds.max);
+        const start = parseIsoDate(birthFromIso || bounds.min);
+        const approxStart = new Date(end);
+        approxStart.setDate(approxStart.getDate() - DEFAULT_LOOKBACK_DAYS);
+        minIdx = monthIndexForDate(start < approxStart ? approxStart : start);
+        hi = monthIndexForDate(end);
+        if (minIdx < 0) minIdx = 0;
+        if (hi < 0) hi = maxIdx;
+      }
+      if (minIdx > hi) [minIdx, hi] = [hi, minIdx];
+      return { minIdx: Math.max(0, minIdx), maxIdx: Math.min(maxIdx, hi) };
     }
 
     function selectedFiscalYear() {
@@ -519,7 +538,7 @@
       }
     }
 
-    function syncDateControls(bounds, resetValues, useLastTwelveMonths = false) {
+    function syncDateControls(bounds, resetValues, selectedRange = null) {
       if (!bounds?.min || !bounds?.max) return;
       monthList = buildMonthList(bounds.min, bounds.max);
       const maxIdx = Math.max(0, monthList.length - 1);
@@ -530,14 +549,13 @@
       maxRange.min = 0;
       maxRange.max = maxIdx;
       if (resetValues) {
-        if (useLastTwelveMonths) {
-          const { minIdx, maxIdx: hi } = defaultSliderIndices(maxIdx);
-          minRange.value = minIdx;
-          maxRange.value = hi;
-        } else {
-          minRange.value = 0;
-          maxRange.value = maxIdx;
-        }
+        const { minIdx, maxIdx: hi } = defaultSliderIndices(
+          bounds,
+          selectedRange?.from || null,
+          selectedRange?.to || null
+        );
+        minRange.value = minIdx;
+        maxRange.value = hi;
       }
       updateDateLabels();
     }
@@ -722,15 +740,8 @@
 
       const fiscalYear = selectedFiscalYear();
       if (fiscalYearInitialized && fiscalYear !== lastFiscalYear) {
-        if (fiscalYear !== "any") {
-          syncDateControls(fiscalYearBounds(fiscalYear), true);
-          dateBoundsInitialized = true;
-        } else if (storedFullBirthBounds) {
-          syncDateControls(storedFullBirthBounds, true, true);
-          dateBoundsInitialized = true;
-        } else {
-          dateBoundsInitialized = false;
-        }
+        // Let the API apply the last-data → last-data−90 default within the new FY / Any.
+        dateBoundsInitialized = false;
         lastFiscalYear = fiscalYear;
       }
 
@@ -762,18 +773,14 @@
       lastFiscalYear = selectedFiscalYear();
       fiscalYearInitialized = true;
 
-      if (data.birth_bounds) {
-        storedBirthBounds = data.birth_bounds;
-        if (data.fiscal_year == null) {
-          storedFullBirthBounds = data.birth_bounds;
-        }
-        if (!dateBoundsInitialized) {
-          const useLastTwelve = selectedFiscalYear() === "any";
-          syncDateControls(data.birth_bounds, true, useLastTwelve);
-          dateBoundsInitialized = true;
-          loadReport();
-          return;
-        }
+      if (data.birth_bounds && !dateBoundsInitialized) {
+        syncDateControls(data.birth_bounds, true, {
+          from: data.birth_from,
+          to: data.birth_to || data.latest_birth,
+        });
+        dateBoundsInitialized = true;
+        loadReport();
+        return;
       }
 
       const fyLabel = data.fiscal_year == null ? "Any" : String(data.fiscal_year);
@@ -820,14 +827,8 @@
         .filter((value) => value && value !== "any");
       select.value = years[0] || "any";
       lastFiscalYear = selectedFiscalYear();
-      if (selectedFiscalYear() !== "any") {
-        syncDateControls(fiscalYearBounds(selectedFiscalYear()), true);
-      } else if (storedFullBirthBounds) {
-        syncDateControls(storedFullBirthBounds, true, true);
-      } else if (storedBirthBounds) {
-        syncDateControls(storedBirthBounds, true, true);
-      }
-      dateBoundsInitialized = true;
+      // Re-fetch without birth dates so the API re-applies last-data → −90 days.
+      dateBoundsInitialized = false;
       loadReport();
     }
 
