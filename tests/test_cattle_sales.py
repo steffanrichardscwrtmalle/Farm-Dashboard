@@ -20,11 +20,17 @@ from app.services.cattle_sales import (
     BUYER_BUITELAAR,
     BUYER_GAME_CHANGER,
     BUYER_PICKSTOCK,
+    REVIEW_REASON_NO_EXIT,
+    REVIEW_REASON_UNKNOWN,
+    REVIEW_STATUS_ACCEPTED,
+    accept_cattle_sale_review,
     compute_dim_at_cull,
     compute_price_per_kg,
+    delete_cattle_sale_lines,
     format_age_years_months,
     format_cattle_gender,
     infer_cattle_sale_buyer,
+    list_cattle_sale_review_items,
     list_cattle_sales,
     normalize_age_days_range,
 )
@@ -1151,5 +1157,140 @@ def test_list_cattle_sales_matches_pickstock_cull_line() -> None:
     assert row["amount_gbp"] == 1814.47
     assert row["cold_weight_kg"] == 359.3
     assert row["buyer"] == BUYER_PICKSTOCK
+
+    session.close()
+
+
+def test_review_queue_flags_unknown_and_no_exit_animals() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="100",
+            etag="UK740651100001",
+            event="BORN",
+            event_date=dt.date(2025, 1, 1),
+            gndr="M",
+            bdat=dt.date(2025, 1, 1),
+            lact=0,
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651100001",
+            sale_date=dt.date(2026, 3, 10),
+            cold_weight_kg=120.0,
+            amount_gbp=200.0,
+            buyer=BUYER_BUITELAAR,
+            source_file="vendbill-bad.pdf",
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK999999999999",
+            sale_date=dt.date(2026, 3, 11),
+            cold_weight_kg=90.0,
+            amount_gbp=150.0,
+            buyer=BUYER_BUITELAAR,
+            source_file="vendbill-bad.pdf",
+        )
+    )
+    session.add(
+        CattleSaleLine(
+            farm="CM",
+            etag="UK740651100002",
+            sale_date=dt.date(2026, 3, 12),
+            cold_weight_kg=110.0,
+            amount_gbp=180.0,
+            buyer=BUYER_BUITELAAR,
+            review_status=REVIEW_STATUS_ACCEPTED,
+        )
+    )
+    session.commit()
+
+    review = list_cattle_sale_review_items(session, farms=["CM"])
+    assert review["total"] == 2
+    by_etag = {row["etag"]: row for row in review["rows"]}
+    assert by_etag["UK740651100001"]["reason"] == REVIEW_REASON_NO_EXIT
+    assert by_etag["UK999999999999"]["reason"] == REVIEW_REASON_UNKNOWN
+    assert "UK740651100002" not in by_etag
+
+    listed = list_cattle_sales(session, farms=["CM"])
+    assert listed["review_pending"] == 2
+    needs = {row["etag"]: row["needs_review"] for row in listed["rows"]}
+    assert needs["UK740651100001"] is True
+    assert needs["UK999999999999"] is True
+    assert needs["UK740651100002"] is False
+
+    session.close()
+
+
+def test_accept_and_delete_cattle_sale_review() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    keep = CattleSaleLine(
+        farm="CM",
+        etag="UK740651200001",
+        sale_date=dt.date(2026, 4, 1),
+        cold_weight_kg=100.0,
+        amount_gbp=160.0,
+        buyer=BUYER_BUITELAAR,
+    )
+    drop = CattleSaleLine(
+        farm="CM",
+        etag="UK740651200002",
+        sale_date=dt.date(2026, 4, 2),
+        cold_weight_kg=95.0,
+        amount_gbp=140.0,
+        buyer=BUYER_BUITELAAR,
+    )
+    matched = CattleSaleLine(
+        farm="CM",
+        etag="UK740651200003",
+        sale_date=dt.date(2026, 4, 3),
+        cold_weight_kg=300.0,
+        amount_gbp=1200.0,
+    )
+    session.add_all([keep, drop, matched])
+    session.add(
+        CowEvent(
+            farm="CM",
+            cow_id="200003",
+            etag="UK740651200003",
+            event="SOLD",
+            event_date=dt.date(2026, 4, 3),
+            gndr="F",
+            bdat=dt.date(2022, 1, 1),
+            lact=2,
+        )
+    )
+    session.commit()
+    keep_id, drop_id, matched_id = keep.id, drop.id, matched.id
+
+    accepted = accept_cattle_sale_review(session, [keep_id])
+    assert accepted["accepted"] == 1
+    assert session.get(CattleSaleLine, keep_id).review_status == REVIEW_STATUS_ACCEPTED
+
+    deleted = delete_cattle_sale_lines(session, [drop_id])
+    assert deleted["deleted"] == 1
+    assert session.get(CattleSaleLine, drop_id) is None
+    # Matched historical line left untouched.
+    assert session.get(CattleSaleLine, matched_id) is not None
+
+    review = list_cattle_sale_review_items(session, farms=["CM"])
+    assert review["total"] == 0
+
+    listed = list_cattle_sales(session, farms=["CM"])
+    assert listed["total"] == 2
+    assert listed["review_pending"] == 0
+    by_etag = {row["etag"]: row for row in listed["rows"]}
+    assert by_etag["UK740651200001"]["needs_review"] is False
+    assert by_etag["UK740651200001"]["review_status"] == REVIEW_STATUS_ACCEPTED
+    assert by_etag["UK740651200003"]["event_matched"] is True
 
     session.close()
