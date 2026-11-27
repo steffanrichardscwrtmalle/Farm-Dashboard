@@ -14,9 +14,9 @@ from app.services.events_common import (
     _build_range_summary,
     _clamp_date,
     _empty_range_summary,
-    _fiscal_year_calendar_bounds,
     _iter_month_starts,
     _month_count_inclusive,
+    _resolve_slider_bounds,
     _sort_key_from_date,
     normalize_farms,
 )
@@ -356,9 +356,11 @@ def build_births_report(
     event_from: dt.date | None = None,
     event_to: dt.date | None = None,
     fiscal_year: int | None = None,
+    today: dt.date | None = None,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     selected_categories = normalize_birth_categories(categories)
+    reference_today = today or dt.date.today()
     latest_import = db.scalar(select(func.max(HerdBirth.import_timestamp)))
 
     empty_result: dict[str, Any] = {
@@ -388,10 +390,14 @@ def build_births_report(
         empty_result["date_bounds"] = None
         return empty_result
 
-    if fiscal_year is not None:
-        slider_min, slider_max = _fiscal_year_calendar_bounds(fiscal_year)
-    else:
-        slider_min, slider_max = bounds_min, bounds_max
+    # Births may include scheduled future dates when present in the data.
+    slider_min, slider_max = _resolve_slider_bounds(
+        bounds_min,
+        bounds_max,
+        fiscal_year=fiscal_year,
+        today=reference_today,
+        allow_future=True,
+    )
 
     date_bounds = {
         "min": slider_min.isoformat(),

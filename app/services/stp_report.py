@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models import HERD_FARM_OPTIONS, CowEvent
 from app.services.events_common import (
     _apply_fiscal_year,
+    _cap_slider_max,
     _clamp_date,
     _fiscal_year_calendar_bounds,
     _fiscal_year_from_date,
@@ -263,6 +264,16 @@ def build_stp_report(
         slider_min, slider_max = _fiscal_year_calendar_bounds(
             _fiscal_year_from_date(today)
         )
+
+    # Cap empty future months only — keep the 90-day default window separately.
+    slider_max = _cap_slider_max(
+        slider_max,
+        data_max=bounds_max,
+        today=today,
+        allow_future=False,
+    )
+    if slider_max < slider_min:
+        slider_max = slider_min
 
     birth_bounds = {
         "min": slider_min.isoformat(),

@@ -387,6 +387,54 @@ def _clamp_date(value: dt.date, min_date: dt.date, max_date: dt.date) -> dt.date
     return max(min_date, min(value, max_date))
 
 
+# Event pages that legitimately schedule dates past today (due calvings, etc.).
+# Births use the same rule via build_births_report; calves/heifers due already
+# bind the slider to expected_due data max.
+PAGES_ALLOW_FUTURE_DATES: frozenset[str] = frozenset({"calvings"})
+
+
+def _cap_slider_max(
+    candidate_max: dt.date,
+    *,
+    data_max: dt.date | None = None,
+    today: dt.date | None = None,
+    allow_future: bool = False,
+) -> dt.date:
+    """Cap a date-slider max so empty future months are not offered.
+
+    Historical pages never extend past today. Scheduled-future pages may extend
+    past today only when ``data_max`` itself is in the future.
+    """
+    reference = today or dt.date.today()
+    if allow_future and data_max is not None and data_max > reference:
+        return min(candidate_max, data_max)
+    return min(candidate_max, reference)
+
+
+def _resolve_slider_bounds(
+    bounds_min: dt.date,
+    bounds_max: dt.date,
+    *,
+    fiscal_year: int | None = None,
+    today: dt.date | None = None,
+    allow_future: bool = False,
+) -> tuple[dt.date, dt.date]:
+    """Resolve min/max slider bounds, applying the no-empty-future max cap."""
+    if fiscal_year is not None:
+        slider_min, slider_max = _fiscal_year_calendar_bounds(fiscal_year)
+    else:
+        slider_min, slider_max = bounds_min, bounds_max
+    slider_max = _cap_slider_max(
+        slider_max,
+        data_max=bounds_max,
+        today=today,
+        allow_future=allow_future,
+    )
+    if slider_max < slider_min:
+        slider_max = slider_min
+    return slider_min, slider_max
+
+
 def _get_date_bounds(
     db: Session,
     event_types: tuple[str, ...],
@@ -1847,6 +1895,8 @@ def build_events_report(
     y_min: int | None = None,
     y_max: int | None = None,
     bounds_event_types: tuple[str, ...] | None = None,
+    today: dt.date | None = None,
+    allow_future: bool = False,
 ) -> dict[str, Any]:
     selected_farms = normalize_farms(farms)
     selected_lact_groups = normalize_lact_groups(lact_groups)
@@ -1860,6 +1910,7 @@ def build_events_report(
         if include_hooftrimming_breakdown
         else None
     )
+    reference_today = today or dt.date.today()
     latest_import = db.scalar(select(func.max(CowEvent.import_timestamp)))
     # Date slider / axis use the page's full event set (not a single disease
     # filter), so switching to DA does not shrink the range to the last DA.
@@ -1915,15 +1966,20 @@ def build_events_report(
     fiscal_year_options = _get_fiscal_year_options(db, bound_types, selected_farms)
     empty_result["fiscal_year_options"] = fiscal_year_options
 
-    bounds_min, bounds_max = _get_date_bounds(db, bound_types, selected_farms)
+    bounds_min, bounds_max = _get_date_bounds(
+        db, bound_types, selected_farms, today=reference_today
+    )
     if bounds_min is None or bounds_max is None:
         empty_result["date_bounds"] = None
         return empty_result
 
-    if fiscal_year is not None:
-        slider_min, slider_max = _fiscal_year_calendar_bounds(fiscal_year)
-    else:
-        slider_min, slider_max = bounds_min, bounds_max
+    slider_min, slider_max = _resolve_slider_bounds(
+        bounds_min,
+        bounds_max,
+        fiscal_year=fiscal_year,
+        today=reference_today,
+        allow_future=allow_future,
+    )
 
     date_bounds = {
         "min": slider_min.isoformat(),
@@ -2125,4 +2181,5 @@ def build_events_page_report(
         y_min=y_min if page_slug == "disease" else None,
         y_max=y_max if page_slug == "disease" else None,
         bounds_event_types=page_event_types,
+        allow_future=page_slug in PAGES_ALLOW_FUTURE_DATES,
     )

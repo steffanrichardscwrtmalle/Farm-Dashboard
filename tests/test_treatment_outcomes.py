@@ -285,8 +285,9 @@ def test_treatment_outcomes_defaults_last_three_months_and_latest_year() -> None
     payload = treatment_outcomes(session, farms=["CM"], min_episodes=0, today=today)
     assert payload["fiscal_year"] == 2027
     assert payload["date_from"] == "2026-07-01"
-    assert payload["date_to"] == "2026-09-30"
-    assert payload["date_bounds"] == {"min": "2026-04-01", "max": "2027-03-31"}
+    # Slider max is capped at today (no empty future), so default end is today.
+    assert payload["date_to"] == "2026-09-10"
+    assert payload["date_bounds"] == {"min": "2026-04-01", "max": "2026-09-10"}
     assert payload["episode_count"] == 1
 
     any_year = treatment_outcomes(
