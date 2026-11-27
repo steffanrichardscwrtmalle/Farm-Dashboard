@@ -945,6 +945,12 @@ def _migrate_cattle_sales_schema() -> None:
                     "WHERE buyer IS NULL"
                 )
             )
+        if "review_status" not in columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE cattle_sale_lines ADD COLUMN review_status VARCHAR(16)"
+                )
+            )
         if DATABASE_URL.startswith("sqlite"):
             conn.execute(
                 text(
@@ -956,6 +962,12 @@ def _migrate_cattle_sales_schema() -> None:
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_cattle_sale_buyer "
                     "ON cattle_sale_lines (buyer)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_cattle_sale_review_status "
+                    "ON cattle_sale_lines (review_status)"
                 )
             )
 

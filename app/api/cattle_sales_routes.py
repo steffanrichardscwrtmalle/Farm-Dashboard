@@ -1,4 +1,4 @@
-"""Cattle sales API (list, status, import from email)."""
+"""Cattle sales API (list, status, import from email, mismatch review)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import datetime as dt
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -14,7 +15,12 @@ from app.auth.import_key import require_import_or_any_action
 from app.auth.permissions import ACTION_CATTLE_SALES_IMPORT, PAGE_CATTLE_SALES
 from app.db import SessionLocal, get_db
 from app.models import CattleSaleLine, User
-from app.services.cattle_sales import list_cattle_sales
+from app.services.cattle_sales import (
+    accept_cattle_sale_review,
+    delete_cattle_sale_lines,
+    list_cattle_sale_review_items,
+    list_cattle_sales,
+)
 from app.services.cattle_sales_import import (
     cattle_sales_is_configured,
     get_import_status,
@@ -30,6 +36,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cattle-sales")
 
 
+class CattleSaleReviewBody(BaseModel):
+    ids: list[int] = Field(default_factory=list)
+
+
 def _parse_date(value: str | None) -> dt.date | None:
     if not value:
         return None
@@ -37,6 +47,16 @@ def _parse_date(value: str | None) -> dt.date | None:
         return dt.date.fromisoformat(value.strip())
     except ValueError:
         return None
+
+
+def _farm_list(
+    farm: list[str] | None,
+    farms: str | None,
+) -> list[str] | None:
+    farm_list: list[str] | None = list(farm) if farm else None
+    if not farm_list and farms:
+        farm_list = [f for f in (part.strip() for part in farms.split(",")) if f]
+    return farm_list
 
 
 @router.get("")
@@ -57,9 +77,7 @@ def api_cattle_sales_list(
     db: Session = Depends(get_db),
     _user: User = Depends(require_page(PAGE_CATTLE_SALES)),
 ):
-    farm_list: list[str] | None = list(farm) if farm else None
-    if not farm_list and farms:
-        farm_list = [f for f in (part.strip() for part in farms.split(",")) if f]
+    farm_list = _farm_list(farm, farms)
 
     category_list: list[str] | None = list(category) if category else None
     if not category_list and categories:
@@ -89,6 +107,48 @@ def api_cattle_sales_list(
         date_to=_parse_date(date_to),
         include_unmatched=include_unmatched,
     )
+
+
+@router.get("/review")
+def api_cattle_sales_review_list(
+    farm: list[str] | None = Query(None),
+    farms: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_CATTLE_SALES)),
+):
+    """Unmatched remittance animals awaiting Accept or Delete."""
+    return list_cattle_sale_review_items(
+        db,
+        farms=_farm_list(farm, farms),
+        date_from=_parse_date(date_from),
+        date_to=_parse_date(date_to),
+    )
+
+
+@router.post("/review/accept")
+def api_cattle_sales_review_accept(
+    body: CattleSaleReviewBody,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_CATTLE_SALES)),
+):
+    """Keep selected unmatched lines (mark reviewed; do not delete)."""
+    if not body.ids:
+        raise HTTPException(status_code=400, detail="Select at least one line to accept.")
+    return accept_cattle_sale_review(db, body.ids)
+
+
+@router.post("/review/delete")
+def api_cattle_sales_review_delete(
+    body: CattleSaleReviewBody,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_page(PAGE_CATTLE_SALES)),
+):
+    """Permanently delete selected remittance lines after user confirmation."""
+    if not body.ids:
+        raise HTTPException(status_code=400, detail="Select at least one line to delete.")
+    return delete_cattle_sale_lines(db, body.ids)
 
 
 @router.get("/status")

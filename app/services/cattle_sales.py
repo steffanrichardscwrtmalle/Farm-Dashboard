@@ -36,6 +36,13 @@ KNOWN_BUYERS: tuple[str, ...] = (
     BUYER_GAME_CHANGER,
     BUYER_PICKSTOCK,
 )
+REVIEW_STATUS_ACCEPTED = "accepted"
+REVIEW_REASON_NO_EXIT = "no_sale_exit"
+REVIEW_REASON_UNKNOWN = "unknown_animal"
+REVIEW_REASON_LABELS: dict[str, str] = {
+    REVIEW_REASON_NO_EXIT: "No matching sale exit event",
+    REVIEW_REASON_UNKNOWN: "Ear tag not found in herd events",
+}
 
 
 def cattle_sales_exit_event_clause():
@@ -174,6 +181,43 @@ def _load_sold_events(
     for events in grouped.values():
         events.sort(key=lambda e: e.event_date or dt.date.min)
     return grouped
+
+
+def _known_herd_etags(
+    db: Session,
+    farms: list[str],
+    etags: set[str],
+) -> set[tuple[str, str]]:
+    """Return (farm, normalized_etag) pairs that appear in any cow_events row."""
+    if not etags:
+        return set()
+    normalized_etags = {normalize_etag(etag) for etag in etags}
+    normalized_etags.discard("")
+    if not normalized_etags:
+        return set()
+
+    rows = db.execute(
+        select(CowEvent.farm, CowEvent.etag)
+        .where(CowEvent.farm.in_(farms))
+        .distinct()
+    ).all()
+    known: set[tuple[str, str]] = set()
+    for farm, raw_etag in rows:
+        etag = normalize_etag(raw_etag)
+        if etag and etag in normalized_etags:
+            known.add((farm, etag))
+    return known
+
+
+def _review_reason(
+    *,
+    farm: str,
+    norm_etag: str,
+    known_etags: set[tuple[str, str]],
+) -> str:
+    if (farm, norm_etag) not in known_etags:
+        return REVIEW_REASON_UNKNOWN
+    return REVIEW_REASON_NO_EXIT
 
 
 def _best_sold_match(
@@ -392,8 +436,11 @@ def list_cattle_sales(
             if rejected
             else compute_price_per_kg(line.amount_gbp, line.cold_weight_kg)
         )
+        review_status = (line.review_status or "").strip() or None
+        needs_review = (not event_matched) and review_status != REVIEW_STATUS_ACCEPTED
         rows.append(
             {
+                "id": line.id,
                 "farm": line.farm,
                 "cow_id": cow_id,
                 "etag": line.etag,
@@ -413,6 +460,9 @@ def list_cattle_sales(
                 "sale_date": line.sale_date.isoformat(),
                 "event_date": event_date.isoformat() if event_date else None,
                 "event_matched": event_matched,
+                "review_status": review_status,
+                "needs_review": needs_review,
+                "source_file": line.source_file,
             }
         )
 
@@ -444,4 +494,138 @@ def list_cattle_sales(
         "charts": charts,
         "categories": list(CATTLE_CATEGORIES),
         "farms": list(HERD_FARM_OPTIONS),
+        "review_pending": sum(1 for r in rows if r.get("needs_review")),
     }
+
+
+def list_cattle_sale_review_items(
+    db: Session,
+    *,
+    farms: list[str] | None = None,
+    date_from: dt.date | None = None,
+    date_to: dt.date | None = None,
+) -> dict[str, Any]:
+    """List remittance lines with no matching sale exit that still need review.
+
+    Does not auto-delete or rewrite historical rows — Accept keeps them;
+    Delete removes only the ids the user chooses.
+    """
+    selected_farms = normalize_farms(farms)
+    if not selected_farms:
+        return {"rows": [], "total": 0}
+
+    query = select(CattleSaleLine).where(CattleSaleLine.farm.in_(selected_farms))
+    if date_from is not None:
+        query = query.where(CattleSaleLine.sale_date >= date_from)
+    if date_to is not None:
+        query = query.where(CattleSaleLine.sale_date <= date_to)
+    query = query.order_by(
+        CattleSaleLine.sale_date.desc(),
+        CattleSaleLine.farm.asc(),
+        CattleSaleLine.etag.asc(),
+    )
+    sale_lines = list(db.scalars(query).all())
+    if not sale_lines:
+        return {"rows": [], "total": 0}
+
+    etags = {line.etag for line in sale_lines}
+    reference_dates: list[dt.date] = []
+    for line in sale_lines:
+        reference_dates.append(line.sale_date)
+        if line.kill_date is not None:
+            reference_dates.append(line.kill_date)
+    min_sale = min(reference_dates)
+    max_sale = max(reference_dates)
+    sold_by_key = _load_sold_events(db, selected_farms, etags, min_sale, max_sale)
+
+    unmatched: list[tuple[CattleSaleLine, str, str | None]] = []
+    for line in sale_lines:
+        review_status = (line.review_status or "").strip() or None
+        if review_status == REVIEW_STATUS_ACCEPTED:
+            continue
+        norm_etag = normalize_etag(line.etag)
+        match = _best_sold_match(
+            sold_by_key.get((line.farm, norm_etag), []),
+            line.sale_date,
+            line.kill_date,
+        )
+        if match is not None:
+            continue
+        unmatched.append((line, norm_etag, review_status))
+
+    known_etags = _known_herd_etags(
+        db,
+        selected_farms,
+        {line.etag for line, _norm, _status in unmatched},
+    )
+
+    rows: list[dict[str, Any]] = []
+    for line, norm_etag, review_status in unmatched:
+        reason = _review_reason(
+            farm=line.farm,
+            norm_etag=norm_etag,
+            known_etags=known_etags,
+        )
+        buyer = infer_cattle_sale_buyer(buyer=line.buyer, source_file=line.source_file)
+        rejected = is_rejected_sale(
+            line.cold_weight_kg, line.reject_kg, line.amount_gbp
+        )
+        rows.append(
+            {
+                "id": line.id,
+                "farm": line.farm,
+                "etag": line.etag,
+                "buyer": buyer,
+                "cold_weight_kg": line.cold_weight_kg,
+                "reject_kg": line.reject_kg,
+                "kill_date": line.kill_date.isoformat() if line.kill_date else None,
+                "amount_gbp": line.amount_gbp,
+                "is_rejected": rejected,
+                "sale_date": line.sale_date.isoformat(),
+                "source_file": line.source_file,
+                "review_status": review_status,
+                "reason": reason,
+                "reason_label": REVIEW_REASON_LABELS.get(reason, reason),
+            }
+        )
+
+    return {"rows": rows, "total": len(rows)}
+
+
+def accept_cattle_sale_review(
+    db: Session,
+    ids: list[int],
+) -> dict[str, Any]:
+    """Keep selected unmatched remittance lines; clear them from the review queue."""
+    unique_ids = sorted({int(i) for i in ids if i is not None})
+    if not unique_ids:
+        return {"accepted": 0, "ids": []}
+
+    rows = list(
+        db.scalars(select(CattleSaleLine).where(CattleSaleLine.id.in_(unique_ids))).all()
+    )
+    accepted_ids: list[int] = []
+    for row in rows:
+        row.review_status = REVIEW_STATUS_ACCEPTED
+        accepted_ids.append(row.id)
+    db.commit()
+    return {"accepted": len(accepted_ids), "ids": accepted_ids}
+
+
+def delete_cattle_sale_lines(
+    db: Session,
+    ids: list[int],
+) -> dict[str, Any]:
+    """Permanently remove selected remittance lines (user-confirmed only)."""
+    unique_ids = sorted({int(i) for i in ids if i is not None})
+    if not unique_ids:
+        return {"deleted": 0, "ids": []}
+
+    rows = list(
+        db.scalars(select(CattleSaleLine).where(CattleSaleLine.id.in_(unique_ids))).all()
+    )
+    deleted_ids = [row.id for row in rows]
+    for row in rows:
+        db.delete(row)
+    db.commit()
+    return {"deleted": len(deleted_ids), "ids": deleted_ids}

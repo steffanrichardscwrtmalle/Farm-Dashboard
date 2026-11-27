@@ -266,6 +266,41 @@
       position: sticky; top: 0; z-index: 1; cursor: pointer;
     }
     #cattle-sales-table tbody tr.unmatched { background: #fff8ef; }
+    #cattle-sales-table tbody tr.review-accepted { background: #f3f4f6; }
+    .review-panel {
+      background: #fff8ef;
+      border: 1px solid #f5d9ad;
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 0.85rem;
+    }
+    .review-panel[hidden] { display: none !important; }
+    .review-panel-head {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 0.5rem; margin-bottom: 0.55rem;
+    }
+    .review-panel-head h2 { margin: 0; font-size: 1rem; color: #92400e; }
+    .review-panel-note { margin: 0 0 0.55rem; font-size: 0.8rem; color: #92400e; }
+    .review-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+    .review-actions .selection-count { font-size: 0.8rem; color: var(--muted); min-width: 5.5rem; }
+    .review-table-wrap { overflow: auto; max-height: 16rem; border: 1px solid #f5d9ad; border-radius: 6px; background: var(--card); }
+    #review-table { width: 100%; border-collapse: collapse; }
+    #review-table th, #review-table td {
+      padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border);
+      white-space: nowrap; font-size: 0.85rem;
+    }
+    #review-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    #review-table thead th {
+      background: #92400e; color: #fff; font-weight: 600;
+      position: sticky; top: 0; z-index: 1;
+    }
+    #review-table tbody tr.row-selected { background: #ffedd5; }
+    #review-table tbody tr.reason-unknown td:nth-child(3) { color: #b91c1c; font-weight: 600; }
+    button.danger {
+      background: #b91c1c; border-color: #b91c1c; color: #fff;
+    }
+    button.danger:hover:not(:disabled) { background: #991b1b; border-color: #991b1b; }
+    button.danger:disabled { opacity: 0.5; cursor: not-allowed; }
     .empty-state { padding: 1.5rem; color: var(--muted); text-align: center; }
     .message.warn {
       background: #fef3e2; color: #92400e;
@@ -456,6 +491,40 @@
 
       <p class="meta-line" id="meta-line">Loading cattle sales…</p>
 
+      <div class="review-panel" id="review-panel" hidden>
+        <div class="review-panel-head">
+          <h2 id="review-title">Review mismatches</h2>
+          <div class="review-actions">
+            <span class="selection-count" id="review-selection-count">0 selected</span>
+            <button type="button" class="secondary small" id="review-select-all">Select all</button>
+            <button type="button" class="primary small" id="review-accept-btn" disabled>Accept</button>
+            <button type="button" class="danger small" id="review-delete-btn" disabled>Delete</button>
+          </div>
+        </div>
+        <p class="review-panel-note">
+          Remittance animals with no matching herd sale exit (common after a bad Buitelaar/Pathway PDF).
+          Accept keeps the line; Delete removes it. Historical matched sales are never auto-deleted.
+        </p>
+        <div class="review-table-wrap">
+          <table id="review-table">
+            <thead>
+              <tr>
+                <th style="width:2rem"><input type="checkbox" id="review-check-all" title="Select all" aria-label="Select all review rows"></th>
+                <th>Farm</th>
+                <th>Reason</th>
+                <th>ETAG</th>
+                <th>Buyer</th>
+                <th>Sale date</th>
+                <th>Cold wt</th>
+                <th>Amount</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="review-body"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="summary-cards" id="summary-cards"></div>
       <div id="summary-popover" class="summary-popover" hidden>
         <div class="summary-popover-backdrop" data-close="1"></div>
@@ -614,6 +683,8 @@
       dim: { title: 'Avg DIM by supplier', column: 'Avg DIM', field: 'dim', dp: 0, payable: false },
     };
     let allRows = [];
+    let reviewRows = [];
+    let reviewSelected = new Set();
     let sortKey = 'sale_date';
     let sortDir = -1;
     let loadingCount = 0;
@@ -1144,9 +1215,18 @@
       empty.hidden = true;
       sorted.forEach(row => {
         const tr = document.createElement('tr');
-        if (!row.event_matched) tr.classList.add('unmatched');
+        const needsReview = !!row.needs_review;
+        const acceptedUnmatched = !row.event_matched && row.review_status === 'accepted';
+        if (needsReview) tr.classList.add('unmatched');
+        if (acceptedUnmatched) tr.classList.add('review-accepted');
+        let warn = '';
+        if (needsReview) {
+          warn = ' <span title="Needs review — no matching sale exit event" style="color:#b45309">⚠</span>';
+        } else if (acceptedUnmatched) {
+          warn = ' <span title="Accepted without matching sale exit" style="color:#6b7280">✓</span>';
+        }
         tr.innerHTML = `
-          <td data-label="ID">${row.cow_id || '—'}${!row.event_matched ? ' <span title="No matching sale exit event (SOLD/GAME/PATH)" style="color:#b45309">⚠</span>' : ''}</td>
+          <td data-label="ID">${row.cow_id || '—'}${warn}</td>
           <td data-label="ETAG">${row.etag || '—'}</td>
           <td data-label="Lact">${row.lact != null ? row.lact : '—'}</td>
           <td data-label="Age">${row.age || '—'}</td>
@@ -1158,6 +1238,102 @@
         `;
         body.appendChild(tr);
       });
+    }
+
+    function updateReviewSelectionUi() {
+      const count = reviewSelected.size;
+      document.getElementById('review-selection-count').textContent =
+        count + ' selected';
+      document.getElementById('review-accept-btn').disabled = count === 0;
+      document.getElementById('review-delete-btn').disabled = count === 0;
+      const checkAll = document.getElementById('review-check-all');
+      checkAll.checked = reviewRows.length > 0 && count === reviewRows.length;
+      checkAll.indeterminate = count > 0 && count < reviewRows.length;
+      document.querySelectorAll('#review-body tr').forEach(tr => {
+        const id = Number(tr.dataset.id);
+        const on = reviewSelected.has(id);
+        tr.classList.toggle('row-selected', on);
+        const cb = tr.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = on;
+      });
+    }
+
+    function renderReviewPanel() {
+      const panel = document.getElementById('review-panel');
+      const body = document.getElementById('review-body');
+      const title = document.getElementById('review-title');
+      const validIds = new Set(reviewRows.map(r => r.id));
+      reviewSelected = new Set([...reviewSelected].filter(id => validIds.has(id)));
+      if (!reviewRows.length) {
+        panel.hidden = true;
+        body.innerHTML = '';
+        updateReviewSelectionUi();
+        return;
+      }
+      panel.hidden = false;
+      title.textContent = `Review mismatches (${reviewRows.length})`;
+      body.innerHTML = reviewRows.map(row => {
+        const reasonClass = row.reason === 'unknown_animal' ? 'reason-unknown' : '';
+        const selected = reviewSelected.has(row.id) ? 'row-selected' : '';
+        const checked = reviewSelected.has(row.id) ? 'checked' : '';
+        const source = row.source_file
+          ? String(row.source_file).replace(/^.*[\\/]/, '')
+          : '—';
+        return `<tr class="${reasonClass} ${selected}" data-id="${row.id}">
+          <td><input type="checkbox" class="review-row-cb" data-id="${row.id}" ${checked} aria-label="Select ${row.etag || row.id}"></td>
+          <td>${row.farm || '—'}</td>
+          <td>${row.reason_label || row.reason || '—'}</td>
+          <td>${row.etag || '—'}</td>
+          <td>${row.buyer || '—'}</td>
+          <td>${fmtDate(row.sale_date) || '—'}</td>
+          <td class="num">${fmtNum(row.cold_weight_kg)}</td>
+          <td class="num">${row.is_rejected ? '<span class="amount-rejected">Rejected</span>' : ('£' + fmtNum(row.amount_gbp))}</td>
+          <td title="${row.source_file || ''}">${source}</td>
+        </tr>`;
+      }).join('');
+      updateReviewSelectionUi();
+    }
+
+    async function fetchReviewData() {
+      const params = new URLSearchParams();
+      selectedValues('.farm-slicer').forEach(f => params.append('farm', f));
+      try {
+        const res = await fetch(`/api/cattle-sales/review?${params}`);
+        if (!res.ok) throw new Error('Failed to load review queue');
+        const payload = await res.json();
+        reviewRows = payload.rows || [];
+        renderReviewPanel();
+      } catch (err) {
+        console.error(err);
+        reviewRows = [];
+        renderReviewPanel();
+      }
+    }
+
+    async function postReviewAction(path, confirmMsg) {
+      const ids = [...reviewSelected];
+      if (!ids.length) return;
+      if (!window.confirm(confirmMsg)) return;
+      const acceptBtn = document.getElementById('review-accept-btn');
+      const deleteBtn = document.getElementById('review-delete-btn');
+      acceptBtn.disabled = true;
+      deleteBtn.disabled = true;
+      try {
+        const res = await fetch(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids }),
+        });
+        if (!res.ok) {
+          const detail = await res.json().catch(() => ({}));
+          throw new Error(detail.detail || 'Request failed');
+        }
+        reviewSelected = new Set();
+        await Promise.all([fetchData(), fetchReviewData()]);
+      } catch (err) {
+        window.alert(err.message || String(err));
+        updateReviewSelectionUi();
+      }
     }
 
     function mondayOfWeek(iso) {
@@ -1698,9 +1874,11 @@
       renderBuyerFilter();
       syncRangeInputs(buyerScopedRows());
       const rows = displayedRows();
+      const needsReview = rows.filter(r => r.needs_review).length;
       const unmatched = rows.filter(r => !r.event_matched).length;
       let meta = `${rows.length} sale line(s)`;
-      if (unmatched) meta += ` · ${unmatched} without matching sale exit event`;
+      if (needsReview) meta += ` · ${needsReview} needing review`;
+      else if (unmatched) meta += ` · ${unmatched} without matching sale exit event`;
       document.getElementById('meta-line').textContent = meta;
       renderSummary(rows);
       renderTable(rows);
@@ -1717,6 +1895,7 @@
         populateMonthSelects(payload.date_bounds, { resetRange: isInitialCattleSalesLoad });
         isInitialCattleSalesLoad = false;
         refreshView();
+        fetchReviewData();
       } catch (err) {
         document.getElementById('meta-line').textContent = 'Failed to load cattle sales.';
         console.error(err);
@@ -1764,6 +1943,7 @@
       if (data.status === 'complete') {
         showImportMessage(data.result);
         fetchData();
+        fetchReviewData();
       }
     }
 
@@ -1818,6 +1998,39 @@
         else { sortKey = key; sortDir = 1; }
         renderTable(displayedRows());
       });
+    });
+
+    document.getElementById('review-body').addEventListener('change', (e) => {
+      const input = e.target;
+      if (!(input instanceof HTMLInputElement) || !input.classList.contains('review-row-cb')) return;
+      const id = Number(input.dataset.id);
+      if (!Number.isFinite(id)) return;
+      if (input.checked) reviewSelected.add(id);
+      else reviewSelected.delete(id);
+      updateReviewSelectionUi();
+    });
+    document.getElementById('review-check-all').addEventListener('change', (e) => {
+      if (e.target.checked) reviewSelected = new Set(reviewRows.map(r => r.id));
+      else reviewSelected = new Set();
+      updateReviewSelectionUi();
+    });
+    document.getElementById('review-select-all').addEventListener('click', () => {
+      reviewSelected = new Set(reviewRows.map(r => r.id));
+      updateReviewSelectionUi();
+    });
+    document.getElementById('review-accept-btn').addEventListener('click', () => {
+      const n = reviewSelected.size;
+      postReviewAction(
+        '/api/cattle-sales/review/accept',
+        `Accept ${n} remittance line(s)? They will be kept and removed from the review queue.`
+      );
+    });
+    document.getElementById('review-delete-btn').addEventListener('click', () => {
+      const n = reviewSelected.size;
+      postReviewAction(
+        '/api/cattle-sales/review/delete',
+        `Permanently delete ${n} remittance line(s)? This cannot be undone.`
+      );
     });
 
     document.getElementById('date-from').addEventListener('change', refreshView);
