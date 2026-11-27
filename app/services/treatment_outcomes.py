@@ -13,11 +13,13 @@ from sqlalchemy.orm import Session
 from app.models import CowEvent, HerdInventory, SenseHubYoungstockHealth
 from app.services.events_common import (
     DEFAULT_DISEASE_EPISODE_GAP_DAYS,
+    _cap_slider_max,
     _clamp_date,
     _fiscal_year_calendar_bounds,
     _fiscal_year_from_date,
     _get_date_bounds,
     _get_fiscal_year_options,
+    _resolve_slider_bounds,
     is_loxicom_only_remark,
     normalize_farms,
 )
@@ -513,10 +515,19 @@ def treatment_outcomes(
         if selected_farms
         else (None, None)
     )
-    if resolved_year is not None:
-        slider_min, slider_max = _fiscal_year_calendar_bounds(resolved_year)
-    elif bounds_min is not None and bounds_max is not None:
-        slider_min, slider_max = bounds_min, bounds_max
+    if bounds_min is not None and bounds_max is not None:
+        slider_min, slider_max = _resolve_slider_bounds(
+            bounds_min,
+            bounds_max,
+            fiscal_year=resolved_year,
+            today=today,
+            allow_future=False,
+        )
+    elif resolved_year is not None:
+        slider_min, fy_max = _fiscal_year_calendar_bounds(resolved_year)
+        slider_max = _cap_slider_max(fy_max, today=today, allow_future=False)
+        if slider_max < slider_min:
+            slider_max = slider_min
     else:
         slider_min, slider_max = default_month_range(
             dt.date(today.year - 1, 4, 1),
