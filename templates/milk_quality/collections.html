@@ -711,6 +711,19 @@
       return [...document.querySelectorAll('.farm-slicer .slicer-btn.selected')].map(b => b.dataset.value);
     }
 
+    function applyFarmFromQuery() {
+      const farmParam = (new URLSearchParams(window.location.search).get('farm') || '').toUpperCase();
+      const buttons = [...document.querySelectorAll('.farm-slicer .slicer-btn')];
+      if (!buttons.length) return;
+      const match = buttons.find(btn => (btn.dataset.value || '').toUpperCase() === farmParam);
+      if (!match) return;
+      buttons.forEach(btn => {
+        const selected = btn === match;
+        btn.classList.toggle('selected', selected);
+        btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
+    }
+
     function bindFarmSlicers() {
       document.querySelectorAll('.farm-slicer .slicer-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -2027,6 +2040,7 @@
     }
 
     try {
+      applyFarmFromQuery();
       bindFarmSlicers();
       bindChartUI();
       populateMonths();
